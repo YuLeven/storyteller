@@ -1,49 +1,405 @@
-<section class="mx-auto max-w-4xl space-y-8">
-  <div>
-    <.link
-      navigate={~p"/campaigns/#{@session.campaign.id}"}
-      class="text-sm font-medium text-amber-800 hover:text-amber-950"
-    >← {@session.campaign.title}</.link>
-    <div class="mt-6 flex flex-wrap items-center gap-3">
-      <h1 class="text-3xl font-semibold tracking-tight text-stone-950">{@session.title}</h1>
-      <span class={[
-        "rounded-full px-2.5 py-1 text-xs font-semibold",
-        @session.status == :active && "bg-emerald-50 text-emerald-800",
-        @session.status == :completed && "bg-stone-100 text-stone-600"
-      ]}>{if @session.status == :active, do: "In progress", else: "Completed"}</span>
+<section class="play-page mx-auto max-w-7xl space-y-6">
+  <header class="flex flex-col gap-5 border-b border-stone-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <.link
+        navigate={~p"/campaigns/#{@session.campaign.id}"}
+        class="text-sm font-semibold text-amber-800 hover:text-amber-950"
+      >← {@session.campaign.title}</.link>
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <h1 class="text-3xl font-semibold tracking-tight text-stone-950">{@session.title}</h1>
+        <span class={[
+          "rounded-full px-2.5 py-1 text-xs font-semibold",
+          @session.status == :active && @session.campaign.status == :active &&
+            "bg-emerald-50 text-emerald-800",
+          (@session.status == :completed or @session.campaign.status == :archived) &&
+            "bg-stone-100 text-stone-600"
+        ]}>{if @session.status == :active and @session.campaign.status == :active,
+          do: "In progress",
+          else: "Reviewing"}</span>
+      </div>
+      <p class="mt-2 text-sm text-stone-600">
+        {@session.campaign.title} <span aria-hidden="true">·</span>
+        {@session.campaign.setting} <span aria-hidden="true">·</span>
+        Playing as {@session.campaign.player_character}
+      </p>
     </div>
-    <p class="mt-2 text-stone-600">
-      {@session.campaign.setting} · {@session.campaign.player_character}
-    </p>
-  </div>
+    <div class="text-sm text-stone-500">
+      <span class="font-medium text-stone-700">Narration:</span>
+      {@session.campaign.narration_language}
+    </div>
+  </header>
 
-  <div class="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
-    <p class="text-sm font-medium uppercase tracking-[0.18em] text-amber-800">Campaign record</p>
-    <h2 class="mt-2 text-xl font-semibold text-stone-950">This session is safely stored</h2>
-    <p class="mt-3 max-w-2xl leading-7 text-stone-600">
-      Campaign and session setup is persisted in your local PostgreSQL database. The interactive turn timeline will appear here as play features are added.
-    </p>
-    <dl class="mt-6 grid gap-4 border-t border-stone-100 pt-5 sm:grid-cols-2">
-      <div>
-        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">Campaign</dt><dd class="mt-1 text-stone-900">
-          {@session.campaign.title}
-        </dd>
+  <p
+    :if={@game_error}
+    role="alert"
+    class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+  >
+    {@game_error}
+  </p>
+
+  <div :if={@projection} class="space-y-6">
+    <section
+      id="campaign-panels"
+      aria-label="Current world details"
+      class="grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4"
+    >
+      <div class="rounded-xl bg-stone-50 px-4 py-3">
+        <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+          In-world date
+        </h2>
+        <p id="world-date" class="mt-1 text-sm font-semibold text-stone-900">
+          {world_display(@projection.world, [
+            "date",
+            "current_date",
+            "world_date",
+            "calendar_date",
+            "world_time"
+          ])}
+        </p>
       </div>
-      <div>
-        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
-          Narration language
-        </dt><dd class="mt-1 text-stone-900">{@session.campaign.narration_language}</dd>
+      <div class="rounded-xl bg-stone-50 px-4 py-3">
+        <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">Time</h2>
+        <p id="world-time" class="mt-1 text-sm font-semibold text-stone-900">
+          {world_display(@projection.world, ["time", "current_time", "time_of_day", "world_time"])}
+        </p>
       </div>
-      <div>
-        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">Started</dt><dd class="mt-1 text-stone-900">
-          {Calendar.strftime(@session.inserted_at, "%Y-%m-%d %H:%M UTC")}
-        </dd>
+      <div class="rounded-xl bg-stone-50 px-4 py-3">
+        <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+          Weather
+        </h2>
+        <p id="world-weather" class="mt-1 text-sm font-semibold text-stone-900">
+          {world_display(@projection.world, ["weather", "conditions"])}
+        </p>
       </div>
-      <div>
-        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
-          Player character
-        </dt><dd class="mt-1 text-stone-900">{@session.campaign.player_character}</dd>
+      <div class="rounded-xl bg-stone-50 px-4 py-3">
+        <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+          Location
+        </h2>
+        <p id="world-location" class="mt-1 text-sm font-semibold text-stone-900">
+          {world_display(@projection.world, ["location", "current_location"])}
+        </p>
       </div>
-    </dl>
+    </section>
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
+      <main class="min-w-0 space-y-5">
+        <section
+          :if={@current_turn && @current_turn.status in [:pending, :resolving]}
+          id="turn-status"
+          class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4"
+          aria-live="polite"
+        >
+          <span class="mt-1 h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-amber-600"></span>
+          <div>
+            <h2 class="font-semibold text-amber-950">
+              {if @worker_turn_id == @current_turn.id,
+                do: "The game master is responding",
+                else: "Your turn is saved"}
+            </h2>
+            <p class="mt-1 text-sm leading-6 text-amber-900">
+              {if @worker_turn_id == @current_turn.id,
+                do:
+                  "The scene is being updated. You can leave and return; this turn will remain here.",
+                else: "Reconnecting to the saved turn…"}
+            </p>
+            <p class="mt-2 whitespace-pre-wrap text-sm text-stone-700">
+              {@current_turn.player_input}
+            </p>
+          </div>
+        </section>
+
+        <section
+          :if={@current_turn && @current_turn.status == :failed}
+          id="turn-error"
+          class="rounded-2xl border border-rose-200 bg-rose-50 p-5"
+          aria-live="polite"
+        >
+          <h2 class="font-semibold text-rose-950">This turn needs attention</h2>
+          <p class="mt-1 text-sm leading-6 text-rose-800">
+            {failure_message(@current_turn.failure_code)}
+          </p>
+          <p class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700">
+            Saved action: <span class="whitespace-pre-wrap">{@current_turn.player_input}</span>
+          </p>
+          <div class="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              :if={retryable?(@current_turn) && playable?(@session)}
+              type="button"
+              phx-click="retry-turn"
+              phx-value-turn_id={@current_turn.id}
+              disabled={@worker_turn_id == @current_turn.id}
+              class="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-900 disabled:cursor-wait disabled:opacity-60"
+            >{if @worker_turn_id == @current_turn.id, do: "Retrying...", else: "Retry this turn"}</button>
+            <.link
+              :if={reconnect_needed?(@current_turn.failure_code)}
+              navigate="/auth/connect"
+              class="text-sm font-semibold text-amber-900 underline decoration-amber-400 underline-offset-4 hover:text-amber-950"
+            >Reconnect account</.link>
+          </div>
+        </section>
+
+        <section
+          :if={
+            @current_turn && @current_turn.status == :awaiting_roll &&
+              valid_roll_request?(@current_turn.roll_request)
+          }
+          id="roll-panel"
+          class="rounded-2xl border border-violet-200 bg-violet-50 p-5"
+          aria-live="polite"
+        >
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-violet-800">
+            Your roll
+          </p>
+          <h2 class="mt-1 text-lg font-semibold text-violet-950">
+            {@current_turn.roll_request["test"] || @current_turn.roll_request[:test]}
+          </h2>
+          <p class="mt-1 text-sm text-violet-900">
+            <span :if={
+              @current_turn.roll_request["difficulty"] || @current_turn.roll_request[:difficulty]
+            }>
+              Difficulty: {@current_turn.roll_request["difficulty"] ||
+                @current_turn.roll_request[:difficulty]}
+            </span>
+            <span :if={
+              @current_turn.roll_request["target"] || @current_turn.roll_request[:target]
+            }>
+              Target: {@current_turn.roll_request["target"] || @current_turn.roll_request[:target]}
+            </span>
+          </p>
+          <p class="mt-3 text-sm leading-6 text-violet-900">
+            The game master is waiting. Click only when you are ready to roll the D20.
+          </p>
+          <button
+            type="button"
+            phx-click="roll-d20"
+            phx-value-turn_id={@current_turn.id}
+            class="mt-4 inline-flex items-center gap-2 rounded-lg bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-900"
+          >
+            <span aria-hidden="true">⚄</span> Roll D20
+          </button>
+        </section>
+
+        <section class="rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div class="border-b border-stone-100 px-5 py-4 sm:px-7">
+            <h2 class="text-lg font-semibold text-stone-950">Campaign story</h2>
+            <p class="mt-1 text-sm text-stone-500">
+              The timeline continues across every session in this campaign.
+            </p>
+          </div>
+          <div
+            :if={@timeline == []}
+            id="empty-timeline"
+            class="px-6 py-12 text-center"
+          >
+            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-2xl text-amber-800">
+              ✦
+            </div>
+            <h3 class="mt-4 font-semibold text-stone-900">A new scene begins</h3>
+            <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-600">
+              Tell the game master what your character does or says to start the story.
+            </p>
+          </div>
+          <ol
+            :if={@timeline != []}
+            id="story-timeline"
+            class="story-timeline space-y-4 px-4 py-5 sm:px-7"
+          >
+            <li
+              :for={{event, index} <- Enum.with_index(@timeline)}
+              id={"event-#{event.position}"}
+              class="min-w-0"
+            >
+              <p
+                :if={earlier_session_start?(@timeline, index, @session.id)}
+                class="mb-2 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400"
+              >
+                Earlier session
+              </p>
+              <article class={[
+                "story-entry",
+                event.event_type == :player_action && "story-entry-player",
+                event.event_type == :npc_dialogue && "story-entry-dialogue",
+                event.event_type == :gm_narration && "story-entry-narration",
+                event.event_type in [
+                  :character_activity,
+                  :roll_request,
+                  :player_roll,
+                  :state_change
+                ] &&
+                  "story-entry-note"
+              ]}>
+                <div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                    {case event.event_type do
+                      :player_action -> "You"
+                      :gm_narration -> "Game master"
+                      :npc_dialogue -> speaker_name(@characters_by_id, event.speaker_id)
+                      :character_activity -> speaker_name(@characters_by_id, event.speaker_id)
+                      :roll_request -> "Roll requested"
+                      :player_roll -> "D20 roll"
+                      :state_change -> state_change_label(event, @characters_by_id)
+                    end}
+                  </h3>
+                  <time class="text-[11px] text-stone-400">
+                    {Calendar.strftime(event.inserted_at, "%Y-%m-%d %H:%M UTC")}
+                  </time>
+                </div>
+
+                <p
+                  :if={
+                    event.event_type in [
+                      :player_action,
+                      :gm_narration,
+                      :npc_dialogue,
+                      :character_activity
+                    ]
+                  }
+                  class="whitespace-pre-wrap leading-7 text-stone-800"
+                >
+                  {event_text(event)}
+                </p>
+
+                <p :if={event.event_type == :roll_request} class="leading-7 text-stone-800">
+                  {@projection.characters
+                  |> Enum.find(&(&1.role == :player))
+                  |> then(fn character -> character && character.name end) || "Your character"} needs to roll <strong>{event.payload["test"]}</strong>.
+                </p>
+
+                <p :if={event.event_type == :player_roll} class="font-semibold text-violet-900">
+                  D20 result: {event.payload["result"]}
+                </p>
+
+                <dl
+                  :if={
+                    event.event_type == :state_change && map_size(state_change_values(event)) > 0
+                  }
+                  class="mt-2 grid gap-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]"
+                >
+                  <div :for={{key, value} <- state_change_values(event)} class="contents">
+                    <dt class="font-medium text-stone-600">{world_label(key)}</dt>
+                    <dd class="whitespace-pre-wrap text-stone-800">{display_value(value)}</dd>
+                  </div>
+                </dl>
+              </article>
+            </li>
+          </ol>
+        </section>
+
+        <section
+          :if={playable?(@session)}
+          class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm sm:p-5"
+        >
+          <.form
+            for={%{}}
+            as={:turn}
+            phx-submit="submit-turn"
+            phx-change="change-input"
+            id="turn-composer"
+          >
+            <input type="hidden" name="turn[idempotency_key]" value={@submission_key} />
+            <label for="turn-input" class="block text-sm font-semibold text-stone-900">
+              What do you do or say?
+            </label>
+            <textarea
+              id="turn-input"
+              name="turn[input]"
+              rows="3"
+              maxlength="20000"
+              phx-debounce="blur"
+              placeholder="Describe your character's action or words…"
+              disabled={
+                @current_turn && @current_turn.status in [:pending, :resolving, :awaiting_roll]
+              }
+              class="mt-2 block w-full resize-y rounded-xl border-stone-300 bg-white shadow-sm placeholder:text-stone-400 focus:border-amber-700 focus:ring-amber-700 disabled:bg-stone-100"
+            >{@draft}</textarea>
+            <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-xs leading-5 text-stone-600">
+                Actions and dialogue become part of your saved campaign history.
+              </p>
+              <button
+                type="submit"
+                disabled={
+                  !playable?(@session) ||
+                    (@current_turn &&
+                       @current_turn.status in [:pending, :resolving, :awaiting_roll])
+                }
+                class="inline-flex justify-center rounded-lg bg-amber-800 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >Send turn</button>
+            </div>
+            <p :if={@input_error?} role="alert" class="mt-2 text-sm text-rose-700">
+              Enter an action or something to say before sending.
+            </p>
+          </.form>
+        </section>
+
+        <section
+          :if={!playable?(@session)}
+          class="rounded-2xl border border-stone-200 bg-stone-50 p-5 text-sm leading-6 text-stone-600"
+        >
+          This session is read-only. Its story remains part of the campaign history.
+        </section>
+      </main>
+
+      <aside class="space-y-5">
+        <section
+          id="world-state"
+          class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
+        >
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+            World now
+          </p>
+          <h2 class="mt-1 text-lg font-semibold text-stone-950">The scene</h2>
+          <dl :if={public_values(@projection.world) != []} class="mt-4 space-y-3">
+            <div :for={{key, value} <- public_values(@projection.world)}>
+              <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                {world_label(key)}
+              </dt>
+              <dd class="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-800">
+                {display_value(value)}
+              </dd>
+            </div>
+          </dl>
+          <p
+            :if={public_values(@projection.world) == []}
+            class="mt-3 text-sm leading-6 text-stone-500"
+          >
+            The details of the world will emerge as you play.
+          </p>
+        </section>
+
+        <section class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+            In the story
+          </p>
+          <h2 class="mt-1 text-lg font-semibold text-stone-950">Characters</h2>
+          <ul class="mt-4 space-y-4">
+            <li
+              :for={character <- @projection.characters}
+              class="border-t border-stone-100 pt-3 first:border-0 first:pt-0"
+            >
+              <h3 class="font-semibold text-stone-900">{character.name}</h3>
+              <p :if={character.role == :player} class="mt-0.5 text-xs text-stone-500">
+                Your character
+              </p>
+              <p :if={character.visible_activity} class="mt-2 text-sm leading-6 text-stone-700">
+                {character.visible_activity}
+              </p>
+              <details
+                :if={map_size(character.visible_facts) > 0}
+                class="mt-2 text-sm text-stone-600"
+              >
+                <summary class="cursor-pointer font-medium">Known details</summary>
+                <dl class="mt-2 space-y-2 pl-3">
+                  <div :for={{key, value} <- character.visible_facts}>
+                    <dt class="font-medium text-stone-700">{world_label(key)}</dt>
+                    <dd class="whitespace-pre-wrap">{display_value(value)}</dd>
+                  </div>
+                </dl>
+              </details>
+            </li>
+          </ul>
+        </section>
+      </aside>
+    </div>
   </div>
 </section>

@@ -16,6 +16,10 @@ defmodule Storyteller.Campaigns.Campaign do
     field :tone, :string
     field :narration_language, :string, default: "English"
     field :player_character, :string
+    field :starting_location, :string, virtual: true
+    field :starting_date, :string, virtual: true
+    field :world_time, :string, virtual: true
+    field :weather, :string, virtual: true
     field :status, Ecto.Enum, values: [:active, :archived], default: :active
 
     has_many :sessions, Session, preload_order: [desc: :inserted_at]
@@ -25,13 +29,20 @@ defmodule Storyteller.Campaigns.Campaign do
 
   def changeset(campaign, attrs) do
     campaign
-    |> cast(attrs, @required_fields ++ [:status])
+    |> cast(
+      attrs,
+      @required_fields ++ [:status, :starting_location, :starting_date, :world_time, :weather]
+    )
     |> validate_required(@required_fields)
     |> validate_length(:title, min: 2, max: 100)
     |> validate_length(:premise, max: 10_000)
     |> validate_length(:setting, max: 500)
     |> validate_length(:tone, max: 300)
     |> validate_length(:player_character, max: 300)
+    |> validate_length(:starting_location, max: 500)
+    |> validate_length(:starting_date, max: 100)
+    |> validate_length(:world_time, max: 300)
+    |> validate_length(:weather, max: 500)
     |> validate_inclusion(:narration_language, @narration_languages)
   end
 end

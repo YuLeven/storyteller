@@ -61,11 +61,11 @@ defmodule Storyteller.Auth.TokenStore do
   end
 
   def access_token(refresh_fun, server \\ __MODULE__) when is_function(refresh_fun, 1) do
-    GenServer.call(server, {:access_token, refresh_fun}, 30_000)
+    GenServer.call(server, {:access_token, refresh_fun}, 60_000)
   end
 
   def sign_out(revoke_fun, server \\ __MODULE__) when is_function(revoke_fun, 1) do
-    GenServer.call(server, {:sign_out, revoke_fun}, 30_000)
+    GenServer.call(server, {:sign_out, revoke_fun}, 90_000)
   end
 
   @impl true

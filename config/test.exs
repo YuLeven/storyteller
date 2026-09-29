@@ -1,5 +1,11 @@
 import Config
 
+auth_test_dir =
+  Path.join(System.tmp_dir!(), "storyteller-auth-test-#{System.unique_integer([:positive])}")
+
+config :storyteller, Storyteller.Auth.TokenStore,
+  path: Path.join(auth_test_dir, "credentials.json")
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

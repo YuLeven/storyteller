@@ -5,6 +5,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Campaigns
+  alias Storyteller.Panels
+  alias Storyteller.Play
 
   test "campaign list keeps two stories in separate cards and links to the right sessions", %{
     conn: conn
@@ -72,6 +74,76 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
   end
 
+  test "campaign setup accepts nested character and panel rows and only displays public panel values",
+       %{
+         conn: conn
+       } do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+    view |> element("button[phx-click=add-character]") |> render_click()
+    view |> element("button[phx-click=add-panel-field]") |> render_click()
+    view |> element("button[phx-click=add-panel-field]") |> render_click()
+
+    attrs = %{
+      title: "The Quiet Relay",
+      premise: "A remote signal starts again.",
+      setting: "An invented mountain pass",
+      tone: "Curious and restrained",
+      narration_language: "English",
+      player_character: "Ilya, a patient courier",
+      starting_location: "The east relay station",
+      starting_date: "The last day of autumn",
+      world_time: "Near midnight",
+      weather: "Dry snow",
+      gm_characters: %{
+        "0" => %{
+          speaker_id: "warden-eli",
+          name: "Warden Eli",
+          visible_facts_text: "The station's night keeper.",
+          private_notes: "Knows why the signal stopped."
+        }
+      },
+      panel_fields: %{
+        "0" => %{
+          key: "lamp_oil",
+          panel: "Supplies",
+          label: "Lamp oil",
+          value_type: "quantity",
+          unit: "flasks",
+          visibility: "public",
+          initial_value: "2"
+        },
+        "1" => %{
+          key: "relay_cause",
+          panel: "GM notes",
+          label: "Relay cause",
+          value_type: "text",
+          visibility: "gm_private",
+          initial_value: "A damaged receiver."
+        }
+      }
+    }
+
+    review_html = view |> form("#campaign-form", campaign: attrs) |> render_submit()
+    assert review_html =~ "Review your campaign"
+    assert review_html =~ "Warden Eli"
+    assert review_html =~ "Lamp oil"
+
+    view |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    assert {:ok, state} = Play.public_projection(campaign.id)
+    assert state.world["date"] == "The last day of autumn"
+    assert state.world["time"] == "Near midnight"
+    assert [%{speaker_id: "warden-eli"}] = Enum.filter(state.characters, &(&1.role == :gm))
+
+    assert {:ok, %{panels: panels}} = Panels.public_projection(campaign.id)
+    assert [%{name: "Supplies", fields: [%{key: "lamp_oil", value: 2}]}] = panels
+
+    {:ok, _detail, detail_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert detail_html =~ "Lamp oil"
+    refute detail_html =~ "relay_cause"
+    refute detail_html =~ "A damaged receiver"
+  end
+
   test "campaign detail resumes history and starts a later session", %{conn: conn} do
     campaign = campaign_fixture()
     [first_session] = campaign.sessions
@@ -127,7 +199,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert html =~ campaign.title
     assert html =~ session.title
     assert html =~ campaign.player_character
-    assert html =~ "local PostgreSQL database"
+    assert html =~ "Campaign story"
+    assert html =~ "What do you do or say?"
   end
 
   test "invalid campaign setup shows errors and saves nothing", %{conn: conn} do

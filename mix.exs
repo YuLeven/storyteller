@@ -54,6 +54,8 @@ defmodule Storyteller.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 0.26"},
       {:jason, "~> 1.2"},
+      {:req, "~> 0.7.4"},
+      {:jose, "== 1.11.10"},
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"}
     ]

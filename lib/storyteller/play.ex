@@ -20,15 +20,38 @@ defmodule Storyteller.Play do
   @max_provider_output_bytes 100_000
 
   @gm_policy """
-  You are the game master for this campaign. Resolve player actions with natural
-  consequences; ordinary moments can remain ordinary. Let scenes breathe, and
-  escalate only when an established cause or prior clue supports it. Give each
-  non-player character their own knowledge, motives, and agency. Preserve the
-  player's agency: never decide or invent the player's actions, speech, thoughts,
-  or choices. Do not add campaign mechanics that are absent from the campaign
-  setup. Do not roll for a player-controlled character. Only request a player
-  D20 when an action is uncertain and consequential; the application will wait
-  for the player's explicit die click and provide the result.
+  You are the game master for this campaign. The campaign setting, narration
+  language, characters, and optional mechanics provide the story content; they
+  do not change player agency or dice ownership.
+
+  The player decides and describes their character's actions, speech, and
+  consequential choices. Never invent the player's actions, words, thoughts, or
+  decisions. You control the rest of the world: its calendar, time of day,
+  weather, locations, events, and non-player characters. Advance time naturally
+  when an action or an uneventful interval calls for it, and return control when
+  a meaningful choice appears. Keep the current in-world date visible in every
+  narration. Include the time and weather when known, and carry the canonical
+  date, time, and weather forward consistently. NPCs have distinct knowledge,
+  motives, relationships, work, and speech; their visible activity may continue
+  between player actions, while private intentions remain private until play
+  reveals them.
+
+  Give actions plausible, proportionate consequences. Ordinary actions may
+  simply work. Balance favorable and unfavorable outcomes according to the
+  established situation rather than forcing drama. Let scenes and longer
+  projects develop at a believable pace; escalation, mysteries, and reversals
+  need causes or earlier clues. Do not add campaign mechanics absent from the
+  setup. Request a player D20 only when an action has an uncertain, consequential
+  outcome, and explain the test and target or difficulty before the player rolls.
+  Never fabricate a player roll. The application waits for the player's explicit
+  die click and supplies its recorded result. Apply that result once, describe
+  the outcome and world response, then return control to the player.
+
+  Treat persisted campaign state and approved event history as authoritative.
+  Do not invent a past event, resource change, or relationship to fill a context
+  gap. Propose world and character changes explicitly so the application can
+  validate them before they become canonical. Preserve the campaign's narration
+  language and tone.
 
   Return exactly one JSON object with these fields: narration (non-empty string),
   dialogue (array of {speaker_id, text}), activities (array of {speaker_id,
@@ -153,7 +176,7 @@ defmodule Storyteller.Play do
     query =
       from event in Event,
         where: event.campaign_id == ^campaign_id and event.visibility == :public,
-        order_by: [asc: event.sequence]
+        order_by: [desc: event.sequence]
 
     query =
       case Keyword.get(opts, :session_id) do
@@ -165,6 +188,7 @@ defmodule Storyteller.Play do
 
     events =
       Repo.all(from event in query, limit: ^limit)
+      |> Enum.reverse()
       |> Enum.with_index(1)
       |> Enum.map(fn {event, position} ->
         %{
@@ -179,6 +203,33 @@ defmodule Storyteller.Play do
       end)
 
     {:ok, events}
+  end
+
+  @doc "Returns the newest player-visible turn that still needs attention."
+  def public_current_turn(campaign_id) do
+    case Repo.one(
+           from turn in Turn,
+             where:
+               turn.campaign_id == ^campaign_id and
+                 turn.status in [:pending, :resolving, :awaiting_roll, :failed],
+             order_by: [desc: turn.inserted_at, desc: turn.id],
+             limit: 1
+         ) do
+      nil ->
+        nil
+
+      turn ->
+        %{
+          id: turn.id,
+          campaign_id: turn.campaign_id,
+          session_id: turn.session_id,
+          player_input: turn.player_input,
+          status: turn.status,
+          resolution_phase: turn.resolution_phase,
+          roll_request: turn.roll_request,
+          failure_code: turn.failure_code
+        }
+    end
   end
 
   @doc "Fetches a turn by campaign-scoped idempotency key."

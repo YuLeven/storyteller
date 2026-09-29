@@ -14,6 +14,15 @@ defmodule StorytellerWeb.Router do
     plug :accepts, ["json"]
   end
 
+  scope "/auth", StorytellerWeb do
+    pipe_through :browser
+
+    get "/connect", AuthController, :connect
+    post "/authorize", AuthController, :authorize
+    get "/callback", AuthController, :callback
+    post "/disconnect", AuthController, :disconnect
+  end
+
   scope "/", StorytellerWeb do
     pipe_through :browser
 

@@ -5,6 +5,9 @@ defmodule Storyteller.CampaignsTest do
 
   alias Storyteller.Campaigns
   alias Storyteller.Campaigns.{Campaign, Session}
+  alias Storyteller.Panels
+  alias Storyteller.Panels.Field
+  alias Storyteller.Play
 
   test "creating a campaign atomically creates its first resumable session" do
     attrs = valid_campaign_attrs()
@@ -113,5 +116,101 @@ defmodule Storyteller.CampaignsTest do
     assert {:error, changeset} = Campaigns.create_campaign(attrs)
     assert errors_on(changeset).narration_language == ["is invalid"]
     assert Campaigns.list_campaigns() == []
+  end
+
+  test "list-based setup persists distinct world date and time, stable GM speakers, and panels" do
+    attrs =
+      valid_campaign_attrs()
+      |> Map.merge(%{
+        starting_location: "North watchtower",
+        starting_date: "The 14th day of thaw",
+        world_time: "After moonrise",
+        weather: "Cold rain",
+        gm_characters: [
+          %{
+            speaker_id: "captain-ren",
+            name: "Captain Ren",
+            visible_facts: %{"description" => "A careful harbor officer."},
+            gm_private_facts: %{"agenda" => "Quietly tracing the signal."}
+          }
+        ],
+        panel_fields: [
+          %{
+            key: "healing_potions",
+            panel: "Supplies",
+            label: "Healing potions",
+            value_type: "quantity",
+            unit: "bottles",
+            visibility: "public",
+            initial_value: "3"
+          },
+          %{
+            key: "signal_source",
+            panel: "GM notes",
+            label: "Signal source",
+            value_type: "text",
+            visibility: "gm_private",
+            initial_value: "An abandoned relay."
+          }
+        ]
+      })
+
+    assert {:ok, campaign} = Campaigns.create_campaign(attrs)
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.world["location"] == "North watchtower"
+    assert projection.world["date"] == "The 14th day of thaw"
+    assert projection.world["time"] == "After moonrise"
+    assert projection.world["weather"] == "Cold rain"
+
+    gm_character = Enum.find(projection.characters, &(&1.speaker_id == "captain-ren"))
+    assert gm_character.name == "Captain Ren"
+    assert gm_character.visible_facts["description"] == "A careful harbor officer."
+    refute Map.has_key?(gm_character, :gm_private_facts)
+
+    assert [%{key: "healing_potions", value: %{"value" => 3}} | _] =
+             Panels.list_fields(campaign.id)
+
+    assert {:ok, %{panels: [panel]}} = Panels.public_projection(campaign.id)
+    assert panel.name == "Supplies"
+    assert [%{key: "healing_potions", value: 3}] = panel.fields
+    refute inspect(panel) =~ "abandoned relay"
+  end
+
+  test "formula-like panel values are rejected before any setup is persisted" do
+    attrs =
+      valid_campaign_attrs()
+      |> Map.put(:panel_fields, [
+        %{
+          key: "unsafe_text",
+          panel: "Notes",
+          label: "Text",
+          value_type: "text",
+          visibility: "public",
+          initial_value: "=execute()"
+        }
+      ])
+
+    assert {:error, {:setup, _message}} = Campaigns.create_campaign(attrs)
+    assert Campaigns.list_campaigns() == []
+    assert Repo.all(Storyteller.Play.State) == []
+    assert Repo.all(Storyteller.Play.Character) == []
+    assert Repo.all(Field) == []
+  end
+
+  test "reserved or duplicate speaker IDs are rejected before campaign creation" do
+    attrs =
+      valid_campaign_attrs()
+      |> Map.put(:gm_characters, [
+        %{speaker_id: "captain", name: "Captain Ren"},
+        %{speaker_id: "captain", name: "Captain Vale"}
+      ])
+
+    assert {:error, {:setup, "Each GM character needs a unique speaker ID."}} =
+             Campaigns.create_campaign(attrs)
+
+    assert Campaigns.list_campaigns() == []
+    assert Repo.all(Storyteller.Play.State) == []
+    assert Repo.all(Storyteller.Play.Character) == []
+    assert Repo.all(Field) == []
   end
 end

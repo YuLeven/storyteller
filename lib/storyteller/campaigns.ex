@@ -5,6 +5,8 @@ defmodule Storyteller.Campaigns do
 
   alias Ecto.Multi
   alias Storyteller.Campaigns.{Campaign, Session}
+  alias Storyteller.Panels.Field, as: PanelField
+  alias Storyteller.Play
   alias Storyteller.Repo
 
   def list_campaigns do
@@ -38,14 +40,51 @@ defmodule Storyteller.Campaigns do
     Campaign.changeset(campaign, attrs)
   end
 
-  def create_campaign(attrs) do
-    campaign_changeset = Campaign.changeset(%Campaign{}, attrs)
+  @doc "Validates the full reviewable setup without writing any records."
+  def validate_campaign_setup(attrs) when is_map(attrs) do
+    campaign_attrs = campaign_attrs(attrs)
+    campaign_changeset = Campaign.changeset(%Campaign{}, campaign_attrs)
 
     if campaign_changeset.valid? do
+      with {:ok, characters} <-
+             normalize_setup_characters(attr(attrs, :gm_characters, attr(attrs, :characters, []))),
+           {:ok, panel_fields} <-
+             normalize_panel_fields(attr(attrs, :panel_fields, attr(attrs, :panels, []))),
+           {:ok, public_state} <-
+             normalize_initial_world(campaign_changeset, attr(attrs, :public_state, %{})) do
+        {:ok,
+         %{
+           campaign_changeset: campaign_changeset,
+           campaign: Ecto.Changeset.apply_changes(campaign_changeset),
+           public_state: public_state,
+           characters: characters,
+           panel_fields: panel_fields,
+           raw_attrs: attrs
+         }}
+      end
+    else
+      {:error, campaign_changeset}
+    end
+  end
+
+  def validate_campaign_setup(_attrs), do: {:error, {:setup, "Campaign setup must be a form."}}
+
+  def create_campaign(attrs) do
+    with {:ok, setup} <- validate_campaign_setup(attrs) do
       Multi.new()
-      |> Multi.insert(:campaign, campaign_changeset)
+      |> Multi.insert(:campaign, setup.campaign_changeset)
       |> Multi.insert(:session, fn %{campaign: campaign} ->
         Session.changeset(%Session{}, %{campaign_id: campaign.id, title: "Session 1"})
+      end)
+      |> Multi.run(:play_state, fn _repo, %{campaign: campaign} ->
+        Play.initialize_campaign(campaign, %{
+          public_state: setup.public_state,
+          characters: setup.characters,
+          player_visible_facts: %{"description" => campaign.player_character}
+        })
+      end)
+      |> Multi.run(:panel_fields, fn repo, %{campaign: campaign} ->
+        insert_panel_fields(repo, campaign.id, setup.panel_fields)
       end)
       |> Repo.transaction()
       |> case do
@@ -57,9 +96,10 @@ defmodule Storyteller.Campaigns do
 
         {:error, :session, changeset, _changes} ->
           {:error, changeset}
+
+        {:error, _step, reason, _changes} ->
+          {:error, reason}
       end
-    else
-      {:error, campaign_changeset}
     end
   end
 
@@ -156,4 +196,290 @@ defmodule Storyteller.Campaigns do
       title -> title
     end
   end
+
+  defp campaign_attrs(attrs) do
+    Map.take(
+      attrs,
+      [
+        :title,
+        :premise,
+        :setting,
+        :tone,
+        :narration_language,
+        :player_character,
+        :status,
+        :starting_location,
+        :starting_date,
+        :world_time,
+        :weather
+      ]
+    )
+    |> Map.merge(
+      Enum.reduce(
+        [
+          "title",
+          "premise",
+          "setting",
+          "tone",
+          "narration_language",
+          "player_character",
+          "status",
+          "starting_location",
+          "starting_date",
+          "world_time",
+          "weather"
+        ],
+        %{},
+        fn key, acc ->
+          if Map.has_key?(attrs, key),
+            do: Map.put(acc, String.to_existing_atom(key), Map.get(attrs, key)),
+            else: acc
+        end
+      )
+    )
+  end
+
+  defp normalize_initial_world(campaign_changeset, initial_state) when is_map(initial_state) do
+    location = clean_optional(Ecto.Changeset.get_field(campaign_changeset, :starting_location))
+    world_time = clean_optional(Ecto.Changeset.get_field(campaign_changeset, :world_time))
+    weather = clean_optional(Ecto.Changeset.get_field(campaign_changeset, :weather))
+
+    state =
+      %{
+        "location" => location,
+        "date" => clean_optional(Ecto.Changeset.get_field(campaign_changeset, :starting_date)),
+        "time" => world_time,
+        "weather" => weather
+      }
+      |> Map.merge(stringify_top_level(initial_state))
+
+    case Jason.encode(state) do
+      {:ok, encoded} when byte_size(encoded) <= 100_000 -> {:ok, state}
+      _ -> {:error, {:setup, "Starting world details must be JSON-safe and under 100 KB."}}
+    end
+  rescue
+    _error -> {:error, {:setup, "Starting world details must be a map."}}
+  end
+
+  defp normalize_initial_world(_changeset, _initial_state),
+    do: {:error, {:setup, "Starting world details must be a map."}}
+
+  defp normalize_setup_characters(rows) when is_list(rows) or is_map(rows) do
+    rows
+    |> indexed_rows()
+    |> Enum.reject(fn {_index, attrs} -> blank_row?(attrs) end)
+    |> case do
+      rows when length(rows) > 100 ->
+        {:error, {:setup, "Add no more than 100 GM-controlled characters."}}
+
+      rows ->
+        rows
+        |> Enum.reduce_while({:ok, []}, fn {row_index, attrs}, {:ok, acc} ->
+          speaker_id = attrs |> attr(:speaker_id, "") |> trim_string()
+          name = attrs |> attr(:name, "") |> trim_string()
+          visible = character_facts(attrs, :visible_facts, :visible_facts_text, "description")
+          private = character_facts(attrs, :gm_private_facts, :private_notes, "notes")
+
+          cond do
+            not valid_speaker_id?(speaker_id) ->
+              {:halt,
+               {:error,
+                {:setup,
+                 "GM character #{row_index + 1} needs a stable speaker ID using letters, numbers, colon, underscore, or hyphen."}}}
+
+            speaker_id == "player" ->
+              {:halt,
+               {:error, {:setup, "The speaker ID 'player' is reserved for the player character."}}}
+
+            Enum.any?(acc, &(&1.speaker_id == speaker_id)) ->
+              {:halt, {:error, {:setup, "Each GM character needs a unique speaker ID."}}}
+
+            not is_binary(name) or name == "" or String.length(name) > 300 ->
+              {:halt,
+               {:error,
+                {:setup, "GM character #{row_index + 1} needs a name up to 300 characters."}}}
+
+            not is_map(visible) or not is_map(private) ->
+              {:halt, {:error, {:setup, "GM character facts must be maps."}}}
+
+            not json_map?(visible) or not json_map?(private) ->
+              {:halt, {:error, {:setup, "GM character facts must be JSON-safe."}}}
+
+            true ->
+              {:cont,
+               {:ok,
+                acc ++
+                  [
+                    %{
+                      speaker_id: speaker_id,
+                      name: name,
+                      visible_facts: visible,
+                      gm_private_facts: private
+                    }
+                  ]}}
+          end
+        end)
+    end
+  end
+
+  defp normalize_setup_characters(_), do: {:error, {:setup, "GM characters must be a list."}}
+
+  defp normalize_panel_fields(rows) when is_list(rows) or is_map(rows) do
+    rows
+    |> indexed_rows()
+    |> Enum.reject(fn {_index, attrs} -> blank_row?(attrs) end)
+    |> case do
+      rows when length(rows) > 100 ->
+        {:error, {:setup, "Add no more than 100 panel fields."}}
+
+      rows ->
+        rows
+        |> Enum.reduce_while({:ok, []}, fn {row_index, attrs}, {:ok, acc} ->
+          if not is_map(attrs) do
+            {:halt, {:error, {:setup, "Panel field #{row_index + 1} must be an object."}}}
+          else
+            panel_attrs =
+              Map.new(
+                [:key, :panel, :label, :value_type, :unit, :visibility, :initial_value],
+                fn key -> {key, attr(attrs, key)} end
+              )
+              |> Map.put(:position, row_index)
+
+            changeset = PanelField.definition_changeset(panel_attrs)
+
+            cond do
+              not changeset.valid? ->
+                {:halt,
+                 {:error,
+                  {:setup,
+                   "Panel field #{row_index + 1}: " <>
+                     format_changeset_errors(changeset)}}}
+
+              Enum.any?(acc, &(&1.key == Ecto.Changeset.get_field(changeset, :key))) ->
+                {:halt, {:error, {:setup, "Each panel field needs a unique key."}}}
+
+              true ->
+                {:cont, {:ok, acc ++ [Ecto.Changeset.apply_changes(changeset)]}}
+            end
+          end
+        end)
+    end
+  end
+
+  defp normalize_panel_fields(_), do: {:error, {:setup, "Panel fields must be a list."}}
+
+  defp insert_panel_fields(repo, campaign_id, fields) do
+    Enum.reduce_while(fields, {:ok, []}, fn field, {:ok, inserted} ->
+      attrs = %{
+        campaign_id: campaign_id,
+        key: field.key,
+        panel: field.panel,
+        label: field.label,
+        value_type: field.value_type,
+        unit: field.unit,
+        visibility: field.visibility,
+        value: field.value,
+        position: field.position
+      }
+
+      case repo.insert(PanelField.changeset(%PanelField{}, attrs)) do
+        {:ok, saved} -> {:cont, {:ok, inserted ++ [saved]}}
+        {:error, changeset} -> {:halt, {:error, changeset}}
+      end
+    end)
+  end
+
+  defp character_facts(attrs, map_key, text_key, fact_key) do
+    case attr(attrs, map_key) do
+      facts when is_map(facts) ->
+        facts
+
+      _ ->
+        case attrs |> attr(text_key, "") |> trim_string() do
+          "" -> %{}
+          text -> %{fact_key => text}
+        end
+    end
+  end
+
+  defp valid_speaker_id?(id) when is_binary(id),
+    do: String.length(id) <= 100 and Regex.match?(~r/\A[a-zA-Z0-9:_-]+\z/, id)
+
+  defp valid_speaker_id?(_), do: false
+
+  defp json_map?(map) when is_map(map) do
+    case Jason.encode(map) do
+      {:ok, json} -> byte_size(json) <= 100_000
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp json_map?(_), do: false
+
+  defp indexed_rows(rows) when is_list(rows) do
+    rows |> Enum.with_index() |> Enum.map(fn {row, index} -> {index, row} end)
+  end
+
+  defp indexed_rows(rows) when is_map(rows) do
+    rows
+    |> Enum.map(fn {key, value} -> {index_value(key), value} end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp indexed_rows(_), do: []
+
+  defp index_value(index) when is_integer(index) and index >= 0, do: index
+
+  defp index_value(index) when is_binary(index) do
+    case Integer.parse(index) do
+      {value, ""} when value >= 0 -> value
+      _ -> 1_000_000
+    end
+  end
+
+  defp index_value(_), do: 1_000_000
+
+  defp blank_row?(attrs) when is_map(attrs) do
+    Enum.all?(Map.values(attrs), fn
+      nil -> true
+      value when is_binary(value) -> String.trim(value) == ""
+      _ -> false
+    end)
+  end
+
+  defp blank_row?(_), do: false
+
+  defp stringify_top_level(map) do
+    Map.new(map, fn {key, value} ->
+      {if(is_atom(key), do: Atom.to_string(key), else: key), value}
+    end)
+  end
+
+  defp clean_optional(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp clean_optional(_), do: nil
+
+  defp trim_string(value) when is_binary(value), do: String.trim(value)
+  defp trim_string(_), do: ""
+
+  defp format_changeset_errors(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {message, _opts} -> message end)
+    |> Enum.map_join(", ", fn {field, messages} -> "#{field} #{Enum.join(messages, ", ")}" end)
+  end
+
+  defp attr(map, key, default \\ nil)
+
+  defp attr(map, key, default) when is_map(map) do
+    Map.get(map, key, Map.get(map, to_string(key), default))
+  end
+
+  defp attr(_map, _key, default), do: default
 end

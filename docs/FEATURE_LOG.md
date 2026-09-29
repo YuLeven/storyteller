@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-09-29 — In-progress implementation checkpoint
+
+- Added atomic campaign setup for starting world details, GM-controlled characters, and typed campaign panels with public/private visibility.
+- Added the session play screen with campaign-wide timeline, NPC speech and activity, world header, action composer, pending/retry states, and a player-click D20 flow.
+- Added the local ChatGPT-plan OAuth and streamed Responses adapter behind fake-testable boundaries. No live account was connected in this checkpoint.
+- **Checked:** focused campaign/panel checks passed for the new behavior, and the session plus campaign LiveView suite passed (11 tests, 0 failures). See `docs/CHECKPOINT_2026-09-29.md` for integration status and remaining work.
+
 ## 2026-09-29 — Versioned GM policy
 
 - Recorded the original vineyard chat's gameplay rules in `docs/GM_POLICY.md` without including its private plot or state: the GM advances time and weather, the player makes decisions and supplies rolls, and the in-world date remains visible.

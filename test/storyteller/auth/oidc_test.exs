@@ -73,6 +73,25 @@ defmodule Storyteller.Auth.OIDCTest do
              OIDC.validate_verified_claims(claims_with_matching_authorized_party, @expected)
   end
 
+  test "loads auth metadata only from the trusted OpenAI issuer and endpoints" do
+    http = fn :get, "https://auth.openai.com/.well-known/openid-configuration", _options ->
+      %{status: 200, body: Jason.encode!(provider_metadata())}
+    end
+
+    assert {:ok, metadata} = OIDC.metadata(http)
+    assert metadata["authorization_endpoint"] == "https://auth.openai.com/api/accounts/authorize"
+    assert metadata["token_endpoint"] == "https://auth.openai.com/api/accounts/oauth/token"
+  end
+
+  test "rejects an untrusted token or revocation endpoint from discovery metadata" do
+    http = fn :get, "https://auth.openai.com/.well-known/openid-configuration", _options ->
+      metadata = Map.put(provider_metadata(), "token_endpoint", "https://example.invalid/token")
+      %{status: 200, body: Jason.encode!(metadata)}
+    end
+
+    assert {:error, :identity_provider_unavailable} = OIDC.metadata(http)
+  end
+
   defp valid_claims(overrides \\ %{}) do
     Map.merge(
       %{
@@ -85,5 +104,15 @@ defmodule Storyteller.Auth.OIDCTest do
       },
       overrides
     )
+  end
+
+  defp provider_metadata do
+    %{
+      "issuer" => "https://auth.openai.com",
+      "jwks_uri" => "https://auth.openai.com/.well-known/jwks.json",
+      "authorization_endpoint" => "https://auth.openai.com/api/accounts/authorize",
+      "token_endpoint" => "https://auth.openai.com/api/accounts/oauth/token",
+      "revocation_endpoint" => "https://auth.openai.com/api/accounts/oauth/revoke"
+    }
   end
 end

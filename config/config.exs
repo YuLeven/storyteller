@@ -11,6 +11,17 @@ config :storyteller,
   ecto_repos: [Storyteller.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+auth_store_dir =
+  System.get_env("STORYTELLER_AUTH_DIR") ||
+    Path.join(System.user_home!(), ".config/storyteller")
+
+config :storyteller, Storyteller.Auth.TokenStore,
+  path: Path.join(auth_store_dir, "chatgpt_credentials.json")
+
+config :storyteller, Storyteller.Auth.OAuth,
+  app_name: "Storyteller",
+  callback_uri: "http://127.0.0.1:4000/auth/callback"
+
 # Configures the endpoint
 config :storyteller, StorytellerWeb.Endpoint,
   url: [host: "localhost"],

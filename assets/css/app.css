@@ -3,3 +3,31 @@
 @import "tailwindcss/utilities";
 
 /* This file is for your main application CSS */
+
+.play-page .story-entry {
+  max-width: 54rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid #e7e5e4;
+  border-radius: 1rem;
+  background: #fff;
+}
+
+.play-page .story-entry-player {
+  margin-left: auto;
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.play-page .story-entry-dialogue {
+  margin-left: 1.25rem;
+  border-color: #ddd6fe;
+  background: #faf8ff;
+}
+
+.play-page .story-entry-note {
+  max-width: 46rem;
+  margin-right: auto;
+  margin-left: auto;
+  border-color: #e7e5e4;
+  background: #f5f5f4;
+}

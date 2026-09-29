@@ -2,6 +2,7 @@ defmodule StorytellerWeb.CampaignLive.Show do
   use StorytellerWeb, :live_view
 
   alias Storyteller.Campaigns
+  alias Storyteller.Panels
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -13,10 +14,17 @@ defmodule StorytellerWeb.CampaignLive.Show do
          |> push_navigate(to: ~p"/")}
 
       campaign ->
+        panels =
+          case Panels.public_projection(campaign.id) do
+            {:ok, %{panels: panels}} -> panels
+            _ -> []
+          end
+
         {:ok,
          assign(socket,
            page_title: campaign.title,
            campaign: campaign,
+           panels: panels,
            session_title: "",
            session_error?: false
          )}
@@ -67,5 +75,10 @@ defmodule StorytellerWeb.CampaignLive.Show do
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "The campaign could not be restored.")}
     end
+  end
+
+  defp panel_value(value, unit) do
+    rendered = if is_nil(value), do: gettext("Not set"), else: to_string(value)
+    if is_binary(unit) and unit != "", do: rendered <> " " <> unit, else: rendered
   end
 end

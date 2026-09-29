@@ -10,6 +10,9 @@ defmodule Storyteller.Application do
     children = [
       StorytellerWeb.Telemetry,
       Storyteller.Repo,
+      {Storyteller.Auth.TokenStore,
+       Application.fetch_env!(:storyteller, Storyteller.Auth.TokenStore)
+       |> Keyword.put(:name, Storyteller.Auth.TokenStore)},
       {DNSCluster, query: Application.get_env(:storyteller, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Storyteller.PubSub},
       # Start a worker by calling: Storyteller.Worker.start_link(arg)

@@ -8,6 +8,20 @@ defmodule Storyteller.Auth.OIDC do
   @allowed_algorithms ["RS256", "ES256"]
   @clock_skew_seconds 60
 
+  @doc "Returns the trusted OpenID Provider metadata used by this flow."
+  def metadata(http \\ nil) do
+    with {:ok, metadata} <- discovery(http),
+         true <- trusted_metadata_url?(metadata["authorization_endpoint"]),
+         true <- trusted_metadata_url?(metadata["token_endpoint"]),
+         true <-
+           is_nil(metadata["revocation_endpoint"]) or
+             trusted_metadata_url?(metadata["revocation_endpoint"]) do
+      {:ok, metadata}
+    else
+      _ -> {:error, :identity_provider_unavailable}
+    end
+  end
+
   def verify_id_token(id_token, expected, http \\ nil)
 
   def verify_id_token(id_token, expected, http)
@@ -143,7 +157,7 @@ defmodule Storyteller.Auth.OIDC do
     is_nil(claims["azp"]) or claims["azp"] == expected
   end
 
-  defp trusted_metadata_url?(url) do
+  defp trusted_metadata_url?(url) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: "https", host: "auth.openai.com", userinfo: nil, port: port} ->
         port in [nil, 443]
@@ -152,6 +166,8 @@ defmodule Storyteller.Auth.OIDC do
         false
     end
   end
+
+  defp trusted_metadata_url?(_), do: false
 
   defp response_status(%{status: status}) when is_integer(status), do: status
   defp response_status(%{"status" => status}) when is_integer(status), do: status
