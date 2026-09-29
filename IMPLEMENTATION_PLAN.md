@@ -128,6 +128,14 @@ Milestones 2–6 describe the shared domain goals and selected standalone UI. On
 5. **Build the LiveView play experience.** Add responsive timeline, NPC speech bubbles and activity, world header, campaign panels, text composer, die, progress and recovery states. Exit: complete play flow works without full page refreshes and survives reconnects.
 6. **Localize, migrate, and harden.** Complete three locales, import the reviewed vineyard state, run behavioural and GM scenario suites, check accessibility and mobile layout, and exercise an opt-in live-provider smoke flow. Exit: the vineyard campaign can continue from its approved state and a fresh campaign can be created and played.
 
+## Implementation workflow, persistence, and test isolation
+
+- The product owner coordinates parallel coding agents, reviews the user-visible result and behaviour, integrates work, and keeps iterating against this plan. Prefer GPT-6 Sol at high reasoning effort for product-owner work and GPT-6 Luna at xhigh for coding agents when those settings are available; otherwise retain the active settings.
+- Run all Erlang, Elixir, Mix, Phoenix, and project test commands in WSL 2 or a Linux VM. Do not use the Windows Elixir installation. Keep PostgreSQL's development data in durable local storage that survives WSL/app restarts; do not use an ephemeral database for the campaign that is played over multiple days. Keep database files, dumps, OAuth tokens, and other secrets out of Git.
+- Maintain a fictional, explicitly separate QA campaign for manual feature testing. Never use, overwrite, or import the vineyard campaign for product or regression tests. Automated tests use a separate test database and isolated fixtures. The QA campaign must remain separate from any future approved vineyard import.
+- Add a concise `docs/FEATURE_LOG.md` entry for each user-visible feature or meaningful behaviour change, including how it was checked. Update this plan when product decisions or architecture constraints change. Do not create a README yet, per the owner's repository preference.
+- The owner authorizes commits directly to `main` and pushes to GitHub until the MVP is workable and polished. The product owner reviews agent changes, focused behavioral tests, and documentation before integrating and pushing each coherent iteration.
+
 ## Risks and decisions to track
 
 - **Account access:** The chosen OAuth route is a preview for eligible open-source, locally hosted apps. The user's Plus allowance is shared with other apps and can stop GM requests at a usage limit; the app must pause cleanly and must not switch to billed API calls. Remote hosting requires a separate eligibility process. Conventional API-key usage is a future option only if the owner changes the budget.
