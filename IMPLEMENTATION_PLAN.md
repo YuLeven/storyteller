@@ -1,23 +1,24 @@
 # Storyteller MVP implementation plan
 
-> **Feasibility status (2026-09-29):** The owner will pay for ChatGPT Plus only. Plus does not provide API usage for an independent website. The standalone API architecture below is therefore conditional and must not be implemented under the current budget. A ChatGPT-hosted alternative needs a focused feasibility check and an explicit product choice.
+> **Feasibility status (2026-09-29):** The owner will pay for ChatGPT Plus only. A conventional API-key integration has separate token charges. OpenAI also documents a preview of ChatGPT-plan usage through Sign in with ChatGPT for eligible open-source, locally hosted apps. Validate that route for this project alongside a ChatGPT plugin before committing to either play surface. A remotely hosted app cannot assume access to plan-funded inference.
 
 ## Goal and scope
 
-Build a private, single-player TTRPG experience that can continue the existing vineyard campaign and host new campaigns. The original target is an independent website; the Plus-only constraint may require hosting play inside ChatGPT instead. One campaign can contain many play sessions; a session is a resumable segment of the campaign's continuous history. The first release supports one human player per campaign. Multiplayer, voice, maps, payments, and a general rule-system editor are outside the MVP.
+Build a private, single-player TTRPG experience that can continue the existing vineyard campaign and host new campaigns. The original target is an independent website; under the Plus-only constraint it may need to run locally or host play inside ChatGPT. One campaign can contain many play sessions; a session is a resumable segment of the campaign's continuous history. The first release supports one human player per campaign. Multiplayer, voice, maps, payments, and a general rule-system editor are outside the MVP.
 
 For the independent-site path, the interface is a Phoenix LiveView application. It should update the turn timeline, character activity, world state, and campaign panels without full page reloads. Keep browser JavaScript small and limited to interactions that need it, such as optional die animation. A ChatGPT-hosted path must establish which parts LiveView can supply inside the plugin UI.
 
 ## First decision: where play happens
 
-OpenAI's [pricing guidance](https://learn.chatgpt.com/docs/pricing) lists Plus and API-key use separately and says API-key usage follows API pricing. The [API quickstart](https://developers.openai.com/api/docs/quickstart) requires an API key for application requests. The same personal account can own an API project, but its Plus subscription cannot be used as the GM credential for a standalone Phoenix website. Do not automate the ChatGPT website or reuse its browser session as a substitute.
+OpenAI's [pricing guidance](https://learn.chatgpt.com/docs/pricing) lists Plus and conventional API-key use separately; API-key requests follow per-token pricing. However, [ChatGPT plan usage](https://developers.openai.com/siwc/token-sharing-open-source) allows eligible open-source, locally hosted apps to request permission to use a user's ChatGPT plan for supported Responses API calls through OAuth. This is a preview with [request constraints](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) and account usage limits. It does not grant access to existing ChatGPT conversations. Do not automate the ChatGPT website or reuse its browser session as a substitute.
 
-Two product paths are possible:
+Three product paths are possible:
 
 1. **Plus-only candidate:** Run play inside ChatGPT using a private plugin backed by an Elixir service. ChatGPT supplies the GM conversation under the owner's Plus usage limits; MCP tools read and write canonical game state. An optional plugin UI can show campaign panels and character activity. OpenAI documents [MCP access in Plus developer mode](https://developers.openai.com/chatgpt) and [optional plugin UI](https://developers.openai.com/plugins/build/chatgpt-ui). First validate that the desired turn flow, player die click, and LiveView embedding work in this host. The result is a ChatGPT-hosted experience, not an independent website.
-2. **Standalone website:** Keep Phoenix LiveView as the play surface and call the OpenAI API from the server. This requires API billing in addition to Plus and is outside the owner's current budget. If this path is chosen later, keep the credential server-side, set usage limits, and use a fake GM provider for deterministic tests.
+2. **Local Plus-only candidate:** Run the open-source Phoenix LiveView website locally (or on an eligible self-hosted host). Have the owner sign in and consent to ChatGPT plan usage, then call the supported Responses API with the issued OAuth access token. Confirm registration, available models, usage limits, and whether the preview's `store: false`, `stream: true`, history, tool, and response-format constraints support the GM loop. The application must persist game history and state itself. This path keeps the independent play interface but depends on preview eligibility and limits.
+3. **Conventional API-key website:** Keep Phoenix LiveView as the play surface and call the OpenAI API from the server with an API key. This requires API billing in addition to Plus and is outside the owner's current budget. If chosen later, keep the credential server-side, set usage limits, and use a fake GM provider for deterministic tests. For a paid or remotely hosted plan-usage app, OpenAI instead directs developers to an interest form; do not assume that permission will be granted.
 
-The first implementation milestone is a small feasibility check of the Plus-only candidate and a decision about whether playing inside ChatGPT meets the product goal. Do not start the standalone AI integration unless the budget constraint changes. The domain model, migration work, and behavioural test requirements below apply to either path; the Responses API details apply only to the standalone path.
+The first implementation milestone is a focused feasibility check of both Plus-only candidates and a choice of play surface. Do not start conventional API-key integration unless the budget constraint changes. The domain model, migration work, and behavioural test requirements below apply to every path; the Responses API details apply to both standalone paths, with different authentication and request constraints.
 
 ## Preserve the vineyard game and its GM rules
 
@@ -66,7 +67,7 @@ For each player action:
 4. If a player roll is requested, pause the turn. Accept the player's die click, record the server-generated result, and continue resolution with that result. GM-controlled rolls use the same audited roll service without a player click.
 5. Commit the accepted output, roll references, and state changes together. Publish the completed turn to LiveView. On timeout or invalid output, keep the previous canonical state, surface a recoverable error, and retain diagnostics without storing secrets.
 
-For the standalone path, use the OpenAI Responses API behind the provider behaviour. Structured outputs can supply renderable blocks and proposed state changes. The database remains authoritative for campaign continuity. Start with completed responses and a LiveView progress state; consider streaming later if latency warrants it and state validation still precedes commit. For the Plus-only path, expose the same validated state transitions as MCP tools and keep model instructions in the ChatGPT plugin.
+For either standalone path, use the OpenAI Responses API behind the provider behaviour. Structured outputs can supply renderable blocks and proposed state changes when supported by the selected authentication route. The database remains authoritative for campaign continuity. The local Plus-only route requires streaming and `store: false`; validate proposed changes before committing the completed streamed response. For the conventional API-key route, start with completed responses and a LiveView progress state; consider streaming later if latency warrants it. For the ChatGPT plugin path, expose the same validated state transitions as MCP tools and keep model instructions in the plugin.
 
 ## Internationalization
 
@@ -93,9 +94,9 @@ No feature is done until its relevant behavioural tests pass. Add focused unit t
 
 ## Delivery sequence
 
-Milestones 2–6 describe the shared domain goals and the original standalone UI. Revise their GM and UI implementation details after milestone 1 if the Plus-only path is selected.
+Milestones 2–6 describe the shared domain goals and the standalone UI. Revise their GM and UI implementation details after milestone 1 if the ChatGPT plugin path is selected.
 
-1. **Resolve the product path and source material.** Prototype the Plus-only ChatGPT plugin flow, including the Elixir state service and an optional LiveView UI, then decide whether the ChatGPT-hosted experience satisfies the interface requirement. Confirm the single-player access model, vineyard transcript availability, and exact campaign mechanics. Produce a reviewed migration inventory and GM policy. Exit: the product path is chosen and no critical vineyard fact is inferred solely from the incomplete excerpt.
+1. **Resolve the product path and source material.** Prototype the Plus-only ChatGPT plugin flow and the locally hosted OAuth plan-usage flow with a minimal Elixir state service. Check registration, model access, preview constraints, limits, the player die interaction, and LiveView compatibility. Choose the play surface based on the owner's requirements and the verified paths. Confirm the single-player access model, vineyard transcript availability, and exact campaign mechanics. Produce a reviewed migration inventory and GM policy. Exit: the product path is chosen and no critical vineyard fact is inferred solely from the incomplete excerpt.
 2. **Establish the application and data model.** Scaffold Phoenix/LiveView, private owner access, PostgreSQL/Ecto records, campaign/session creation, and test fixtures. Exit: campaigns and sessions persist, remain isolated, and can be resumed.
 3. **Implement canonical state and configurable panels.** Add characters, visible/private state, resource fields, event history, snapshots, and vineyard panel configuration. Exit: explicit state changes are validated, traceable, and rendered.
 4. **Implement the GM turn loop and dice.** Add provider behaviour, context assembly, structured output validation, pending turns, player-initiated D20, GM rolls, retries, and atomic state application. Exit: the key turn and failure scenarios pass with a fake provider.
@@ -104,7 +105,7 @@ Milestones 2–6 describe the shared domain goals and the original standalone UI
 
 ## Risks and decisions to track
 
-- **Account access:** A Plus subscription cannot fund inference calls from an independent website. The Plus-only plugin path must be proven and accepted before the remaining milestones proceed. The API path stays conditional on a future budget change.
+- **Account access:** Conventional API-key calls are billed separately from Plus. OAuth ChatGPT-plan usage may support an eligible open-source, locally hosted website but is in preview and subject to usage and feature limits. The plugin and local OAuth candidates both need proof before the remaining milestones proceed. A conventional API-key path remains conditional on a future budget change; remotely hosted plan usage requires a separate eligibility process.
 - **Legacy history:** The accessible vineyard excerpt is incomplete. A full export or authoritative owner-supplied summary is needed for faithful continuation.
 - **Model fallibility:** Structured output reduces parsing ambiguity but does not guarantee correct fiction or arithmetic. Validate changes, keep the canonical state in the application, and preserve a reviewable event record.
 - **Session meaning:** This plan treats a session as a segment inside a campaign. Confirm that model during the creation-flow review if the owner intends independent branches instead.
@@ -112,6 +113,7 @@ Milestones 2–6 describe the shared domain goals and the original standalone UI
 ## Reference documentation
 
 - [OpenAI API quickstart](https://developers.openai.com/api/docs/quickstart) and [production best practices](https://developers.openai.com/api/docs/guides/production-best-practices) for API credentials and usage limits.
-- [ChatGPT pricing](https://learn.chatgpt.com/docs/pricing), [Plus developer mode](https://developers.openai.com/chatgpt), and [plugin UI](https://developers.openai.com/plugins/build/chatgpt-ui) for the Plus-only feasibility decision.
+- [ChatGPT pricing](https://learn.chatgpt.com/docs/pricing), [Plus developer mode](https://developers.openai.com/chatgpt), and [plugin UI](https://developers.openai.com/plugins/build/chatgpt-ui) for the plugin candidate.
+- [ChatGPT plan usage for open-source and locally hosted apps](https://developers.openai.com/siwc/token-sharing-open-source), [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), and [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) for the local OAuth candidate.
 - [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and [conversation state](https://developers.openai.com/api/docs/guides/conversation-state) for the GM adapter.
 - [Phoenix LiveView guide](https://phoenix.hexdocs.pm/live_view.html), [LiveView testing](https://phoenix-live-view.hexdocs.pm/1.2.11/Phoenix.LiveViewTest.html), and [Gettext](https://gettext.hexdocs.pm/) for the server-rendered interface, behavioural tests, and localization.
