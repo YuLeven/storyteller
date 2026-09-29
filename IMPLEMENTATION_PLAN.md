@@ -1,6 +1,8 @@
 # Storyteller MVP implementation plan
 
 > **Selected direction (2026-09-29):** Build a standalone Phoenix LiveView site that runs locally and use Sign in with ChatGPT's preview ChatGPT-plan usage flow for GM inference. The owner has ChatGPT Plus and does not plan to buy API credits. This route is for eligible open-source, locally hosted apps, and has preview limitations and shared plan usage limits. Confirm eligibility and the GM request shape in the first implementation milestone before building the full turn loop. A conventional API-key integration remains a separately priced fallback only if the owner's budget changes.
+>
+> **License:** MIT, selected by the owner on 2026-09-29 and applied in `LICENSE`.
 
 ## Goal and scope
 

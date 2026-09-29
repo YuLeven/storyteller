@@ -1,0 +1,12 @@
+<header class="border-b border-stone-200 bg-white/90 px-4 sm:px-6 lg:px-8">
+  <div class="mx-auto flex max-w-6xl items-center justify-between py-4">
+    <.link navigate={~p"/"} class="text-lg font-semibold tracking-tight text-stone-900">Storyteller</.link>
+    <span class="text-sm text-stone-500">Your local campaign archive</span>
+  </div>
+</header>
+<main class="min-h-[calc(100vh-4rem)] bg-stone-50 px-4 py-10 sm:px-6 lg:px-8 sm:py-14">
+  <div class="mx-auto max-w-6xl">
+    <.flash_group flash={@flash} />
+    {@inner_content}
+  </div>
+</main>

@@ -1,0 +1,49 @@
+<section class="mx-auto max-w-4xl space-y-8">
+  <div>
+    <.link
+      navigate={~p"/campaigns/#{@session.campaign.id}"}
+      class="text-sm font-medium text-amber-800 hover:text-amber-950"
+    >← {@session.campaign.title}</.link>
+    <div class="mt-6 flex flex-wrap items-center gap-3">
+      <h1 class="text-3xl font-semibold tracking-tight text-stone-950">{@session.title}</h1>
+      <span class={[
+        "rounded-full px-2.5 py-1 text-xs font-semibold",
+        @session.status == :active && "bg-emerald-50 text-emerald-800",
+        @session.status == :completed && "bg-stone-100 text-stone-600"
+      ]}>{if @session.status == :active, do: "In progress", else: "Completed"}</span>
+    </div>
+    <p class="mt-2 text-stone-600">
+      {@session.campaign.setting} · {@session.campaign.player_character}
+    </p>
+  </div>
+
+  <div class="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
+    <p class="text-sm font-medium uppercase tracking-[0.18em] text-amber-800">Campaign record</p>
+    <h2 class="mt-2 text-xl font-semibold text-stone-950">This session is safely stored</h2>
+    <p class="mt-3 max-w-2xl leading-7 text-stone-600">
+      Campaign and session setup is persisted in your local PostgreSQL database. The interactive turn timeline will appear here as play features are added.
+    </p>
+    <dl class="mt-6 grid gap-4 border-t border-stone-100 pt-5 sm:grid-cols-2">
+      <div>
+        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">Campaign</dt><dd class="mt-1 text-stone-900">
+          {@session.campaign.title}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+          Narration language
+        </dt><dd class="mt-1 text-stone-900">{@session.campaign.narration_language}</dd>
+      </div>
+      <div>
+        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">Started</dt><dd class="mt-1 text-stone-900">
+          {Calendar.strftime(@session.inserted_at, "%Y-%m-%d %H:%M UTC")}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+          Player character
+        </dt><dd class="mt-1 text-stone-900">{@session.campaign.player_character}</dd>
+      </div>
+    </dl>
+  </div>
+</section>

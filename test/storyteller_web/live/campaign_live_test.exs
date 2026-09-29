@@ -1,0 +1,141 @@
+defmodule StorytellerWeb.CampaignLiveTest do
+  use StorytellerWeb.ConnCase, async: true
+
+  import Phoenix.LiveViewTest
+  import Storyteller.CampaignFixtures
+
+  alias Storyteller.Campaigns
+
+  test "campaign list keeps two stories in separate cards and links to the right sessions", %{
+    conn: conn
+  } do
+    first =
+      campaign_fixture(%{title: "Lantern Coast", premise: "A ferry light vanishes in a storm."})
+
+    second =
+      campaign_fixture(%{
+        title: "Copper Archive",
+        premise: "A map is missing from the city collection."
+      })
+
+    {:ok, _view, html} = live(conn, ~p"/")
+    assert html =~ "Campaigns"
+    assert html =~ "Lantern Coast"
+    assert html =~ "Copper Archive"
+
+    first_card =
+      html |> Floki.parse_document!() |> Floki.find("#campaign-#{first.id}") |> Floki.text()
+
+    second_card =
+      html |> Floki.parse_document!() |> Floki.find("#campaign-#{second.id}") |> Floki.text()
+
+    assert first_card =~ "A ferry light vanishes in a storm."
+    refute first_card =~ "A map is missing from the city collection."
+    assert second_card =~ "A map is missing from the city collection."
+    refute second_card =~ "A ferry light vanishes in a storm."
+
+    first_session = hd(first.sessions)
+    second_session = hd(second.sessions)
+
+    document = Floki.parse_document!(html)
+    first_links = document |> Floki.find("#campaign-#{first.id} a") |> Floki.attribute("href")
+    second_links = document |> Floki.find("#campaign-#{second.id} a") |> Floki.attribute("href")
+
+    assert ~p"/campaigns/#{first.id}/sessions/#{first_session.id}" in first_links
+    assert ~p"/campaigns/#{second.id}/sessions/#{second_session.id}" in second_links
+  end
+
+  test "campaign setup is reviewed before creation and its first session is resumable", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    attrs = %{
+      title: "The Blue Lantern",
+      premise: "A signal appears on the cliffs after a century of silence.",
+      setting: "A fictional coastal city",
+      tone: "Patient and hopeful",
+      narration_language: "French",
+      player_character: "Noa Marin, a lighthouse keeper"
+    }
+
+    review_html = view |> form("#campaign-form", campaign: attrs) |> render_submit()
+    assert review_html =~ "Review your campaign"
+    assert review_html =~ "The Blue Lantern"
+    assert review_html =~ "Noa Marin"
+    assert Campaigns.list_campaigns() == []
+
+    view |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    assert campaign.title == "The Blue Lantern"
+    assert [%{title: "Session 1", status: :active}] = campaign.sessions
+    assert_redirect(view, ~p"/campaigns/#{campaign.id}")
+  end
+
+  test "campaign detail resumes history and starts a later session", %{conn: conn} do
+    campaign = campaign_fixture()
+    [first_session] = campaign.sessions
+
+    {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert html =~ first_session.title
+
+    assert has_element?(
+             view,
+             "a[href='/campaigns/#{campaign.id}/sessions/#{first_session.id}']",
+             "Resume session"
+           )
+
+    view
+    |> form("form[phx-submit=start-session]", session: %{title: "A Clear Night"})
+    |> render_submit()
+
+    refreshed = Campaigns.get_campaign!(campaign.id)
+    assert Enum.find(refreshed.sessions, &(&1.id == first_session.id)).status == :completed
+    assert Enum.count(refreshed.sessions, &(&1.status == :active)) == 1
+    assert Enum.any?(refreshed.sessions, &(&1.title == "A Clear Night" and &1.status == :active))
+    new_session = Enum.find(refreshed.sessions, &(&1.title == "A Clear Night"))
+    assert_redirect(view, ~p"/campaigns/#{campaign.id}/sessions/#{new_session.id}")
+  end
+
+  test "archive and restore update the campaign list without deleting its history", %{conn: conn} do
+    campaign = campaign_fixture(%{title: "The Paper Moon"})
+    [session] = campaign.sessions
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    archived_html =
+      view |> element("#campaign-#{campaign.id} button[phx-click=archive]") |> render_click()
+
+    assert archived_html =~ "Archived"
+    archived = Campaigns.get_campaign!(campaign.id)
+    assert archived.status == :archived
+    assert Enum.any?(archived.sessions, &(&1.id == session.id))
+    assert has_element?(view, "#campaign-#{campaign.id} button[phx-click=restore]")
+
+    restored_html =
+      view |> element("#campaign-#{campaign.id} button[phx-click=restore]") |> render_click()
+
+    assert restored_html =~ "Active"
+    assert Campaigns.get_campaign!(campaign.id).status == :active
+  end
+
+  test "a resumed session stays scoped to its campaign", %{conn: conn} do
+    campaign = campaign_fixture(%{title: "The Glass Observatory"})
+    [session] = campaign.sessions
+
+    {:ok, _view, html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    assert html =~ campaign.title
+    assert html =~ session.title
+    assert html =~ campaign.player_character
+    assert html =~ "local PostgreSQL database"
+  end
+
+  test "invalid campaign setup shows errors and saves nothing", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    html = view |> form("#campaign-form", campaign: %{title: "x"}) |> render_submit()
+    html_text = html |> Floki.parse_document!() |> Floki.text()
+    assert html_text =~ "can't be blank"
+    assert Campaigns.list_campaigns() == []
+  end
+end
