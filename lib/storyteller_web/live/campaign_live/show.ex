@@ -10,7 +10,7 @@ defmodule StorytellerWeb.CampaignLive.Show do
       nil ->
         {:ok,
          socket
-         |> put_flash(:error, "That campaign could not be found.")
+         |> put_flash(:error, gettext("That campaign could not be found."))
          |> push_navigate(to: ~p"/")}
 
       campaign ->
@@ -37,12 +37,16 @@ defmodule StorytellerWeb.CampaignLive.Show do
       {:ok, session} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Session started. Your campaign history is still here.")
+         |> put_flash(:info, gettext("Session started. Your campaign history is still here."))
          |> push_navigate(to: ~p"/campaigns/#{socket.assigns.campaign.id}/sessions/#{session.id}")}
 
       {:error, :campaign_archived} ->
         {:noreply,
-         put_flash(socket, :error, "Restore this campaign before starting another session.")}
+         put_flash(
+           socket,
+           :error,
+           gettext("Restore this campaign before starting another session.")
+         )}
 
       {:error, _changeset} ->
         {:noreply, assign(socket, session_title: attrs["title"] || "", session_error?: true)}
@@ -55,11 +59,11 @@ defmodule StorytellerWeb.CampaignLive.Show do
       {:ok, _campaign} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Campaign archived. Its sessions remain saved.")
+         |> put_flash(:info, gettext("Campaign archived. Its sessions remain saved."))
          |> push_navigate(to: ~p"/")}
 
       {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "The campaign could not be archived.")}
+        {:noreply, put_flash(socket, :error, gettext("The campaign could not be archived."))}
     end
   end
 
@@ -70,10 +74,10 @@ defmodule StorytellerWeb.CampaignLive.Show do
         {:noreply,
          socket
          |> assign(campaign: Campaigns.get_campaign(socket.assigns.campaign.id))
-         |> put_flash(:info, "Campaign restored.")}
+         |> put_flash(:info, gettext("Campaign restored."))}
 
       {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "The campaign could not be restored.")}
+        {:noreply, put_flash(socket, :error, gettext("The campaign could not be restored."))}
     end
   end
 

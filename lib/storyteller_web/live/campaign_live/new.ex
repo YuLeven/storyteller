@@ -10,7 +10,7 @@ defmodule StorytellerWeb.CampaignLive.New do
 
     {:ok,
      assign(socket,
-       page_title: "New campaign",
+       page_title: gettext("New campaign"),
        form: to_form(changeset, as: :campaign),
        reviewed: false,
        draft: nil,
@@ -72,7 +72,7 @@ defmodule StorytellerWeb.CampaignLive.New do
            form: to_form(%{changeset | action: :validate}, as: :campaign),
            reviewed: false,
            draft: nil,
-           setup_error: message,
+           setup_error: setup_error_message(message),
            character_rows: row_assigns[:character_rows],
            panel_rows: row_assigns[:panel_rows]
          )}
@@ -112,7 +112,10 @@ defmodule StorytellerWeb.CampaignLive.New do
       {:ok, campaign} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Campaign created and its first session is ready to resume.")
+         |> put_flash(
+           :info,
+           gettext("Campaign created and its first session is ready to resume.")
+         )
          |> push_navigate(to: ~p"/campaigns/#{campaign.id}")}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -125,7 +128,7 @@ defmodule StorytellerWeb.CampaignLive.New do
          )}
 
       {:error, {:setup, message}} ->
-        {:noreply, assign(socket, reviewed: false, setup_error: message)}
+        {:noreply, assign(socket, reviewed: false, setup_error: setup_error_message(message))}
 
       {:error, _reason} ->
         {:noreply,
@@ -174,6 +177,14 @@ defmodule StorytellerWeb.CampaignLive.New do
   defp remove_row(rows, index) do
     index = parse_index(index)
     Enum.reject(rows, fn {row_index, _row} -> row_index == index end)
+  end
+
+  defp setup_error_message("Starting world details must be JSON-safe and under 100 KB.") do
+    gettext("Starting world details must be valid data and under 100 KB.")
+  end
+
+  defp setup_error_message(_message) do
+    gettext("Campaign setup could not be validated. Review the fields and try again.")
   end
 
   defp row_value(row, key) when is_map(row),

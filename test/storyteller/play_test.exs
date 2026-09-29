@@ -7,7 +7,95 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Roll, State, Turn}
+  alias Storyteller.Play.{Event, Roll, State, Turn}
+
+  test "GM memory is persisted by visibility and only recent events are sent back to the model" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    assert {:ok, pending} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "bounded-memory",
+               "Ask the keeper about her plans."
+             )
+
+    for sequence <- 1..90 do
+      Repo.insert!(
+        Event.changeset(%Event{}, %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          turn_id: pending.id,
+          sequence: sequence,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{"text" => "Earlier scene #{sequence}"}
+        })
+      )
+    end
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    Repo.update!(State.changeset(state, %{event_sequence: 90}))
+
+    context_agent = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      context = decode_request(request)
+      Agent.update(context_agent, fn _ -> context end)
+
+      memory_update = %{
+        "public_summary" => "The keeper is studying an unusual eastern star.",
+        "gm_private_summary" => "The keeper suspects the observatory chart was altered."
+      }
+
+      {:ok, Jason.encode!(ordinary_proposal(%{"memory_update" => memory_update}))}
+    end
+
+    assert {:ok, %{status: :completed} = resolved} =
+             Play.retry_turn(pending.id, provider: provider)
+
+    context = Agent.get(context_agent, & &1)
+    assert context["memory"]["public_summary"] == ""
+    assert context["memory"]["gm_private_summary"] == ""
+    assert length(context["history"]) == 40
+    assert hd(context["history"])["sequence"] == 51
+    assert List.last(context["history"])["sequence"] == 90
+
+    assert {:ok, persisted_context} = Play.model_context(resolved.id)
+
+    assert persisted_context.memory.public_summary ==
+             "The keeper is studying an unusual eastern star."
+
+    assert persisted_context.memory.gm_private_summary ==
+             "The keeper suspects the observatory chart was altered."
+
+    {:ok, timeline_before_invalid_memory} = Play.public_timeline(campaign.id)
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "oversized-memory",
+               "Look again at the chart.",
+               provider:
+                 ordinary_provider(%{
+                   "memory_update" => %{
+                     "public_summary" => String.duplicate("x", 6_001),
+                     "gm_private_summary" => ""
+                   }
+                 })
+             )
+
+    {:ok, timeline_after_invalid_memory} = Play.public_timeline(campaign.id)
+    assert timeline_after_invalid_memory == timeline_before_invalid_memory
+
+    {:ok, after_invalid_memory} = Play.model_context(resolved.id)
+    assert after_invalid_memory.memory.public_summary == persisted_context.memory.public_summary
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    refute Map.has_key?(projection, :memory)
+    refute Map.has_key?(projection, :gm_private_history_summary)
+  end
 
   test "public projections separate private world and character facts" do
     {campaign, session} = play_campaign("The Glass Observatory")
@@ -715,6 +803,7 @@ defmodule Storyteller.PlayTest do
         "public_changes" => %{},
         "private_changes" => %{"weather_cause" => "a distant pressure front"},
         "panel_changes" => %{},
+        "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
         "character_updates" => [
           %{
             "speaker_id" => "npc:lyra",
@@ -737,6 +826,7 @@ defmodule Storyteller.PlayTest do
       "private_changes" => %{},
       "panel_changes" => %{},
       "character_updates" => [],
+      "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
       "roll_request" => %{
         "test" => "Keep your balance on the ledge",
         "difficulty" => "A demanding, uncertain climb",

@@ -14,7 +14,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       nil ->
         {:ok,
          socket
-         |> put_flash(:error, "That session could not be found in this campaign.")
+         |> put_flash(:error, gettext("That session could not be found in this campaign."))
          |> push_navigate(to: ~p"/")}
 
       session ->
@@ -41,7 +41,8 @@ defmodule StorytellerWeb.SessionLive.Show do
             {:ok, maybe_schedule_poll(socket)}
 
           {:error, _reason} ->
-            {:ok, assign(socket, game_error: "The campaign's play state could not be loaded.")}
+            {:ok,
+             assign(socket, game_error: gettext("The campaign's play state could not be loaded."))}
         end
     end
   end
@@ -58,13 +59,14 @@ defmodule StorytellerWeb.SessionLive.Show do
 
     cond do
       not playable?(socket.assigns.session) ->
-        {:noreply, put_flash(socket, :error, "This session is available for review only.")}
+        {:noreply,
+         put_flash(socket, :error, gettext("This session is available for review only."))}
 
       blocking_turn?(latest) ->
         {:noreply,
          socket
          |> refresh_game()
-         |> put_flash(:error, "Finish the current turn before sending another action.")}
+         |> put_flash(:error, gettext("Finish the current turn before sending another action."))}
 
       true ->
         submit_turn(socket, input, Map.get(params, "idempotency_key", ""))
@@ -87,7 +89,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       {:noreply,
        socket
        |> refresh_game()
-       |> put_flash(:error, "That turn cannot be retried from this session.")}
+       |> put_flash(:error, gettext("That turn cannot be retried from this session."))}
     end
   end
 
@@ -111,13 +113,13 @@ defmodule StorytellerWeb.SessionLive.Show do
           {:noreply,
            socket
            |> refresh_game()
-           |> put_flash(:error, "The requested roll could not be recorded.")}
+           |> put_flash(:error, gettext("The requested roll could not be recorded."))}
       end
     else
       {:noreply,
        socket
        |> refresh_game()
-       |> put_flash(:error, "There is no validated D20 request to roll right now.")}
+       |> put_flash(:error, gettext("There is no validated D20 request to roll right now."))}
     end
   end
 
@@ -169,7 +171,7 @@ defmodule StorytellerWeb.SessionLive.Show do
         {:noreply,
          socket
          |> refresh_game()
-         |> put_flash(:error, "A turn is already waiting for resolution.")}
+         |> put_flash(:error, gettext("A turn is already waiting for resolution."))}
 
       {:error, :idempotency_conflict} ->
         {:noreply,
@@ -177,14 +179,14 @@ defmodule StorytellerWeb.SessionLive.Show do
          |> assign(draft: input)
          |> put_flash(
            :error,
-           "This submission changed while it was being sent. Please send it again."
+           gettext("This submission changed while it was being sent. Please send it again.")
          )}
 
       {:error, _reason} ->
         {:noreply,
          socket
          |> assign(draft: input)
-         |> put_flash(:error, "Your action could not be saved. Please try again.")}
+         |> put_flash(:error, gettext("Your action could not be saved. Please try again."))}
     end
   end
 
@@ -202,7 +204,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       )
     else
       _ ->
-        assign(socket, game_error: "The campaign's play state could not be refreshed.")
+        assign(socket, game_error: gettext("The campaign's play state could not be refreshed."))
     end
   end
 
@@ -274,7 +276,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp speaker_name(characters, speaker_id) do
     case Map.get(characters, speaker_id) do
       %{name: name} -> name
-      _ -> "Someone nearby"
+      _ -> gettext("Someone nearby")
     end
   end
 
@@ -284,7 +286,10 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp display_value(value) when is_binary(value), do: value
   defp display_value(value) when is_number(value), do: to_string(value)
-  defp display_value(value) when is_boolean(value), do: if(value, do: "Yes", else: "No")
+
+  defp display_value(value) when is_boolean(value),
+    do: if(value, do: gettext("Yes"), else: gettext("No"))
+
   defp display_value(value), do: Jason.encode!(value)
 
   defp earlier_session_start?(timeline, index, current_session_id) do
@@ -296,9 +301,16 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp state_change_label(event, characters) do
     cond do
-      is_map(Map.get(event.payload, "panel_changes")) -> "Campaign values"
-      is_nil(event.speaker_id) -> "World update"
-      true -> "#{speaker_name(characters, event.speaker_id)}: known details"
+      is_map(Map.get(event.payload, "panel_changes")) ->
+        gettext("Campaign values")
+
+      is_nil(event.speaker_id) ->
+        gettext("World update")
+
+      true ->
+        gettext("%{character}: known details",
+          character: speaker_name(characters, event.speaker_id)
+        )
     end
   end
 
@@ -317,39 +329,44 @@ defmodule StorytellerWeb.SessionLive.Show do
            Map.has_key?(world, key) and not is_nil(Map.get(world, key)) and
              Map.get(world, key) != ""
          end) do
-      nil -> "Not recorded"
+      nil -> gettext("Not recorded")
       key -> display_value(Map.get(world, key))
     end
   end
 
   defp world_label(key) do
-    key
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
+    case to_string(key) do
+      "date" -> gettext("Date")
+      "time" -> gettext("Time")
+      "world_time" -> gettext("Time")
+      "weather" -> gettext("Weather")
+      "location" -> gettext("Location")
+      custom -> custom |> String.replace("_", " ") |> String.capitalize()
+    end
   end
 
   defp event_text(event), do: Map.get(event.payload, "text", "")
 
   defp failure_message("reauth_required"),
-    do: "The connected account needs you to reconnect before this turn can continue."
+    do: gettext("The connected account needs you to reconnect before this turn can continue.")
 
   defp failure_message("account_ineligible"),
-    do: "The connected account is not eligible to continue this turn."
+    do: gettext("The connected account is not eligible to continue this turn.")
 
   defp failure_message("usage_limit"),
-    do: "The connected account has reached its current usage limit."
+    do: gettext("The connected account has reached its current usage limit.")
 
   defp failure_message("usage_unavailable"),
-    do: "The connected account's usage could not be confirmed."
+    do: gettext("The connected account's usage could not be confirmed.")
 
-  defp failure_message("model_unavailable"), do: "No available model could resolve this turn."
+  defp failure_message("model_unavailable"),
+    do: gettext("No available model could resolve this turn.")
 
   defp failure_message("timeout"),
-    do: "The game master took too long to answer. Your turn is saved."
+    do: gettext("The game master took too long to answer. Your turn is saved.")
 
   defp failure_message(_),
-    do: "The game master could not resolve this turn. Your action is saved."
+    do: gettext("The game master could not resolve this turn. Your action is saved.")
 
   defp reconnect_needed?(code),
     do: code in ["reauth_required", "account_ineligible", "model_unavailable"]

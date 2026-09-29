@@ -19,6 +19,11 @@ defmodule StorytellerWeb.ErrorHTML do
   # the template name. For example, "404.html" becomes
   # "Not Found".
   def render(template, _assigns) do
-    Phoenix.Controller.status_message_from_template(template)
+    case template do
+      "404.html" -> gettext("Not Found")
+      "422.html" -> gettext("Request could not be processed")
+      "500.html" -> gettext("Internal Server Error")
+      _ -> gettext("Request failed")
+    end
   end
 end

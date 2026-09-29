@@ -71,6 +71,7 @@ defmodule StorytellerWeb.SessionLiveTest do
          character_updates: [
            %{speaker_id: "rhea", visible_facts: %{"trust" => "She trusts your judgment."}}
          ],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
          roll_request: nil
        }}
     end)
@@ -124,6 +125,7 @@ defmodule StorytellerWeb.SessionLiveTest do
            public_changes: %{},
            private_changes: %{},
            character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
            roll_request: %{test: "Agility", difficulty: "Hard"}
          }}
       else
@@ -135,6 +137,7 @@ defmodule StorytellerWeb.SessionLiveTest do
            public_changes: %{"weather" => "Clear"},
            private_changes: %{},
            character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
            roll_request: nil
          }}
       end
@@ -190,6 +193,7 @@ defmodule StorytellerWeb.SessionLiveTest do
            public_changes: %{},
            private_changes: %{},
            character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
            roll_request: nil
          }}
       end

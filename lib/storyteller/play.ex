@@ -19,6 +19,8 @@ defmodule Storyteller.Play do
   @resolution_lease_seconds 120
   @max_turn_text 20_000
   @max_provider_output_bytes 100_000
+  @max_history_events 40
+  @max_history_summary_chars 6_000
 
   @gm_policy """
   You are the game master for this campaign. The campaign setting, narration
@@ -52,14 +54,20 @@ defmodule Storyteller.Play do
   Do not invent a past event, resource change, or relationship to fill a context
   gap. Propose world and character changes explicitly so the application can
   validate them before they become canonical. Preserve the campaign's narration
-  language and tone.
+  language and tone. Also return memory_update with public_summary and
+  gm_private_summary. Keep each concise and update it with durable facts,
+  relationships, commitments, and work in progress from this response. Preserve
+  existing correct information, remove resolved items, and never add unsupported
+  facts. Keep private information only in gm_private_summary. These summaries
+  maintain continuity when older event details leave the recent history window.
 
   Return exactly one JSON object with these fields: narration (non-empty string),
   dialogue (array of {speaker_id, text}), activities (array of {speaker_id,
   text}), public_changes (object), private_changes (object), panel_changes
   (object mapping an existing campaign panel field key to its new absolute
   value), character_updates (array of {speaker_id, visible_facts?,
-  gm_private_facts?}), and roll_request (null or {test, difficulty? , target?}).
+  gm_private_facts?}), memory_update ({public_summary, gm_private_summary}),
+  and roll_request (null or {test, difficulty?, target?}).
   Change only fields listed in the supplied panel definitions, preserve their
   types and units, and do not reveal or write a GM-private field into public
   narration or changes. Use only existing GM character
@@ -589,7 +597,7 @@ defmodule Storyteller.Play do
       state_changes? = proposal_has_state_changes?(proposal)
 
       updated_state =
-        if state_changes? do
+        if state_changes? or proposal.memory_update do
           apply_proposed_state!(state, turn.campaign_id, proposal)
         else
           state
@@ -849,12 +857,11 @@ defmodule Storyteller.Play do
       end
     end)
 
-    case Repo.update(
-           State.changeset(state, %{
-             public_state: public_state,
-             gm_private_state: gm_private_state
-           })
-         ) do
+    state_attrs =
+      %{public_state: public_state, gm_private_state: gm_private_state}
+      |> Map.merge(proposal.memory_update || %{})
+
+    case Repo.update(State.changeset(state, state_attrs)) do
       {:ok, updated} -> updated
       {:error, changeset} -> Repo.rollback(changeset)
     end
@@ -871,7 +878,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update roll_request)
 
     cond do
       map_size(proposal) > length(allowed) -> {:error, :invalid_response}
@@ -892,6 +899,7 @@ defmodule Storyteller.Play do
            validate_panel_changes(field(proposal, :panel_changes, %{}), turn.campaign_id),
          {:ok, character_updates} <-
            validate_character_updates(field(proposal, :character_updates, []), turn.campaign_id),
+         {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if roll_request &&
@@ -908,6 +916,7 @@ defmodule Storyteller.Play do
            private_changes: private_changes,
            panel_changes: panel_changes,
            character_updates: character_updates,
+           memory_update: memory_update,
            roll_request: roll_request
          }}
       end
@@ -1010,6 +1019,29 @@ defmodule Storyteller.Play do
   end
 
   defp validate_character_updates(_updates, _campaign_id), do: {:error, :invalid_response}
+
+  defp validate_memory_update(update) when is_map(update) and map_size(update) == 2 do
+    keys = Enum.map(Map.keys(update), &key_name/1)
+    public_summary = field(update, :public_summary)
+    private_summary = field(update, :gm_private_summary)
+
+    if Enum.sort(keys) == ["gm_private_summary", "public_summary"] and
+         valid_history_summary?(public_summary) and valid_history_summary?(private_summary) do
+      {:ok,
+       %{
+         public_history_summary: public_summary,
+         gm_private_history_summary: private_summary
+       }}
+    else
+      {:error, :invalid_response}
+    end
+  end
+
+  defp validate_memory_update(_update), do: {:error, :invalid_response}
+
+  defp valid_history_summary?(summary) do
+    is_binary(summary) and String.length(summary) <= @max_history_summary_chars
+  end
 
   defp validate_roll_request(nil, _phase), do: {:ok, nil}
   defp validate_roll_request(false, _phase), do: {:ok, nil}
@@ -1135,8 +1167,10 @@ defmodule Storyteller.Play do
       Repo.all(
         from event in Event,
           where: event.campaign_id == ^turn.campaign_id,
-          order_by: [asc: event.sequence]
+          order_by: [desc: event.sequence],
+          limit: ^@max_history_events
       )
+      |> Enum.reverse()
 
     roll = Repo.get_by(Roll, turn_id: turn.id, kind: :player_click)
 
@@ -1152,6 +1186,10 @@ defmodule Storyteller.Play do
       player_action: turn.player_input,
       player_roll: roll && %{die: "D20", result: roll.result, authorized_by: :player_click},
       world: %{public: state.public_state, gm_private: state.gm_private_state},
+      memory: %{
+        public_summary: state.public_history_summary,
+        gm_private_summary: state.gm_private_history_summary
+      },
       characters:
         Enum.map(characters, fn character ->
           %{
@@ -1395,7 +1433,7 @@ defmodule Storyteller.Play do
   defp proposal_has_state_changes?(proposal) do
     map_size(proposal.public_changes) > 0 or map_size(proposal.private_changes) > 0 or
       proposal.panel_changes != [] or proposal.character_updates != [] or
-      proposal.activities != []
+      proposal.activities != [] or proposal.memory_update != nil
   end
 
   defp field(map, key, default \\ nil)

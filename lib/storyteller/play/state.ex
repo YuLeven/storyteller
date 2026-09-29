@@ -11,6 +11,8 @@ defmodule Storyteller.Play.State do
     field :event_sequence, :integer, default: 0
     field :public_state, :map, default: %{}
     field :gm_private_state, :map, default: %{}
+    field :public_history_summary, :string, default: ""
+    field :gm_private_history_summary, :string, default: ""
 
     belongs_to :campaign, Campaign
 
@@ -19,7 +21,15 @@ defmodule Storyteller.Play.State do
 
   def changeset(state, attrs) do
     state
-    |> cast(attrs, [:campaign_id, :revision, :event_sequence, :public_state, :gm_private_state])
+    |> cast(attrs, [
+      :campaign_id,
+      :revision,
+      :event_sequence,
+      :public_state,
+      :gm_private_state,
+      :public_history_summary,
+      :gm_private_history_summary
+    ])
     |> validate_required([
       :campaign_id,
       :revision,

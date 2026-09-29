@@ -1,7 +1,26 @@
 <header class="border-b border-stone-200 bg-white/90 px-4 sm:px-6 lg:px-8">
-  <div class="mx-auto flex max-w-6xl items-center justify-between py-4">
-    <.link navigate={~p"/"} class="text-lg font-semibold tracking-tight text-stone-900">Storyteller</.link>
-    <span class="text-sm text-stone-500">Your local campaign archive</span>
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 py-4">
+    <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-4">
+      <.link navigate={~p"/"} class="text-lg font-semibold tracking-tight text-stone-900">Storyteller</.link>
+      <span class="text-sm text-stone-500">{gettext("Your local campaign archive")}</span>
+    </div>
+    <.form for={%{}} action={~p"/locale"} method="post" class="flex items-end gap-2">
+      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+      <label for="ui-locale" class="sr-only">{gettext("Interface language")}</label>
+      <select
+        id="ui-locale"
+        name="locale"
+        class="rounded-lg border-stone-300 py-2 text-sm shadow-sm focus:border-amber-700 focus:ring-amber-700"
+      >
+        <option value="en" selected={@ui_locale == "en"}>English</option>
+        <option value="es" selected={@ui_locale == "es"}>Español</option>
+        <option value="fr" selected={@ui_locale == "fr"}>Français</option>
+      </select>
+      <button
+        type="submit"
+        class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+      >{gettext("Apply")}</button>
+    </.form>
   </div>
 </header>
 <main class="min-h-[calc(100vh-4rem)] bg-stone-50 px-4 py-10 sm:px-6 lg:px-8 sm:py-14">

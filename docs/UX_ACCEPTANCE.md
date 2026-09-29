@@ -22,13 +22,14 @@ This brief defines observable acceptance for the locally hosted, single-player S
 - A compact header shows current player-visible world state, including location and in-world date/time and weather where available. Configured campaign panels show their labelled, typed, unit-aware visible fields; the vineyard may use cash, wine inventory, and vine inventory. Panels must not expose private values.
 - A text composer lets the player submit an action or speech. Pending submission prevents accidental duplicates and makes the submitted text and resulting turn status understandable.
 - The GM responds to player choices with natural consequences, preserves established facts, and returns control to the player. The UI never writes the player's actions, speech, thoughts, or choices on their behalf. It does not present a proposed state change as canonical before the application accepts it.
+- Long campaigns retain separate public and GM-private continuity summaries. A bounded recent-event window keeps each GM request practical, while older events remain in the stored campaign timeline. Private continuity must never appear in player projections.
 - Narrow layouts keep the timeline, composer, die when relevant, world header, and access to campaign panels usable without horizontal page overflow. The precise panel arrangement at each breakpoint remains open.
 
 ## Player-click D20 flow
 
 - If an uncertain, consequential player action needs a roll, the timeline states what is being tested and the difficulty or target before asking for the player's roll. Ordinary actions do not trigger a roll merely to add activity.
 - The player initiates the roll with an explicit D20 click. The interface clearly indicates when a roll is awaited, accepted, and resolved; the recorded result is visible in the turn history. The server-generated result is applied exactly once.
-- The GM does not silently roll for a player-controlled character. GM-controlled checks may resolve on the GM side and are distinguishable from a player-click roll in the resulting history.
+- The GM does not silently roll for a player-controlled character. The current MVP lets the player initiate their own D20 result; add a distinct, auditable GM roll only if a campaign's rules require it.
 - The exact dice presentation, animation, and any campaign-specific interpretation of targets remain open choices; the interface must not imply mechanics that the campaign has not defined.
 
 ## Progress, failure, and reconnect
@@ -40,7 +41,7 @@ This brief defines observable acceptance for the locally hosted, single-player S
 
 ## Localization and accessibility
 
-- English, Spanish, and French are available across campaign setup and play, including navigation, labels, validation and recovery messages, dates, numbers, dice labels, and campaign-panel chrome.
+- English, Spanish, and French are available across campaign setup and play, including navigation, labels, validation and recovery messages, dates, numbers, dice labels, and campaign-panel chrome. The initial UI locale is English, and the global selector changes the persisted interface locale.
 - Changing the UI locale updates interface text and formatting without translating or rewriting stored turns. GM narration follows the campaign's narration language; user-authored names, story text, and custom field labels remain as entered. Untranslated custom content has a clear fallback.
 - All actions, including form navigation, campaign/session selection, turn submission, and the D20 click, are keyboard operable with a visible focus indicator. Focus moves predictably after navigation, validation errors, and turn updates.
 - Text and controls remain readable at narrow viewport sizes and at increased text zoom. Status/progress, roll result, errors, and speaker identity are not conveyed by color alone; semantic labels are available to assistive technology. Check contrast, heading order, and announced dynamic updates in each locale.
@@ -57,5 +58,5 @@ This brief defines observable acceptance for the locally hosted, single-player S
 - Confirm whether sessions are always continuous resumable segments or whether campaign branches are desired; the plan currently selects continuous history.
 - Decide campaign-library treatment of archived campaigns and which setup fields are required, optional, or editable after creation.
 - Review whether panel field definitions are player-configurable, which safe field types and visibility choices are offered, and what edit path is supported. Do not add arbitrary executable formulas.
-- Confirm the UI-locale default and selector placement, the campaign narration-language choice behavior, and any formal accessibility conformance target.
+- Confirm any formal accessibility conformance target. The UI-locale default, global selector, and separation from the campaign narration language are set.
 - Confirm the responsive panel arrangement and the visual style of timeline event types and D20 presentation. Do not change the specified roll ownership or invent campaign mechanics to settle these visual choices.

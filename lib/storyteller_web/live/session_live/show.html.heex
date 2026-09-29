@@ -14,17 +14,17 @@
           (@session.status == :completed or @session.campaign.status == :archived) &&
             "bg-stone-100 text-stone-600"
         ]}>{if @session.status == :active and @session.campaign.status == :active,
-          do: "In progress",
-          else: "Reviewing"}</span>
+          do: gettext("In progress"),
+          else: gettext("Reviewing")}</span>
       </div>
       <p class="mt-2 text-sm text-stone-600">
         {@session.campaign.title} <span aria-hidden="true">·</span>
         {@session.campaign.setting} <span aria-hidden="true">·</span>
-        Playing as {@session.campaign.player_character}
+        {gettext("Playing as %{character}", character: @session.campaign.player_character)}
       </p>
     </div>
     <div class="text-sm text-stone-500">
-      <span class="font-medium text-stone-700">Narration:</span>
+      <span class="font-medium text-stone-700">{gettext("Narration:")}</span>
       {@session.campaign.narration_language}
     </div>
   </header>
@@ -40,12 +40,12 @@
   <div :if={@projection} class="space-y-6">
     <section
       id="campaign-panels"
-      aria-label="Current world details"
+      aria-label={gettext("Current world details")}
       class="grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4"
     >
       <div class="rounded-xl bg-stone-50 px-4 py-3">
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-          In-world date
+          {gettext("In-world date")}
         </h2>
         <p id="world-date" class="mt-1 text-sm font-semibold text-stone-900">
           {world_display(@projection.world, [
@@ -58,14 +58,16 @@
         </p>
       </div>
       <div class="rounded-xl bg-stone-50 px-4 py-3">
-        <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">Time</h2>
+        <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+          {gettext("Time")}
+        </h2>
         <p id="world-time" class="mt-1 text-sm font-semibold text-stone-900">
           {world_display(@projection.world, ["time", "current_time", "time_of_day", "world_time"])}
         </p>
       </div>
       <div class="rounded-xl bg-stone-50 px-4 py-3">
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-          Weather
+          {gettext("Weather")}
         </h2>
         <p id="world-weather" class="mt-1 text-sm font-semibold text-stone-900">
           {world_display(@projection.world, ["weather", "conditions"])}
@@ -73,7 +75,7 @@
       </div>
       <div class="rounded-xl bg-stone-50 px-4 py-3">
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-          Location
+          {gettext("Location")}
         </h2>
         <p id="world-location" class="mt-1 text-sm font-semibold text-stone-900">
           {world_display(@projection.world, ["location", "current_location"])}
@@ -93,14 +95,16 @@
           <div>
             <h2 class="font-semibold text-amber-950">
               {if @worker_turn_id == @current_turn.id,
-                do: "The game master is responding",
-                else: "Your turn is saved"}
+                do: gettext("The game master is responding"),
+                else: gettext("Your turn is saved")}
             </h2>
             <p class="mt-1 text-sm leading-6 text-amber-900">
               {if @worker_turn_id == @current_turn.id,
                 do:
-                  "The scene is being updated. You can leave and return; this turn will remain here.",
-                else: "Reconnecting to the saved turn…"}
+                  gettext(
+                    "The scene is being updated. You can leave and return; this turn will remain here."
+                  ),
+                else: gettext("Reconnecting to the saved turn…")}
             </p>
             <p class="mt-2 whitespace-pre-wrap text-sm text-stone-700">
               {@current_turn.player_input}
@@ -114,12 +118,13 @@
           class="rounded-2xl border border-rose-200 bg-rose-50 p-5"
           aria-live="polite"
         >
-          <h2 class="font-semibold text-rose-950">This turn needs attention</h2>
+          <h2 class="font-semibold text-rose-950">{gettext("This turn needs attention")}</h2>
           <p class="mt-1 text-sm leading-6 text-rose-800">
             {failure_message(@current_turn.failure_code)}
           </p>
           <p class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700">
-            Saved action: <span class="whitespace-pre-wrap">{@current_turn.player_input}</span>
+            {gettext("Saved action:")}
+            <span class="whitespace-pre-wrap">{@current_turn.player_input}</span>
           </p>
           <div class="mt-4 flex flex-wrap items-center gap-3">
             <button
@@ -129,12 +134,14 @@
               phx-value-turn_id={@current_turn.id}
               disabled={@worker_turn_id == @current_turn.id}
               class="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-900 disabled:cursor-wait disabled:opacity-60"
-            >{if @worker_turn_id == @current_turn.id, do: "Retrying...", else: "Retry this turn"}</button>
+            >{if @worker_turn_id == @current_turn.id,
+              do: gettext("Retrying…"),
+              else: gettext("Retry this turn")}</button>
             <.link
               :if={reconnect_needed?(@current_turn.failure_code)}
               navigate="/auth/connect"
               class="text-sm font-semibold text-amber-900 underline decoration-amber-400 underline-offset-4 hover:text-amber-950"
-            >Reconnect account</.link>
+            >{gettext("Reconnect account")}</.link>
           </div>
         </section>
 
@@ -148,7 +155,7 @@
           aria-live="polite"
         >
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-violet-800">
-            Your roll
+            {gettext("Your roll")}
           </p>
           <h2 class="mt-1 text-lg font-semibold text-violet-950">
             {@current_turn.roll_request["test"] || @current_turn.roll_request[:test]}
@@ -157,17 +164,18 @@
             <span :if={
               @current_turn.roll_request["difficulty"] || @current_turn.roll_request[:difficulty]
             }>
-              Difficulty: {@current_turn.roll_request["difficulty"] ||
+              {gettext("Difficulty:")} {@current_turn.roll_request["difficulty"] ||
                 @current_turn.roll_request[:difficulty]}
             </span>
             <span :if={
               @current_turn.roll_request["target"] || @current_turn.roll_request[:target]
             }>
-              Target: {@current_turn.roll_request["target"] || @current_turn.roll_request[:target]}
+              {gettext("Target:")} {@current_turn.roll_request["target"] ||
+                @current_turn.roll_request[:target]}
             </span>
           </p>
           <p class="mt-3 text-sm leading-6 text-violet-900">
-            The game master is waiting. Click only when you are ready to roll the D20.
+            {gettext("The game master is waiting. Click only when you are ready to roll the D20.")}
           </p>
           <button
             type="button"
@@ -175,15 +183,15 @@
             phx-value-turn_id={@current_turn.id}
             class="mt-4 inline-flex items-center gap-2 rounded-lg bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-900"
           >
-            <span aria-hidden="true">⚄</span> Roll D20
+            <span aria-hidden="true">⚄</span> {gettext("Roll D20")}
           </button>
         </section>
 
         <section class="rounded-2xl border border-stone-200 bg-white shadow-sm">
           <div class="border-b border-stone-100 px-5 py-4 sm:px-7">
-            <h2 class="text-lg font-semibold text-stone-950">Campaign story</h2>
+            <h2 class="text-lg font-semibold text-stone-950">{gettext("Campaign story")}</h2>
             <p class="mt-1 text-sm text-stone-500">
-              The timeline continues across every session in this campaign.
+              {gettext("The timeline continues across every session in this campaign.")}
             </p>
           </div>
           <div
@@ -194,9 +202,11 @@
             <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-2xl text-amber-800">
               ✦
             </div>
-            <h3 class="mt-4 font-semibold text-stone-900">A new scene begins</h3>
+            <h3 class="mt-4 font-semibold text-stone-900">{gettext("A new scene begins")}</h3>
             <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-600">
-              Tell the game master what your character does or says to start the story.
+              {gettext(
+                "Tell the game master what your character does or says to start the story."
+              )}
             </p>
           </div>
           <ol
@@ -213,7 +223,7 @@
                 :if={earlier_session_start?(@timeline, index, @session.id)}
                 class="mb-2 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400"
               >
-                Earlier session
+                {gettext("Earlier session")}
               </p>
               <article class={[
                 "story-entry",
@@ -231,17 +241,20 @@
                 <div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
                     {case event.event_type do
-                      :player_action -> "You"
-                      :gm_narration -> "Game master"
+                      :player_action -> gettext("You")
+                      :gm_narration -> gettext("Game master")
                       :npc_dialogue -> speaker_name(@characters_by_id, event.speaker_id)
                       :character_activity -> speaker_name(@characters_by_id, event.speaker_id)
-                      :roll_request -> "Roll requested"
-                      :player_roll -> "D20 roll"
+                      :roll_request -> gettext("Roll requested")
+                      :player_roll -> gettext("D20 roll")
                       :state_change -> state_change_label(event, @characters_by_id)
                     end}
                   </h3>
                   <time class="text-[11px] text-stone-400">
-                    {Calendar.strftime(event.inserted_at, "%Y-%m-%d %H:%M UTC")}
+                    {gettext("%{date} at %{time} UTC",
+                      date: Calendar.strftime(event.inserted_at, "%Y-%m-%d"),
+                      time: Calendar.strftime(event.inserted_at, "%H:%M")
+                    )}
                   </time>
                 </div>
 
@@ -262,11 +275,12 @@
                 <p :if={event.event_type == :roll_request} class="leading-7 text-stone-800">
                   {@projection.characters
                   |> Enum.find(&(&1.role == :player))
-                  |> then(fn character -> character && character.name end) || "Your character"} needs to roll <strong>{event.payload["test"]}</strong>.
+                  |> then(fn character -> character && character.name end) ||
+                    gettext("Your character")} {gettext("needs to roll")} <strong>{event.payload["test"]}</strong>.
                 </p>
 
                 <p :if={event.event_type == :player_roll} class="font-semibold text-violet-900">
-                  D20 result: {event.payload["result"]}
+                  {gettext("D20 result:")} {event.payload["result"]}
                 </p>
 
                 <dl
@@ -298,7 +312,7 @@
           >
             <input type="hidden" name="turn[idempotency_key]" value={@submission_key} />
             <label for="turn-input" class="block text-sm font-semibold text-stone-900">
-              What do you do or say?
+              {gettext("What do you do or say?")}
             </label>
             <textarea
               id="turn-input"
@@ -306,7 +320,7 @@
               rows="3"
               maxlength="20000"
               phx-debounce="blur"
-              placeholder="Describe your character's action or words…"
+              placeholder={gettext("Describe your character's action or words…")}
               disabled={
                 @current_turn && @current_turn.status in [:pending, :resolving, :awaiting_roll]
               }
@@ -314,7 +328,7 @@
             >{@draft}</textarea>
             <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p class="text-xs leading-5 text-stone-600">
-                Actions and dialogue become part of your saved campaign history.
+                {gettext("Actions and dialogue become part of your saved campaign history.")}
               </p>
               <button
                 type="submit"
@@ -324,10 +338,10 @@
                        @current_turn.status in [:pending, :resolving, :awaiting_roll])
                 }
                 class="inline-flex justify-center rounded-lg bg-amber-800 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
-              >Send turn</button>
+              >{gettext("Send turn")}</button>
             </div>
             <p :if={@input_error?} role="alert" class="mt-2 text-sm text-rose-700">
-              Enter an action or something to say before sending.
+              {gettext("Enter an action or something to say before sending.")}
             </p>
           </.form>
         </section>
@@ -336,7 +350,7 @@
           :if={!playable?(@session)}
           class="rounded-2xl border border-stone-200 bg-stone-50 p-5 text-sm leading-6 text-stone-600"
         >
-          This session is read-only. Its story remains part of the campaign history.
+          {gettext("This session is read-only. Its story remains part of the campaign history.")}
         </section>
       </main>
 
@@ -348,9 +362,11 @@
         >
           <div>
             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
-              Campaign details
+              {gettext("Campaign details")}
             </p>
-            <h2 class="mt-1 text-lg font-semibold text-stone-950">Tracked resources</h2>
+            <h2 class="mt-1 text-lg font-semibold text-stone-950">
+              {gettext("Tracked resources")}
+            </h2>
           </div>
           <section
             :for={panel <- @projection.panels}
@@ -365,7 +381,7 @@
                 </div>
                 <dd class="shrink-0 text-right text-sm font-semibold text-stone-900">
                   {if is_nil(field.value) or field.value == "",
-                    do: "Not recorded",
+                    do: gettext("Not recorded"),
                     else: display_value(field.value)}
                 </dd>
               </div>
@@ -378,9 +394,9 @@
           class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
         >
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
-            World now
+            {gettext("World now")}
           </p>
-          <h2 class="mt-1 text-lg font-semibold text-stone-950">The scene</h2>
+          <h2 class="mt-1 text-lg font-semibold text-stone-950">{gettext("The scene")}</h2>
           <dl :if={public_values(@projection.world) != []} class="mt-4 space-y-3">
             <div :for={{key, value} <- public_values(@projection.world)}>
               <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
@@ -395,15 +411,15 @@
             :if={public_values(@projection.world) == []}
             class="mt-3 text-sm leading-6 text-stone-500"
           >
-            The details of the world will emerge as you play.
+            {gettext("The details of the world will emerge as you play.")}
           </p>
         </section>
 
         <section class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
-            In the story
+            {gettext("In the story")}
           </p>
-          <h2 class="mt-1 text-lg font-semibold text-stone-950">Characters</h2>
+          <h2 class="mt-1 text-lg font-semibold text-stone-950">{gettext("Characters")}</h2>
           <ul class="mt-4 space-y-4">
             <li
               :for={character <- @projection.characters}
@@ -411,7 +427,7 @@
             >
               <h3 class="font-semibold text-stone-900">{character.name}</h3>
               <p :if={character.role == :player} class="mt-0.5 text-xs text-stone-500">
-                Your character
+                {gettext("Your character")}
               </p>
               <p :if={character.visible_activity} class="mt-2 text-sm leading-6 text-stone-700">
                 {character.visible_activity}
@@ -420,7 +436,7 @@
                 :if={map_size(character.visible_facts) > 0}
                 class="mt-2 text-sm text-stone-600"
               >
-                <summary class="cursor-pointer font-medium">Known details</summary>
+                <summary class="cursor-pointer font-medium">{gettext("Known details")}</summary>
                 <dl class="mt-2 space-y-2 pl-3">
                   <div :for={{key, value} <- character.visible_facts}>
                     <dt class="font-medium text-stone-700">{world_label(key)}</dt>
