@@ -1,0 +1,61 @@
+# UX acceptance brief
+
+This brief defines observable acceptance for the locally hosted, single-player Storyteller MVP. It follows the committed `IMPLEMENTATION_PLAN.md`; it does not define new game mechanics. A screen is accepted when the player can understand what is happening, choose what to do, and recover without losing or duplicating campaign state.
+
+## Campaign library
+
+- The library lists the player's campaigns and provides clear actions to create, open/resume, and archive one. Empty and loading states explain the next available action.
+- Each campaign shows enough identifying information to distinguish it from others and to choose the correct one. Opening or switching campaigns never mixes their characters, timeline, or world state.
+- A campaign exposes its sessions as resumable segments of one continuous campaign history. Starting or switching sessions preserves prior turns and canonical state. The exact session creation and archive presentation remain open choices (see below).
+
+## Create campaign
+
+- A guided flow collects the campaign title, story premise, setting, tone, narration language, player character details, optional GM-controlled characters, starting location/date/weather, and any campaign-specific mechanics. It makes required versus optional inputs clear without inventing rules or requiring unsupported character fields.
+- The player can review the assembled setup before creating the campaign. Editing or returning between steps preserves entered content; validation identifies the affected field and explains how to fix it.
+- Successful creation opens the new campaign in a ready-to-play state. The chosen narration language is stored separately from the interface locale.
+- Exact wizard step order, field-by-field validation, and which setup fields are required remain design choices unless specified by product decisions.
+
+## Play screen and player agency
+
+- The play screen presents a readable, chronological timeline that distinguishes player input, GM narration, speaker-attributed NPC dialogue, relevant GM-controlled character activity, and rolls. New completed turns appear without a full-page reload.
+- NPC speech is visually attributed to its speaker. Visible activity communicates what relevant NPCs do; it does not reveal private facts, hidden motives, offstage events, or other GM-only state.
+- A compact header shows current player-visible world state, including location and in-world date/time and weather where available. Configured campaign panels show their labelled, typed, unit-aware visible fields; the vineyard may use cash, wine inventory, and vine inventory. Panels must not expose private values.
+- A text composer lets the player submit an action or speech. Pending submission prevents accidental duplicates and makes the submitted text and resulting turn status understandable.
+- The GM responds to player choices with natural consequences, preserves established facts, and returns control to the player. The UI never writes the player's actions, speech, thoughts, or choices on their behalf. It does not present a proposed state change as canonical before the application accepts it.
+- Narrow layouts keep the timeline, composer, die when relevant, world header, and access to campaign panels usable without horizontal page overflow. The precise panel arrangement at each breakpoint remains open.
+
+## Player-click D20 flow
+
+- If an uncertain, consequential player action needs a roll, the timeline states what is being tested and the difficulty or target before asking for the player's roll. Ordinary actions do not trigger a roll merely to add activity.
+- The player initiates the roll with an explicit D20 click. The interface clearly indicates when a roll is awaited, accepted, and resolved; the recorded result is visible in the turn history. The server-generated result is applied exactly once.
+- The GM does not silently roll for a player-controlled character. GM-controlled checks may resolve on the GM side and are distinguishable from a player-click roll in the resulting history.
+- The exact dice presentation, animation, and any campaign-specific interpretation of targets remain open choices; the interface must not imply mechanics that the campaign has not defined.
+
+## Progress, failure, and reconnect
+
+- While a GM response is in progress, show a clear pending/progress state and keep the player from submitting a duplicate action. Do not imply that a turn is complete before the response is validated and committed.
+- On timeout, invalid response, or other recoverable failure, explain that resolution did not complete, preserve the prior canonical state, and offer a clear retry path. Retrying does not duplicate the action, event, roll, or state change.
+- If a turn is waiting for a player roll, a refresh or reconnect restores that same pending turn and roll request. If a turn completed, reconnect restores the completed timeline and current state. The player should not have to infer whether an action was lost or applied twice.
+- When account usage prevents a GM request, pause play with an actionable explanation and preserve turn state. Do not silently switch to paid API usage.
+
+## Localization and accessibility
+
+- English, Spanish, and French are available across campaign setup and play, including navigation, labels, validation and recovery messages, dates, numbers, dice labels, and campaign-panel chrome.
+- Changing the UI locale updates interface text and formatting without translating or rewriting stored turns. GM narration follows the campaign's narration language; user-authored names, story text, and custom field labels remain as entered. Untranslated custom content has a clear fallback.
+- All actions, including form navigation, campaign/session selection, turn submission, and the D20 click, are keyboard operable with a visible focus indicator. Focus moves predictably after navigation, validation errors, and turn updates.
+- Text and controls remain readable at narrow viewport sizes and at increased text zoom. Status/progress, roll result, errors, and speaker identity are not conveyed by color alone; semantic labels are available to assistive technology. Check contrast, heading order, and announced dynamic updates in each locale.
+- The plan does not specify a formal WCAG conformance level or locale-specific defaults; confirm those product choices rather than claiming an unverified level.
+
+## QA boundaries
+
+- **Manual gameplay QA:** Exercise the end-to-end experience in a fictional, explicitly separate QA campaign. Cover campaign creation/switching, multiple sessions and resume, narration/dialogue/activity, a player-click roll, visible panel updates, narrow-screen use, and recovery from a pending or failed turn. Never use, overwrite, or import the vineyard campaign for feature or regression testing.
+- **Automated tests:** Use a separate test database, isolated fixtures, a fake GM provider, and a fixed roll source. Assert observable behavior and durable state for campaign isolation, session continuity, turn statuses/idempotency, visibility, D20 flow, locale changes, and failure/reconnect recovery. Normal automated tests make no live AI calls. Keep the opt-in live-provider smoke check separate from the default suite.
+- **Story quality review:** Human-review scenario fixtures for natural consequences, restrained escalation, consistent facts, independent NPC agency, and preservation of player agency. Do not use exact-prose snapshots as the quality bar.
+
+## Open design choices to resolve
+
+- Confirm whether sessions are always continuous resumable segments or whether campaign branches are desired; the plan currently selects continuous history.
+- Decide campaign-library treatment of archived campaigns and which setup fields are required, optional, or editable after creation.
+- Review whether panel field definitions are player-configurable, which safe field types and visibility choices are offered, and what edit path is supported. Do not add arbitrary executable formulas.
+- Confirm the UI-locale default and selector placement, the campaign narration-language choice behavior, and any formal accessibility conformance target.
+- Confirm the responsive panel arrangement and the visual style of timeline event types and D20 presentation. Do not change the specified roll ownership or invent campaign mechanics to settle these visual choices.
