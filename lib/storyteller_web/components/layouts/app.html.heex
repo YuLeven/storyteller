@@ -1,7 +1,10 @@
-<header class="border-b border-stone-200 bg-white/90 px-4 sm:px-6 lg:px-8">
+<header class="tabletop-header border-b border-stone-200 bg-white/90 px-4 sm:px-6 lg:px-8">
   <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 py-4">
     <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-4">
-      <.link navigate={~p"/"} class="text-lg font-semibold tracking-tight text-stone-900">Storyteller</.link>
+      <.link
+        navigate={~p"/"}
+        class="tabletop-brand text-lg font-semibold tracking-tight text-stone-900"
+      >Storyteller</.link>
       <span class="text-sm text-stone-500">{gettext("Your local campaign archive")}</span>
     </div>
     <.form for={%{}} action={~p"/locale"} method="post" class="flex items-end gap-2">
@@ -23,7 +26,7 @@
     </.form>
   </div>
 </header>
-<main class="min-h-[calc(100vh-4rem)] bg-stone-50 px-4 py-10 sm:px-6 lg:px-8 sm:py-14">
+<main class="tabletop-main min-h-[calc(100vh-4rem)] px-4 py-10 sm:px-6 lg:px-8 sm:py-14">
   <div class="mx-auto max-w-6xl">
     <.flash_group flash={@flash} />
     {@inner_content}

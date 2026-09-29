@@ -2,32 +2,446 @@
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
-/* This file is for your main application CSS */
+/* A lamplit table: forest ink, worn wood, and warm brass. */
+.tabletop-shell {
+  color-scheme: dark;
+  min-height: 100vh;
+  color: #e9e2d1;
+  background-color: #111813;
+  background-image:
+    radial-gradient(ellipse at 50% -18%, rgb(116 91 48 / 20%), transparent 55%),
+    radial-gradient(ellipse at 8% 45%, rgb(46 75 54 / 20%), transparent 38%),
+    repeating-linear-gradient(0deg, rgb(231 218 182 / 1.2%) 0 1px, transparent 1px 4px);
+}
+
+.tabletop-header {
+  position: relative;
+  background:
+    linear-gradient(110deg, rgb(26 38 29 / 98%), rgb(22 31 25 / 97%)),
+    #18231b;
+  border-color: #4a4835 !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%), inset 0 -1px 0 rgb(215 170 91 / 14%);
+}
+
+.tabletop-header::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgb(202 157 82 / 60%), transparent);
+  pointer-events: none;
+}
+
+.tabletop-brand {
+  color: #f0c77f !important;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 1.35rem !important;
+  letter-spacing: 0.015em;
+  text-shadow: 0 0 22px rgb(229 178 92 / 20%);
+}
+
+.tabletop-main {
+  background: transparent !important;
+}
+
+/* Keep the existing utility-based markup while shifting every shared page to
+   the same dark palette. The brighter accents stay reserved for actions. */
+.tabletop-shell [class~="bg-white"] {
+  background-color: #202820 !important;
+  background-image: linear-gradient(145deg, rgb(255 255 255 / 2%), transparent 52%);
+}
+.tabletop-shell [class~="bg-white/70"],
+.tabletop-shell [class~="bg-white/90"] {
+  background-color: rgb(28 38 30 / 94%) !important;
+}
+.tabletop-shell [class~="bg-stone-50"] { background-color: #171f19 !important; }
+.tabletop-shell [class~="bg-stone-100"] { background-color: #252e26 !important; }
+.tabletop-shell [class~="bg-stone-200"] { background-color: #303a31 !important; }
+.tabletop-shell [class~="bg-stone-900"] { background-color: #b48648 !important; }
+
+.tabletop-shell [class~="text-stone-950"],
+.tabletop-shell [class~="text-stone-900"] { color: #f2ead8 !important; }
+.tabletop-shell [class~="text-stone-800"],
+.tabletop-shell [class~="text-stone-700"] { color: #ded7c6 !important; }
+.tabletop-shell [class~="text-stone-600"] { color: #c0c0ad !important; }
+.tabletop-shell [class~="text-stone-500"] { color: #a5ad9e !important; }
+.tabletop-shell [class~="text-stone-400"] { color: #929b8d !important; }
+.tabletop-shell [class~="text-stone-300"] { color: #c4c8b9 !important; }
+.tabletop-shell [class~="text-white"] { color: #fffaf0 !important; }
+
+.tabletop-shell [class~="border-stone-100"],
+.tabletop-shell [class~="border-stone-200"] { border-color: #384438 !important; }
+.tabletop-shell [class~="border-stone-300"] { border-color: #505d4f !important; }
+.tabletop-shell [class~="border-dashed"] { border-color: #53604f !important; }
+
+.tabletop-shell [class~="bg-amber-50"],
+.tabletop-shell [class~="bg-amber-50/70"] { background-color: #30291d !important; }
+.tabletop-shell [class~="bg-amber-100"] { background-color: #3b3020 !important; }
+.tabletop-shell [class~="bg-amber-700"] { background-color: #b18343 !important; }
+.tabletop-shell [class~="bg-amber-800"] { background-color: #a87637 !important; }
+.tabletop-shell [class~="bg-amber-900"] { background-color: #8d622f !important; }
+.tabletop-shell [class~="border-amber-200"] { border-color: #78603a !important; }
+.tabletop-shell [class~="text-amber-800"],
+.tabletop-shell [class~="text-amber-900"],
+.tabletop-shell [class~="text-amber-950"] { color: #e7bd76 !important; }
+.tabletop-shell [class~="text-amber-700"] { color: #d9aa60 !important; }
+.tabletop-shell [class~="hover:bg-amber-800"]:hover,
+.tabletop-shell [class~="hover:bg-amber-900"]:hover { background-color: #c08e4b !important; }
+.tabletop-shell [class~="hover:text-amber-950"]:hover,
+.tabletop-shell [class~="hover:text-amber-800"]:hover { color: #f2cc87 !important; }
+
+.tabletop-shell [class~="bg-emerald-50"] { background-color: #20352a !important; }
+.tabletop-shell [class~="bg-emerald-800"] { background-color: #42664d !important; }
+.tabletop-shell [class~="bg-emerald-700"] { background-color: #527a5d !important; }
+.tabletop-shell [class~="text-emerald-700"],
+.tabletop-shell [class~="text-emerald-800"] { color: #9dcc9e !important; }
+.tabletop-shell [class~="border-emerald-200"] { border-color: #42634a !important; }
+.tabletop-shell [class~="bg-rose-50"] { background-color: #382522 !important; }
+.tabletop-shell [class~="bg-rose-800"] { background-color: #814b40 !important; }
+.tabletop-shell [class~="bg-rose-900"] { background-color: #95564a !important; }
+.tabletop-shell [class~="text-rose-700"],
+.tabletop-shell [class~="text-rose-800"],
+.tabletop-shell [class~="text-rose-950"] { color: #e5a092 !important; }
+.tabletop-shell [class~="border-rose-200"] { border-color: #70463f !important; }
+.tabletop-shell [class~="bg-violet-50"] { background-color: #2e293c !important; }
+.tabletop-shell [class~="bg-violet-800"] { background-color: #62517f !important; }
+.tabletop-shell [class~="text-violet-800"],
+.tabletop-shell [class~="text-violet-900"],
+.tabletop-shell [class~="text-violet-950"] { color: #cbb9ed !important; }
+.tabletop-shell [class~="border-violet-200"] { border-color: #55486d !important; }
+
+.tabletop-shell h1,
+.tabletop-shell h2,
+.tabletop-shell h3 {
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+}
+
+.tabletop-shell input:not([type="hidden"]),
+.tabletop-shell select,
+.tabletop-shell textarea {
+  color: #f0eadb !important;
+  background-color: #131a15 !important;
+  border-color: #53604f !important;
+}
+.tabletop-shell input::placeholder,
+.tabletop-shell textarea::placeholder { color: #8d988b !important; opacity: 1; }
+.tabletop-shell input:focus,
+.tabletop-shell select:focus,
+.tabletop-shell textarea:focus {
+  border-color: #d0a45e !important;
+  --tw-ring-color: #d0a45e !important;
+  box-shadow: 0 0 0 2px rgb(208 164 94 / 24%) !important;
+}
+.tabletop-shell option { color: #eee8d8; background: #18211a; }
+.tabletop-shell button:focus-visible,
+.tabletop-shell a:focus-visible,
+.tabletop-shell summary:focus-visible {
+  outline-color: #e3b86d !important;
+}
+.tabletop-shell button:disabled {
+  color: #eee5d0 !important;
+  background-color: #4c4c37 !important;
+  border: 1px solid #6c674c;
+  opacity: 1 !important;
+  cursor: not-allowed;
+}
+
+.tabletop-shell article[id^="campaign-"] {
+  position: relative;
+  overflow: hidden;
+  border-color: #465142 !important;
+  background-image: linear-gradient(150deg, rgb(232 215 173 / 3%), transparent 55%) !important;
+  box-shadow: 0 16px 34px rgb(0 0 0 / 18%), inset 0 1px 0 rgb(245 227 185 / 4%);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.tabletop-shell article[id^="campaign-"]:hover {
+  transform: translateY(-2px);
+  border-color: #76603b !important;
+  box-shadow: 0 20px 38px rgb(0 0 0 / 27%), 0 0 28px rgb(192 145 71 / 6%);
+}
 
 .play-page .story-entry {
   max-width: 54rem;
-  padding: 0.8rem 1rem;
-  border: 1px solid #e7e5e4;
-  border-radius: 1rem;
-  background: #fff;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid #455143;
+  border-radius: 0.9rem;
+  background: linear-gradient(145deg, #202920, #1b231c);
+  box-shadow: 0 7px 18px rgb(0 0 0 / 12%), inset 0 1px 0 rgb(255 255 255 / 2%);
 }
 
 .play-page .story-entry-player {
   margin-left: auto;
-  border-color: #fcd34d;
-  background: #fffbeb;
+  border-color: #85663a;
+  background: linear-gradient(145deg, #352b1d, #292319);
+  box-shadow: 0 7px 22px rgb(0 0 0 / 18%), inset 3px 0 #c59a57;
 }
 
 .play-page .story-entry-dialogue {
-  margin-left: 1.25rem;
-  border-color: #ddd6fe;
-  background: #faf8ff;
+  margin-left: clamp(0rem, 3vw, 1.25rem);
+  border-color: #625575;
+  background: linear-gradient(145deg, #2b2834, #23232d);
+  box-shadow: 0 7px 22px rgb(0 0 0 / 17%), inset 3px 0 #9b83c0;
+}
+
+.play-page .story-entry-narration {
+  border-color: #4c5b48;
+  background: linear-gradient(145deg, #202b23, #19231c);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 17%), inset 3px 0 #78906c;
 }
 
 .play-page .story-entry-note {
   max-width: 46rem;
   margin-right: auto;
   margin-left: auto;
-  border-color: #e7e5e4;
-  background: #f5f5f4;
+  border-color: #3f493e;
+  background: #1b221d;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 2%);
+}
+
+.play-page #campaign-panels {
+  display: grid;
+  grid-template-columns: 1.35fr 0.72fr 1fr 1fr;
+  align-items: center;
+  gap: 0;
+  padding: 0.8rem 1.15rem;
+  border-color: #5e5138;
+  background:
+    radial-gradient(ellipse at 50% 0, rgb(199 157 83 / 8%), transparent 70%),
+    #1a231c;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 18%), inset 0 1px 0 rgb(255 255 255 / 3%);
+}
+
+/* Turn the four facts into one continuous world-state rail, with date/time
+   leading and the other scene details following along the same table edge. */
+.play-page #campaign-panels > div {
+  min-width: 0;
+  padding: 0.45rem 1rem;
+  border-radius: 0;
+  background: transparent !important;
+}
+.play-page #campaign-panels > div + div {
+  border-left: 1px solid #5d513b;
+}
+.play-page #campaign-panels > div:first-child {
+  border-left: 0;
+}
+.play-page #campaign-panels h2 {
+  color: #c5a66c !important;
+  letter-spacing: 0.12em;
+}
+.play-page #campaign-panels p {
+  color: #f1e7d1 !important;
+}
+
+/* The story surface is the board at the center of play: warm framed edges,
+   an inset scene field, and separate visual voices for narration and speech. */
+.play-page main > section:has(#story-timeline),
+.play-page main > section:has(#empty-timeline) {
+  overflow: hidden;
+  border: 2px solid #75603e !important;
+  border-radius: 1.15rem;
+  background:
+    radial-gradient(ellipse at 52% 0, rgb(207 163 89 / 10%), transparent 56%),
+    linear-gradient(145deg, #2c291f, #211f19) !important;
+  box-shadow:
+    0 20px 44px rgb(0 0 0 / 27%),
+    inset 0 1px 0 rgb(241 216 164 / 9%),
+    inset 0 0 0 5px rgb(20 23 18 / 34%);
+}
+.play-page main > section:has(#story-timeline) > div:first-child,
+.play-page main > section:has(#empty-timeline) > div:first-child {
+  border-color: #504631 !important;
+  background: linear-gradient(90deg, rgb(199 157 83 / 5%), transparent 70%);
+}
+.play-page main > section:has(#story-timeline) > div:first-child h2,
+.play-page main > section:has(#empty-timeline) > div:first-child h2 {
+  color: #f0d8a5 !important;
+}
+.play-page #empty-timeline {
+  display: flex;
+  min-height: 19rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 1rem;
+  border: 1px solid #67563a;
+  border-radius: 0.9rem;
+  background:
+    radial-gradient(ellipse at 50% 48%, rgb(174 133 67 / 11%), transparent 46%),
+    repeating-linear-gradient(0deg, rgb(241 222 179 / 1.4%) 0 1px, transparent 1px 4px),
+    linear-gradient(145deg, #302a1f, #28251d);
+  box-shadow: inset 0 0 42px rgb(0 0 0 / 19%), inset 0 1px 0 rgb(242 218 169 / 5%);
+}
+.play-page #empty-timeline > div {
+  background-color: #49371f !important;
+  box-shadow: 0 0 30px rgb(204 155 72 / 18%);
+}
+.play-page #empty-timeline h3 {
+  color: #f2d7a3 !important;
+  font-size: 1.35rem;
+}
+.play-page #empty-timeline p {
+  color: #d6cbb4 !important;
+}
+.play-page #story-timeline {
+  min-height: 12rem;
+  border-top: 1px solid #5a4a32;
+  background:
+    radial-gradient(ellipse at 53% 0, rgb(177 137 72 / 6%), transparent 65%),
+    repeating-linear-gradient(0deg, rgb(241 222 179 / 1%) 0 1px, transparent 1px 4px),
+    #25241d;
+}
+.play-page .story-entry {
+  border-color: #65563a;
+  background: linear-gradient(145deg, #353125, #2d2a21);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 22%), inset 0 1px 0 rgb(255 255 255 / 3%);
+}
+.play-page .story-entry-narration {
+  border-color: #806a42;
+  background: linear-gradient(145deg, #393326, #302b20);
+  box-shadow: 0 9px 25px rgb(0 0 0 / 24%), inset 3px 0 #c69e5b, inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+.play-page .story-entry-dialogue {
+  position: relative;
+  max-width: min(88%, 45rem);
+  border-color: #6d5b80;
+  border-radius: 1.1rem 1.1rem 1.1rem 0.35rem;
+  background: linear-gradient(145deg, #302b3a, #282530);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 22%), inset 3px 0 #a18ac4;
+}
+.play-page .story-entry-dialogue::before {
+  position: absolute;
+  bottom: 0.9rem;
+  left: -0.55rem;
+  width: 0;
+  height: 0;
+  content: "";
+  border-top: 0.45rem solid transparent;
+  border-right: 0.6rem solid #302b3a;
+  border-bottom: 0.45rem solid transparent;
+}
+.play-page .story-entry-player {
+  position: relative;
+  max-width: min(88%, 45rem);
+  border-color: #937343;
+  border-radius: 1.1rem 1.1rem 0.35rem 1.1rem;
+  background: linear-gradient(145deg, #40321f, #332a1e);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 23%), inset 3px 0 #d2a75e;
+}
+.play-page .story-entry-player::after {
+  position: absolute;
+  right: -0.55rem;
+  bottom: 0.9rem;
+  width: 0;
+  height: 0;
+  content: "";
+  border-top: 0.45rem solid transparent;
+  border-bottom: 0.45rem solid transparent;
+  border-left: 0.6rem solid #3a2f20;
+}
+
+/* A lone campaign gets a deliberate, centered home on the wide library page. */
+.tabletop-shell section > div.grid:has(> article[id^="campaign-"]:only-child) {
+  max-width: 62rem;
+  margin-right: auto;
+  margin-left: auto;
+  grid-template-columns: minmax(0, 1fr);
+}
+.tabletop-shell section > div.grid:has(> article[id^="campaign-"]:only-child) > article {
+  min-height: 20rem;
+  padding: 2rem;
+  border-color: #6f5c3c !important;
+  background:
+    radial-gradient(ellipse at 95% 2%, rgb(200 157 79 / 9%), transparent 48%),
+    linear-gradient(135deg, #242d24, #1c251e) !important;
+}
+
+@media (max-width: 639px) {
+  .tabletop-shell {
+    width: 100%;
+    overflow-x: clip;
+  }
+  .tabletop-header > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    width: 100%;
+    min-width: 0;
+  }
+  .tabletop-header > div > div,
+  .tabletop-header > div > form {
+    width: 100%;
+    min-width: 0;
+  }
+  .tabletop-header > div > form {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .tabletop-header select {
+    max-width: calc(100vw - 104px);
+  }
+  .tabletop-main,
+  .tabletop-main > div,
+  .play-page,
+  .play-page > div,
+  .play-page > main {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .play-page > .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .play-page > div.space-y-6 > .grid {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .play-page > div.space-y-6 > .grid > * {
+    min-width: 0;
+    width: 100%;
+  }
+  .play-page p,
+  .play-page dd,
+  .play-page dt,
+  .play-page h1,
+  .play-page h2,
+  .play-page h3 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .play-page #campaign-panels {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.55rem;
+  }
+  .play-page #campaign-panels > div {
+    min-width: 0;
+    padding: 0.75rem;
+  }
+  .play-page #campaign-panels > div:nth-child(2n) {
+    border-left: 1px solid #5d513b;
+  }
+  .play-page #campaign-panels > div:nth-child(n + 3) {
+    border-top: 1px solid #5d513b;
+  }
+  .play-page #campaign-panels > div:nth-child(3) {
+    border-left: 0;
+  }
+  .play-page .story-entry-dialogue,
+  .play-page .story-entry-player {
+    max-width: 94%;
+  }
+  .play-page #empty-timeline {
+    min-height: 16rem;
+    margin: 0.65rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabletop-shell article[id^="campaign-"] { transition: none; }
+  .tabletop-shell article[id^="campaign-"]:hover { transform: none; }
 }
