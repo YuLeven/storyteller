@@ -10,6 +10,12 @@ Storyteller is an in-progress local Phoenix LiveView TTRPG site. This checkpoint
 - Versioned, campaign-independent GM policy in `docs/GM_POLICY.md`, based on the original vineyard game's explicit play rules. No vineyard plot or state is in the public repository.
 - ChatGPT-plan OAuth and Responses adapter code using the locally hosted preview flow, protected server-side token storage, and a fake-testable HTTP boundary. Live account consent and a real Responses call have not occurred.
 
+## Verification at the checkpoint
+
+- Campaign and panel focused run: 19 of 20 tests passed; its sole failure was an old session-page copy assertion. That assertion was updated in the play-screen slice, whose subsequent focused LiveView run passed 11 tests, 0 failures.
+- OAuth/GM/controller focused run: 33 tests, 8 failures. The agent identified test harness issues: a nested fake OIDC module resolves incorrectly, a fake GM request expects map options where the adapter passes a keyword list, and one controller test uses a deprecated flash assertion. These fixes and a rerun are the first pickup task.
+- The complete integrated suite and live OAuth smoke check were not run before this checkpoint.
+
 ## Resume in this order
 
 1. Run WSL formatting, warnings-as-errors compilation, development migration, and the complete test suite. Resolve any integration failures before starting new features. Keep `storyteller_dev` and its QA campaign; never reset it to fix tests. Use the separate `storyteller_test` database for automated tests.
