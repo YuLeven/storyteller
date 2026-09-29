@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-29 — Versioned GM policy
+
+- Recorded the original vineyard chat's gameplay rules in `docs/GM_POLICY.md` without including its private plot or state: the GM advances time and weather, the player makes decisions and supplies rolls, and the in-world date remains visible.
+- Updated the import plan to reflect read-only access to the original chat and the need to review truncated long messages before reconstructing campaign state.
+- **Checked:** Compared the policy against the opening vineyard instructions and later explicit player corrections about time, date, and weather.
+
 ## 2026-09-29 — Campaign and session foundation
 
 - Added a reviewed campaign setup with title, premise, setting, tone, narration language, and player character details.

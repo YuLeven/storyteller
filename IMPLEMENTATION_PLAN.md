@@ -49,15 +49,16 @@ Token volumes are assumptions for budgeting, not measured usage. Longer conversa
 
 ## Preserve the vineyard game and its GM rules
 
-1. Obtain the complete vineyard conversation or an authoritative export. The currently accessible chat excerpt is incomplete; do not reconstruct missing history from the latest messages.
+1. Review the complete vineyard conversation or obtain an authoritative export. The original chat is accessible read-only through conversation history, but long retrieved messages may be truncated; do not reconstruct missing facts from partial messages.
 2. Extract a dated timeline, player character, GM-controlled characters, relationships, locations, resources, commitments, open decisions, and current world state. Mark uncertain or conflicting facts for owner review. Import the approved result into a private campaign, with the source transcript retained as an archive outside the public Git repository.
-3. Store the shared GM policy as a versioned, campaign-independent rules document. The accessible generic GM framework establishes these behaviours:
+3. Store the shared GM policy as the versioned, campaign-independent `docs/GM_POLICY.md`. The original vineyard conversation establishes these behaviours:
    - React to player actions with natural consequences; ordinary actions can remain ordinary.
    - Let scenes breathe. Escalation, mysteries, and revelations require an established cause or prior clues.
    - Give NPCs their own knowledge, motives, and agency.
    - Never decide the player's actions, speech, thoughts, or choices.
    - Roll only for uncertain, consequential actions. Ask the player to roll for player-controlled characters; resolve GM-controlled checks on the GM side.
    - Describe the outcome, let the world respond, and return control to the player.
+   - The GM advances the calendar and weather, and every turn keeps the in-world date visible.
 4. Separate that policy from each campaign's setting, tone, characters, and mechanics. During vineyard import, review any campaign-specific rules against the full transcript before treating them as canonical.
 
 ## Product behaviour
@@ -141,7 +142,7 @@ Milestones 2–6 describe the shared domain goals and selected standalone UI. On
 ## Risks and decisions to track
 
 - **Account access:** The chosen OAuth route is a preview for eligible open-source, locally hosted apps. The user's Plus allowance is shared with other apps and can stop GM requests at a usage limit; the app must pause cleanly and must not switch to billed API calls. Remote hosting requires a separate eligibility process. Conventional API-key usage is a future option only if the owner changes the budget.
-- **Legacy history:** The accessible vineyard excerpt is incomplete. A full export or authoritative owner-supplied summary is needed for faithful continuation.
+- **Legacy history:** The original chat is accessible read-only, but long retrieved messages may be truncated. Review the whole timeline and obtain an authoritative export or owner-approved summary before importing private campaign state.
 - **Model fallibility:** A structured or constrained response reduces parsing ambiguity but does not guarantee correct fiction or arithmetic. Validate changes, keep the canonical state in the application, and preserve a reviewable event record.
 - **Session meaning:** This plan treats a session as a segment inside a campaign. Confirm that model during the creation-flow review if the owner intends independent branches instead.
 
