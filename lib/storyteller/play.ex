@@ -11,6 +11,7 @@ defmodule Storyteller.Play do
   import Ecto.Query, warn: false
 
   alias Storyteller.Campaigns.{Campaign, Session}
+  alias Storyteller.Panels
   alias Storyteller.Play.{Character, Event, Roll, State, Turn}
   alias Storyteller.Repo
 
@@ -55,9 +56,13 @@ defmodule Storyteller.Play do
 
   Return exactly one JSON object with these fields: narration (non-empty string),
   dialogue (array of {speaker_id, text}), activities (array of {speaker_id,
-  text}), public_changes (object), private_changes (object), character_updates
-  (array of {speaker_id, visible_facts?, gm_private_facts?}), and roll_request
-  (null or {test, difficulty? , target?}). Use only existing GM character
+  text}), public_changes (object), private_changes (object), panel_changes
+  (object mapping an existing campaign panel field key to its new absolute
+  value), character_updates (array of {speaker_id, visible_facts?,
+  gm_private_facts?}), and roll_request (null or {test, difficulty? , target?}).
+  Change only fields listed in the supplied panel definitions, preserve their
+  types and units, and do not reveal or write a GM-private field into public
+  narration or changes. Use only existing GM character
   speaker_id values for dialogue, activities, and character_updates. A roll
   request must state the test and either a difficulty or target. Do not include
   dice results, player actions, or additional fields. When resolving a roll,
@@ -142,7 +147,8 @@ defmodule Storyteller.Play do
 
   @doc "Returns the campaign's player-safe world snapshot and character projection."
   def public_projection(campaign_id) do
-    with %State{} = state <- Repo.get_by(State, campaign_id: campaign_id) do
+    with %State{} = state <- Repo.get_by(State, campaign_id: campaign_id),
+         {:ok, panel_projection} <- Panels.public_projection(campaign_id) do
       characters =
         Repo.all(
           from character in Character,
@@ -164,7 +170,8 @@ defmodule Storyteller.Play do
          campaign_id: state.campaign_id,
          revision: state.revision,
          world: state.public_state,
-         characters: characters
+         characters: characters,
+         panels: panel_projection.panels
        }}
     else
       nil -> {:error, :not_initialized}
@@ -708,6 +715,14 @@ defmodule Storyteller.Play do
         sequence
       end
 
+    {public_panel_changes, private_panel_changes} =
+      Enum.split_with(proposal.panel_changes, &(&1.visibility == :public))
+
+    sequence = append_panel_change_event(state, turn, sequence, :public, public_panel_changes)
+
+    sequence =
+      append_panel_change_event(state, turn, sequence, :gm_private, private_panel_changes)
+
     Enum.reduce(proposal.character_updates, sequence, fn update, current ->
       sequence =
         if map_size(update.visible_facts) > 0 do
@@ -736,6 +751,21 @@ defmodule Storyteller.Play do
         sequence
       end
     end)
+  end
+
+  defp append_panel_change_event(_state, _turn, sequence, _visibility, []), do: sequence
+
+  defp append_panel_change_event(state, turn, sequence, visibility, changes) do
+    panel_changes = Map.new(changes, &{&1.key, &1.value})
+
+    append_event!(
+      %{state | event_sequence: sequence},
+      turn,
+      :state_change,
+      visibility,
+      nil,
+      %{panel_changes: panel_changes}
+    )
   end
 
   defp append_event!(state, turn, type, visibility, speaker_id, payload) do
@@ -812,6 +842,13 @@ defmodule Storyteller.Play do
       end
     end)
 
+    Enum.each(proposal.panel_changes, fn change ->
+      case Panels.update_value(campaign_id, change.key, change.value) do
+        {:ok, _field} -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+
     case Repo.update(
            State.changeset(state, %{
              public_state: public_state,
@@ -834,7 +871,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes character_updates roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates roll_request)
 
     cond do
       map_size(proposal) > length(allowed) -> {:error, :invalid_response}
@@ -851,13 +888,15 @@ defmodule Storyteller.Play do
          {:ok, activities} <- validate_lines(field(proposal, :activities, []), turn.campaign_id),
          {:ok, public_changes} <- object_field(proposal, :public_changes),
          {:ok, private_changes} <- object_field(proposal, :private_changes),
+         {:ok, panel_changes} <-
+           validate_panel_changes(field(proposal, :panel_changes, %{}), turn.campaign_id),
          {:ok, character_updates} <-
            validate_character_updates(field(proposal, :character_updates, []), turn.campaign_id),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if roll_request &&
            (map_size(public_changes) > 0 or map_size(private_changes) > 0 or
-              character_updates != []) do
+              panel_changes != [] or character_updates != []) do
         {:error, :invalid_response}
       else
         {:ok,
@@ -867,12 +906,41 @@ defmodule Storyteller.Play do
            activities: activities,
            public_changes: public_changes,
            private_changes: private_changes,
+           panel_changes: panel_changes,
            character_updates: character_updates,
            roll_request: roll_request
          }}
       end
     end
   end
+
+  defp validate_panel_changes(changes, campaign_id)
+       when is_map(changes) and map_size(changes) <= 100 do
+    definitions = Map.new(Panels.list_fields(campaign_id), &{&1.key, &1})
+
+    Enum.reduce_while(changes, {:ok, []}, fn {raw_key, value}, {:ok, acc} ->
+      key = if is_binary(raw_key), do: raw_key, else: key_name(raw_key)
+
+      case Map.get(definitions, key) do
+        nil ->
+          {:halt, {:error, :invalid_response}}
+
+        definition ->
+          case Panels.validate_value(definition, value) do
+            {:ok, normalized} ->
+              {:cont,
+               {:ok,
+                acc ++
+                  [%{key: definition.key, visibility: definition.visibility, value: normalized}]}}
+
+            {:error, _reason} ->
+              {:halt, {:error, :invalid_response}}
+          end
+      end
+    end)
+  end
+
+  defp validate_panel_changes(_changes, _campaign_id), do: {:error, :invalid_response}
 
   defp validate_lines(lines, campaign_id) when is_list(lines) and length(lines) <= 30 do
     characters = campaign_characters(campaign_id)
@@ -1061,6 +1129,7 @@ defmodule Storyteller.Play do
     campaign = Repo.get!(Campaign, turn.campaign_id)
     state = Repo.get_by!(State, campaign_id: turn.campaign_id)
     characters = campaign_characters(turn.campaign_id)
+    panels = Panels.list_fields(turn.campaign_id)
 
     events =
       Repo.all(
@@ -1092,6 +1161,18 @@ defmodule Storyteller.Play do
             visible_facts: character.visible_facts,
             gm_private_facts: character.gm_private_facts,
             visible_activity: character.visible_activity
+          }
+        end),
+      panels:
+        Enum.map(panels, fn panel ->
+          %{
+            key: panel.key,
+            panel: panel.panel,
+            label: panel.label,
+            type: panel.value_type,
+            unit: panel.unit,
+            visibility: panel.visibility,
+            value: Map.get(panel.value || %{}, "value")
           }
         end),
       history:
@@ -1313,7 +1394,8 @@ defmodule Storyteller.Play do
 
   defp proposal_has_state_changes?(proposal) do
     map_size(proposal.public_changes) > 0 or map_size(proposal.private_changes) > 0 or
-      proposal.character_updates != [] or proposal.activities != []
+      proposal.panel_changes != [] or proposal.character_updates != [] or
+      proposal.activities != []
   end
 
   defp field(map, key, default \\ nil)

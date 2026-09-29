@@ -2,6 +2,7 @@ defmodule Storyteller.Auth.OAuthTest do
   use ExUnit.Case, async: true
 
   alias Storyteller.Auth.{Credentials, OAuth, TokenStore}
+  alias Storyteller.Auth.OAuthTest.FakeOIDC
 
   setup do
     directory = Path.join(System.tmp_dir!(), "storyteller-oauth-test-#{Ecto.UUID.generate()}")

@@ -40,7 +40,8 @@ defmodule Storyteller.GM.OpenAITest do
     assert {:ok, %{text: "{\"narration\":\"The rain begins.\"}"}} =
              OpenAI.stream_response(request, store: context.store, http: http)
 
-    assert_receive {:models_request, %{headers: headers}}
+    assert_receive {:models_request, options}
+    headers = Keyword.fetch!(options, :headers)
 
     assert Enum.find(headers, fn {name, _} -> name == "authorization" end) ==
              {"authorization", "Bearer fixture-access-token"}

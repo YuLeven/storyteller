@@ -7,23 +7,24 @@ Storyteller is an in-progress local Phoenix LiveView TTRPG site. This checkpoint
 - Durable PostgreSQL campaigns and continuous sessions, with a separate fictional development QA campaign and a separate test database. The vineyard campaign has not been imported or used for QA.
 - Atomic campaign setup with starting date, time, weather, location, optional GM-controlled characters, and typed campaign panel fields. Public panel projection filters GM-private values. Focused campaign/panel checks passed; an older session-page assertion was then updated for the new play screen.
 - Public play timeline, text action composer, asynchronous GM resolution, persisted pending/failed turns, retry, attributed NPC dialogue and activity, world header, and a player-click D20 request. Focused LiveView checks passed: 11 tests, 0 failures.
+- GM proposals can update known typed campaign fields. Values are validated and committed with their turn, and audit events preserve public/private visibility. Public panel fields appear on the play page.
 - Versioned, campaign-independent GM policy in `docs/GM_POLICY.md`, based on the original vineyard game's explicit play rules. No vineyard plot or state is in the public repository.
 - ChatGPT-plan OAuth and Responses adapter code using the locally hosted preview flow, protected server-side token storage, and a fake-testable HTTP boundary. Live account consent and a real Responses call have not occurred.
 
 ## Verification at the checkpoint
 
-- Campaign and panel focused run: 19 of 20 tests passed; its sole failure was an old session-page copy assertion. That assertion was updated in the play-screen slice, whose subsequent focused LiveView run passed 11 tests, 0 failures.
-- OAuth/GM/controller focused run: 33 tests, 8 failures. The agent identified test harness issues: a nested fake OIDC module resolves incorrectly, a fake GM request expects map options where the adapter passes a keyword list, and one controller test uses a deprecated flash assertion. These fixes and a rerun are the first pickup task.
-- The complete integrated suite and live OAuth smoke check were not run before this checkpoint.
+- The earlier focused campaign run had one obsolete session-page copy assertion; it was updated. The session and campaign LiveView suite passed 11 tests, 0 failures.
+- The first OAuth/GM/controller focused run had 8 test-harness failures. Those fixtures were corrected; the complete integrated suite now passes: **76 tests, 0 failures**.
+- `mix compile --warnings-as-errors` passed, and migration `20260929000300` was applied to the durable development database. The full suite used the separate `storyteller_test` database.
+- Live OAuth consent, a real Responses request, and a visual browser review remain unverified.
 
 ## Resume in this order
 
-1. Run WSL formatting, warnings-as-errors compilation, development migration, and the complete test suite. Resolve any integration failures before starting new features. Keep `storyteller_dev` and its QA campaign; never reset it to fix tests. Use the separate `storyteller_test` database for automated tests.
-2. Review the OAuth fake-test results, connect the owner's ChatGPT account through the local `/auth/connect` page, and run one opt-in streamed Responses smoke check. Confirm the account and app are eligible for ChatGPT-plan usage. Do not use an API key or purchased API credits.
-3. Integrate typed panel changes into GM proposal validation, the atomic turn commit, model context, and the play screen. Preserve an event for every visible value change and exclude private fields from public events.
-4. Implement persisted UI locale selection and translate the whole interface into English, Spanish, and French. Keep narration language and existing story text unchanged when switching UI locale.
-5. Add the separate audited GM-controlled roll path and bounded long-campaign context with an older-history summary. Continue behavioral tests and visual/accessibility review on the fictional QA campaign.
-6. Review the full vineyard history for an owner-approved import. Conversation history is available read-only, but long retrieved messages can be truncated. Do not infer missing facts or alter the original chat.
+1. Keep the suite green in WSL and preserve the durable dev QA campaign. Automated runs use only `storyteller_test`.
+2. Implement persisted UI locale selection and translate all interface flows into English, Spanish, and French. Keep narration language and existing story text unchanged when changing the UI locale.
+3. Add the separate audited GM-controlled roll path and bounded long-campaign context with an older-history summary. Run visual and accessibility review on the fictional QA campaign.
+4. After the local flow is reviewable, connect the owner's ChatGPT account through `/auth/connect` and run one opt-in streamed Responses smoke check. Confirm eligibility; do not use API keys or purchased credits.
+5. Review the full vineyard history for an owner-approved import. Conversation history is available read-only, but long retrieved messages can be truncated. Do not infer missing facts or alter the original chat.
 
 ## Local development notes
 

@@ -295,11 +295,15 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp state_change_label(event, characters) do
-    case event.speaker_id do
-      nil -> "World update"
-      speaker_id -> "#{speaker_name(characters, speaker_id)}: known details"
+    cond do
+      is_map(Map.get(event.payload, "panel_changes")) -> "Campaign values"
+      is_nil(event.speaker_id) -> "World update"
+      true -> "#{speaker_name(characters, event.speaker_id)}: known details"
     end
   end
+
+  defp state_change_values(%{payload: %{"panel_changes" => changes}}) when is_map(changes),
+    do: changes
 
   defp state_change_values(%{payload: %{"changes" => changes}}) when is_map(changes), do: changes
 

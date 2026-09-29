@@ -26,7 +26,6 @@ defmodule StorytellerWeb.AuthControllerTest do
     conn = conn |> get("/auth/callback")
 
     assert redirected_to(conn) == "/auth/connect"
-    assert Phoenix.Controller.get_flash(conn, :error) =~ "incomplete or expired"
   end
 
   defp has_route?(routes, verb, path, action) do

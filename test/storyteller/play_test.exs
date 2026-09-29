@@ -4,8 +4,10 @@ defmodule Storyteller.PlayTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Campaigns
+  alias Storyteller.Panels
+  alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Roll, Turn}
+  alias Storyteller.Play.{Roll, State, Turn}
 
   test "public projections separate private world and character facts" do
     {campaign, session} = play_campaign("The Glass Observatory")
@@ -68,6 +70,87 @@ defmodule Storyteller.PlayTest do
              public_events,
              &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:lyra")
            )
+  end
+
+  test "GM panel changes are typed, atomic, and private values stay out of public events" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    insert_panel_field!(campaign.id, %{
+      key: "cash",
+      panel: "Finances",
+      label: "Available cash",
+      value_type: :money,
+      unit: "ARS",
+      visibility: :public,
+      value: %{"value" => "1000"}
+    })
+
+    insert_panel_field!(campaign.id, %{
+      key: "keeper_secret",
+      panel: "GM notes",
+      label: "Hidden clue",
+      value_type: :text,
+      visibility: :gm_private,
+      value: %{"value" => "unnoticed crack"}
+    })
+
+    context_agent = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      context = decode_request(request)
+      Agent.update(context_agent, fn _ -> context end)
+
+      proposal =
+        ordinary_proposal(%{
+          "panel_changes" => %{"cash" => "1250.50", "keeper_secret" => "revealed later"}
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "panel-update", "Review the accounts.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert [%{"key" => "cash", "value" => "1000", "unit" => "ARS"}] =
+             Agent.get(context_agent, fn context ->
+               assert Enum.any?(context["panels"], &(&1["key"] == "keeper_secret"))
+               Enum.filter(context["panels"], &(&1["key"] == "cash"))
+             end)
+
+    assert {:ok, %{panels: [panel]}} = Play.public_projection(campaign.id)
+    assert panel.name == "Finances"
+    assert [%{key: "cash", value: "1250.5"}] = panel.fields
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    public_panel_event = Enum.find(timeline, &Map.has_key?(&1.payload, "panel_changes"))
+    assert public_panel_event.payload["panel_changes"] == %{"cash" => "1250.5"}
+    refute Map.has_key?(public_panel_event.payload["panel_changes"], "keeper_secret")
+
+    assert {:ok, private_field} = Panels.public_projection(campaign.id)
+
+    refute Enum.any?(
+             private_field.panels,
+             &Enum.any?(&1.fields, fn field -> field.key == "keeper_secret" end)
+           )
+
+    invalid_provider =
+      ordinary_provider(%{"panel_changes" => %{"cash" => "-10"}})
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "invalid-panel",
+               "Spend beyond the balance.",
+               provider: invalid_provider,
+               model: "test-model"
+             )
+
+    assert {:ok, %{panels: [%{fields: [%{key: "cash", value: "1250.5"}]}]}} =
+             Panels.public_projection(campaign.id)
   end
 
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
@@ -565,14 +648,22 @@ defmodule Storyteller.PlayTest do
     campaign = campaign_fixture(%{title: title})
     session = hd(campaign.sessions)
 
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, _state} =
+             Repo.update(
+               State.changeset(state, %{
+                 public_state: %{
+                   "weather" => "Clear",
+                   "location" => nil,
+                   "world_time" => "First watch"
+                 },
+                 gm_private_state: %{"weather_cause" => "a distant pressure front"}
+               })
+             )
+
     assert {:ok, _state} =
              Play.initialize_campaign(campaign, %{
-               public_state: %{
-                 "weather" => "Clear",
-                 "location" => nil,
-                 "world_time" => "First watch"
-               },
-               gm_private_state: %{"weather_cause" => "a distant pressure front"},
                characters: [
                  %{
                    speaker_id: "npc:lyra",
@@ -585,6 +676,21 @@ defmodule Storyteller.PlayTest do
              })
 
     {campaign, session}
+  end
+
+  defp insert_panel_field!(campaign_id, attrs) do
+    defaults = %{
+      campaign_id: campaign_id,
+      key: "resource",
+      panel: "Resources",
+      label: "Resource",
+      value_type: :text,
+      visibility: :public,
+      value: %{"value" => ""},
+      position: 0
+    }
+
+    Repo.insert!(PanelField.changeset(%PanelField{}, Map.merge(defaults, attrs)))
   end
 
   defp complete_turn(campaign, session, key, action, provider) do
@@ -608,6 +714,7 @@ defmodule Storyteller.PlayTest do
         "activities" => [%{"speaker_id" => "npc:lyra", "text" => "She checks the brass shutter."}],
         "public_changes" => %{},
         "private_changes" => %{"weather_cause" => "a distant pressure front"},
+        "panel_changes" => %{},
         "character_updates" => [
           %{
             "speaker_id" => "npc:lyra",
@@ -628,6 +735,7 @@ defmodule Storyteller.PlayTest do
       "activities" => [],
       "public_changes" => %{},
       "private_changes" => %{},
+      "panel_changes" => %{},
       "character_updates" => [],
       "roll_request" => %{
         "test" => "Keep your balance on the ledge",
