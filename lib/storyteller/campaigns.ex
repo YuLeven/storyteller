@@ -7,6 +7,7 @@ defmodule Storyteller.Campaigns do
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
+  alias Storyteller.Play.{Character, VoiceGuidance}
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
@@ -40,6 +41,96 @@ defmodule Storyteller.Campaigns do
   def change_campaign(%Campaign{} = campaign, attrs \\ %{}) do
     Campaign.changeset(campaign, attrs)
   end
+
+  def list_gm_characters(campaign_id) do
+    Repo.all(
+      from character in Character,
+        where: character.campaign_id == ^campaign_id and character.role == :gm,
+        order_by: [asc: character.name, asc: character.speaker_id]
+    )
+  end
+
+  @doc "Updates editable story foundations and explicitly supplied GM character voice notes."
+  def update_campaign_authoring(%Campaign{id: campaign_id}, attrs) when is_map(attrs) do
+    campaign = Repo.get(Campaign, campaign_id)
+
+    if campaign do
+      changeset = Campaign.changeset(campaign, authoring_campaign_attrs(attrs))
+
+      with true <- changeset.valid?,
+           {:ok, voice_updates} <- normalize_character_voice_updates(campaign_id, attrs),
+           {:ok, fact_updates} <- normalize_character_fact_updates(campaign_id, attrs) do
+        Multi.new()
+        |> Multi.update(:campaign, changeset)
+        |> Multi.run(:player_character, fn repo, %{campaign: updated_campaign} ->
+          if Map.has_key?(changeset.changes, :player_character) do
+            case repo.get_by(Character,
+                   campaign_id: campaign_id,
+                   speaker_id: "player",
+                   role: :player
+                 ) do
+              nil ->
+                {:error, :invalid_player_character}
+
+              player ->
+                visible_facts =
+                  Map.put(
+                    player.visible_facts || %{},
+                    "description",
+                    updated_campaign.player_character
+                  )
+
+                repo.update(
+                  Character.changeset(player, %{
+                    name: updated_campaign.player_character,
+                    visible_facts: visible_facts
+                  })
+                )
+            end
+          else
+            {:ok, nil}
+          end
+        end)
+        |> Multi.run(:voice_guidance, fn repo, _changes ->
+          voice_updates
+          |> Enum.reduce_while({:ok, []}, fn {speaker_id, notes}, {:ok, acc} ->
+            case update_gm_character(repo, campaign_id, speaker_id, %{voice_guidance: notes}) do
+              {:ok, updated} -> {:cont, {:ok, [updated | acc]}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+          end)
+        end)
+        |> Multi.run(:character_facts, fn repo, _changes ->
+          fact_updates
+          |> Enum.reduce_while({:ok, []}, fn {speaker_id, fact_edits}, {:ok, acc} ->
+            case update_gm_character_facts(repo, campaign_id, speaker_id, fact_edits) do
+              {:ok, updated} -> {:cont, {:ok, [updated | acc]}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+          end)
+        end)
+        |> Repo.transaction()
+        |> case do
+          {:ok, %{campaign: updated_campaign}} -> {:ok, updated_campaign}
+          {:error, :campaign, failed_changeset, _changes} -> {:error, failed_changeset}
+          {:error, _step, reason, _changes} -> {:error, reason}
+        end
+      else
+        false ->
+          {:error, changeset}
+
+        {:error, reason} when reason in [:invalid_voice_guidance, :invalid_authoring_details] ->
+          {:error, reason}
+
+        {:error, _reason} ->
+          {:error, :invalid_authoring_details}
+      end
+    else
+      {:error, :not_found}
+    end
+  end
+
+  def update_campaign_authoring(_campaign, _attrs), do: {:error, :invalid_authoring}
 
   @doc "Validates the full reviewable setup without writing any records."
   def validate_campaign_setup(attrs) when is_map(attrs) do
@@ -251,6 +342,177 @@ defmodule Storyteller.Campaigns do
     )
   end
 
+  defp authoring_campaign_attrs(attrs) do
+    Enum.reduce(
+      [:title, :premise, :setting, :tone, :narration_language, :player_character],
+      %{},
+      fn key, acc ->
+        string_key = Atom.to_string(key)
+
+        cond do
+          Map.has_key?(attrs, key) -> Map.put(acc, key, Map.get(attrs, key))
+          Map.has_key?(attrs, string_key) -> Map.put(acc, key, Map.get(attrs, string_key))
+          true -> acc
+        end
+      end
+    )
+  end
+
+  defp normalize_character_voice_updates(campaign_id, attrs) do
+    supplied = attr(attrs, :character_voice_guidance, %{})
+    known_speakers = list_gm_characters(campaign_id) |> MapSet.new(& &1.speaker_id)
+
+    cond do
+      not is_map(supplied) ->
+        {:error, :invalid_voice_guidance}
+
+      map_size(supplied) > 100 ->
+        {:error, :invalid_voice_guidance}
+
+      true ->
+        Enum.reduce_while(supplied, {:ok, []}, fn {speaker_id, notes}, {:ok, acc} ->
+          speaker_id = if is_atom(speaker_id), do: Atom.to_string(speaker_id), else: speaker_id
+
+          case VoiceGuidance.normalize(notes) do
+            {:ok, normalized} ->
+              if is_binary(speaker_id) and String.length(speaker_id) <= 100 and
+                   MapSet.member?(known_speakers, speaker_id) do
+                {:cont, {:ok, [{speaker_id, normalized} | acc]}}
+              else
+                {:halt, {:error, :invalid_voice_guidance}}
+              end
+
+            _ ->
+              {:halt, {:error, :invalid_voice_guidance}}
+          end
+        end)
+    end
+  end
+
+  defp normalize_character_fact_updates(campaign_id, attrs) do
+    supplied = attr(attrs, :gm_character_setup, %{})
+    known_speakers = list_gm_characters(campaign_id) |> MapSet.new(& &1.speaker_id)
+
+    cond do
+      not is_map(supplied) or map_size(supplied) > 100 ->
+        {:error, :invalid_authoring_details}
+
+      true ->
+        Enum.reduce_while(supplied, {:ok, []}, fn {speaker_id, row}, {:ok, acc} ->
+          speaker_id = if is_atom(speaker_id), do: Atom.to_string(speaker_id), else: speaker_id
+          keys = if is_map(row), do: Enum.map(Map.keys(row), &key_name/1), else: []
+
+          cond do
+            not is_binary(speaker_id) or not MapSet.member?(known_speakers, speaker_id) ->
+              {:halt, {:error, :invalid_authoring_details}}
+
+            not is_map(row) or length(keys) != length(Enum.uniq(keys)) or
+                Enum.any?(keys, &(&1 not in ["visible_facts_text", "private_notes"])) ->
+              {:halt, {:error, :invalid_authoring_details}}
+
+            true ->
+              with {:ok, visible} <-
+                     normalize_authoring_fact_text(row, :visible_facts_text),
+                   {:ok, private} <- normalize_authoring_fact_text(row, :private_notes) do
+                edits =
+                  %{}
+                  |> maybe_put(:visible_facts_text, visible)
+                  |> maybe_put(:private_notes, private)
+
+                {:cont,
+                 {:ok, if(map_size(edits) == 0, do: acc, else: [{speaker_id, edits} | acc])}}
+              else
+                _ -> {:halt, {:error, :invalid_authoring_details}}
+              end
+          end
+        end)
+    end
+  end
+
+  defp normalize_authoring_fact_text(row, key) do
+    if has_attr?(row, key) do
+      value = attr(row, key)
+
+      if is_binary(value) and String.valid?(value) and String.length(String.trim(value)) <= 5_000 do
+        {:ok, String.trim(value)}
+      else
+        {:error, :invalid_authoring_details}
+      end
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp update_gm_character(repo, campaign_id, speaker_id, attrs) do
+    case repo.get_by(Character,
+           campaign_id: campaign_id,
+           speaker_id: speaker_id,
+           role: :gm
+         ) do
+      nil ->
+        {:error, :invalid_character}
+
+      character ->
+        repo.update(Character.changeset(character, attrs))
+    end
+  end
+
+  defp update_gm_character_facts(repo, campaign_id, speaker_id, edits) do
+    case repo.get_by(Character,
+           campaign_id: campaign_id,
+           speaker_id: speaker_id,
+           role: :gm
+         ) do
+      nil ->
+        {:error, :invalid_character}
+
+      character ->
+        visible_facts =
+          update_fact_text(
+            character.visible_facts || %{},
+            "description",
+            edits,
+            :visible_facts_text
+          )
+
+        private_facts =
+          update_fact_text(character.gm_private_facts || %{}, "notes", edits, :private_notes)
+
+        if json_map?(visible_facts) and json_map?(private_facts) do
+          repo.update(
+            Character.changeset(character, %{
+              visible_facts: visible_facts,
+              gm_private_facts: private_facts
+            })
+          )
+        else
+          {:error, :invalid_character}
+        end
+    end
+  end
+
+  defp update_fact_text(facts, fact_key, edits, edit_key) do
+    if Map.has_key?(edits, edit_key) do
+      case Map.fetch!(edits, edit_key) do
+        "" -> Map.delete(facts, fact_key)
+        value -> Map.put(facts, fact_key, value)
+      end
+    else
+      facts
+    end
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp has_attr?(map, key) do
+    Map.has_key?(map, key) or Map.has_key?(map, Atom.to_string(key))
+  end
+
+  defp key_name(key) when is_atom(key), do: Atom.to_string(key)
+  defp key_name(key) when is_binary(key), do: key
+  defp key_name(_key), do: nil
+
   defp normalize_initial_world(campaign_changeset, initial_state) when is_map(initial_state) do
     location = clean_optional(Ecto.Changeset.get_field(campaign_changeset, :starting_location))
     world_time = clean_optional(Ecto.Changeset.get_field(campaign_changeset, :world_time))
@@ -291,6 +553,9 @@ defmodule Storyteller.Campaigns do
           name = attrs |> attr(:name, "") |> trim_string()
           visible = character_facts(attrs, :visible_facts, :visible_facts_text, "description")
           private = character_facts(attrs, :gm_private_facts, :private_notes, "notes")
+          voice_guidance = attr(attrs, :voice_guidance, %{})
+
+          normalized_voice_guidance = VoiceGuidance.normalize(voice_guidance)
 
           speaker_id =
             if supplied_speaker_id == "" and name != "" and String.length(name) <= 300 do
@@ -321,6 +586,12 @@ defmodule Storyteller.Campaigns do
             not is_map(visible) or not is_map(private) ->
               {:halt, {:error, {:setup, "GM character facts must be maps."}}}
 
+            match?({:error, _}, normalized_voice_guidance) ->
+              {:halt,
+               {:error,
+                {:setup,
+                 "Voice notes need up to 280 characters per field and 1,200 characters total."}}}
+
             not json_map?(visible) or not json_map?(private) ->
               {:halt, {:error, {:setup, "GM character facts must be JSON-safe."}}}
 
@@ -333,7 +604,8 @@ defmodule Storyteller.Campaigns do
                       speaker_id: speaker_id,
                       name: name,
                       visible_facts: visible,
-                      gm_private_facts: private
+                      gm_private_facts: private,
+                      voice_guidance: elem(normalized_voice_guidance, 1)
                     }
                   ]}}
           end

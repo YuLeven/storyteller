@@ -38,6 +38,7 @@ defmodule StorytellerWeb.Router do
     live_session :default, on_mount: [{StorytellerWeb.Locale, :default}] do
       live "/", CampaignLive.Index, :index
       live "/campaigns/new", CampaignLive.New, :new
+      live "/campaigns/:id/edit", CampaignLive.Edit, :edit
       live "/campaigns/:id", CampaignLive.Show, :show
       live "/campaigns/:campaign_id/sessions/:session_id", SessionLive.Show, :show
     end

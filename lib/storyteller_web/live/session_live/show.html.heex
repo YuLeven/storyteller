@@ -211,17 +211,30 @@
           <span class="mt-1 h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-amber-600"></span>
           <div>
             <h2 class="font-semibold text-amber-950">
-              {if @worker_turn_id == @current_turn.id,
-                do: gettext("The game master is responding"),
-                else: gettext("Your turn is saved")}
+              {cond do
+                opening_scene?(@current_turn) ->
+                  gettext("The game master is preparing the opening scene")
+
+                @worker_turn_id == @current_turn.id ->
+                  gettext("The game master is responding")
+
+                true ->
+                  gettext("Your turn is saved")
+              end}
             </h2>
             <p class="mt-1 text-sm leading-6 text-amber-900">
-              {if @worker_turn_id == @current_turn.id,
-                do:
+              {cond do
+                opening_scene?(@current_turn) ->
+                  gettext("The opening scene must be ready before you take your first action.")
+
+                @worker_turn_id == @current_turn.id ->
                   gettext(
                     "The scene is being updated. You can leave and return; this turn will remain here."
-                  ),
-                else: gettext("Reconnecting to the saved turn…")}
+                  )
+
+                true ->
+                  gettext("Reconnecting to the saved turn…")
+              end}
             </p>
           </div>
         </section>
@@ -235,8 +248,19 @@
           <p class="mt-1 text-sm leading-6 text-rose-800">
             {failure_message(@current_turn.failure_code)}
           </p>
-          <p class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700">
+          <p
+            :if={!opening_scene?(@current_turn)}
+            class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700"
+          >
             {gettext("Your submitted action remains in the campaign story below.")}
+          </p>
+          <p
+            :if={opening_scene?(@current_turn)}
+            class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700"
+          >
+            {gettext(
+              "The opening scene has not been recorded yet. Retry it before choosing what to do."
+            )}
           </p>
           <p
             :if={@current_turn.resolution_phase == :after_roll}
@@ -254,7 +278,13 @@
                   "Your D20 result is saved. Retry continues this same turn with that result."
                 ),
               else:
-                gettext("Your saved action is still unresolved. Retry continues this same turn.")}
+                if(opening_scene?(@current_turn),
+                  do: gettext("Retry the opening scene to begin the campaign."),
+                  else:
+                    gettext(
+                      "Your saved action is still unresolved. Retry continues this same turn."
+                    )
+                )}
           </p>
           <div class="mt-4 flex flex-wrap items-center gap-3">
             <button
@@ -264,9 +294,11 @@
               phx-value-turn_id={@current_turn.id}
               disabled={@worker_turn_id == @current_turn.id}
               class="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-900 disabled:cursor-wait disabled:opacity-60"
-            >{if @worker_turn_id == @current_turn.id,
-              do: gettext("Retrying…"),
-              else: gettext("Retry this turn")}</button>
+            >{cond do
+              @worker_turn_id == @current_turn.id -> gettext("Retrying…")
+              opening_scene?(@current_turn) -> gettext("Retry opening scene")
+              true -> gettext("Retry this turn")
+            end}</button>
             <.link
               :if={reconnect_needed?(@current_turn.failure_code)}
               navigate="/auth/connect"
@@ -334,9 +366,7 @@
             </div>
             <h3 class="mt-4 font-semibold text-stone-900">{gettext("A new scene begins")}</h3>
             <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-600">
-              {gettext(
-                "Tell the game master what your character does or says to start the story."
-              )}
+              {gettext("The game master is preparing the opening scene for your first choice.")}
             </p>
           </div>
           <div
@@ -411,7 +441,7 @@
             <ol
               :if={pending_action_preview?(@current_turn, @timeline)}
               id="story-pending-action"
-              aria-label={gettext("Saved player action")}
+              aria-label={pending_input_label(@current_turn.intent)}
               class="story-timeline space-y-4 px-4 pb-5 sm:px-7"
             >
               <li
@@ -422,7 +452,7 @@
                 <article class="story-entry story-entry-player">
                   <div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
-                      {gettext("You")}
+                      {pending_input_label(@current_turn.intent)}
                     </h3>
                     <p class="text-[11px] text-stone-400">{gettext("Turn saved")}</p>
                   </div>
@@ -450,8 +480,39 @@
             id="turn-composer"
           >
             <input type="hidden" name="turn[idempotency_key]" value={@submission_key} />
+            <input
+              type="hidden"
+              name="turn[intent]"
+              value={Atom.to_string(@interaction_mode)}
+            />
+            <div
+              role="group"
+              aria-label={gettext("How do you want to interact?")}
+              class="mb-3 flex flex-wrap gap-2"
+            >
+              <button
+                :for={
+                  {mode, label} <- [
+                    {:action, gettext("Act or say")},
+                    {:question, gettext("Ask the GM")},
+                    {:time_passage, gettext("Let time pass")}
+                  ]
+                }
+                type="button"
+                phx-click="select-mode"
+                phx-value-mode={Atom.to_string(mode)}
+                aria-pressed={@interaction_mode == mode}
+                class={[
+                  "rounded-full border px-3 py-1.5 text-sm font-semibold transition",
+                  @interaction_mode == mode &&
+                    "border-amber-800 bg-amber-800 text-white",
+                  @interaction_mode != mode &&
+                    "border-amber-300 bg-white text-amber-950 hover:bg-amber-50"
+                ]}
+              >{label}</button>
+            </div>
             <label for="turn-input" class="block text-sm font-semibold text-stone-900">
-              {gettext("What do you do or say?")}
+              {composer_label(@interaction_mode)}
             </label>
             <textarea
               id="turn-input"
@@ -460,11 +521,10 @@
               maxlength="20000"
               phx-debounce="blur"
               phx-hook="ActionComposer"
-              placeholder={gettext("Describe your character's action or words…")}
+              placeholder={composer_placeholder(@interaction_mode)}
               disabled={
                 @plan_usage_paused? ||
-                  (@current_turn &&
-                     @current_turn.status in [:pending, :resolving, :awaiting_roll])
+                  turn_blocks_composer?(@current_turn)
               }
               class="mt-2 block w-full resize-y rounded-xl border-stone-300 bg-white shadow-sm placeholder:text-stone-400 focus:border-amber-700 focus:ring-amber-700 disabled:bg-stone-100"
             >{@draft}</textarea>
@@ -486,22 +546,29 @@
                 "ChatGPT plan requests are paused. Resume them before starting or retrying a turn."
               )}
             </p>
+            <div class="mt-3 flex flex-wrap gap-2" aria-label={gettext("Helpful prompts")}>
+              <button
+                :for={nudge <- contextual_nudges(@interaction_mode, @projection)}
+                type="button"
+                phx-click="use-nudge"
+                phx-value-nudge_id={nudge.id}
+                disabled={@plan_usage_paused? || turn_blocks_composer?(@current_turn)}
+                class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >{nudge.label}</button>
+            </div>
             <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p class="text-xs leading-5 text-stone-600">
-                {gettext("Actions and dialogue become part of your saved campaign history.")} {gettext(
-                  "Press Ctrl+Enter to send."
-                )}
+                {composer_guidance(@interaction_mode)} {gettext("Press Ctrl+Enter to send.")}
               </p>
               <button
                 type="submit"
                 disabled={
                   !playable?(@session) ||
                     @plan_usage_paused? ||
-                    (@current_turn &&
-                       @current_turn.status in [:pending, :resolving, :awaiting_roll])
+                    turn_blocks_composer?(@current_turn)
                 }
                 class="inline-flex justify-center rounded-lg bg-amber-800 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
-              >{gettext("Send turn")}</button>
+              >{composer_submit_label(@interaction_mode)}</button>
             </div>
             <div
               id="chatgpt-plan-status"
@@ -878,9 +945,7 @@
               change={Map.get(@projection.latest_inventory_changes, item["id"])}
               characters_by_id={@characters_by_id}
               playable={playable?(@session)}
-              turn_blocked={
-                @current_turn && @current_turn.status in [:pending, :resolving, :awaiting_roll]
-              }
+              turn_blocked={blocking_turn?(@current_turn)}
             />
           </ul>
           <details
@@ -898,9 +963,7 @@
                 change={Map.get(@projection.latest_inventory_changes, item["id"])}
                 characters_by_id={@characters_by_id}
                 playable={playable?(@session)}
-                turn_blocked={
-                  @current_turn && @current_turn.status in [:pending, :resolving, :awaiting_roll]
-                }
+                turn_blocked={blocking_turn?(@current_turn)}
               />
             </ul>
           </details>

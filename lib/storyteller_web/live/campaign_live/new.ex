@@ -236,6 +236,12 @@ defmodule StorytellerWeb.CampaignLive.New do
     gettext("Starting inventory must be a list.")
   end
 
+  defp setup_error_message(
+         "Voice notes need up to 280 characters per field and 1,200 characters total."
+       ) do
+    gettext("Voice notes must be 280 characters or fewer per field and 1,200 characters total.")
+  end
+
   defp setup_error_message("Player character details must be a list.") do
     gettext("Player character details must be a list.")
   end
@@ -299,10 +305,30 @@ defmodule StorytellerWeb.CampaignLive.New do
     gettext("Campaign setup could not be validated. Review the fields and try again.")
   end
 
-  defp row_value(row, key) when is_map(row),
-    do: Map.get(row, key, Map.get(row, String.to_existing_atom(key), ""))
+  defp row_value(row, key) when is_map(row) do
+    case Map.fetch(row, key) do
+      {:ok, value} -> value
+      :error -> Map.get(row, existing_atom(key), "")
+    end
+  end
 
   defp row_value(_row, _key), do: ""
+
+  defp existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp existing_atom(_key), do: nil
+
+  defp voice_value(row, key) when is_map(row) do
+    row
+    |> row_value("voice_guidance")
+    |> row_value(key)
+  end
+
+  defp voice_value(_row, _key), do: ""
 
   defp panel_type_label(:quantity), do: gettext("Quantity")
   defp panel_type_label(:money), do: gettext("Money")

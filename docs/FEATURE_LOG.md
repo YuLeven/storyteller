@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-09-30 — Fold voice cues into character setup and extend MVP goals
+
+- The campaign editor now groups GM-only quirks, accent/dialect, cadence, vocabulary, and mannerisms inside each character's own setup card, alongside their visible facts and GM-only notes. The initial campaign form already follows this per-character layout.
+- Added MVP requirements for distinct player-character name and description fields (the name alone headlines the character list) and for a gentle, recoverable response to AI usage limits that preserves the pending action and any roll without disguising a service limit as fictional “energy.”
+- **Checks:** full WSL suite **226 tests, 0 failures**; focused inventory and campaign-authoring scenarios pass. JavaScript tests **13/13**. Formatting, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. Tests use fictional fixtures and the isolated `storyteller_test` database; no live provider request was made.
+
+## 2026-09-30 — Persist character voice guidance and edit campaign setup
+
+- GM-character setup captures separate private voice notes for quirks, accent/dialect, cadence, vocabulary, and mannerisms. Each field is capped at 280 characters and a character's notes at 1,200 characters; these notes are stored apart from public facts.
+- Campaign detail pages link to an editor for title, premise, setting, tone, narration language, the current player-character description, existing GM-character public/private facts, and voice notes. Voice and mannerism notes now sit within the corresponding character setup card rather than in a separate section. Saving updates current projections for future turns and leaves prior sessions and story entries intact. A reversible migration adds the private voice-note field.
+- Added behavioral tests for setup validation, public-projection privacy, rejected model writes, and edit-history preservation.
+
 ## 2026-09-30 — Add character identity and GM-led play goals
 
 - Added MVP requirements for character-specific voice notes (quirks, optional accent, cadence, vocabulary, and mannerisms) that persist and inform future GM prompts without reducing a character to a caricature.

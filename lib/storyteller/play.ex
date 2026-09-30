@@ -25,7 +25,8 @@ defmodule Storyteller.Play do
     Place,
     Roll,
     State,
-    Turn
+    Turn,
+    VoiceGuidance
   }
 
   alias Storyteller.Play.Inventory
@@ -51,6 +52,8 @@ defmodule Storyteller.Play do
   @max_continuity_entry_details_chars 500
   @event_types [
     :player_action,
+    :player_question,
+    :time_passage,
     :gm_narration,
     :npc_dialogue,
     :character_activity,
@@ -60,6 +63,8 @@ defmodule Storyteller.Play do
   ]
   @player_story_event_types [
     :player_action,
+    :player_question,
+    :time_passage,
     :gm_narration,
     :npc_dialogue,
     :roll_request,
@@ -728,6 +733,7 @@ defmodule Storyteller.Play do
           campaign_id: turn.campaign_id,
           session_id: turn.session_id,
           player_input: turn.player_input,
+          intent: turn.intent,
           status: turn.status,
           resolution_phase: turn.resolution_phase,
           roll_request: turn.roll_request,
@@ -778,14 +784,44 @@ defmodule Storyteller.Play do
   its public timeline event.
   """
   def submit_turn(campaign_id, session_id, idempotency_key, player_input, opts \\ []) do
-    with :ok <- ensure_plan_usage_allowed(opts),
+    intent = Keyword.get(opts, :intent, :action)
+
+    with :ok <- validate_player_intent(intent),
+         :ok <- ensure_plan_usage_allowed(opts),
          {:ok, key, input} <- validate_submission(idempotency_key, player_input),
-         {:ok, turn, created?} <- create_or_get_turn(campaign_id, session_id, key, input) do
+         {:ok, turn, created?} <- create_or_get_turn(campaign_id, session_id, key, input, intent) do
       if created? and provider(opts) do
         resolve_turn(turn.id, opts)
       else
         {:ok, turn}
       end
+    end
+  end
+
+  @doc "Creates or reuses the first-session opening-scene turn when a new campaign has no story yet."
+  def ensure_opening_scene(campaign_id, session_id) do
+    opening_key = "opening-scene-#{session_id}"
+
+    case Repo.get_by(Turn, campaign_id: campaign_id, idempotency_key: opening_key) do
+      %Turn{} = turn ->
+        {:ok, turn}
+
+      nil ->
+        if first_session_without_story?(campaign_id, session_id) do
+          create_or_get_turn(
+            campaign_id,
+            session_id,
+            opening_key,
+            "Establish the opening scene before the player has taken an action.",
+            :opening_scene
+          )
+          |> case do
+            {:ok, turn, _created?} -> {:ok, turn}
+            {:error, reason} -> {:error, reason}
+          end
+        else
+          {:ok, nil}
+        end
     end
   end
 
@@ -855,9 +891,10 @@ defmodule Storyteller.Play do
          :ok <- ensure_plan_usage_allowed(opts),
          {:ok, context} <- model_context(turn.id),
          :ok <- ensure_plan_usage_allowed(opts),
-         {:ok, response} <- call_provider(provider, provider_request(context, opts)),
+         {:ok, response} <- call_provider(provider, provider_request(context, opts, turn.intent)),
          {:ok, proposal} <- decode_proposal(response),
-         {:ok, validated} <- validate_proposal(proposal, turn) do
+         {:ok, validated} <- validate_proposal(proposal, turn),
+         validated <- constrain_proposal_to_intent(validated, turn.intent) do
       case commit_proposal(turn.id, attempt_token, validated) do
         {:ok, committed} ->
           {:ok, committed}
@@ -897,8 +934,8 @@ defmodule Storyteller.Play do
       fail_turn(turn.id, attempt_token, :provider_error)
   end
 
-  defp create_or_get_turn(campaign_id, session_id, key, input) do
-    request_hash = request_hash(session_id, input)
+  defp create_or_get_turn(campaign_id, session_id, key, input, intent) do
+    request_hash = request_hash(session_id, input, intent)
 
     Repo.transaction(fn ->
       {campaign, session} = lock_campaign_session(campaign_id, session_id)
@@ -919,7 +956,8 @@ defmodule Storyteller.Play do
                    lock: "FOR UPDATE"
                ) do
             %Turn{} = existing ->
-              if existing.request_hash == request_hash and existing.session_id == session_id do
+              if existing.request_hash == request_hash and existing.session_id == session_id and
+                   existing.intent == intent do
                 {:existing, existing}
               else
                 Repo.rollback(:idempotency_conflict)
@@ -950,6 +988,7 @@ defmodule Storyteller.Play do
                     idempotency_key: key,
                     request_hash: request_hash,
                     player_input: input,
+                    intent: intent,
                     status: :pending,
                     resolution_phase: :initial,
                     attempts: 0
@@ -968,6 +1007,25 @@ defmodule Storyteller.Play do
       {:ok, {:existing, turn}} -> {:ok, turn, false}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp first_session_without_story?(campaign_id, session_id) do
+    session_count =
+      Repo.aggregate(from(session in Session, where: session.campaign_id == ^campaign_id), :count)
+
+    turn_count =
+      Repo.aggregate(from(turn in Turn, where: turn.campaign_id == ^campaign_id), :count)
+
+    event_count =
+      Repo.aggregate(from(event in Event, where: event.campaign_id == ^campaign_id), :count)
+
+    session_count == 1 and turn_count == 0 and event_count == 0 and
+      Repo.exists?(
+        from session in Session,
+          where:
+            session.id == ^session_id and session.campaign_id == ^campaign_id and
+              session.status == :active
+      )
   end
 
   defp claim_turn(turn_id) do
@@ -1211,6 +1269,11 @@ defmodule Storyteller.Play do
     end)
   end
 
+  defp player_input_event_type(:action), do: :player_action
+  defp player_input_event_type(:question), do: :player_question
+  defp player_input_event_type(:time_passage), do: :time_passage
+  defp player_input_event_type(:opening_scene), do: nil
+
   defp append_proposal_events(state, turn, proposal, include_action?, speaker_visibility) do
     canonical_public_state = canonical_public_world(state.public_state, turn.campaign_id)
 
@@ -1224,17 +1287,19 @@ defmodule Storyteller.Play do
     sequence = state.event_sequence
 
     sequence =
-      if include_action? do
-        append_event!(
-          action_state,
-          turn,
-          :player_action,
-          :public,
-          "player",
-          %{text: turn.player_input}
-        )
-      else
-        sequence
+      case if(include_action?, do: player_input_event_type(turn.intent), else: nil) do
+        nil ->
+          sequence
+
+        event_type ->
+          append_event!(
+            action_state,
+            turn,
+            event_type,
+            :public,
+            "player",
+            %{text: turn.player_input}
+          )
       end
 
     sequence =
@@ -2046,14 +2111,52 @@ defmodule Storyteller.Play do
       ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes objective_changes continuity_changes roll_request)
 
     cond do
-      not unique_normalized_keys?(proposal) -> {:error, :invalid_response}
-      map_size(proposal) > length(allowed) -> {:error, :invalid_response}
-      Enum.any?(Map.keys(proposal), &(key_name(&1) not in allowed)) -> {:error, :invalid_response}
-      true -> validate_proposal_fields(proposal, turn)
+      not unique_normalized_keys?(proposal) ->
+        {:error, :invalid_response}
+
+      map_size(proposal) > length(allowed) ->
+        {:error, :invalid_response}
+
+      Enum.any?(Map.keys(proposal), &(key_name(&1) not in allowed)) ->
+        {:error, :invalid_response}
+
+      true ->
+        proposal =
+          if turn.intent == :question do
+            %{
+              narration: field(proposal, :narration),
+              memory_update: %{public_summary: "", gm_private_summary: ""}
+            }
+          else
+            proposal
+          end
+
+        validate_proposal_fields(proposal, turn)
     end
   end
 
   defp validate_proposal(_proposal, _turn), do: {:error, :invalid_response}
+
+  defp constrain_proposal_to_intent(proposal, :question) do
+    %{
+      proposal
+      | dialogue: [],
+        activities: [],
+        public_changes: %{},
+        private_changes: %{},
+        panel_changes: [],
+        character_updates: [],
+        character_creations: [],
+        inventory_changes: [],
+        location_changes: [],
+        objective_changes: [],
+        continuity_changes: [],
+        memory_update: nil,
+        roll_request: nil
+    }
+  end
+
+  defp constrain_proposal_to_intent(proposal, _intent), do: proposal
 
   defp validate_proposal_fields(proposal, turn) do
     known_characters = campaign_characters(turn.campaign_id)
@@ -2100,7 +2203,8 @@ defmodule Storyteller.Play do
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if roll_request &&
-           (map_size(public_changes) > 0 or map_size(private_changes) > 0 or
+           (turn.intent != :action or map_size(public_changes) > 0 or
+              map_size(private_changes) > 0 or
               panel_changes != [] or character_creations != [] or character_updates != [] or
               inventory_changes != [] or
               location_changes != [] or objective_changes != [] or
@@ -3521,13 +3625,15 @@ defmodule Storyteller.Play do
   defp normalize_provider_return({:error, code}), do: {:error, normalize_failure_code(code)}
   defp normalize_provider_return(_), do: {:error, :provider_error}
 
-  defp provider_request(context, opts) do
+  defp provider_request(context, opts, intent) do
+    request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
+
     request = %{
-      instructions: @gm_policy,
+      instructions: @gm_policy <> interaction_mode_guidance(intent),
       input: [
         %{
           role: "user",
-          content: [%{type: "input_text", text: Jason.encode!(context)}]
+          content: [%{type: "input_text", text: Jason.encode!(request_context)}]
         }
       ]
     }
@@ -3537,6 +3643,45 @@ defmodule Storyteller.Play do
       _ -> request
     end
   end
+
+  defp interaction_mode_guidance(:question) do
+    """
+
+    This is a direct out-of-character question from the player to you as GM, not
+    an action or dialogue spoken by the player's character. Answer it plainly
+    and briefly as GM narration. Do not advance fictional time or change any
+    canonical world, character, inventory, location, objective, continuity,
+    memory, or tracked-resource data. Do not create NPC dialogue, activities,
+    rolls, or other events; only narration is used for this answer.
+    """
+  end
+
+  defp interaction_mode_guidance(:time_passage) do
+    """
+
+    The player explicitly asks to let time pass. Treat this as an out-of-
+    character request to advance the world, not as an action performed by their
+    character. Advance only the bounded interval requested or a short natural
+    interval when the request is open-ended. Keep calendar, time, weather, and
+    other world changes canonical and consistent. Never invent actions, speech,
+    thoughts, or decisions for the player's character. Narrate relevant world
+    developments and return control as soon as a meaningful player decision is
+    due. Do not request a roll for the passage of time.
+    """
+  end
+
+  defp interaction_mode_guidance(:opening_scene) do
+    """
+
+    This is the idempotent opening-scene request for a brand-new campaign's
+    first session. The player has not acted yet; the stored input is an internal
+    marker, not a player action. Establish the initial situation and return
+    control with a clear opportunity for the player to choose what to do. Do not
+    invent any action, speech, thought, or decision for the player's character.
+    """
+  end
+
+  defp interaction_mode_guidance(_intent), do: ""
 
   defp build_request_context(turn) do
     campaign = Repo.get!(Campaign, turn.campaign_id)
@@ -3616,6 +3761,7 @@ defmodule Storyteller.Play do
             current_place:
               Map.get(places_by_id, character.current_place_id) |> maybe_place_context()
           }
+          |> Map.merge(voice_guidance_context(character))
         end),
       panels:
         Enum.map(panels, fn panel ->
@@ -3642,6 +3788,15 @@ defmodule Storyteller.Play do
         end)
     }
   end
+
+  defp voice_guidance_context(%Character{role: :gm, voice_guidance: guidance}) do
+    case VoiceGuidance.normalize(guidance) do
+      {:ok, normalized} when map_size(normalized) > 0 -> %{voice_guidance: normalized}
+      _ -> %{}
+    end
+  end
+
+  defp voice_guidance_context(_character), do: %{}
 
   defp fail_turn(turn_id, attempt_token, code) do
     Repo.transaction(fn ->
@@ -3764,8 +3919,15 @@ defmodule Storyteller.Play do
     end
   end
 
-  defp request_hash(session_id, input) do
+  defp validate_player_intent(intent) when intent in [:action, :question, :time_passage], do: :ok
+  defp validate_player_intent(_intent), do: {:error, :invalid_intent}
+
+  defp request_hash(session_id, input, :action) do
     :crypto.hash(:sha256, "#{session_id}\0#{input}") |> Base.encode16(case: :lower)
+  end
+
+  defp request_hash(session_id, input, intent) do
+    :crypto.hash(:sha256, "#{session_id}\0#{intent}\0#{input}") |> Base.encode16(case: :lower)
   end
 
   defp validate_json_map(map) when is_map(map) do
@@ -3786,6 +3948,7 @@ defmodule Storyteller.Play do
       name = attr(attrs, :name)
       visible = attr(attrs, :visible_facts, %{})
       private = attr(attrs, :gm_private_facts, %{})
+      voice_guidance = VoiceGuidance.normalize(attr(attrs, :voice_guidance, %{}))
 
       cond do
         not is_map(attrs) ->
@@ -3803,6 +3966,9 @@ defmodule Storyteller.Play do
         validate_json_map(visible) != :ok or validate_json_map(private) != :ok ->
           {:halt, {:error, :invalid_character}}
 
+        match?({:error, _}, voice_guidance) ->
+          {:halt, {:error, :invalid_character}}
+
         true ->
           character = %{
             speaker_id: speaker_id,
@@ -3810,6 +3976,7 @@ defmodule Storyteller.Play do
             role: :gm,
             visible_facts: without_character_location_facts(visible),
             gm_private_facts: without_character_location_facts(private),
+            voice_guidance: elem(voice_guidance, 1),
             initial_location: initial_character_location(visible),
             visible_activity: attr(attrs, :visible_activity)
           }

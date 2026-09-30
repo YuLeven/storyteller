@@ -380,6 +380,68 @@ defmodule Storyteller.CampaignBackupTest do
     assert length(Jason.decode!(restored_json)["sessions"]) == 501
   end
 
+  test "round-trips turn intent and GM-only voice guidance while accepting older version-one rows" do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [
+          %{
+            speaker_id: "npc:keeper",
+            name: "Keeper",
+            voice_guidance: %{cadence: "Measured pauses", vocabulary: "Careful and formal"}
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+
+    assert {:ok, turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "backup-question-intent",
+               "What does the keeper know about the old road?",
+               intent: :question,
+               provider: fake_provider("The keeper knows the northern pass is clear.")
+             )
+
+    assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
+    document = Jason.decode!(backup_json)
+    exported_turn = Enum.find(document["turns"], &(&1["idempotency_key"] == turn.idempotency_key))
+    exported_character = Enum.find(document["characters"], &(&1["speaker_id"] == "npc:keeper"))
+
+    assert exported_turn["intent"] == "question"
+
+    assert exported_character["voice_guidance"] == %{
+             "cadence" => "Measured pauses",
+             "vocabulary" => "Careful and formal"
+           }
+
+    assert {:ok, imported} = CampaignBackup.import(backup_json)
+    imported_turn = Play.get_turn(imported.id, turn.idempotency_key)
+
+    imported_character =
+      Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "npc:keeper")
+
+    assert imported_turn.intent == :question
+
+    assert imported_character.voice_guidance == %{
+             "cadence" => "Measured pauses",
+             "vocabulary" => "Careful and formal"
+           }
+
+    legacy_document = %{
+      document
+      | "turns" => Enum.map(document["turns"], &Map.delete(&1, "intent")),
+        "characters" => Enum.map(document["characters"], &Map.delete(&1, "voice_guidance"))
+    }
+
+    assert {:ok, legacy_import} = CampaignBackup.import(Jason.encode!(legacy_document))
+    assert Play.get_turn(legacy_import.id, turn.idempotency_key).intent == :action
+
+    assert Repo.get_by!(Character, campaign_id: legacy_import.id, speaker_id: "npc:keeper").voice_guidance ==
+             %{}
+  end
+
   test "imports atomically and an enclosing rollback removes the new campaign and all children" do
     campaign = campaign_fixture()
     assert {:ok, json} = CampaignBackup.export(campaign.id)

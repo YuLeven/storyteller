@@ -19,18 +19,24 @@
           )}
         </p>
       </div>
-      <button
-        :if={@campaign.status == :active}
-        type="button"
-        phx-click="archive"
-        class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-white"
-      >{gettext("Archive campaign")}</button>
-      <button
-        :if={@campaign.status == :archived}
-        type="button"
-        phx-click="restore"
-        class="rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-800"
-      >{gettext("Restore campaign")}</button>
+      <div class="flex flex-wrap gap-2">
+        <.link
+          navigate={~p"/campaigns/#{@campaign.id}/edit"}
+          class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-white"
+        >{gettext("Edit setup and character voices")}</.link>
+        <button
+          :if={@campaign.status == :active}
+          type="button"
+          phx-click="archive"
+          class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-white"
+        >{gettext("Archive campaign")}</button>
+        <button
+          :if={@campaign.status == :archived}
+          type="button"
+          phx-click="restore"
+          class="rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-800"
+        >{gettext("Restore campaign")}</button>
+      </div>
     </div>
   </div>
 

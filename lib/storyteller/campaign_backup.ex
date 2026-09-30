@@ -12,6 +12,7 @@ defmodule Storyteller.CampaignBackup do
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Place, Roll, State, Turn}
   alias Storyteller.Play.Inventory
+  alias Storyteller.Play.VoiceGuidance
   alias Storyteller.Repo
 
   @format "storyteller.campaign-backup"
@@ -21,6 +22,8 @@ defmodule Storyteller.CampaignBackup do
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
   @event_types [
     :player_action,
+    :player_question,
+    :time_passage,
     :gm_narration,
     :npc_dialogue,
     :character_activity,
@@ -198,6 +201,7 @@ defmodule Storyteller.CampaignBackup do
       "role" => Atom.to_string(character.role),
       "visible_facts" => character.visible_facts,
       "gm_private_facts" => character.gm_private_facts,
+      "voice_guidance" => character.voice_guidance,
       "visible_activity" => character.visible_activity,
       "current_place_id" => character.current_place_id,
       "inserted_at" => encode_datetime(character.inserted_at),
@@ -250,6 +254,7 @@ defmodule Storyteller.CampaignBackup do
       "session_ref" => session_ref,
       "idempotency_key" => turn.idempotency_key,
       "player_input" => turn.player_input,
+      "intent" => Atom.to_string(turn.intent),
       "status" => Atom.to_string(turn.status),
       "resolution_phase" => Atom.to_string(turn.resolution_phase),
       "roll_request" => turn.roll_request,
@@ -482,7 +487,12 @@ defmodule Storyteller.CampaignBackup do
              with :ok <-
                     exact_keys(
                       map,
-                      ~w(speaker_id name role visible_facts gm_private_facts visible_activity current_place_id inserted_at updated_at),
+                      if(Map.has_key?(map, "voice_guidance"),
+                        do:
+                          ~w(speaker_id name role visible_facts gm_private_facts voice_guidance visible_activity current_place_id inserted_at updated_at),
+                        else:
+                          ~w(speaker_id name role visible_facts gm_private_facts visible_activity current_place_id inserted_at updated_at)
+                      ),
                       :character
                     ),
                   {:ok, speaker_id} <- stable_id(map["speaker_id"], 100),
@@ -490,6 +500,8 @@ defmodule Storyteller.CampaignBackup do
                   {:ok, role} <- enum(map["role"], ~w(player gm)),
                   {:ok, visible_facts} <- json_map(map["visible_facts"], 100_000),
                   {:ok, private_facts} <- json_map(map["gm_private_facts"], 100_000),
+                  {:ok, voice_guidance} <-
+                    VoiceGuidance.normalize(Map.get(map, "voice_guidance", %{})),
                   {:ok, activity} <- optional_text(map["visible_activity"], 2_000),
                   {:ok, place_id} <- optional_stable_id(map["current_place_id"], 100),
                   {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
@@ -501,6 +513,7 @@ defmodule Storyteller.CampaignBackup do
                   role: role,
                   visible_facts: visible_facts,
                   gm_private_facts: private_facts,
+                  voice_guidance: voice_guidance,
                   visible_activity: activity,
                   current_place_id: place_id,
                   inserted_at: inserted_at,
@@ -645,7 +658,12 @@ defmodule Storyteller.CampaignBackup do
              with :ok <-
                     exact_keys(
                       map,
-                      ~w(ref session_ref idempotency_key player_input status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at),
+                      if(Map.has_key?(map, "intent"),
+                        do:
+                          ~w(ref session_ref idempotency_key player_input intent status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at),
+                        else:
+                          ~w(ref session_ref idempotency_key player_input status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at)
+                      ),
                       :turn
                     ),
                   {:ok, ref} <- reference(map["ref"], "turn"),
@@ -653,6 +671,11 @@ defmodule Storyteller.CampaignBackup do
                   true <- MapSet.member?(session_refs, session_ref),
                   {:ok, idempotency_key} <- text(map["idempotency_key"], 1, 128),
                   {:ok, player_input} <- text(map["player_input"], 1, 20_000),
+                  {:ok, intent} <-
+                    enum(
+                      Map.get(map, "intent", "action"),
+                      ~w(action question time_passage opening_scene)
+                    ),
                   {:ok, status} <-
                     enum(map["status"], Enum.map(@turn_statuses, &Atom.to_string/1)),
                   {:ok, phase} <- enum(map["resolution_phase"], ~w(initial after_roll)),
@@ -669,6 +692,7 @@ defmodule Storyteller.CampaignBackup do
                   session_ref: session_ref,
                   idempotency_key: idempotency_key,
                   player_input: player_input,
+                  intent: intent,
                   status: status,
                   resolution_phase: phase,
                   roll_request: roll_request,
@@ -941,8 +965,13 @@ defmodule Storyteller.CampaignBackup do
         session_id: Map.fetch!(sessions_by_ref, turn.session_ref).id,
         idempotency_key: turn.idempotency_key,
         request_hash:
-          request_hash(Map.fetch!(sessions_by_ref, turn.session_ref).id, turn.player_input),
+          request_hash(
+            Map.fetch!(sessions_by_ref, turn.session_ref).id,
+            turn.player_input,
+            turn.intent
+          ),
         player_input: turn.player_input,
+        intent: turn.intent,
         status: status,
         resolution_phase: turn.resolution_phase,
         roll_request: turn.roll_request,
@@ -1018,8 +1047,12 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp request_hash(session_id, input) do
+  defp request_hash(session_id, input, :action) do
     :crypto.hash(:sha256, "#{session_id}\0#{input}") |> Base.encode16(case: :lower)
+  end
+
+  defp request_hash(session_id, input, intent) do
+    :crypto.hash(:sha256, "#{session_id}\0#{intent}\0#{input}") |> Base.encode16(case: :lower)
   end
 
   defp refs(records, prefix) do

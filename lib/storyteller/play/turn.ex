@@ -11,6 +11,11 @@ defmodule Storyteller.Play.Turn do
     field :request_hash, :string
     field :player_input, :string
 
+    field :intent,
+          Ecto.Enum,
+          values: [:action, :question, :time_passage, :opening_scene],
+          default: :action
+
     field :status,
           Ecto.Enum,
           values: [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -35,6 +40,7 @@ defmodule Storyteller.Play.Turn do
       :idempotency_key,
       :request_hash,
       :player_input,
+      :intent,
       :status,
       :resolution_phase,
       :roll_request,
@@ -48,6 +54,7 @@ defmodule Storyteller.Play.Turn do
       :idempotency_key,
       :request_hash,
       :player_input,
+      :intent,
       :status,
       :resolution_phase,
       :attempts
@@ -62,6 +69,7 @@ defmodule Storyteller.Play.Turn do
     |> foreign_key_constraint(:session_id, name: :play_turns_session_campaign_fkey)
     |> unique_constraint([:campaign_id, :idempotency_key])
     |> unique_constraint(:campaign_id, name: :one_open_turn_per_campaign)
+    |> check_constraint(:intent, name: :play_turns_intent_check)
     |> check_constraint(:status, name: :play_turns_status_check)
     |> check_constraint(:resolution_phase, name: :play_turns_phase_check)
     |> check_constraint(:attempts, name: :play_turns_attempts_check)

@@ -5,6 +5,7 @@ defmodule Storyteller.Play.Character do
   import Ecto.Changeset
 
   alias Storyteller.Campaigns.Campaign
+  alias Storyteller.Play.VoiceGuidance
 
   schema "play_characters" do
     field :speaker_id, :string
@@ -12,6 +13,7 @@ defmodule Storyteller.Play.Character do
     field :role, Ecto.Enum, values: [:player, :gm]
     field :visible_facts, :map, default: %{}
     field :gm_private_facts, :map, default: %{}
+    field :voice_guidance, :map, default: %{}
     field :visible_activity, :string
     field :current_place_id, :string
 
@@ -29,6 +31,7 @@ defmodule Storyteller.Play.Character do
       :role,
       :visible_facts,
       :gm_private_facts,
+      :voice_guidance,
       :visible_activity,
       :current_place_id
     ])
@@ -39,6 +42,7 @@ defmodule Storyteller.Play.Character do
     |> validate_length(:visible_activity, max: 2_000)
     |> validate_map(:visible_facts)
     |> validate_map(:gm_private_facts)
+    |> validate_voice_guidance()
     |> validate_length(:current_place_id, max: 100)
     |> validate_format(:current_place_id, ~r/\A[a-zA-Z0-9:_-]+\z/)
     |> foreign_key_constraint(:campaign_id)
@@ -54,6 +58,13 @@ defmodule Storyteller.Play.Character do
     case get_field(changeset, field) do
       value when is_map(value) -> changeset
       _ -> add_error(changeset, field, "must be a map")
+    end
+  end
+
+  defp validate_voice_guidance(changeset) do
+    case VoiceGuidance.normalize(get_field(changeset, :voice_guidance)) do
+      {:ok, normalized} -> put_change(changeset, :voice_guidance, normalized)
+      {:error, _reason} -> add_error(changeset, :voice_guidance, "is invalid")
     end
   end
 end

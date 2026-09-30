@@ -13,6 +13,8 @@ defmodule Storyteller.Play.Event do
     field :event_type, Ecto.Enum,
       values: [
         :player_action,
+        :player_question,
+        :time_passage,
         :gm_narration,
         :npc_dialogue,
         :character_activity,

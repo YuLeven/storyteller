@@ -35,6 +35,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             plan_usage_enabled?: OAuth.status().plan_usage_enabled?,
             plan_usage_paused?: Play.plan_usage_paused?(token_store: plan_usage_store()),
             draft: "",
+            interaction_mode: :action,
             input_error?: false,
             submission_key: Ecto.UUID.generate(),
             current_turn: nil,
@@ -56,9 +57,19 @@ defmodule StorytellerWeb.SessionLive.Show do
 
         case Play.initialize_campaign(session.campaign) do
           {:ok, _state} ->
-            socket = refresh_game(socket)
-            socket = maybe_start_resolution(socket, socket.assigns.current_turn)
-            {:ok, maybe_schedule_poll(socket)}
+            case Play.ensure_opening_scene(session.campaign_id, session.id) do
+              {:ok, _opening_turn} ->
+                socket = refresh_game(socket)
+                socket = maybe_start_resolution(socket, socket.assigns.current_turn)
+                {:ok, maybe_schedule_poll(socket)}
+
+              {:error, _reason} ->
+                {:ok,
+                 assign(
+                   socket,
+                   game_error: gettext("The campaign's opening scene could not be started.")
+                 )}
+            end
 
           {:error, _reason} ->
             {:ok,
@@ -74,6 +85,18 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   def handle_event("change-input", _params, socket), do: {:noreply, socket}
 
+  def handle_event("select-mode", %{"mode" => mode}, socket) do
+    case interaction_mode(mode) do
+      nil ->
+        {:noreply, socket}
+
+      mode ->
+        {:noreply, assign(socket, interaction_mode: mode, input_error?: false)}
+    end
+  end
+
+  def handle_event("select-mode", _params, socket), do: {:noreply, socket}
+
   def handle_event("use-in-action", %{"item_id" => item_id}, socket) when is_binary(item_id) do
     item = player_action_item(socket.assigns.projection, item_id)
     latest = Play.public_current_turn(socket.assigns.session.campaign_id)
@@ -84,7 +107,7 @@ defmodule StorytellerWeb.SessionLive.Show do
 
       next_draft = append_action_sentence(socket.assigns.draft, sentence)
 
-      socket = assign(socket, draft: next_draft, input_error?: false)
+      socket = assign(socket, draft: next_draft, interaction_mode: :action, input_error?: false)
       {:noreply, push_event(socket, "action-composer:update", %{draft: next_draft})}
     else
       # Unknown, hidden, or non-player-owned item IDs deliberately have the same result.
@@ -94,12 +117,36 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   def handle_event("use-in-action", _params, socket), do: {:noreply, socket}
 
+  def handle_event("use-nudge", %{"nudge_id" => nudge_id}, socket) when is_binary(nudge_id) do
+    nudge =
+      socket.assigns.interaction_mode
+      |> contextual_nudges(socket.assigns.projection)
+      |> Enum.find(&(&1.id == nudge_id))
+
+    if nudge && playable?(socket.assigns.session) &&
+         not blocking_turn?(Play.public_current_turn(socket.assigns.session.campaign_id)) do
+      next_draft = append_action_sentence(socket.assigns.draft, nudge.text)
+      socket = assign(socket, draft: next_draft, input_error?: false)
+      {:noreply, push_event(socket, "action-composer:update", %{draft: next_draft})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("use-nudge", _params, socket), do: {:noreply, socket}
+
   def handle_event("resume-plan-usage", _params, socket) do
     case Play.resume_plan_usage(token_store: plan_usage_store()) do
       :ok ->
+        socket = refresh_game(socket)
+
+        socket =
+          if opening_scene_pending?(socket.assigns.current_turn),
+            do: maybe_start_resolution(socket, socket.assigns.current_turn),
+            else: socket
+
         {:noreply,
          socket
-         |> refresh_game()
          |> put_flash(
            :info,
            gettext("Plan requests are resumed. Retry a saved turn when you are ready.")
@@ -148,6 +195,10 @@ defmodule StorytellerWeb.SessionLive.Show do
   @impl true
   def handle_event("submit-turn", %{"turn" => params}, socket) do
     input = Map.get(params, "input", "")
+
+    intent =
+      interaction_mode(Map.get(params, "intent", Atom.to_string(socket.assigns.interaction_mode)))
+
     latest = Play.public_current_turn(socket.assigns.session.campaign_id)
 
     cond do
@@ -172,8 +223,14 @@ defmodule StorytellerWeb.SessionLive.Show do
          |> refresh_game()
          |> put_flash(:error, gettext("Finish the current turn before sending another action."))}
 
+      is_nil(intent) ->
+        {:noreply,
+         socket
+         |> assign(draft: input, input_error?: true)
+         |> put_flash(:error, gettext("Choose a valid way to interact before sending."))}
+
       true ->
-        submit_turn(socket, input, Map.get(params, "idempotency_key", ""))
+        submit_turn(socket, input, Map.get(params, "idempotency_key", ""), intent)
     end
   end
 
@@ -382,7 +439,8 @@ defmodule StorytellerWeb.SessionLive.Show do
       </p>
       <article class={[
         "story-entry",
-        @event.event_type == :player_action && "story-entry-player",
+        @event.event_type in [:player_action, :player_question, :time_passage] &&
+          "story-entry-player",
         @event.event_type == :npc_dialogue && "story-entry-dialogue",
         @event.event_type == :gm_narration && "story-entry-narration",
         @event.event_type in [
@@ -397,6 +455,8 @@ defmodule StorytellerWeb.SessionLive.Show do
           <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
             {case @event.event_type do
               :player_action -> gettext("You")
+              :player_question -> gettext("Question for the GM")
+              :time_passage -> gettext("Time passage requested")
               :gm_narration -> gettext("Game master")
               :npc_dialogue -> speaker_name(@characters_by_id, @event.speaker_id)
               :character_activity -> speaker_name(@characters_by_id, @event.speaker_id)
@@ -415,6 +475,8 @@ defmodule StorytellerWeb.SessionLive.Show do
           :if={
             @event.event_type in [
               :player_action,
+              :player_question,
+              :time_passage,
               :gm_narration,
               :npc_dialogue,
               :character_activity
@@ -639,18 +701,24 @@ defmodule StorytellerWeb.SessionLive.Show do
     """
   end
 
-  defp submit_turn(socket, input, key) do
+  defp submit_turn(socket, input, key, intent) do
     case Play.submit_turn(
            socket.assigns.session.campaign_id,
            socket.assigns.session.id,
            key,
            input,
-           token_store: plan_usage_store()
+           token_store: plan_usage_store(),
+           intent: intent
          ) do
       {:ok, _turn} ->
         socket =
           socket
-          |> assign(draft: "", input_error?: false, submission_key: Ecto.UUID.generate())
+          |> assign(
+            draft: "",
+            interaction_mode: :action,
+            input_error?: false,
+            submission_key: Ecto.UUID.generate()
+          )
           |> refresh_game()
 
         socket = maybe_start_resolution(socket, socket.assigns.current_turn)
@@ -904,8 +972,98 @@ defmodule StorytellerWeb.SessionLive.Show do
     session.status == :active and session.campaign.status == :active
   end
 
+  defp blocking_turn?(%{intent: :opening_scene}), do: true
   defp blocking_turn?(%{status: status}), do: status in @turn_blocking
   defp blocking_turn?(_turn), do: false
+
+  defp opening_scene?(%{intent: :opening_scene}), do: true
+  defp opening_scene?(_turn), do: false
+
+  defp opening_scene_pending?(%{intent: :opening_scene, status: status})
+       when status in [:pending, :resolving],
+       do: true
+
+  defp opening_scene_pending?(_turn), do: false
+
+  defp turn_blocks_composer?(turn), do: blocking_turn?(turn)
+
+  defp interaction_mode(mode) when mode in [:action, :question, :time_passage], do: mode
+  defp interaction_mode("action"), do: :action
+  defp interaction_mode("question"), do: :question
+  defp interaction_mode("time_passage"), do: :time_passage
+  defp interaction_mode(_mode), do: nil
+
+  defp composer_label(:question), do: gettext("What would you like to ask the GM?")
+  defp composer_label(:time_passage), do: gettext("How much time should pass?")
+  defp composer_label(_mode), do: gettext("What do you do or say?")
+
+  defp composer_placeholder(:question),
+    do: gettext("Ask a direct question about the world or your options…")
+
+  defp composer_placeholder(:time_passage),
+    do: gettext("Say how long time should pass, or what you are waiting for…")
+
+  defp composer_placeholder(_mode),
+    do: gettext("Describe your character's action or words…")
+
+  defp composer_submit_label(:question), do: gettext("Ask the GM")
+  defp composer_submit_label(:time_passage), do: gettext("Let time pass")
+  defp composer_submit_label(_mode), do: gettext("Send turn")
+
+  defp composer_guidance(:question),
+    do:
+      gettext("Questions go directly to the GM; they are not things your character says or does.")
+
+  defp composer_guidance(:time_passage),
+    do: gettext("The GM advances the requested interval and pauses when your decision is needed.")
+
+  defp composer_guidance(_mode),
+    do: gettext("Actions and dialogue become part of your saved campaign history.")
+
+  defp contextual_nudges(:question, _projection) do
+    [
+      %{
+        id: "visible",
+        label: gettext("What can I see?"),
+        text: gettext("What can I see from here?")
+      },
+      %{
+        id: "choices",
+        label: gettext("What choices do I notice?"),
+        text: gettext("What meaningful choices are available to me right now?")
+      }
+    ]
+  end
+
+  defp contextual_nudges(:time_passage, _projection) do
+    [
+      %{
+        id: "quiet-hour",
+        label: gettext("Pass a quiet hour"),
+        text: gettext("Let a quiet hour pass, stopping if a meaningful choice comes up.")
+      },
+      %{
+        id: "until-morning",
+        label: gettext("Advance to morning"),
+        text: gettext("Advance to the next morning, stopping if I need to make a decision.")
+      }
+    ]
+  end
+
+  defp contextual_nudges(_mode, _projection) do
+    [
+      %{
+        id: "look-around",
+        label: gettext("Look around"),
+        text: gettext("I look around the scene carefully.")
+      },
+      %{
+        id: "talk-nearby",
+        label: gettext("Talk to someone nearby"),
+        text: gettext("I ask someone nearby what they know.")
+      }
+    ]
+  end
 
   defp same_turn?(%{id: id}, turn_id), do: to_string(id) == turn_id
   defp same_turn?(_turn, _turn_id), do: false
@@ -920,6 +1078,9 @@ defmodule StorytellerWeb.SessionLive.Show do
     cond do
       not connected?(socket) ->
         socket
+
+      is_nil(current_turn) and match?(%{intent: :opening_scene}, previous_turn) ->
+        assign(socket, turn_announcement: "")
 
       is_nil(current_turn) and not is_nil(previous_turn) ->
         assign(socket, turn_announcement: gettext("Your turn is complete."))
@@ -998,14 +1159,27 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp valid_roll_request?(_), do: false
 
-  defp pending_action_preview?(%{status: status, id: turn_id}, timeline)
+  defp pending_action_preview?(%{intent: :opening_scene}, _timeline), do: false
+
+  defp pending_action_preview?(%{status: status, id: turn_id, intent: intent}, timeline)
        when status in [:pending, :resolving, :awaiting_roll, :failed] do
+    event_type = pending_input_event_type(intent)
+
     not Enum.any?(timeline, fn event ->
-      event.turn_id == turn_id and event.event_type == :player_action
+      event.turn_id == turn_id and event.event_type == event_type
     end)
   end
 
   defp pending_action_preview?(_current_turn, _timeline), do: false
+
+  defp pending_input_event_type(:action), do: :player_action
+  defp pending_input_event_type(:question), do: :player_question
+  defp pending_input_event_type(:time_passage), do: :time_passage
+  defp pending_input_event_type(_intent), do: nil
+
+  defp pending_input_label(:question), do: gettext("Question for the GM")
+  defp pending_input_label(:time_passage), do: gettext("Time passage request")
+  defp pending_input_label(_intent), do: gettext("Saved player action")
 
   defp speaker_name(characters, speaker_id) do
     case Map.get(characters, speaker_id) do
