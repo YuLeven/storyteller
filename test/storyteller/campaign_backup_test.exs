@@ -6,6 +6,7 @@ defmodule Storyteller.CampaignBackupTest do
 
   alias Storyteller.CampaignBackup
   alias Storyteller.Campaigns
+  alias Storyteller.Campaigns.AuthoringCorrection
   alias Storyteller.Auth.TokenStore
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
@@ -51,6 +52,22 @@ defmodule Storyteller.CampaignBackupTest do
           }
         ]
       })
+
+    assert {:ok, campaign_with_public_correction} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Clarify the backup campaign title.",
+               "title" => "The Villa Ledger, Revised"
+             })
+
+    assert {:ok, _campaign_with_private_correction} =
+             Campaigns.update_campaign_authoring(campaign_with_public_correction, %{
+               "correction_reason" => "Record the GM-only cellar discovery.",
+               "gm_character_setup" => %{
+                 "npc:lyra" => %{"private_notes" => "A second ledger is under the stair."}
+               }
+             })
+
+    campaign = Campaigns.get_campaign!(campaign.id)
 
     [first_session] = campaign.sessions
 
@@ -217,10 +234,12 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 1
+    assert document["schema_version"] == 2
     assert document["campaign"]["title"] == campaign.title
     assert document["campaign"]["player_character_name"] == "Mira Vale"
     assert document["campaign"]["player_character"] == campaign.player_character
+    assert length(document["authoring_corrections"]) == 2
+    assert Enum.any?(document["authoring_corrections"], & &1["contains_private_changes"])
     assert document["state"]["gm_private_state"]["history_clue"]
 
     exported_player = Enum.find(document["characters"], &(&1["speaker_id"] == "player"))
@@ -248,6 +267,25 @@ defmodule Storyteller.CampaignBackupTest do
     assert imported_campaign.title == campaign.title
     assert imported_campaign.player_character_name == "Mira Vale"
     assert imported_campaign.player_character == campaign.player_character
+
+    imported_corrections =
+      Repo.all(
+        from(correction in AuthoringCorrection,
+          where: correction.campaign_id == ^imported.id,
+          order_by: [asc: correction.sequence]
+        )
+      )
+
+    assert Enum.map(
+             imported_corrections,
+             &{&1.sequence, &1.reason, &1.before_state, &1.after_state}
+           ) ==
+             Enum.map(document["authoring_corrections"], fn correction ->
+               {correction["sequence"], correction["reason"], correction["before_state"],
+                correction["after_state"]}
+             end)
+
+    assert Enum.map(imported_corrections, & &1.contains_private_changes) == [false, true]
 
     imported_player = Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "player")
     assert imported_player.name == "Mira Vale"
@@ -347,7 +385,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 2),
+          Map.put(decoded, "schema_version", 3),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
           put_in(decoded, ["campaign", "status"], "suspended"),
@@ -443,10 +481,17 @@ defmodule Storyteller.CampaignBackupTest do
            }
 
     legacy_document = %{
-      %{document | "campaign" => Map.delete(document["campaign"], "player_character_name")}
+      %{
+        document
+        | "schema_version" => 1,
+          "campaign" => Map.delete(document["campaign"], "player_character_name")
+      }
       | "turns" => Enum.map(document["turns"], &Map.delete(&1, "intent")),
-        "characters" => Enum.map(document["characters"], &Map.delete(&1, "voice_guidance"))
+        "characters" => Enum.map(document["characters"], &Map.delete(&1, "voice_guidance")),
+        "authoring_corrections" => nil
     }
+
+    legacy_document = Map.delete(legacy_document, "authoring_corrections")
 
     assert {:ok, legacy_import} = CampaignBackup.import(Jason.encode!(legacy_document))
     assert Play.get_turn(legacy_import.id, turn.idempotency_key).intent == :action
@@ -459,6 +504,14 @@ defmodule Storyteller.CampaignBackupTest do
     assert legacy_campaign.player_character_name == legacy_player.name
     assert legacy_campaign.player_character == campaign.player_character
     assert legacy_player.visible_facts["description"] == campaign.player_character
+
+    assert Repo.aggregate(
+             from(correction in AuthoringCorrection,
+               where: correction.campaign_id == ^legacy_import.id
+             ),
+             :count,
+             :id
+           ) == 0
   end
 
   test "imports atomically and an enclosing rollback removes the new campaign and all children" do

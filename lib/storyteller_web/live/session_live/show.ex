@@ -1035,8 +1035,13 @@ defmodule StorytellerWeb.SessionLive.Show do
     ]
   end
 
-  defp contextual_nudges(:time_passage, _projection) do
+  defp contextual_nudges(:time_passage, projection) do
     [
+      %{
+        id: "wait-here",
+        label: gettext("Wait here"),
+        text: time_passage_wait_text(projection)
+      },
       %{
         id: "quiet-hour",
         label: gettext("Pass a quiet hour"),
@@ -1064,6 +1069,25 @@ defmodule StorytellerWeb.SessionLive.Show do
       }
     ]
   end
+
+  defp time_passage_wait_text(%{world: world}) when is_map(world) do
+    case Map.get(world, "location") do
+      location when is_binary(location) and location != "" ->
+        gettext(
+          "Wait at %{location} for the next development. Advance time only until a decision is needed.",
+          location: location
+        )
+
+      _ ->
+        gettext(
+          "Wait here for the next development. Advance time only until a decision is needed."
+        )
+    end
+  end
+
+  defp time_passage_wait_text(_projection),
+    do:
+      gettext("Wait here for the next development. Advance time only until a decision is needed.")
 
   defp same_turn?(%{id: id}, turn_id), do: to_string(id) == turn_id
   defp same_turn?(_turn, _turn_id), do: false

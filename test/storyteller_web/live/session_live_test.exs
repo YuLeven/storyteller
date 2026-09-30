@@ -436,7 +436,32 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert state_after.revision == state_before.revision
   end
 
-  test "Let time pass advances a bounded interval and returns control at a decision", %{
+  test "the time-passage wait nudge uses the player's current location", %{conn: conn} do
+    campaign = campaign_fixture(%{starting_location: "The orchard gate"})
+    [session] = campaign.sessions
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#world-location", "The orchard gate")
+
+    view
+    |> element("#turn-composer button[phx-value-mode='time_passage']")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#turn-composer button[phx-value-nudge_id='wait-here']",
+             "Wait here"
+           )
+
+    view
+    |> element("#turn-composer button[phx-value-nudge_id='wait-here']")
+    |> render_click()
+
+    assert render(view) =~
+             "Wait at The orchard gate for the next development. Advance time only until a decision is needed."
+  end
+
+  test "Let time pass advances the requested interval and returns control at a decision", %{
     conn: conn
   } do
     campaign = campaign_fixture()

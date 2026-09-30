@@ -3362,6 +3362,131 @@ defmodule Storyteller.PlayTest do
              Play.click_player_d20(turn.id, roll_source: fn -> flunk("no roll was requested") end)
   end
 
+  test "time passage rejects player updates, movement, and rolls without committing world changes" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    state_before = Repo.get_by!(State, campaign_id: campaign.id)
+    player_before = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
+    place_count_before =
+      Repo.aggregate(from(place in Place, where: place.campaign_id == ^campaign.id), :count)
+
+    invalid_proposals = [
+      {
+        "time-passage-player-update",
+        %{
+          "character_updates" => [
+            %{
+              "speaker_id" => "player",
+              "visible_facts" => %{"Health" => "Well-rested"},
+              "reason" => "The player waited through the night."
+            }
+          ]
+        }
+      },
+      {
+        "time-passage-player-movement",
+        %{"location_changes" => move_player_to("unrequested-destination", "The harbor")}
+      },
+      {
+        "time-passage-player-roll",
+        %{
+          "roll_request" => %{
+            "test" => "Endurance",
+            "difficulty" => "A long wait"
+          }
+        }
+      }
+    ]
+
+    for {key, invalid_fields} <- invalid_proposals do
+      proposal =
+        ordinary_proposal(
+          Map.merge(%{"public_changes" => %{"date" => "A rejected date"}}, invalid_fields)
+        )
+
+      assert {:ok, %{status: :failed, failure_code: "invalid_response"} = failed_turn} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 key,
+                 "Wait here for one day.",
+                 intent: :time_passage,
+                 provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+                 model: "test-model"
+               )
+
+      assert Repo.get_by!(State, campaign_id: campaign.id).public_state ==
+               state_before.public_state
+
+      assert Repo.get_by!(State, campaign_id: campaign.id).gm_private_state ==
+               state_before.gm_private_state
+
+      assert Repo.get_by!(State, campaign_id: campaign.id).revision == state_before.revision
+
+      assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player") ==
+               player_before
+
+      place_count_after =
+        Repo.aggregate(from(place in Place, where: place.campaign_id == ^campaign.id), :count)
+
+      assert place_count_after == place_count_before
+      assert Repo.get_by(Roll, turn_id: failed_turn.id) == nil
+      assert {:ok, []} = Play.public_timeline(campaign.id)
+    end
+  end
+
+  test "time passage accepts world and NPC events and preserves an explicit multi-day duration" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    test_pid = self()
+    requested_duration = "Wait here for 21 days until the courier reaches the observatory."
+
+    provider = fn request ->
+      context = decode_request(request)
+
+      send(
+        test_pid,
+        {:time_passage_request, context["interaction_mode"], context["player_action"],
+         request.instructions}
+      )
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => "Twenty-one days pass. The courier arrives with a sealed letter.",
+           "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The courier is here."}],
+           "activities" => [%{"speaker_id" => "npc:lyra", "text" => "Lyra receives the letter."}],
+           "public_changes" => %{"date" => "Day 22", "time" => "Morning"},
+           "roll_request" => nil
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "explicit-multi-day-wait",
+               requested_duration,
+               intent: :time_passage,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions}
+    assert instructions =~ "multi-day durations"
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.public_state["date"] == "Day 22"
+    assert state.public_state["time"] == "Morning"
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.any?(timeline, &(&1.event_type == :time_passage))
+    assert Enum.any?(timeline, &(&1.event_type == :gm_narration))
+    assert Enum.any?(timeline, &(&1.event_type == :npc_dialogue))
+    assert Enum.any?(timeline, &(&1.event_type == :character_activity))
+    refute Enum.any?(timeline, &(&1.event_type in [:player_action, :roll_request, :player_roll]))
+  end
+
   test "pending turns reconnect with the same record and can be resumed without duplicating input" do
     {campaign, session} = play_campaign("The Glass Observatory")
 

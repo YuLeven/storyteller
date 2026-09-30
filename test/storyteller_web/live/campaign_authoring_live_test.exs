@@ -5,6 +5,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Campaigns
+  alias Storyteller.Campaigns.AuthoringCorrection
   alias Storyteller.Play
   alias Storyteller.Play.Character
   alias Storyteller.Repo
@@ -98,6 +99,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
            )
 
     attrs = %{
+      correction_reason: "Clarify the lighthouse setup and private signal.",
       title: "The Beacon at Low Tide",
       premise: "A new signal arrives from the outer reef.",
       setting: "A fictional island harbor",
@@ -108,7 +110,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
       gm_character_setup: %{
         "keeper-elin" => %{
           visible_facts_text: "Maintains the lighthouse and studies the reef lights.",
-          private_notes: "She has found a second signal beneath the lower lens."
+          private_notes: "She has found a second private signal beneath the lower lens."
         }
       },
       character_voice_guidance: %{
@@ -122,8 +124,12 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
       }
     }
 
-    view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
-    assert_redirect(view, ~p"/campaigns/#{campaign.id}")
+    html = view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
+    assert html =~ "Setup correction history"
+    refute html =~ "Clarify the lighthouse setup and private signal."
+
+    correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
+    assert correction.contains_private_changes
 
     updated = Campaigns.get_campaign!(campaign.id)
     assert updated.title == "The Beacon at Low Tide"
@@ -143,7 +149,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert character.visible_facts["role"] == "Keeps the western beacon lit."
 
     assert character.gm_private_facts["notes"] ==
-             "She has found a second signal beneath the lower lens."
+             "She has found a second private signal beneath the lower lens."
 
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
     assert player.name == "Ilya Venn"
@@ -156,5 +162,92 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert detail_html =~ "Ilya Venn"
     assert detail_html =~ "Character description"
     assert detail_html =~ "A patient harbor courier who knows every island path."
+  end
+
+  test "editor shows public correction receipts and omits corrections with private changes", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            visible_facts: %{"description" => "Maintains the lighthouse."},
+            gm_private_facts: %{"notes" => "Knows the lower lens is cracked."}
+          }
+        ]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    public_attrs = %{
+      correction_reason: "Clarify the keeper's public duties.",
+      title: campaign.title,
+      premise: campaign.premise,
+      setting: campaign.setting,
+      tone: campaign.tone,
+      narration_language: campaign.narration_language,
+      player_character_name: campaign.player_character_name,
+      player_character: campaign.player_character,
+      gm_character_setup: %{
+        "keeper-elin" => %{
+          visible_facts_text: "Maintains the lighthouse and charts the reefs.",
+          private_notes: "Knows the lower lens is cracked."
+        }
+      }
+    }
+
+    view |> form("#campaign-edit-form", campaign: public_attrs) |> render_submit()
+
+    assert has_element?(
+             view,
+             "#authoring-correction-history li",
+             "Clarify the keeper's public duties."
+           )
+
+    assert has_element?(view, "#authoring-correction-history li", "Character details")
+
+    private_attrs = %{
+      correction_reason: "Sensitive correction reason sentinel.",
+      title: campaign.title,
+      premise: campaign.premise,
+      setting: campaign.setting,
+      tone: campaign.tone,
+      narration_language: campaign.narration_language,
+      player_character_name: campaign.player_character_name,
+      player_character: campaign.player_character,
+      gm_character_setup: %{
+        "keeper-elin" => %{
+          visible_facts_text: "Maintains the lighthouse and charts the reefs.",
+          private_notes: "A hidden stair leads into the old harbor tunnel."
+        }
+      }
+    }
+
+    view |> form("#campaign-edit-form", campaign: private_attrs) |> render_submit()
+
+    assert has_element?(
+             view,
+             "#authoring-correction-history li",
+             "Clarify the keeper's public duties."
+           )
+
+    refute has_element?(
+             view,
+             "#authoring-correction-history li",
+             "Sensitive correction reason sentinel."
+           )
+
+    assert [public_correction] = Campaigns.list_public_authoring_corrections(campaign.id)
+    assert public_correction.reason == "Clarify the keeper's public duties."
+
+    private_correction =
+      Repo.get_by!(AuthoringCorrection,
+        campaign_id: campaign.id,
+        reason: "Sensitive correction reason sentinel."
+      )
+
+    assert private_correction.contains_private_changes
   end
 end

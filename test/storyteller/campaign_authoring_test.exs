@@ -4,6 +4,7 @@ defmodule Storyteller.CampaignAuthoringTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Campaigns
+  alias Storyteller.Campaigns.AuthoringCorrection
   alias Storyteller.Play
   alias Storyteller.Play.Character
 
@@ -139,6 +140,7 @@ defmodule Storyteller.CampaignAuthoringTest do
 
     assert {:ok, updated_campaign} =
              Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Clarify the new reef signal and courier details.",
                "title" => "The Beacon at Low Tide",
                "premise" => "A new signal arrives from the outer reef.",
                "setting" => "A fictional island harbor",
@@ -238,6 +240,167 @@ defmodule Storyteller.CampaignAuthoringTest do
 
     refute Jason.encode!(projection) =~ "second signal beneath the lower lens"
     refute Jason.encode!(projection) =~ "Gentle island lilt"
+  end
+
+  test "changed setup requires a reason while an unchanged save creates no correction" do
+    campaign = campaign_fixture()
+
+    assert {:error, :invalid_correction_reason} =
+             Campaigns.update_campaign_authoring(campaign, %{"title" => "A changed title"})
+
+    assert Campaigns.get_campaign!(campaign.id).title == campaign.title
+    assert Repo.aggregate(AuthoringCorrection, :count, :id) == 0
+
+    assert {:ok, unchanged} =
+             Campaigns.update_campaign_authoring(campaign, %{"title" => campaign.title})
+
+    assert unchanged.title == campaign.title
+    assert Repo.aggregate(AuthoringCorrection, :count, :id) == 0
+  end
+
+  test "public setup correction stores before and after values but exposes only a safe summary" do
+    campaign =
+      campaign_fixture(%{
+        player_character_name: "Tamsin Quill",
+        player_character: "A retired sky-cartographer.",
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            visible_facts: %{"description" => "Maintains the lighthouse."}
+          }
+        ]
+      })
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Clarify the courier's name and the keeper's role.",
+               "title" => "The Beacon at Low Tide",
+               "player_character_name" => "Tamsin Vale",
+               "gm_character_setup" => %{
+                 "keeper-elin" => %{
+                   "visible_facts_text" => "Maintains the lighthouse and charts the reefs."
+                 }
+               }
+             })
+
+    correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
+    refute correction.contains_private_changes
+    assert correction.reason == "Clarify the courier's name and the keeper's role."
+
+    assert correction.before_state == %{
+             "campaign" => %{
+               "title" => campaign.title,
+               "player_character_name" => "Tamsin Quill"
+             },
+             "player_character" => %{"name" => "Tamsin Quill"},
+             "gm_characters" => %{
+               "keeper-elin" => %{
+                 "visible_facts" => %{"description" => "Maintains the lighthouse."}
+               }
+             }
+           }
+
+    assert correction.after_state == %{
+             "campaign" => %{
+               "title" => "The Beacon at Low Tide",
+               "player_character_name" => "Tamsin Vale"
+             },
+             "player_character" => %{"name" => "Tamsin Vale"},
+             "gm_characters" => %{
+               "keeper-elin" => %{
+                 "visible_facts" => %{
+                   "description" => "Maintains the lighthouse and charts the reefs."
+                 }
+               }
+             }
+           }
+
+    assert [summary] = Campaigns.list_public_authoring_corrections(campaign.id)
+    assert summary.sequence == correction.sequence
+    assert summary.reason == correction.reason
+
+    assert summary.summary_categories == [
+             "campaign_setup",
+             "player_character",
+             "character_details"
+           ]
+
+    refute Map.has_key?(summary, :before_state)
+    refute Map.has_key?(summary, :after_state)
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    refute Jason.encode!(projection) =~ correction.reason
+  end
+
+  test "a private setup correction is persisted but omitted from safe correction summaries" do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [
+          %{
+            speaker_id: "watcher-ivo",
+            name: "Watcher Ivo",
+            gm_private_facts: %{"notes" => "Knows the sealed passage."},
+            voice_guidance: %{"cadence" => "Measured pauses."}
+          }
+        ]
+      })
+
+    secret_reason = "Record the newly discovered private passage."
+    private_value = "The passage opens beneath the north stair."
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => secret_reason,
+               "gm_character_setup" => %{
+                 "watcher-ivo" => %{"private_notes" => private_value}
+               },
+               "character_voice_guidance" => %{
+                 "watcher-ivo" => %{"cadence" => "Waits before naming the hidden stair."}
+               }
+             })
+
+    correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
+    assert correction.contains_private_changes
+
+    assert correction.before_state["gm_characters"]["watcher-ivo"]["gm_private_facts"]["notes"] ==
+             "Knows the sealed passage."
+
+    assert Campaigns.list_public_authoring_corrections(campaign.id) == []
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    projection_json = Jason.encode!(projection)
+    refute projection_json =~ private_value
+    refute projection_json =~ secret_reason
+    refute projection_json =~ "Waits before naming the hidden stair."
+  end
+
+  test "an enclosing rollback undoes setup, character, and correction writes together" do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [%{speaker_id: "npc:keeper", name: "Keeper"}]
+      })
+
+    player_before = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
+    assert {:error, :authoring_test_rollback} =
+             Repo.transaction(fn ->
+               assert {:ok, _updated} =
+                        Campaigns.update_campaign_authoring(campaign, %{
+                          "correction_reason" => "Test atomic rollback.",
+                          "title" => "Changed then rolled back",
+                          "player_character_name" => "A different hero"
+                        })
+
+               Repo.rollback(:authoring_test_rollback)
+             end)
+
+    assert Campaigns.get_campaign!(campaign.id).title == campaign.title
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player") ==
+             player_before
+
+    assert Repo.aggregate(AuthoringCorrection, :count, :id) == 0
   end
 
   test "model-proposed character changes cannot write voice guidance" do

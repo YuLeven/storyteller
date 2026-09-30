@@ -19,45 +19,6 @@
     </.link>
   </div>
 
-  <section
-    id="campaign-backup-import"
-    class="rounded-2xl border border-amber-300/70 bg-amber-50/70 p-5 shadow-sm"
-  >
-    <div class="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)] md:items-end">
-      <div>
-        <p class="text-xs font-bold uppercase tracking-[0.16em] text-amber-900">
-          {gettext("Sensitive file")}
-        </p>
-        <h2 class="mt-1 text-lg font-semibold text-stone-950">
-          {gettext("Restore a campaign copy")}
-        </h2>
-        <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-700">
-          {gettext(
-            "A backup contains the full campaign history and GM-only notes. Keep the file private. Import creates a separate campaign and never replaces an existing one."
-          )}
-        </p>
-      </div>
-      <.form
-        for={%{}}
-        id="campaign-backup-form"
-        phx-submit="import-backup"
-        phx-change="validate-backup-upload"
-        class="space-y-3"
-      >
-        <.live_file_input
-          upload={@uploads.campaign_backup}
-          class="block w-full text-sm text-stone-700"
-        />
-        <p :for={error <- upload_errors(@uploads.campaign_backup)} class="text-sm text-rose-800">
-          {upload_error(error)}
-        </p>
-        <.button type="submit" class="w-full justify-center bg-stone-800 hover:bg-stone-900">
-          {gettext("Import as a new campaign")}
-        </.button>
-      </.form>
-    </div>
-  </section>
-
   <div
     :if={@campaigns == []}
     class="rounded-2xl border border-dashed border-stone-300 bg-white px-6 py-14 text-center"
@@ -134,4 +95,46 @@
       </div>
     </article>
   </div>
+
+  <details id="campaign-backup-import" class="rounded-xl border border-stone-200 bg-white/70 p-4">
+    <summary class="flex cursor-pointer flex-col gap-1 text-sm font-semibold text-stone-800 sm:flex-row sm:items-center sm:justify-between">
+      <span>{gettext("Backup and restore")}</span>
+      <span class="text-xs font-normal text-stone-500">
+        {gettext("Keep a private copy, or restore a separate campaign.")}
+      </span>
+    </summary>
+    <div class="mt-4 grid gap-5 border-t border-stone-200 pt-4 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)] md:items-end">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-[0.16em] text-amber-900">
+          {gettext("Sensitive file")}
+        </p>
+        <h2 class="mt-1 text-base font-semibold text-stone-950">
+          {gettext("Restore a campaign copy")}
+        </h2>
+        <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-700">
+          {gettext(
+            "A backup contains the full campaign history and GM-only notes. Keep the file private. Import creates a separate campaign and never replaces an existing one."
+          )}
+        </p>
+      </div>
+      <.form
+        for={%{}}
+        id="campaign-backup-form"
+        phx-submit="import-backup"
+        phx-change="validate-backup-upload"
+        class="space-y-3"
+      >
+        <.live_file_input
+          upload={@uploads.campaign_backup}
+          class="block w-full text-sm text-stone-700"
+        />
+        <p :for={error <- upload_errors(@uploads.campaign_backup)} class="text-sm text-rose-800">
+          {upload_error(error)}
+        </p>
+        <.button type="submit" class="w-full justify-center bg-stone-800 hover:bg-stone-900">
+          {gettext("Import as a new campaign")}
+        </.button>
+      </.form>
+    </div>
+  </details>
 </section>

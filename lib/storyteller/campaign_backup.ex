@@ -8,7 +8,7 @@ defmodule Storyteller.CampaignBackup do
 
   import Ecto.Query, warn: false
 
-  alias Storyteller.Campaigns.{Campaign, Session}
+  alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Place, Roll, State, Turn}
   alias Storyteller.Play.Inventory
@@ -16,7 +16,8 @@ defmodule Storyteller.CampaignBackup do
   alias Storyteller.Repo
 
   @format "storyteller.campaign-backup"
-  @version 1
+  @version 2
+  @legacy_version 1
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -138,6 +139,14 @@ defmodule Storyteller.CampaignBackup do
                 )
               )
               |> Enum.map(&export_roll(&1, Map.fetch!(turns_by_id, &1.turn_id))),
+            "authoring_corrections" =>
+              Repo.all(
+                from(correction in AuthoringCorrection,
+                  where: correction.campaign_id == ^campaign_id,
+                  order_by: [asc: correction.sequence]
+                )
+              )
+              |> Enum.map(&export_authoring_correction/1),
             "continuity_entries" =>
               Repo.all(from(entry in ContinuityEntry, where: entry.campaign_id == ^campaign_id))
               |> Enum.map(fn entry ->
@@ -310,21 +319,26 @@ defmodule Storyteller.CampaignBackup do
     }
   end
 
+  defp export_authoring_correction(correction) do
+    %{
+      "sequence" => correction.sequence,
+      "reason" => correction.reason,
+      "before_state" => correction.before_state,
+      "after_state" => correction.after_state,
+      "contains_private_changes" => correction.contains_private_changes,
+      "inserted_at" => encode_datetime(correction.inserted_at)
+    }
+  end
+
   defp validate_backup(backup) when is_map(backup) do
     with :ok <-
            exact_keys(
              backup,
-             ~w(format schema_version data_classification exported_at campaign sessions state characters places panels objectives turns events rolls continuity_entries),
-             :root
-           ),
-         :ok <-
-           exact_keys(
-             backup,
-             ~w(format schema_version data_classification exported_at campaign sessions state characters places panels objectives turns events rolls continuity_entries),
+             root_backup_keys(backup["schema_version"]),
              :root
            ),
          true <- backup["format"] == @format,
-         true <- backup["schema_version"] == @version,
+         true <- backup["schema_version"] in [@legacy_version, @version],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
          {:ok, campaign} <- validate_campaign(backup["campaign"]),
@@ -342,7 +356,9 @@ defmodule Storyteller.CampaignBackup do
          {:ok, events} <- validate_events(backup["events"], sessions, turns),
          :ok <- validate_event_sequence(state, events),
          {:ok, rolls} <- validate_rolls(backup["rolls"], turns),
-         {:ok, continuity} <- validate_continuity(backup["continuity_entries"], events) do
+         {:ok, continuity} <- validate_continuity(backup["continuity_entries"], events),
+         {:ok, corrections} <-
+           validate_authoring_corrections(Map.get(backup, "authoring_corrections", [])) do
       {:ok,
        %{
          campaign: campaign,
@@ -355,7 +371,8 @@ defmodule Storyteller.CampaignBackup do
          turns: turns,
          events: events,
          rolls: rolls,
-         continuity_entries: continuity
+         continuity_entries: continuity,
+         authoring_corrections: corrections
        }}
     else
       _ -> {:error, :invalid_backup}
@@ -363,6 +380,17 @@ defmodule Storyteller.CampaignBackup do
   end
 
   defp validate_backup(_), do: {:error, :invalid_backup}
+
+  defp root_backup_keys(@legacy_version), do: root_backup_keys()
+
+  defp root_backup_keys(@version),
+    do: root_backup_keys() ++ ["authoring_corrections"]
+
+  defp root_backup_keys(_), do: []
+
+  defp root_backup_keys do
+    ~w(format schema_version data_classification exported_at campaign sessions state characters places panels objectives turns events rolls continuity_entries)
+  end
 
   defp validate_campaign(map) do
     with :ok <-
@@ -886,9 +914,135 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_continuity(_, _), do: {:error, :invalid_backup}
 
+  defp validate_authoring_corrections(rows) when is_list(rows) and length(rows) <= 100_000 do
+    with {:ok, corrections} <-
+           map_rows(rows, fn map ->
+             with :ok <-
+                    exact_keys(
+                      map,
+                      ~w(sequence reason before_state after_state contains_private_changes inserted_at),
+                      :authoring_correction
+                    ),
+                  sequence when is_integer(sequence) and sequence in 1..1_000_000 <-
+                    map["sequence"],
+                  {:ok, reason} <- text(map["reason"], 1, 1_000),
+                  true <- String.trim(reason) == reason,
+                  {:ok, before_state} <- validate_authoring_state(map["before_state"]),
+                  {:ok, after_state} <- validate_authoring_state(map["after_state"]),
+                  true <-
+                    authoring_state_paths(before_state) == authoring_state_paths(after_state),
+                  private? when is_boolean(private?) <- map["contains_private_changes"],
+                  true <- private? == private_authoring_state?(before_state),
+                  {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
+                  true <- authoring_state_paths(before_state) != [] do
+               {:ok,
+                %{
+                  sequence: sequence,
+                  reason: reason,
+                  before_state: before_state,
+                  after_state: after_state,
+                  contains_private_changes: private?,
+                  inserted_at: inserted_at
+                }}
+             end
+           end),
+         :ok <- unique_by(corrections, & &1.sequence) do
+      {:ok, Enum.sort_by(corrections, & &1.sequence)}
+    end
+  end
+
+  defp validate_authoring_corrections(_), do: {:error, :invalid_backup}
+
+  defp validate_authoring_state(state) when is_map(state) do
+    with true <-
+           Enum.all?(Map.keys(state), &(&1 in ~w(campaign player_character gm_characters))),
+         true <- map_size(state) > 0,
+         true <- valid_campaign_correction_fields?(Map.get(state, "campaign", %{})),
+         true <- valid_character_correction_fields?(Map.get(state, "player_character", %{})),
+         true <- valid_gm_correction_fields?(Map.get(state, "gm_characters", %{})) do
+      {:ok, state}
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_authoring_state(_), do: {:error, :invalid_backup}
+
+  defp valid_campaign_correction_fields?(fields) when is_map(fields) do
+    Enum.all?(fields, fn {key, value} ->
+      key in ~w(title premise setting tone narration_language player_character_name player_character) and
+        correction_value?(value)
+    end)
+  end
+
+  defp valid_campaign_correction_fields?(_), do: false
+
+  defp valid_character_correction_fields?(fields) when is_map(fields) do
+    Enum.all?(fields, fn {key, value} ->
+      key in ~w(name description) and correction_value?(value)
+    end)
+  end
+
+  defp valid_character_correction_fields?(_), do: false
+
+  defp valid_gm_correction_fields?(characters) when is_map(characters) do
+    Enum.all?(characters, fn {speaker_id, sections} ->
+      with {:ok, _speaker_id} <- stable_id(speaker_id, 100),
+           true <- speaker_id != "player",
+           true <- is_map(sections),
+           true <-
+             Enum.all?(sections, fn {section, fields} ->
+               allowed_fields =
+                 case section do
+                   "visible_facts" -> ["description"]
+                   "gm_private_facts" -> ["notes"]
+                   "voice_guidance" -> Storyteller.Play.VoiceGuidance.fields()
+                   _ -> []
+                 end
+
+               is_map(fields) and map_size(fields) > 0 and
+                 Enum.all?(fields, fn {key, value} ->
+                   key in allowed_fields and correction_value?(value)
+                 end)
+             end) do
+        map_size(sections) > 0
+      else
+        _ -> false
+      end
+    end)
+  end
+
+  defp valid_gm_correction_fields?(_), do: false
+
+  defp correction_value?(nil), do: true
+
+  defp correction_value?(value),
+    do: is_binary(value) and String.valid?(value) and String.length(value) <= 10_000
+
+  defp private_authoring_state?(%{"gm_characters" => characters}) do
+    Enum.any?(characters, fn {_speaker, sections} ->
+      Map.has_key?(sections, "gm_private_facts") or Map.has_key?(sections, "voice_guidance")
+    end)
+  end
+
+  defp private_authoring_state?(_), do: false
+
+  defp authoring_state_paths(state) do
+    flatten_authoring_paths(state, []) |> Enum.sort()
+  end
+
+  defp flatten_authoring_paths(map, prefix) when is_map(map) do
+    Enum.flat_map(map, fn {key, value} ->
+      if is_map(value),
+        do: flatten_authoring_paths(value, prefix ++ [key]),
+        else: [prefix ++ [key]]
+    end)
+  end
+
   defp insert_backup(backup) do
     Repo.transaction(fn ->
       campaign = insert_campaign!(backup.campaign)
+      insert_authoring_corrections!(campaign.id, backup.authoring_corrections)
       sessions_by_ref = insert_sessions!(campaign.id, backup.sessions)
       insert_state!(campaign.id, backup.state)
       insert_places!(campaign.id, backup.places)
@@ -908,6 +1062,16 @@ defmodule Storyteller.CampaignBackup do
       {:ok, campaign} -> {:ok, campaign}
       {:error, _reason} -> {:error, :import_failed}
     end
+  end
+
+  defp insert_authoring_corrections!(campaign_id, corrections) do
+    Enum.each(corrections, fn correction ->
+      attrs = Map.put(correction, :campaign_id, campaign_id)
+
+      %AuthoringCorrection{inserted_at: correction.inserted_at}
+      |> AuthoringCorrection.changeset(Map.drop(attrs, [:inserted_at]))
+      |> insert_or_rollback!()
+    end)
   end
 
   defp insert_campaign!(attrs) do

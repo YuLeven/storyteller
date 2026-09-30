@@ -2208,38 +2208,64 @@ defmodule Storyteller.Play do
          {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
-      if roll_request &&
-           (turn.intent != :action or map_size(public_changes) > 0 or
-              map_size(private_changes) > 0 or
-              panel_changes != [] or character_creations != [] or character_updates != [] or
-              inventory_changes != [] or
-              location_changes != [] or objective_changes != [] or
-              continuity_changes != []) do
+      if turn.intent == :time_passage and
+           time_passage_player_agency?(
+             dialogue,
+             activities,
+             character_updates,
+             location_changes,
+             roll_request
+           ) do
         {:error, :invalid_response}
       else
-        validated = %{
-          narration: narration,
-          dialogue: dialogue,
-          activities: activities,
-          public_changes: public_changes,
-          private_changes: private_changes,
-          panel_changes: panel_changes,
-          character_updates: character_updates,
-          character_creations: character_creations,
-          inventory_changes: inventory_changes,
-          location_changes: location_changes,
-          objective_changes: objective_changes,
-          continuity_changes: continuity_changes,
-          memory_update: memory_update,
-          roll_request: roll_request
-        }
+        if roll_request &&
+             (turn.intent != :action or map_size(public_changes) > 0 or
+                map_size(private_changes) > 0 or
+                panel_changes != [] or character_creations != [] or character_updates != [] or
+                inventory_changes != [] or
+                location_changes != [] or objective_changes != [] or
+                continuity_changes != []) do
+          {:error, :invalid_response}
+        else
+          validated = %{
+            narration: narration,
+            dialogue: dialogue,
+            activities: activities,
+            public_changes: public_changes,
+            private_changes: private_changes,
+            panel_changes: panel_changes,
+            character_updates: character_updates,
+            character_creations: character_creations,
+            inventory_changes: inventory_changes,
+            location_changes: location_changes,
+            objective_changes: objective_changes,
+            continuity_changes: continuity_changes,
+            memory_update: memory_update,
+            roll_request: roll_request
+          }
 
-        case validate_public_text_privacy(validated, turn.campaign_id) do
-          :ok -> {:ok, validated}
-          {:error, _reason} -> {:error, :invalid_response}
+          case validate_public_text_privacy(validated, turn.campaign_id) do
+            :ok -> {:ok, validated}
+            {:error, _reason} -> {:error, :invalid_response}
+          end
         end
       end
     end
+  end
+
+  defp time_passage_player_agency?(
+         dialogue,
+         activities,
+         character_updates,
+         location_changes,
+         roll
+       ) do
+    Enum.any?(dialogue ++ activities, &(&1.speaker_id == "player")) or
+      Enum.any?(character_updates, &(&1.speaker_id == "player")) or
+      Enum.any?(location_changes, fn change ->
+        Map.get(change, "type") == "move_character" and
+          Map.get(change, "speaker_id") == "player"
+      end) or not is_nil(roll)
   end
 
   # Reject exact private canonical phrases in player-visible prose. Public
@@ -3667,12 +3693,16 @@ defmodule Storyteller.Play do
 
     The player explicitly asks to let time pass. Treat this as an out-of-
     character request to advance the world, not as an action performed by their
-    character. Advance only the bounded interval requested or a short natural
-    interval when the request is open-ended. Keep calendar, time, weather, and
-    other world changes canonical and consistent. Never invent actions, speech,
-    thoughts, or decisions for the player's character. Narrate relevant world
+    character. Preserve an explicit requested duration exactly, including
+    multi-day durations; do not shorten it or impose a maximum. If the request
+    is open-ended, advance a natural interval and return control when a
+    meaningful decision is due. Keep calendar, time, weather, and other world
+    changes canonical and consistent. The request authorizes passage of time
+    only: do not choose or narrate actions, speech, thoughts, or decisions for
+    the player's character, do not move or update that character, and do not
+    request a player roll. Narrate relevant world and non-player-character
     developments and return control as soon as a meaningful player decision is
-    due. Do not request a roll for the passage of time.
+    due.
     """
   end
 

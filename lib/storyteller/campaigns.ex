@@ -4,7 +4,7 @@ defmodule Storyteller.Campaigns do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
-  alias Storyteller.Campaigns.{Campaign, Session}
+  alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
   alias Storyteller.Play.{Character, VoiceGuidance}
@@ -50,93 +50,338 @@ defmodule Storyteller.Campaigns do
     )
   end
 
-  @doc "Updates editable story foundations and explicitly supplied GM character voice notes."
+  @doc "Returns only the safe summary of public setup corrections for player-facing HTML."
+  def list_public_authoring_corrections(campaign_id) do
+    Repo.all(
+      from correction in AuthoringCorrection,
+        where:
+          correction.campaign_id == ^campaign_id and
+            correction.contains_private_changes == false,
+        order_by: [desc: correction.sequence]
+    )
+    |> Enum.map(fn correction ->
+      %{
+        sequence: correction.sequence,
+        reason: correction.reason,
+        inserted_at: correction.inserted_at,
+        summary_categories: public_correction_categories(correction.before_state)
+      }
+    end)
+  end
+
+  @doc "Atomically records and applies an auditable post-creation setup correction."
   def update_campaign_authoring(%Campaign{id: campaign_id}, attrs) when is_map(attrs) do
-    campaign = Repo.get(Campaign, campaign_id)
-
-    if campaign do
-      changeset = Campaign.changeset(campaign, authoring_campaign_attrs(attrs))
-
-      with true <- changeset.valid?,
-           {:ok, voice_updates} <- normalize_character_voice_updates(campaign_id, attrs),
-           {:ok, fact_updates} <- normalize_character_fact_updates(campaign_id, attrs) do
-        Multi.new()
-        |> Multi.update(:campaign, changeset)
-        |> Multi.run(:player_character, fn repo, %{campaign: updated_campaign} ->
-          if Map.has_key?(changeset.changes, :player_character_name) or
-               Map.has_key?(changeset.changes, :player_character) do
-            case repo.get_by(Character,
-                   campaign_id: campaign_id,
-                   speaker_id: "player",
-                   role: :player
-                 ) do
-              nil ->
-                {:error, :invalid_player_character}
-
-              player ->
-                character_attrs =
-                  %{}
-                  |> maybe_put(
-                    :name,
-                    Map.has_key?(changeset.changes, :player_character_name),
-                    updated_campaign.player_character_name
-                  )
-                  |> maybe_put(
-                    :visible_facts,
-                    Map.has_key?(changeset.changes, :player_character),
-                    Map.put(
-                      player.visible_facts || %{},
-                      "description",
-                      updated_campaign.player_character
-                    )
-                  )
-
-                repo.update(Character.changeset(player, character_attrs))
-            end
-          else
-            {:ok, nil}
-          end
-        end)
-        |> Multi.run(:voice_guidance, fn repo, _changes ->
-          voice_updates
-          |> Enum.reduce_while({:ok, []}, fn {speaker_id, notes}, {:ok, acc} ->
-            case update_gm_character(repo, campaign_id, speaker_id, %{voice_guidance: notes}) do
-              {:ok, updated} -> {:cont, {:ok, [updated | acc]}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-          end)
-        end)
-        |> Multi.run(:character_facts, fn repo, _changes ->
-          fact_updates
-          |> Enum.reduce_while({:ok, []}, fn {speaker_id, fact_edits}, {:ok, acc} ->
-            case update_gm_character_facts(repo, campaign_id, speaker_id, fact_edits) do
-              {:ok, updated} -> {:cont, {:ok, [updated | acc]}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-          end)
-        end)
-        |> Repo.transaction()
-        |> case do
-          {:ok, %{campaign: updated_campaign}} -> {:ok, updated_campaign}
-          {:error, :campaign, failed_changeset, _changes} -> {:error, failed_changeset}
-          {:error, _step, reason, _changes} -> {:error, reason}
-        end
-      else
-        false ->
-          {:error, changeset}
-
-        {:error, reason} when reason in [:invalid_voice_guidance, :invalid_authoring_details] ->
-          {:error, reason}
-
-        {:error, _reason} ->
-          {:error, :invalid_authoring_details}
-      end
-    else
-      {:error, :not_found}
+    Repo.transaction(fn -> apply_campaign_authoring_correction(campaign_id, attrs) end)
+    |> case do
+      {:ok, campaign} -> {:ok, campaign}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   def update_campaign_authoring(_campaign, _attrs), do: {:error, :invalid_authoring}
+
+  defp apply_campaign_authoring_correction(campaign_id, attrs) do
+    campaign =
+      Repo.one(
+        from campaign in Campaign,
+          where: campaign.id == ^campaign_id,
+          lock: "FOR UPDATE"
+      )
+
+    if campaign do
+      changeset = Campaign.changeset(campaign, authoring_campaign_attrs(attrs))
+
+      unless changeset.valid?, do: Repo.rollback(changeset)
+
+      with {:ok, voice_updates} <- normalize_character_voice_updates(campaign_id, attrs),
+           {:ok, fact_updates} <- normalize_character_fact_updates(campaign_id, attrs) do
+        characters =
+          Repo.all(
+            from character in Character,
+              where: character.campaign_id == ^campaign_id,
+              order_by: [asc: character.speaker_id],
+              lock: "FOR UPDATE"
+          )
+
+        plan = authoring_change_plan(campaign, characters, changeset, voice_updates, fact_updates)
+
+        if map_size(plan.before_state) == 0 do
+          campaign
+        else
+          reason = normalized_correction_reason(attr(attrs, :correction_reason))
+          if is_nil(reason), do: Repo.rollback(:invalid_correction_reason)
+
+          updated_campaign = persist_campaign_correction!(campaign, characters, changeset, plan)
+          sequence = next_correction_sequence(campaign_id)
+
+          %AuthoringCorrection{}
+          |> AuthoringCorrection.changeset(%{
+            campaign_id: campaign_id,
+            sequence: sequence,
+            reason: reason,
+            before_state: plan.before_state,
+            after_state: plan.after_state,
+            contains_private_changes: plan.contains_private_changes,
+            inserted_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+          })
+          |> insert_authoring_correction!()
+
+          updated_campaign
+        end
+      else
+        {:error, reason} when reason in [:invalid_voice_guidance, :invalid_authoring_details] ->
+          Repo.rollback(reason)
+
+        {:error, _reason} ->
+          Repo.rollback(:invalid_authoring_details)
+      end
+    else
+      Repo.rollback(:not_found)
+    end
+  end
+
+  defp authoring_change_plan(campaign, characters, changeset, voice_updates, fact_updates) do
+    by_speaker = Map.new(characters, &{&1.speaker_id, &1})
+    updated_campaign = Ecto.Changeset.apply_changes(changeset)
+
+    {campaign_before, campaign_after} =
+      Enum.reduce(changeset.changes, {%{}, %{}}, fn {field, new_value}, {before, after_map} ->
+        old_value = Map.fetch!(campaign, field)
+        diff_values(before, after_map, Atom.to_string(field), old_value, new_value)
+      end)
+
+    {player_before, player_after, player_attrs} =
+      player_character_diff(Map.get(by_speaker, "player"), campaign, updated_campaign, changeset)
+
+    {gm_before, gm_after, gm_updates, private?} =
+      gm_character_diffs(by_speaker, voice_updates, fact_updates)
+
+    before_state =
+      %{}
+      |> put_nonempty("campaign", campaign_before)
+      |> put_nonempty("player_character", player_before)
+      |> put_nonempty("gm_characters", gm_before)
+
+    after_state =
+      %{}
+      |> put_nonempty("campaign", campaign_after)
+      |> put_nonempty("player_character", player_after)
+      |> put_nonempty("gm_characters", gm_after)
+
+    %{
+      before_state: before_state,
+      after_state: after_state,
+      player_attrs: player_attrs,
+      gm_updates: gm_updates,
+      contains_private_changes: private?
+    }
+  end
+
+  defp player_character_diff(nil, _campaign, _updated_campaign, changeset) do
+    if Map.has_key?(changeset.changes, :player_character_name) or
+         Map.has_key?(changeset.changes, :player_character) do
+      Repo.rollback(:invalid_player_character)
+    end
+
+    {%{}, %{}, %{}}
+  end
+
+  defp player_character_diff(player, _campaign, updated_campaign, changeset) do
+    {before, after_map, attrs} =
+      Enum.reduce(
+        [player_character_name: :name, player_character: :description],
+        {%{}, %{}, %{}},
+        fn {campaign_field, character_field}, {before, after_map, attrs} ->
+          if Map.has_key?(changeset.changes, campaign_field) do
+            {old_value, new_value} =
+              case character_field do
+                :name ->
+                  {player.name, updated_campaign.player_character_name}
+
+                :description ->
+                  {Map.get(player.visible_facts || %{}, "description"),
+                   updated_campaign.player_character}
+              end
+
+            key = Atom.to_string(character_field)
+
+            {before, after_map} = diff_values(before, after_map, key, old_value, new_value)
+
+            attrs =
+              if old_value == new_value do
+                attrs
+              else
+                case character_field do
+                  :name ->
+                    Map.put(attrs, :name, new_value)
+
+                  :description ->
+                    Map.put(
+                      attrs,
+                      :visible_facts,
+                      Map.put(player.visible_facts || %{}, "description", new_value)
+                    )
+                end
+              end
+
+            {before, after_map, attrs}
+          else
+            {before, after_map, attrs}
+          end
+        end
+      )
+
+    {before, after_map, attrs}
+  end
+
+  defp gm_character_diffs(by_speaker, voice_updates, fact_updates) do
+    voices = Map.new(voice_updates)
+    facts = Map.new(fact_updates)
+    speakers = Enum.uniq(Map.keys(voices) ++ Map.keys(facts))
+
+    Enum.reduce(speakers, {%{}, %{}, %{}, false}, fn speaker_id,
+                                                     {before_all, after_all, updates_all,
+                                                      private?} ->
+      character = Map.fetch!(by_speaker, speaker_id)
+      old_voice = character.voice_guidance || %{}
+      new_voice = Map.get(voices, speaker_id, old_voice)
+      fact_edits = Map.get(facts, speaker_id, %{})
+      old_visible = character.visible_facts || %{}
+      old_private = character.gm_private_facts || %{}
+      new_visible = update_fact_text(old_visible, "description", fact_edits, :visible_facts_text)
+      new_private = update_fact_text(old_private, "notes", fact_edits, :private_notes)
+
+      {voice_before, voice_after_map} = map_diff(old_voice, new_voice)
+
+      {visible_before, visible_after_map} =
+        diff_one_key(old_visible, new_visible, "description")
+
+      {private_before, private_after_map} = diff_one_key(old_private, new_private, "notes")
+
+      before_map =
+        %{}
+        |> put_nonempty("voice_guidance", voice_before)
+        |> put_nonempty("visible_facts", visible_before)
+        |> put_nonempty("gm_private_facts", private_before)
+
+      after_map =
+        %{}
+        |> put_nonempty("voice_guidance", voice_after_map)
+        |> put_nonempty("visible_facts", visible_after_map)
+        |> put_nonempty("gm_private_facts", private_after_map)
+
+      update_attrs =
+        %{}
+        |> maybe_put(:voice_guidance, voice_before != %{}, new_voice)
+        |> maybe_put(:visible_facts, visible_before != %{}, new_visible)
+        |> maybe_put(:gm_private_facts, private_before != %{}, new_private)
+
+      before_all = put_nonempty(before_all, speaker_id, before_map)
+      after_all = put_nonempty(after_all, speaker_id, after_map)
+
+      updates_all =
+        if map_size(update_attrs) == 0,
+          do: updates_all,
+          else: Map.put(updates_all, speaker_id, update_attrs)
+
+      private? =
+        private? or map_size(private_before) > 0 or map_size(voice_before) > 0
+
+      {before_all, after_all, updates_all, private?}
+    end)
+  end
+
+  defp diff_one_key(before_map, after_map, key) do
+    diff_values(%{}, %{}, key, Map.get(before_map, key), Map.get(after_map, key))
+  end
+
+  defp map_diff(before_map, after_map) do
+    keys = Enum.uniq(Map.keys(before_map) ++ Map.keys(after_map))
+
+    Enum.reduce(keys, {%{}, %{}}, fn key, {before, after_values} ->
+      diff_values(before, after_values, key, Map.get(before_map, key), Map.get(after_map, key))
+    end)
+  end
+
+  defp diff_values(before, after_map, _key, value, value), do: {before, after_map}
+
+  defp diff_values(before, after_map, key, old, new),
+    do: {Map.put(before, key, old), Map.put(after_map, key, new)}
+
+  defp put_nonempty(map, _key, value) when map_size(value) == 0, do: map
+  defp put_nonempty(map, key, value), do: Map.put(map, key, value)
+
+  defp normalized_correction_reason(reason) when is_binary(reason) do
+    normalized = String.trim(reason)
+    if String.length(normalized) in 1..1_000, do: normalized, else: nil
+  end
+
+  defp normalized_correction_reason(_), do: nil
+
+  defp persist_campaign_correction!(campaign, characters, changeset, plan) do
+    updated_campaign =
+      if map_size(changeset.changes) == 0 do
+        campaign
+      else
+        case Repo.update(changeset) do
+          {:ok, updated} -> updated
+          {:error, failed_changeset} -> Repo.rollback(failed_changeset)
+        end
+      end
+
+    by_speaker = Map.new(characters, &{&1.speaker_id, &1})
+
+    if map_size(plan.player_attrs) > 0 do
+      player = Map.get(by_speaker, "player") || Repo.rollback(:invalid_player_character)
+
+      case Repo.update(Character.changeset(player, plan.player_attrs)) do
+        {:ok, _updated} -> :ok
+        {:error, _changeset} -> Repo.rollback(:invalid_player_character)
+      end
+    end
+
+    Enum.each(plan.gm_updates, fn {speaker_id, update_attrs} ->
+      character = Map.get(by_speaker, speaker_id) || Repo.rollback(:invalid_character)
+
+      case Repo.update(Character.changeset(character, update_attrs)) do
+        {:ok, _updated} -> :ok
+        {:error, _changeset} -> Repo.rollback(:invalid_character)
+      end
+    end)
+
+    updated_campaign
+  end
+
+  defp next_correction_sequence(campaign_id) do
+    (Repo.one(
+       from correction in AuthoringCorrection,
+         where: correction.campaign_id == ^campaign_id,
+         select: max(correction.sequence)
+     ) || 0) + 1
+  end
+
+  defp insert_authoring_correction!(changeset) do
+    case Repo.insert(changeset) do
+      {:ok, correction} -> correction
+      {:error, _changeset} -> Repo.rollback(:correction_record_failed)
+    end
+  end
+
+  defp public_correction_categories(before_state) do
+    []
+    |> maybe_add_category(Map.has_key?(before_state, "campaign"), "campaign_setup")
+    |> maybe_add_category(Map.has_key?(before_state, "player_character"), "player_character")
+    |> maybe_add_category(has_public_gm_facts?(before_state), "character_details")
+  end
+
+  defp has_public_gm_facts?(%{"gm_characters" => characters}) do
+    Enum.any?(characters, fn {_speaker, changes} -> Map.has_key?(changes, "visible_facts") end)
+  end
+
+  defp has_public_gm_facts?(_), do: false
+
+  defp maybe_add_category(categories, true, category), do: categories ++ [category]
+  defp maybe_add_category(categories, false, _category), do: categories
 
   @doc "Validates the full reviewable setup without writing any records."
   def validate_campaign_setup(attrs) when is_map(attrs) do
@@ -475,54 +720,6 @@ defmodule Storyteller.Campaigns do
       end
     else
       {:ok, nil}
-    end
-  end
-
-  defp update_gm_character(repo, campaign_id, speaker_id, attrs) do
-    case repo.get_by(Character,
-           campaign_id: campaign_id,
-           speaker_id: speaker_id,
-           role: :gm
-         ) do
-      nil ->
-        {:error, :invalid_character}
-
-      character ->
-        repo.update(Character.changeset(character, attrs))
-    end
-  end
-
-  defp update_gm_character_facts(repo, campaign_id, speaker_id, edits) do
-    case repo.get_by(Character,
-           campaign_id: campaign_id,
-           speaker_id: speaker_id,
-           role: :gm
-         ) do
-      nil ->
-        {:error, :invalid_character}
-
-      character ->
-        visible_facts =
-          update_fact_text(
-            character.visible_facts || %{},
-            "description",
-            edits,
-            :visible_facts_text
-          )
-
-        private_facts =
-          update_fact_text(character.gm_private_facts || %{}, "notes", edits, :private_notes)
-
-        if json_map?(visible_facts) and json_map?(private_facts) do
-          repo.update(
-            Character.changeset(character, %{
-              visible_facts: visible_facts,
-              gm_private_facts: private_facts
-            })
-          )
-        else
-          {:error, :invalid_character}
-        end
     end
   end
 

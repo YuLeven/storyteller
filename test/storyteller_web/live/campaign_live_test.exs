@@ -27,10 +27,13 @@ defmodule StorytellerWeb.CampaignLiveTest do
         player_character: "An archivist with a perfect memory."
       })
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, view, html} = live(conn, ~p"/")
     assert html =~ "Campaigns"
     assert html =~ "Lantern Coast"
     assert html =~ "Copper Archive"
+    assert has_element?(view, "#campaign-backup-import summary", "Backup and restore")
+    refute has_element?(view, "#campaign-backup-import[open]")
+    assert has_element?(view, "#campaign-backup-form")
 
     first_card =
       html |> Floki.parse_document!() |> Floki.find("#campaign-#{first.id}") |> Floki.text()
@@ -353,6 +356,16 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}")
     assert html =~ first_session.title
+    assert has_element?(view, "a", "Edit campaign")
+    refute has_element?(view, "a", "Edit setup and character voices")
+    assert has_element?(view, "#campaign-backup-export summary", "Backup and restore")
+    refute has_element?(view, "#campaign-backup-export[open]")
+
+    assert has_element?(
+             view,
+             "#campaign-backup-export a[href='/campaigns/#{campaign.id}/backup']"
+           )
+
     assert html =~ "Character name"
     assert html =~ "Rin Ashford"
     assert html =~ "Character description"

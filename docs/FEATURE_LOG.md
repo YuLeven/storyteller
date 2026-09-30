@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-09-30 — Keep campaign maintenance secondary and protect time-passage agency
+
+- The campaign detail action now says **Edit campaign**. Import/export now live in a collapsed **Backup and restore** section after the main campaign actions on both the campaign library and detail page; opening it explains backup sensitivity and separate-copy restore behavior.
+- Campaign setup corrections now save their reason and before/after state atomically, require a reason only for actual changes, and remain separate from prior story entries. Player-facing correction history lists safe categories and omits any correction containing GM-private facts or voice guidance. Backup format v2 carries this audit history and imports both v1 and v2 files.
+- A time-passage response is rejected if it speaks/acts for, moves, updates, or requests a roll from the player's character. Explicit multi-day duration remains intact. The **Wait here** nudge uses the current canonical location and asks the GM to stop at the next meaningful decision.
+- Additive migration `20260930001300_create_campaign_authoring_corrections` adds the correction-history table; it has been applied to the persistent development database without changing campaign rows.
+- **Checks:** full WSL suite **236 tests, 0 failures**; JavaScript tests **13/13**; format check, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. Automated tests use fake providers and `storyteller_test`; no real provider request was made.
+
 ## 2026-09-30 — Separate player identity and soften AI-limit recovery
 
 - Campaign creation and editing now collect the player's character name separately from the description. Review and campaign detail show both; campaign cards and the session header use the name alone. The full description remains part of the character profile and GM context. An additive migration conservatively backfills names only where a legacy value clearly begins with a short name followed by a comma; ambiguous text stays intact as the description.

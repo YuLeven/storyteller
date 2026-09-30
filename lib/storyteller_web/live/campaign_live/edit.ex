@@ -23,6 +23,8 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            campaign: campaign,
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
            gm_characters: Campaigns.list_gm_characters(campaign.id),
+           correction_reason: "",
+           authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
            save_error: nil
          )}
     end
@@ -36,6 +38,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
     {:noreply,
      assign(socket,
        form: to_form(%{changeset | action: :validate}, as: :campaign),
+       correction_reason: Map.get(attrs, "correction_reason", ""),
        save_error: nil
      )}
   end
@@ -46,13 +49,21 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       {:ok, campaign} ->
         {:noreply,
          socket
-         |> put_flash(:info, gettext("Campaign setup and character voice guidance saved."))
-         |> push_navigate(to: ~p"/campaigns/#{campaign.id}")}
+         |> put_flash(:info, gettext("Campaign changes saved."))
+         |> assign(
+           campaign: Campaigns.get_campaign!(campaign.id),
+           form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
+           gm_characters: Campaigns.list_gm_characters(campaign.id),
+           correction_reason: "",
+           authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
+           save_error: nil
+         )}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
          assign(socket,
            form: to_form(%{changeset | action: :validate}, as: :campaign),
+           correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error: nil
          )}
 
@@ -67,6 +78,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
                ),
                as: :campaign
              ),
+           correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
                "Character voice notes must use the listed fields and stay within the length limits."
@@ -84,15 +96,32 @@ defmodule StorytellerWeb.CampaignLive.Edit do
                ),
                as: :campaign
              ),
+           correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
                "Character details must use the listed fields and stay within the length limits."
              )
          )}
 
+      {:error, :invalid_correction_reason} ->
+        {:noreply,
+         assign(socket,
+           form:
+             to_form(
+               Campaigns.change_campaign(
+                 socket.assigns.campaign,
+                 Map.take(attrs, @editable_fields)
+               ),
+               as: :campaign
+             ),
+           correction_reason: Map.get(attrs, "correction_reason", ""),
+           save_error: gettext("Add a reason for changing the campaign setup.")
+         )}
+
       {:error, _reason} ->
         {:noreply,
          assign(socket,
+           correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext("Campaign changes could not be saved. Review the fields and try again.")
          )}
@@ -101,4 +130,10 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   defp voice_value(character, field), do: Map.get(character.voice_guidance || %{}, field, "")
   defp fact_value(facts, key), do: Map.get(facts || %{}, key, "")
+
+  def correction_category_label("campaign_setup"), do: gettext("Campaign setup")
+  def correction_category_label("player_character"), do: gettext("Player character")
+  def correction_category_label("character_details"), do: gettext("Character details")
+
+  def correction_category_label(_category), do: gettext("Campaign setup")
 end
