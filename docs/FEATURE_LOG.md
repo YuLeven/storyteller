@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Confirm tabletop conversation as an additive product goal
+
+- Added an explicit product goal alongside the original campaign, gameplay, continuity, accessibility, and design goals: make play feel like a shared tabletop conversation.
+- Clarified acceptance: story entries are player actions, natural GM narration, direct character dialogue, and relevant roll prompts; a turn should feel coherent rather than arriving as four or five abrupt, disjointed messages. State and memory remain in their panels, and introductions and world changes stay in the scene narration.
+- This records the direction already reflected in the play UX requirements; no application behavior changed in this documentation update.
+
 ## 2026-09-30 — Protect hidden character state and make inventory shortcuts reliable
 
 - Canonical character places now determine presence and location. Legacy location aliases are removed from character facts and world prompts, and the GM cannot write location through character facts.
