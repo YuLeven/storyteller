@@ -320,7 +320,17 @@
   display: none !important;
 }
 .play-page #story-timeline .story-entry-revealed {
-  animation: story-entry-arrive 180ms ease-out both;
+  animation: story-entry-arrive 420ms cubic-bezier(.2, .68, .24, 1) both;
+}
+.play-page .scene-weather-cue {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #927142;
+}
+.play-page .scene-weather-cue svg {
+  width: 2rem;
+  height: 2rem;
+  overflow: visible;
 }
 .play-page .board-state-changed {
   border-radius: 0.35rem;
@@ -355,7 +365,7 @@
   display: none !important;
 }
 @keyframes story-entry-arrive {
-  from { opacity: 0; transform: translateY(0.3rem); }
+  from { opacity: 0.45; transform: translateY(0.14rem); }
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes board-state-pulse {
@@ -704,19 +714,25 @@
   }
   .tabletop-header > div {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    justify-items: stretch;
     width: 100%;
     min-width: 0;
   }
-  .tabletop-header > div > div,
-  .tabletop-header > div > form {
-    width: 100%;
+  .tabletop-header > div > div {
+    width: auto;
     min-width: 0;
   }
-  .tabletop-header > div > form {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+  .tabletop-header > div > details {
+    width: auto;
+    min-width: 0;
+    justify-self: end;
+  }
+  .tabletop-header > div > details > div {
+    right: 0;
+    left: auto;
+    width: min(18rem, calc(100vw - 2rem));
   }
   .tabletop-header select {
     max-width: calc(100vw - 104px);

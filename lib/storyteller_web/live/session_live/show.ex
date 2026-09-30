@@ -10,6 +10,13 @@ defmodule StorytellerWeb.SessionLive.Show do
   @turn_blocking [:pending, :resolving, :awaiting_roll]
   @timeline_page_size 500
   @timeline_live_window 20
+  @night_time_words ~w(night nighttime midnight tonight dusk evening nightfall noche nocturno nocturna medianoche anochecer atardecer nuit minuit soir nocturne crepuscule)
+  @day_time_words ~w(day daytime daylight morning midmorning dawn sunrise noon midday afternoon dia manana amanecer mediodia tarde jour journee matin matinee aube midi apres-midi)
+  @mist_weather_words ~w(mist misty fog foggy haze hazy neblina niebla bruma brumoso brumosa brouillard brume)
+  @rain_weather_words ~w(rain rains raining rainy drizzle shower showers lluvia lluvioso lloviendo llovizna tormenta pluie pleut pluvieux bruine averse orage orageux)
+  @snow_weather_words ~w(snow snowy snowfall flurry flakes nieve nevado nevada neige neigeux flocon flocons)
+  @cloud_weather_words ~w(cloud clouds cloudy overcast nublado nuboso nuage nuageux nuageuse couvert)
+  @clear_weather_words ~w(clear sunny sunshine despejado despejada soleado soleada claro clara ensoleille degage beau)
 
   @impl true
   def mount(%{"campaign_id" => campaign_id, "session_id" => session_id}, _session, socket) do
@@ -260,6 +267,97 @@ defmodule StorytellerWeb.SessionLive.Show do
       |> maybe_schedule_poll()
 
     {:noreply, socket}
+  end
+
+  attr :world, :map, required: true
+
+  defp scene_weather_icon(assigns) do
+    assigns = assign(assigns, :cue, scene_weather_cue(assigns.world))
+
+    ~H"""
+    <span
+      id="scene-weather-cue"
+      class="scene-weather-cue"
+      data-scene-cue={@cue.name}
+      data-time-mode={@cue.time}
+      data-weather-mode={@cue.weather}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 40 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <g
+          :if={@cue.time == :day}
+          data-sky-icon="sun"
+          stroke="currentColor"
+          stroke-linecap="round"
+        >
+          <circle cx="14" cy="13" r="5.3" fill="currentColor" fill-opacity=".2" stroke-width="1.6" />
+          <path
+            d="M14 3.2v2.3m0 15v2.3m10-9.8h-2.3m-15.4 0H4m17.1-7.1-1.7 1.7M8.6 18.1l-1.7 1.7m14.2 0-1.7-1.7M8.6 8.5 6.9 6.8"
+            stroke-width="1.5"
+          />
+        </g>
+        <g
+          :if={@cue.time == :night}
+          data-sky-icon="moon"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M26.6 3.6c-5.4 1.1-8.8 6.7-7.4 12.1 1.5 5.8 7.4 8.5 12.2 6.1-1.5 3.3-4.9 5.5-8.9 5.1-5.2-.4-9.2-4.9-8.7-10.2.5-6.8 6.4-11.4 12.8-13.1Z"
+            fill="currentColor"
+            fill-opacity=".19"
+            stroke-width="1.6"
+          />
+          <path
+            :if={!@cue.cloud?}
+            d="m8 8 .5 1.4L10 10l-1.5.5L8 12l-.5-1.5L6 10l1.5-.6L8 8Zm24 2 .4 1.1 1.1.4-1.1.4L32 13l-.4-1.1-1.1-.4 1.1-.4L32 10Z"
+            stroke-width="1.2"
+          />
+        </g>
+        <path
+          :if={@cue.cloud?}
+          data-weather-icon="cloud"
+          d="M9.2 26.9c-2.3 0-3.8-1.5-3.8-3.5 0-1.8 1.3-3.2 3.1-3.5.3-3 2.7-5.2 5.8-5.2 2.2 0 4.2 1.2 5.1 3.2 2.8-.8 5.8 1.2 5.8 4.1 2.6-.2 4.3 1.2 4.3 3.1 0 1.2-.9 1.9-2.5 1.9H9.2Z"
+          fill="#f5edda"
+          fill-opacity=".94"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <g :if={@cue.mist?} data-weather-icon="mist" stroke="#8da0a8" stroke-linecap="round">
+          <path
+            d="M6.5 30.1c3.2-1.2 5.6.8 8.8-.1 2.7-.8 4.4-.9 7.1-.1m2.3-.1c2.3-.8 4.9-.8 7.5.1"
+            stroke-width="1.45"
+          />
+          <path d="M9 33c2.8-.7 4.5.6 7.4.1m3-.1c3.4-.8 6.1.6 9.5-.1" stroke-width="1.15" />
+        </g>
+        <g :if={@cue.rain?} data-weather-icon="rain" stroke="#66849a" stroke-linecap="round">
+          <path d="m12 29.4-1.2 2.2m8-2.2-1.2 2.2m8-2.2-1.2 2.2" stroke-width="1.5" />
+        </g>
+        <g :if={@cue.snow?} data-weather-icon="snow" stroke="#7798a6" stroke-linecap="round">
+          <path
+            d="M11 30v4m-1.7-3 3.4 2m0-2-3.4 2m11.2-3v4m-1.7-3 3.4 2m0-2-3.4 2m10.2-3v4m-1.7-3 3.4 2m0-2-3.4 2"
+            stroke-width="1.1"
+          />
+        </g>
+        <g
+          :if={@cue.time == :unknown}
+          data-sky-icon="neutral"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="20" cy="18" r="11" stroke-width="1.45" />
+          <path
+            d="M12 21c2.2-2 4.6 2 7.1 0 2.5-2 4.8 1.8 8.9-.3M20 7v2m0 18v2m-11-11H7m26 0h-2"
+            stroke-width="1.35"
+          />
+        </g>
+      </svg>
+    </span>
+    """
   end
 
   attr :event, :map, required: true
@@ -1178,14 +1276,23 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp inventory_owner_name(owner_id, characters), do: speaker_name(characters, owner_id)
 
   defp world_display(world, keys) do
+    case world_value(world, keys) do
+      nil -> gettext("Not recorded")
+      value -> display_value(value)
+    end
+  end
+
+  defp world_value(world, keys) when is_map(world) do
     case Enum.find(keys, fn key ->
            Map.has_key?(world, key) and not is_nil(Map.get(world, key)) and
              Map.get(world, key) != ""
          end) do
-      nil -> gettext("Not recorded")
-      key -> display_value(Map.get(world, key))
+      nil -> nil
+      key -> Map.get(world, key)
     end
   end
+
+  defp world_value(_world, _keys), do: nil
 
   defp player_world_location(%{current_place: %{name: name}}, _world)
        when is_binary(name) and name != "",
@@ -1193,6 +1300,117 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp player_world_location(_player_character, world),
     do: world_display(world, ["location", "current_location"])
+
+  defp scene_weather_cue(world) when is_map(world) do
+    time_text = world_value(world, ["time", "current_time", "time_of_day", "world_time"])
+    weather_text = world_value(world, ["weather", "conditions"])
+    time_text = scene_cue_text(time_text)
+    weather_text = scene_cue_text(weather_text)
+    time_mode = scene_time_mode(time_text)
+
+    mist? = contains_scene_keyword?(weather_text, @mist_weather_words)
+    rain? = contains_scene_keyword?(weather_text, @rain_weather_words)
+    snow? = contains_scene_keyword?(weather_text, @snow_weather_words)
+
+    cloud? =
+      contains_scene_keyword?(weather_text, @cloud_weather_words) or mist? or rain? or snow?
+
+    clear? = contains_scene_keyword?(weather_text, @clear_weather_words)
+    weather_known? = cloud? or clear?
+
+    weather_mode =
+      cond do
+        mist? -> :mist
+        rain? -> :rain
+        snow? -> :snow
+        cloud? -> :cloud
+        clear? -> :clear
+        true -> :unknown
+      end
+
+    if time_mode == :unknown or not weather_known? do
+      %{
+        name: "neutral",
+        time: :unknown,
+        weather: :unknown,
+        cloud?: false,
+        mist?: false,
+        rain?: false,
+        snow?: false
+      }
+    else
+      %{
+        name: "#{time_mode}-#{weather_mode}",
+        time: time_mode,
+        weather: weather_mode,
+        cloud?: cloud?,
+        mist?: mist?,
+        rain?: rain?,
+        snow?: snow?
+      }
+    end
+  end
+
+  defp scene_weather_cue(_world),
+    do: %{
+      name: "neutral",
+      time: :unknown,
+      weather: :unknown,
+      cloud?: false,
+      mist?: false,
+      rain?: false,
+      snow?: false
+    }
+
+  defp scene_time_mode(text) do
+    cond do
+      contains_scene_keyword?(text, @night_time_words) ->
+        :night
+
+      hour = scene_clock_hour(text) ->
+        if hour <= 5 or hour >= 19, do: :night, else: :day
+
+      contains_scene_keyword?(text, @day_time_words) ->
+        :day
+
+      true ->
+        :unknown
+    end
+  end
+
+  defp scene_clock_hour(text) do
+    case Regex.run(~r/(?:^|\s)(1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(am|pm)\b/u, text) do
+      [_, hour, meridiem] ->
+        hour = String.to_integer(hour)
+
+        case {hour, meridiem} do
+          {12, "am"} -> 0
+          {hour, "pm"} when hour < 12 -> hour + 12
+          {hour, _meridiem} -> hour
+        end
+
+      _ ->
+        case Regex.run(~r/(?:^|\s)([01]?\d|2[0-3])(?:\s*h|:[0-5]\d)/u, text) do
+          [_, hour] -> String.to_integer(hour)
+          _ -> nil
+        end
+    end
+  end
+
+  defp scene_cue_text(value) when is_binary(value) do
+    value
+    |> String.slice(0, 300)
+    |> String.downcase()
+    |> String.normalize(:nfd)
+    |> String.replace(~r/\p{Mn}/u, "")
+  end
+
+  defp scene_cue_text(_value), do: ""
+
+  defp contains_scene_keyword?(text, keywords) do
+    words = String.split(text, ~r/[^\p{L}\p{N}]+/u, trim: true)
+    Enum.any?(keywords, &(&1 in words))
+  end
 
   defp world_label(key) do
     case to_string(key) do

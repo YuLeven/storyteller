@@ -18,14 +18,9 @@
           else: gettext("Reviewing")}</span>
       </div>
       <p class="mt-2 text-sm text-stone-600">
-        {@session.campaign.title} <span aria-hidden="true">·</span>
         {@session.campaign.setting} <span aria-hidden="true">·</span>
         {gettext("Playing as %{character}", character: @session.campaign.player_character)}
       </p>
-    </div>
-    <div class="text-sm text-stone-500">
-      <span class="font-medium text-stone-700">{gettext("Narration:")}</span>
-      {@session.campaign.narration_language}
     </div>
   </header>
 
@@ -130,13 +125,16 @@
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
           {gettext("Weather")}
         </h2>
-        <p
-          id="world-weather"
-          data-panel-watch="world-weather"
-          class="mt-1 text-sm font-semibold text-stone-900"
-        >
-          {world_display(@projection.world, ["weather", "conditions"])}
-        </p>
+        <div class="mt-1 flex items-center gap-2">
+          <.scene_weather_icon world={@projection.world} />
+          <p
+            id="world-weather"
+            data-panel-watch="world-weather"
+            class="text-sm font-semibold text-stone-900"
+          >
+            {world_display(@projection.world, ["weather", "conditions"])}
+          </p>
+        </div>
       </div>
       <div class="rounded-xl bg-stone-50 px-4 py-3">
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">

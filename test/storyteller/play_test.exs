@@ -9,6 +9,73 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Play
   alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Roll, State, Turn}
 
+  test "a narrative-only turn keeps unchanged scene facts in the canonical board" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    public_state =
+      state.public_state
+      |> Map.delete("world_time")
+      |> Map.merge(%{
+        "date" => "Harvest Day 1",
+        "time" => "Midmorning",
+        "weather" => "Cool mist"
+      })
+
+    Repo.update!(State.changeset(state, %{public_state: public_state}))
+
+    captured_request = Agent.start_link(fn -> nil end) |> elem(1)
+    narration = "Lyra lowers the brass shutter and waits for your answer."
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "concise-stable-scene",
+               "Ask Lyra to wait while you finish writing.",
+               provider: fn request ->
+                 Agent.update(captured_request, fn _ -> decode_request(request) end)
+
+                 proposal =
+                   ordinary_proposal(%{
+                     "narration" => narration,
+                     "dialogue" => [],
+                     "activities" => [],
+                     "public_changes" => %{},
+                     "private_changes" => %{},
+                     "panel_changes" => [],
+                     "character_updates" => [],
+                     "inventory_changes" => [],
+                     "location_changes" => [],
+                     "objective_changes" => [],
+                     "continuity_changes" => []
+                   })
+
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(captured_request, & &1)
+    assert context["world"]["public"]["date"] == "Harvest Day 1"
+    assert context["world"]["public"]["time"] == "Midmorning"
+    assert context["world"]["public"]["weather"] == "Cool mist"
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    assert Enum.map(events, & &1.event_type) == [:player_action, :gm_narration]
+
+    gm_event = List.last(events)
+    assert gm_event.payload["text"] == narration
+    assert gm_event.game_time == %{"date" => "Harvest Day 1", "time" => "Midmorning"}
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.world["date"] == "Harvest Day 1"
+    assert projection.world["time"] == "Midmorning"
+    assert projection.world["weather"] == "Cool mist"
+    lyra = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
+    assert lyra.visible_activity == nil
+  end
+
   test "loads a module provider before checking its callback" do
     {campaign, session} = play_campaign("The Glass Observatory")
     provider = Storyteller.PlayTest.LazyModuleProvider

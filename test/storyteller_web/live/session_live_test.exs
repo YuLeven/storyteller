@@ -64,6 +64,10 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(view, "details#campaign-premise > summary", "Story premise")
     refute has_element?(view, "details#campaign-premise[open]")
+    assert has_element?(view, "#app-settings > summary", "Settings")
+    refute has_element?(view, "#app-settings[open]")
+    refute html =~ "Your local campaign archive"
+    refute html =~ "Narration:"
     assert html =~ premise
   end
 
@@ -327,6 +331,81 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       tabindex = if target == "story-timeline", do: "0", else: "-1"
       assert has_element?(view, "##{target}[tabindex='#{tabindex}']")
+    end
+  end
+
+  test "the play header pairs a moon cue with mist across English Spanish and French terms", %{
+    conn: conn
+  } do
+    for {time, weather, sky_icon} <- [
+          {"Midnight", "Cool mist", "moon"},
+          {"Medianoche", "Niebla fresca", "moon"},
+          {"Minuit", "Brume fraîche", "moon"},
+          {"Midmorning", "Cool mist", "sun"},
+          {"Media mañana", "Niebla fresca", "sun"},
+          {"Matinée", "Brume fraîche", "sun"}
+        ] do
+      campaign = campaign_fixture()
+      session = hd(campaign.sessions)
+
+      state = Repo.get_by!(State, campaign_id: campaign.id)
+
+      Repo.update!(
+        State.changeset(state, %{
+          public_state: Map.merge(state.public_state, %{"time" => time, "weather" => weather})
+        })
+      )
+
+      {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+      mode = if sky_icon == "moon", do: "night", else: "day"
+
+      assert has_element?(
+               view,
+               "#scene-weather-cue[data-scene-cue='#{mode}-mist'][data-time-mode='#{mode}'][data-weather-mode='mist'] svg"
+             )
+
+      assert has_element?(view, "#scene-weather-cue [data-sky-icon='#{sky_icon}']")
+      assert has_element?(view, "#scene-weather-cue [data-weather-icon='cloud']")
+      assert has_element?(view, "#scene-weather-cue [data-weather-icon='mist']")
+
+      assert has_element?(view, "#world-time", time)
+      assert has_element?(view, "#world-weather", weather)
+    end
+
+    for {time, mode} <- [{"12:00 AM", "night"}, {"12:00 PM", "day"}] do
+      campaign = campaign_fixture()
+      session = hd(campaign.sessions)
+      state = Repo.get_by!(State, campaign_id: campaign.id)
+
+      Repo.update!(
+        State.changeset(state, %{
+          public_state: Map.merge(state.public_state, %{"time" => time, "weather" => "cloudy"})
+        })
+      )
+
+      {:ok, view, _html} = live(conn, session_path(campaign, session))
+      assert has_element?(view, "#scene-weather-cue[data-time-mode='#{mode}'] svg")
+    end
+
+    for {time, weather} <- [
+          {"first watch", "unfamiliar sky"},
+          {"22:00", "unclear"},
+          {"22:00", "train"}
+        ] do
+      fallback_campaign = campaign_fixture()
+      fallback_session = hd(fallback_campaign.sessions)
+      fallback_state = Repo.get_by!(State, campaign_id: fallback_campaign.id)
+
+      Repo.update!(
+        State.changeset(fallback_state, %{
+          public_state:
+            Map.merge(fallback_state.public_state, %{"time" => time, "weather" => weather})
+        })
+      )
+
+      {:ok, fallback_view, _html} = live(conn, session_path(fallback_campaign, fallback_session))
+      assert has_element?(fallback_view, "#scene-weather-cue[data-scene-cue='neutral'] svg")
     end
   end
 

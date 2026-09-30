@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-09-30 — Put the campaign first and ground scenes in visual cues
+
+- Moved the interface-language control from the always-visible global header into a collapsed Settings menu, translated as **Ajustes** and **Paramètres**. Removed repeated campaign-title and narration-language metadata from the active session header while keeping the setting and player character visible.
+- Added a small original SVG scene cue that combines time of day with recognized weather, including a moon, cloud, and mist for midnight fog. English, Spanish, and French terms are normalized and matched as whole words; unrecognized conditions use a neutral cue. The text weather remains authoritative beside the image.
+- Softened new story-entry motion to a low-distance 420ms arrival while retaining the 520ms beat pacing and existing reduced-motion behavior. The GM policy now avoids repeating unchanged world indicators and includes only relevant character dialogue/activity.
+- Added MVP acceptance for information relevance and restrained atmospheric cues. Recorded the release path: owner-run GPT MVP; V1 open-source local setup, own GPT-account connection, privacy/secrets documentation, and deferred accessibility review; V2 additional AI providers. Local environment/secret files are now ignored. The README remains deferred until V1.
+- **Checks:** Full WSL test suite **199 tests, 0 failures**; JavaScript tests **10/10**; format, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. The separate QA route returned HTTP 200 and rendered the closed Settings disclosure, removed metadata, and scene cue. No turn was submitted or campaign data changed. The account's GPT-plan pause remains in place, so no live-provider response was attempted. A local scan for common high-confidence credential formats found no matches in Git history or the current workspace.
+
 ## 2026-09-30 — Confirm tabletop conversation as an additive product goal
 
 - Added an explicit product goal alongside the original campaign, gameplay, continuity, accessibility, and design goals: make play feel like a shared tabletop conversation.
