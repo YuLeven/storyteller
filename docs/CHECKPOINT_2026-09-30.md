@@ -32,6 +32,7 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 - A second Amber Orchard session completed the player-click D20 flow with a fake provider: it requested target 12, recorded the player's 16 once, then completed with NPC dialogue and activity. The session page returned HTTP 200 and rendered the result and narration without either GM-private seed fact. No live model or OAuth call was made.
 - A malformed fake-provider response failed without adding timeline events; retrying the saved action completed it once. The page then returned HTTP 200 with one visible player action and its GM resolution. Automated recovery tests additionally assert canonical state is unchanged on failure.
 - The QA session page returned HTTP 200 and rendered its current place, inventory, and public stock; its GM-private note was absent from player HTML. These were HTTP/LiveView checks, not visual browser QA.
+- Took five read-only local request timings each for `/`, `/campaigns/34`, and `/campaigns/34/sessions/35`; all returned HTTP 200. Median full-response times were 0.734s, 0.736s, and 0.758s. This development baseline includes localhost forwarding between Windows and WSL; it is not a production performance target.
 - Automated tests use fake providers only. No OAuth consent or live model request was made.
 - HTTP/browser review has not been completed for the new board. The previous Windows browser automation attempt was rejected by the computer-use URL-policy guard. Continue with local HTTP and LiveView behavior checks; do not change the existing failed QA turn.
 
@@ -40,8 +41,9 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 1. Continue exercising the fictional **The Amber Orchard** QA campaign through session restart/resume and failed-turn recovery. Normal dialogue/activity, inventory and location changes, D20, and a cross-session produce-for-cash trade have already been covered with fake providers. A live GM turn still needs the owner to complete OAuth consent. Never reuse the vineyard campaign or its data for tests.
 2. Run the hands-on benchmark tasks in `docs/PRODUCT_BENCHMARK_2026-09.md` for Friends & Fables/Craft, Kanka, and LegendKeeper when interactive access is available. Current notes are based on official pages, not interactive testing; no usability ranking is claimed.
 3. Check keyboard use, screen-reader labels, small-screen layouts, and readable contrast on the play board.
-4. Recheck the ChatGPT-plan OAuth preview eligibility and run a live-provider smoke check only after the owner completes account consent. Do not add API billing or an API-key fallback.
-5. Review the complete vineyard history and request confirmation only for uncertain campaign facts before any import.
+4. Profile the local response baseline before making a performance change; separate Phoenix/database work from Windows-to-WSL localhost forwarding, then define a measured target.
+5. Recheck the ChatGPT-plan OAuth preview eligibility and run a live-provider smoke check only after the owner completes account consent. Do not add API billing or an API-key fallback.
+6. Review the complete vineyard history and request confirmation only for uncertain campaign facts before any import.
 
 Direct player edits to canonical inventory are out of scope for the single-player MVP. The player describes an in-world change in the normal action composer and the GM returns validated item or panel deltas, preserving a reason and audit trail. Reconsider a correction request only if playtesting shows that this flow cannot reliably resolve data mistakes.
 

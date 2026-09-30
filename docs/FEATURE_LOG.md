@@ -5,6 +5,7 @@
 - Rechecked official Friends & Fables, Craft, Kanka, and LegendKeeper feature pages. The notes now describe the current advertised play and campaign-management features, distinguish those vendor claims from verified behavior, and avoid treating the products as interchangeable.
 - Added a consistent hands-on task protocol covering first play, scene/resource discovery, inventory/resource changes, cross-session continuity, recovery, and private facts. No product usability ranking is claimed before those tasks are performed.
 - **Checked:** source links point to the official product pages; interactive competitor testing remains outstanding.
+- Captured a local request-response baseline for the campaign library, campaign detail, and fictional QA play session: five HTTP 200 GETs per route, with medians of 0.734s, 0.736s, and 0.758s. These development measurements include Windows-to-WSL localhost forwarding and are not a production target.
 
 ## 2026-09-30 — Keep inventory canon inside the turn loop
 

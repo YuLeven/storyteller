@@ -26,6 +26,18 @@ No competitor has been interactively tested for this refresh. When access is ava
 
 Friends & Fables/Craft represent AI-led play and authored campaign systems; Kanka/LegendKeeper represent structured campaign reference and worldbuilding. Some tasks will not map to every product: record “not applicable” with the product boundary instead of forcing a misleading score. No product should be ranked until the tasks have actually been performed.
 
+## Local response baseline
+
+On 2026-09-30, five read-only `curl` GETs per route to the running WSL development server returned HTTP 200. Request `time_total` was:
+
+| Route | Median | Observed range |
+| --- | ---: | ---: |
+| Campaign library (`/`) | 0.734 s | 0.728–0.781 s |
+| Amber Orchard campaign detail (`/campaigns/34`) | 0.736 s | 0.728–0.745 s |
+| Amber Orchard play session (`/campaigns/34/sessions/35`) | 0.758 s | 0.738–1.010 s |
+
+This is an initial developer-machine response baseline, not a production performance claim or acceptance threshold. The measurements include localhost forwarding between Windows and WSL. All requests were reads against the fictional QA campaign; no action or campaign state was changed. Profile the request path before attributing the latency or setting a budget.
+
 ## Apple's interaction guidance applied to the web app
 
 Apple's [Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/) are product guidance, not a visual theme to copy. Apple says feedback should help people understand current status, available next actions, and the result of an action; its [feedback guidance](https://developer.apple.com/design/human-interface-guidelines/feedback) recommends placing routine status near the content it describes and reserving disruptive alerts for consequential problems.
