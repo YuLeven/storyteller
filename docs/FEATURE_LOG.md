@@ -12,12 +12,13 @@
 - **Checks:** Full WSL suite **196 tests, 0 failures**; warnings-as-errors compile, format, gettext freshness, asset build, and `git diff --check` pass. The standalone timeline tests pass **4/4**. The development schema reports all migrations up, including `20260930000900_create_play_continuity_entries`.
 - Scene image pacing remains an open integration: Plus OAuth does not generate images. When a local or user-provided image source is selected, image cards should share the same reveal queue; no paid API image usage was added.
 
-## 2026-09-30 — Product goal added: keep state changes out of the conversation
+## 2026-09-30 — Make the story a tabletop conversation and move state cues to panels
 
-- The next play-flow iteration must make the story feel like a tabletop exchange between player, GM, and characters. The product goal is one coherent GM beat, natural character introductions, and state changes reflected in their panels rather than system-style memory/inventory/location/resource bubbles.
-- Date and weather changes should be narrated in the scene while their world-bar indicators update as canonical state. Character facts should be available in the character panel without a “new character” notice or stats readout.
-- Changed panels should use restrained, accessible animation as feedback, with reduced-motion behavior. The audit trail remains durable for consistency and recovery but is not shown as chat.
-- **Status:** added to `IMPLEMENTATION_PLAN.md`, `docs/GM_POLICY.md`, and `docs/UX_ACCEPTANCE.md`; not yet implemented. Scene-image pacing remains dependent on a local or player-supplied image source.
+- Player-facing story pagination now includes player actions, GM narration, character dialogue, and D20 prompts/results. Character activity and structured state-change audit events remain durable but no longer appear as transcript messages.
+- The GM policy now favors one coherent scene beat, natural introductions and weather/date narration, and character activity on the character panel. Behavioral tests verify new-character dialogue and narration, updated canonical panels, and retained audit records without system-style chat entries.
+- World details, tracked resources, memory, objectives, scene facts, inventory, and character panels now watch displayed values and use a restrained gold pulse when those values change. Each changed panel has a concise localized polite announcement, and reduced-motion preference disables the animation.
+- Read-only browser review of the separate Amber Orchard QA campaign confirms the visible transcript is limited to the player's actions, GM narration, direct character speech, and roll interaction. No turn was submitted during this review.
+- **Checks:** Full WSL suite **196 tests, 0 failures**; story-timeline and panel-pulse JavaScript tests **6/6**; formatting, gettext freshness, warnings-as-errors compile, asset build, and `git diff --check` pass. A screen-reader session and live change-pulse interaction remain manual QA follow-ups. Scene-image pacing still depends on a local or player-supplied image source.
 
 ## 2026-09-30 — Persist campaign continuity beyond model summaries
 

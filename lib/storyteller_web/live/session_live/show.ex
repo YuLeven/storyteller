@@ -112,7 +112,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   def handle_event("load-earlier-story", _params, socket) do
     case List.first(socket.assigns.timeline) do
       %{sequence: before_sequence} ->
-        case Play.public_timeline_page(socket.assigns.session.campaign_id,
+        case Play.public_story_timeline_page(socket.assigns.session.campaign_id,
                before_sequence: before_sequence,
                limit: @timeline_page_size
              ) do
@@ -433,6 +433,7 @@ defmodule StorytellerWeb.SessionLive.Show do
     ~H"""
     <li
       id={"inventory-item-#{@item["id"]}"}
+      data-panel-watch={"inventory-#{@item["id"]}"}
       class="rounded-xl border border-stone-100 bg-stone-50 px-3 py-2"
     >
       <div class="flex items-center justify-between gap-3">
@@ -556,7 +557,7 @@ defmodule StorytellerWeb.SessionLive.Show do
 
     with {:ok, projection} <- Play.public_projection(campaign_id),
          {:ok, %{events: recent_events, has_earlier?: has_earlier?}} <-
-           Play.public_timeline_page(campaign_id, limit: @timeline_page_size) do
+           Play.public_story_timeline_page(campaign_id, limit: @timeline_page_size) do
       timeline = merge_timeline(socket.assigns.timeline, recent_events)
 
       timeline_has_earlier? =

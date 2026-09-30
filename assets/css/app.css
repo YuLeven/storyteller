@@ -322,6 +322,10 @@
 .play-page #story-timeline .story-entry-revealed {
   animation: story-entry-arrive 180ms ease-out both;
 }
+.play-page .board-state-changed {
+  border-radius: 0.35rem;
+  animation: board-state-pulse 1.1s ease-out both;
+}
 .play-page .play-sidebar summary {
   display: flex;
   align-items: center;
@@ -353,6 +357,10 @@
 @keyframes story-entry-arrive {
   from { opacity: 0; transform: translateY(0.3rem); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes board-state-pulse {
+  0% { background-color: rgb(213 167 82 / 42%); box-shadow: 0 0 0 3px rgb(213 167 82 / 35%); }
+  100% { background-color: transparent; box-shadow: 0 0 0 0 rgb(213 167 82 / 0%); }
 }
 .play-page .story-entry {
   border-color: #65563a;
@@ -667,7 +675,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .play-page #story-timeline .story-entry-revealed {
+  .play-page #story-timeline .story-entry-revealed,
+  .play-page .board-state-changed {
     animation: none;
   }
 }

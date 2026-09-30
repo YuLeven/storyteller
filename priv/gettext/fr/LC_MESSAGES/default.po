@@ -1900,3 +1900,33 @@ msgstr "Voir %{count} de plus"
 #, elixir-autogen, elixir-format
 msgid "recorded details"
 msgstr "éléments consignés"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:660
+#, elixir-autogen, elixir-format
+msgid "Campaign commitments updated"
+msgstr "Les engagements de la campagne ont été mis à jour"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:595
+#, elixir-autogen, elixir-format
+msgid "Campaign memory updated"
+msgstr "La mémoire de campagne a été mise à jour"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:908
+#, elixir-autogen, elixir-format
+msgid "Characters updated"
+msgstr "Les personnages ont été mis à jour"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:732
+#, elixir-autogen, elixir-format
+msgid "Current scene updated"
+msgstr "La scène actuelle a été mise à jour"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:548
+#, elixir-autogen, elixir-format
+msgid "Tracked resources updated"
+msgstr "Les ressources suivies ont été mises à jour"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:87
+#, elixir-autogen, elixir-format
+msgid "World details updated"
+msgstr "Les détails du monde ont été mis à jour"

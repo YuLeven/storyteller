@@ -83,14 +83,28 @@
   <div :if={@projection} class="space-y-6">
     <section
       id="campaign-panels"
+      phx-hook="PanelPulse"
+      data-panel-change-message={gettext("World details updated")}
       aria-label={gettext("Current world details")}
-      class="grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4"
+      class="relative grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4"
     >
+      <p
+        class="sr-only"
+        data-panel-announcement
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+      </p>
       <div class="rounded-xl bg-stone-50 px-4 py-3">
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
           {gettext("In-world date")}
         </h2>
-        <p id="world-date" class="mt-1 text-sm font-semibold text-stone-900">
+        <p
+          id="world-date"
+          data-panel-watch="world-date"
+          class="mt-1 text-sm font-semibold text-stone-900"
+        >
           {world_display(@projection.world, [
             "date",
             "current_date",
@@ -104,7 +118,11 @@
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
           {gettext("Time")}
         </h2>
-        <p id="world-time" class="mt-1 text-sm font-semibold text-stone-900">
+        <p
+          id="world-time"
+          data-panel-watch="world-time"
+          class="mt-1 text-sm font-semibold text-stone-900"
+        >
           {world_display(@projection.world, ["time", "current_time", "time_of_day", "world_time"])}
         </p>
       </div>
@@ -112,7 +130,11 @@
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
           {gettext("Weather")}
         </h2>
-        <p id="world-weather" class="mt-1 text-sm font-semibold text-stone-900">
+        <p
+          id="world-weather"
+          data-panel-watch="world-weather"
+          class="mt-1 text-sm font-semibold text-stone-900"
+        >
           {world_display(@projection.world, ["weather", "conditions"])}
         </p>
       </div>
@@ -120,7 +142,11 @@
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
           {gettext("Location")}
         </h2>
-        <p id="world-location" class="mt-1 text-sm font-semibold text-stone-900">
+        <p
+          id="world-location"
+          data-panel-watch="world-location"
+          class="mt-1 text-sm font-semibold text-stone-900"
+        >
           {player_world_location(@player_character, @projection.world)}
         </p>
       </div>
@@ -518,9 +544,19 @@
         <section
           :if={@projection.panels != []}
           id="campaign-fields"
+          phx-hook="PanelPulse"
+          data-panel-change-message={gettext("Tracked resources updated")}
           tabindex="-1"
           class="scroll-mt-20 space-y-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
         >
+          <p
+            class="sr-only"
+            data-panel-announcement
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+          </p>
           <div>
             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
               {gettext("Campaign details")}
@@ -540,7 +576,10 @@
                   <dt class="text-sm text-stone-600">{field.label}</dt>
                   <dd :if={field.unit} class="text-xs text-stone-400">{field.unit}</dd>
                 </div>
-                <dd class="shrink-0 text-right text-sm font-semibold text-stone-900">
+                <dd
+                  data-panel-watch={"resource-#{field.key}"}
+                  class="shrink-0 text-right text-sm font-semibold text-stone-900"
+                >
                   {if is_nil(field.value) or field.value == "",
                     do: gettext("Not recorded"),
                     else: display_value(field.value)}
@@ -552,9 +591,19 @@
 
         <section
           id="campaign-memory"
+          phx-hook="PanelPulse"
+          data-panel-change-message={gettext("Campaign memory updated")}
           tabindex="-1"
           class="scroll-mt-20 rounded-2xl border border-violet-200 bg-violet-50/50 p-4 shadow-sm"
         >
+          <p
+            class="sr-only"
+            data-panel-announcement
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+          </p>
           <details>
             <summary class="cursor-pointer list-none rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-700">
               <span class="flex items-center justify-between gap-3">
@@ -566,7 +615,10 @@
                     {gettext("Known story details")}
                   </span>
                 </span>
-                <span class="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-violet-900">
+                <span
+                  data-panel-watch="memory-count"
+                  class="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-violet-900"
+                >
                   {length(@projection.continuity_entries)}
                   <span class="sr-only">{gettext("recorded details")}</span>
                 </span>
@@ -584,6 +636,7 @@
               <li
                 :for={entry <- Enum.reverse(@projection.continuity_entries)}
                 id={"campaign-memory-#{entry.entry_id}"}
+                data-panel-watch={"memory-#{entry.entry_id}"}
                 class="rounded-xl border border-violet-100 bg-white/85 px-3 py-2.5"
               >
                 <h3 class="text-sm font-semibold text-stone-900">{entry.title}</h3>
@@ -603,9 +656,19 @@
 
         <details
           id="campaign-objectives"
+          phx-hook="PanelPulse"
+          data-panel-change-message={gettext("Campaign commitments updated")}
           tabindex="-1"
           class="scroll-mt-20 rounded-2xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm"
         >
+          <p
+            class="sr-only"
+            data-panel-announcement
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+          </p>
           <summary class="cursor-pointer list-none rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
             <span class="flex items-center justify-between gap-3">
               <span>
@@ -620,7 +683,10 @@
                   {gettext("Objectives")}
                 </span>
               </span>
-              <span class="shrink-0 rounded-full bg-white/80 px-2 py-1 text-xs font-semibold text-stone-700">
+              <span
+                data-panel-watch="objective-count"
+                class="shrink-0 rounded-full bg-white/80 px-2 py-1 text-xs font-semibold text-stone-700"
+              >
                 {length(@projection.objectives)}
               </span>
             </span>
@@ -641,6 +707,7 @@
                 <li
                   :for={objective <- objectives_for_status(@projection.objectives, status)}
                   id={"objective-#{objective.objective_id}"}
+                  data-panel-watch={"objective-#{objective.objective_id}"}
                   class="rounded-xl bg-white/80 px-3 py-3"
                 >
                   <h4 class="font-semibold text-stone-900">{objective.title}</h4>
@@ -661,14 +728,25 @@
 
         <section
           id="current-place"
+          phx-hook="PanelPulse"
+          data-panel-change-message={gettext("Current scene updated")}
           tabindex="-1"
           class="scroll-mt-20 rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm"
         >
+          <p
+            class="sr-only"
+            data-panel-announcement
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+          </p>
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
             {gettext("The scene")}
           </p>
           <h2
             :if={@player_character && @player_character.current_place}
+            data-panel-watch="current-place"
             class="mt-1 text-lg font-semibold text-stone-950"
           >
             {@player_character.current_place.name}
@@ -688,6 +766,7 @@
             </p>
             <p
               id="current-situation"
+              data-panel-watch="current-situation"
               class="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-800"
             >
               {@current_situation || gettext("No current situation has been recorded yet.")}
@@ -712,7 +791,10 @@
                 :if={map_size(@player_character.current_place.facts) > 0}
                 class="mt-3 space-y-2 border-t border-amber-200/70 pt-3"
               >
-                <div :for={{key, value} <- @player_character.current_place.facts}>
+                <div
+                  :for={{key, value} <- @player_character.current_place.facts}
+                  data-panel-watch={"place-fact-#{key}"}
+                >
                   <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
                     {world_label(key)}
                   </dt>
@@ -730,6 +812,7 @@
               >
                 <li
                   :for={character <- characters_here(@projection.characters, @player_character)}
+                  data-panel-watch={"present-#{character.speaker_id}"}
                   class="rounded-xl bg-white/80 px-3 py-2"
                 >
                   <p class="text-sm font-semibold text-stone-900">{character.name}</p>
@@ -750,9 +833,19 @@
 
         <section
           id="character-inventory"
+          phx-hook="PanelPulse"
+          data-panel-change-message={gettext("Inventory updated")}
           tabindex="-1"
           class="play-sidebar-section scroll-mt-20 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
         >
+          <p
+            class="sr-only"
+            data-panel-announcement
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+          </p>
           <div class="flex items-center justify-between gap-3">
             <div>
               <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
@@ -762,7 +855,10 @@
                 {gettext("Inventory")}
               </h2>
             </div>
-            <span class="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-xs font-semibold text-stone-700">
+            <span
+              data-panel-watch="inventory-count"
+              class="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-xs font-semibold text-stone-700"
+            >
               {length(@projection.inventory)}
             </span>
           </div>
@@ -808,8 +904,18 @@
 
         <details
           id="campaign-characters"
+          phx-hook="PanelPulse"
+          data-panel-change-message={gettext("Characters updated")}
           class="play-sidebar-section rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
         >
+          <p
+            class="sr-only"
+            data-panel-announcement
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+          </p>
           <summary class="cursor-pointer list-none rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
             <span class="flex items-center justify-between gap-3">
               <span>
@@ -824,7 +930,10 @@
                   {gettext("Characters")}
                 </span>
               </span>
-              <span class="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-xs font-semibold text-stone-700">
+              <span
+                data-panel-watch="character-count"
+                class="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-xs font-semibold text-stone-700"
+              >
                 {length(@projection.characters)}
               </span>
             </span>
@@ -832,6 +941,7 @@
           <ul class="mt-3 space-y-3">
             <li
               :for={character <- @projection.characters}
+              data-panel-watch={"character-#{character.speaker_id}"}
               class="border-t border-stone-100 pt-2 first:border-0 first:pt-0"
             >
               <h3 class="font-semibold text-stone-900">{character.name}</h3>

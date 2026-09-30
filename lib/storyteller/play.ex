@@ -45,6 +45,22 @@ defmodule Storyteller.Play do
   @max_active_continuity_entries 80
   @max_total_continuity_entries 100
   @max_continuity_entry_details_chars 500
+  @event_types [
+    :player_action,
+    :gm_narration,
+    :npc_dialogue,
+    :character_activity,
+    :roll_request,
+    :player_roll,
+    :state_change
+  ]
+  @player_story_event_types [
+    :player_action,
+    :gm_narration,
+    :npc_dialogue,
+    :roll_request,
+    :player_roll
+  ]
 
   @gm_policy """
   You are the game master for this campaign. The campaign setting, narration
@@ -63,12 +79,26 @@ defmodule Storyteller.Play do
   between player actions, while private intentions remain private until play
   reveals them.
 
-  Make each response one coherent, concise beat. Narrate the meaningful outcome
-  and scene change, then return control clearly. Include NPC dialogue or activity
-  only when it changes the moment, reveals meaningful character behavior, or
-  gives the player useful information. Skip filler and repetition of unchanged
-  behavior. Concision must not omit the required in-world date, established
-  consequences, or any canonical change that the turn requires.
+  Make each response one coherent, concise beat. Keep the campaign story like a
+  tabletop exchange: the player's action, your natural scene narration, and
+  relevant direct character speech. Narrate the meaningful outcome and scene
+  change, then return control clearly. Usually use no more than two short NPC
+  dialogue lines in a response; let a character speak again on the next turn
+  when a conversation continues. Put relevant movement or ongoing work in the
+  character's activity field so it updates their panel; do not emit routine
+  gestures as separate activity beats. Skip filler and repetition. Concision
+  must not omit the required in-world date, established consequences, or any
+  canonical change that the turn requires.
+
+  Introduce a new character through ordinary scene narration or their own
+  dialogue, as a tabletop GM would. Never announce a character creation, list
+  their statistics, or write a system-style introduction. Their structured
+  public facts belong in the character record and player panel. Narrate a
+  meaningful date, time, or weather change naturally in the scene while also
+  returning the canonical field change; the world bar will show the new value.
+  Memory, inventory, location, resource, and character-record operations are
+  application state, not additional story messages. Do not repeat their audit
+  details in narration unless the player needs an in-fiction explanation.
 
   The supplied public and GM-private objectives are canonical commitments.
   Do not invent goals or imply that one is complete just because time passed,
@@ -398,20 +428,40 @@ defmodule Storyteller.Play do
     limit = opts |> Keyword.get(:limit, 500) |> valid_limit()
     before_sequence = Keyword.get(opts, :before_sequence)
 
-    if is_nil(before_sequence) or (is_integer(before_sequence) and before_sequence > 0) do
-      fetch_public_timeline_page(campaign_id, opts, limit, before_sequence)
-    else
-      {:error, :invalid_cursor}
+    cond do
+      not (is_nil(before_sequence) or (is_integer(before_sequence) and before_sequence > 0)) ->
+        {:error, :invalid_cursor}
+
+      not valid_event_types_filter?(Keyword.get(opts, :event_types)) ->
+        {:error, :invalid_event_types}
+
+      true ->
+        fetch_public_timeline_page(campaign_id, opts, limit, before_sequence)
     end
   end
 
   def public_timeline_page(_campaign_id, _opts), do: {:error, :invalid_cursor}
+
+  @doc "Returns only conversational story events, omitting structured world and activity records."
+  def public_story_timeline_page(campaign_id, opts \\ [])
+
+  def public_story_timeline_page(campaign_id, opts) when is_list(opts) do
+    public_timeline_page(campaign_id, Keyword.put(opts, :event_types, @player_story_event_types))
+  end
+
+  def public_story_timeline_page(_campaign_id, _opts), do: {:error, :invalid_cursor}
 
   defp fetch_public_timeline_page(campaign_id, opts, limit, before_sequence) do
     query =
       from event in Event,
         where: event.campaign_id == ^campaign_id and event.visibility == :public,
         order_by: [desc: event.sequence]
+
+    query =
+      case Keyword.get(opts, :event_types) do
+        nil -> query
+        event_types -> from event in query, where: event.event_type in ^event_types
+      end
 
     query =
       case Keyword.get(opts, :session_id) do
@@ -527,6 +577,13 @@ defmodule Storyteller.Play do
   end
 
   defp current_public_timeline_event(event, _current_entries), do: event
+
+  defp valid_event_types_filter?(nil), do: true
+
+  defp valid_event_types_filter?(event_types) when is_list(event_types),
+    do: Enum.all?(event_types, &(&1 in @event_types))
+
+  defp valid_event_types_filter?(_event_types), do: false
 
   @doc "Returns the newest player-visible turn that still needs attention."
   def public_current_turn(campaign_id) do

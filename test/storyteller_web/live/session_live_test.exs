@@ -125,8 +125,8 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(view, "#campaign-memory", "The glasshouse promise")
     assert has_element?(view, "#campaign-memory", "before the first frost")
-    assert has_element?(view, "#story-timeline", "Campaign memory")
-    assert has_element?(view, "#story-timeline", "You promised to repair the glasshouse roof")
+    refute has_element?(view, "#story-timeline", "Campaign memory")
+    refute has_element?(view, "#story-timeline", "You promised to repair the glasshouse roof")
     refute has_element?(view, "#campaign-memory", "Hidden north passage")
     refute render(view) =~ "north cellar wall conceals a passage"
     refute has_element?(view, "#campaign-memory details[open]")
@@ -315,7 +315,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
   end
 
-  test "submitting an action updates the public world, NPC activity, and attributed timeline", %{
+  test "the story stays conversational while world and NPC state update in their panels", %{
     conn: conn
   } do
     campaign =
@@ -410,6 +410,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ "The stone archway opens onto a quiet road."
     assert html =~ "Rhea Vale"
     assert html =~ "Rhea checks the gate latch."
+    refute has_element?(view, "#story-timeline", "Rhea checks the gate latch.")
     assert html =~ "The western road"
     assert has_element?(view, "#current-place", "The western road")
     assert has_element?(view, "#world-location", "The western road")
@@ -429,6 +430,13 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert private_change.game_time == nil
     assert has_element?(view, "#event-#{player_action.sequence}", "Day 3, June 10 · 09:15")
     assert has_element?(view, "#event-#{gm_narration.sequence}", "Day 3, June 10 · 09:20")
+    assert has_element?(view, "#world-weather[data-panel-watch='world-weather']")
+
+    {:ok, public_events} = Play.public_timeline(campaign.id)
+    {:ok, %{events: story_events}} = Play.public_story_timeline_page(campaign.id)
+    assert Enum.any?(public_events, &(&1.event_type == :state_change))
+    assert Enum.any?(public_events, &(&1.event_type == :character_activity))
+    refute Enum.any?(story_events, &(&1.event_type in [:state_change, :character_activity]))
 
     for {locale, label} <- [{"es", "Hora del juego"}, {"fr", "Heure du jeu"}] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
@@ -511,7 +519,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert length(time_facts) == 1
   end
 
-  test "player character fact updates appear on the board with a reasoned timeline entry", %{
+  test "player character fact updates appear on the board without a system chat entry", %{
     conn: conn
   } do
     campaign =
@@ -559,23 +567,22 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> render_submit()
 
     assert wait_until(fn -> render(view) =~ "Rested" end)
-    html = render(view)
-    assert html =~ "Character details updated"
-    assert html =~ "Reason: The player rests through the afternoon."
+    refute has_element?(view, "#story-timeline", "Character details updated")
+    refute has_element?(view, "#story-timeline", "The player rests through the afternoon.")
 
     assert has_element?(
              view,
              "#story-live-timeline[aria-live='polite'][aria-relevant='additions'][aria-atomic='false']"
            )
 
-    assert has_element?(view, "#story-timeline", "Health")
+    assert has_element?(view, "#campaign-characters", "Health")
 
     {:ok, projection} = Play.public_projection(campaign.id)
     player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
     assert player.visible_facts["Health"] == "Rested"
   end
 
-  test "resource transaction timeline shows the before value, delta, result, and reason", %{
+  test "resource transactions update their panel without a system chat entry", %{
     conn: conn
   } do
     campaign =
@@ -626,11 +633,16 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> form("#turn-composer", turn: %{input: "Sell a basket of apples."})
     |> render_submit()
 
-    assert wait_until(fn -> render(view) =~ "A customer pays for one basket of apples." end)
-    html = render(view)
-    assert html =~ "Cash: 18.5 silver → 24.75 silver"
-    assert html =~ "Change: +6.25 silver"
-    assert html =~ "Reason: A customer pays for one basket of apples."
+    assert wait_until(fn -> render(view) =~ "The customer pays for a basket of apples." end)
+    assert has_element?(view, "#campaign-fields", "24.75")
+    refute has_element?(view, "#story-timeline", "Cash: 18.5 silver → 24.75 silver")
+    refute has_element?(view, "#story-timeline", "A customer pays for one basket of apples.")
+
+    state_event = Repo.get_by!(Event, campaign_id: campaign.id, event_type: :state_change)
+    assert state_event.payload["panel_changes"] != []
+
+    assert state_event.payload["panel_changes"] |> hd() |> Map.fetch!("reason") ==
+             "A customer pays for one basket of apples."
   end
 
   test "new character introductions render the name and public facts without private facts", %{
@@ -677,8 +689,11 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert wait_until(fn -> render(view) =~ "Orin Vale" end)
     html = render(view)
-    assert has_element?(view, "#story-timeline", "Character introduced")
-    assert has_element?(view, "#story-timeline", "Courier")
+    assert has_element?(view, "#story-timeline", "A courier steps out from under the stone arch.")
+    assert has_element?(view, "#story-timeline", "I can show you the safe road.")
+    refute has_element?(view, "#story-timeline", "Character introduced")
+    assert has_element?(view, "#campaign-characters", "Orin Vale")
+    assert has_element?(view, "#campaign-characters", "Courier")
     assert html =~ "Orin Vale"
     refute html =~ "find the sealed map"
     refute html =~ "seeks a map"
