@@ -287,12 +287,24 @@ defmodule Storyteller.Campaigns do
       rows ->
         rows
         |> Enum.reduce_while({:ok, []}, fn {row_index, attrs}, {:ok, acc} ->
-          speaker_id = attrs |> attr(:speaker_id, "") |> trim_string()
+          supplied_speaker_id = attrs |> attr(:speaker_id, "") |> trim_string()
           name = attrs |> attr(:name, "") |> trim_string()
           visible = character_facts(attrs, :visible_facts, :visible_facts_text, "description")
           private = character_facts(attrs, :gm_private_facts, :private_notes, "notes")
 
+          speaker_id =
+            if supplied_speaker_id == "" and name != "" and String.length(name) <= 300 do
+              generated_speaker_id(name, row_index, acc)
+            else
+              supplied_speaker_id
+            end
+
           cond do
+            not is_binary(name) or name == "" or String.length(name) > 300 ->
+              {:halt,
+               {:error,
+                {:setup, "GM character #{row_index + 1} needs a name up to 300 characters."}}}
+
             not valid_speaker_id?(speaker_id) ->
               {:halt,
                {:error,
@@ -305,11 +317,6 @@ defmodule Storyteller.Campaigns do
 
             Enum.any?(acc, &(&1.speaker_id == speaker_id)) ->
               {:halt, {:error, {:setup, "Each GM character needs a unique speaker ID."}}}
-
-            not is_binary(name) or name == "" or String.length(name) > 300 ->
-              {:halt,
-               {:error,
-                {:setup, "GM character #{row_index + 1} needs a name up to 300 characters."}}}
 
             not is_map(visible) or not is_map(private) ->
               {:halt, {:error, {:setup, "GM character facts must be maps."}}}
@@ -335,6 +342,34 @@ defmodule Storyteller.Campaigns do
   end
 
   defp normalize_setup_characters(_), do: {:error, {:setup, "GM characters must be a list."}}
+
+  defp generated_speaker_id(name, row_index, existing_characters) do
+    base =
+      name
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/u, "_")
+      |> String.trim("_")
+      |> case do
+        "" -> "gm_character_#{row_index + 1}"
+        slug -> String.slice(slug, 0, 88)
+      end
+      |> case do
+        "player" -> "gm_player"
+        slug -> slug
+      end
+
+    unique_speaker_id(base, existing_characters, 1)
+  end
+
+  defp unique_speaker_id(base, existing_characters, suffix) do
+    candidate = if suffix == 1, do: base, else: "#{base}_#{suffix}"
+
+    if Enum.any?(existing_characters, &(&1.speaker_id == candidate)) do
+      unique_speaker_id(base, existing_characters, suffix + 1)
+    else
+      candidate
+    end
+  end
 
   defp normalize_player_character_details(rows) when is_list(rows) or is_map(rows) do
     rows = indexed_rows(rows)

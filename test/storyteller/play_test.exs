@@ -7,7 +7,202 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Roll, State, Turn}
+  alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Place, Roll, State, Turn}
+
+  @tag :privacy_guard
+  test "rejects exact GM-private facts in public narration before appending events" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    assert_private_text_rejected(campaign, session, "private-fact-narration", %{
+      "narration" => "Lyra's motive is to protect the chart."
+    })
+
+    assert_private_text_rejected(campaign, session, "private-fact-public-summary", %{
+      "narration" => "The room grows quiet.",
+      "memory_update" => %{
+        "public_summary" => "Lyra's motive is to protect the chart.",
+        "gm_private_summary" => ""
+      }
+    })
+
+    assert_private_text_rejected(campaign, session, "new-private-fact-summary", %{
+      "narration" => "A hidden mark is beneath the north sill.",
+      "memory_update" => %{
+        "public_summary" => "The observatory remains quiet.",
+        "gm_private_summary" => "A hidden mark is beneath the north sill."
+      }
+    })
+  end
+
+  @tag :privacy_guard
+  test "rejects a hidden-place name in public NPC dialogue" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    Repo.insert!(
+      Place.changeset(%Place{}, %{
+        campaign_id: campaign.id,
+        place_id: "saffron-vault",
+        name: "Saffron Vault",
+        visibility: :gm_private,
+        facts: %{}
+      })
+    )
+
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:orin",
+        name: "Orin Vale",
+        role: :gm,
+        visible_facts: %{},
+        gm_private_facts: %{},
+        current_place_id: "saffron-vault"
+      })
+    )
+
+    assert_private_text_rejected(campaign, session, "private-place-dialogue", %{
+      "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The map points to Saffron Vault."}]
+    })
+
+    assert_private_text_rejected(campaign, session, "hidden-character-name", %{
+      "narration" => "Orin Vale waits beyond the observatory door."
+    })
+  end
+
+  @tag :privacy_guard
+  test "rejects secret inventory names in public character activity" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    secret_item = %{
+      "id" => "moonstone-key",
+      "name" => "Moonstone key",
+      "quantity" => 1,
+      "unit" => "item",
+      "category" => "relic",
+      "owner_id" => "npc:lyra",
+      "visibility" => "gm_private",
+      "properties" => %{}
+    }
+
+    Repo.update!(
+      State.changeset(state, %{
+        gm_private_state: Map.put(state.gm_private_state, "inventory", [secret_item])
+      })
+    )
+
+    assert_private_text_rejected(campaign, session, "private-inventory-activity", %{
+      "activities" => [%{"speaker_id" => "npc:lyra", "text" => "Lyra hides the Moonstone key."}]
+    })
+
+    assert_private_text_rejected(campaign, session, "private-item-update", %{
+      "activities" => [
+        %{"speaker_id" => "npc:lyra", "text" => "The mark reads beneath the north sill."}
+      ],
+      "inventory_changes" => [
+        %{
+          "type" => "update",
+          "item_id" => "moonstone-key",
+          "properties" => %{"inscription" => "beneath the north sill"},
+          "reason" => "The inscription becomes legible."
+        }
+      ]
+    })
+  end
+
+  @tag :privacy_guard
+  test "an explicit public state reveal permits the same phrase now and in later turns" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" => "The truth is now public: protect the chart.",
+        "public_changes" => %{"revealed_motive" => "protect the chart"},
+        "memory_update" => %{
+          "public_summary" => "It is now public that Lyra wants to protect the chart.",
+          "gm_private_summary" => ""
+        }
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "private-fact-revealed",
+               "Ask Lyra what she knows.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "private-fact-after-reveal",
+               "Discuss the motive.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" => "You both agree to protect the chart."
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.world["revealed_motive"] == "protect the chart"
+  end
+
+  @tag :privacy_guard
+  test "guards private objective details while allowing generic one-word prose" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        gm_private_state: Map.put(state.gm_private_state, "mood", "calm")
+      })
+    )
+
+    Repo.insert!(
+      Objective.changeset(%Objective{}, %{
+        campaign_id: campaign.id,
+        objective_id: "sealed-pact",
+        title: "Sealed pact",
+        details: "The witness hid the northern charter beneath the old press.",
+        status: :open,
+        visibility: :gm_private
+      })
+    )
+
+    insert_panel_field!(campaign.id, %{
+      key: "gm_signal",
+      panel: "GM notes",
+      label: "Hidden signal",
+      value_type: :text,
+      visibility: :gm_private,
+      value: %{"value" => "The silver bell rings at noon."}
+    })
+
+    assert_private_text_rejected(campaign, session, "private-objective-detail", %{
+      "narration" => "The witness hid the northern charter beneath the old press."
+    })
+
+    assert_private_text_rejected(campaign, session, "private-panel-value", %{
+      "narration" => "The silver bell rings at noon."
+    })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "generic-private-token",
+               "Wait for the wind.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" => "Calm settles over the observatory."
+                 }),
+               model: "test-model"
+             )
+  end
 
   test "a narrative-only turn keeps unchanged scene facts in the canonical board" do
     {campaign, session} = play_campaign("The Glass Observatory")
@@ -3528,6 +3723,16 @@ defmodule Storyteller.PlayTest do
                provider: provider,
                model: "test-model"
              )
+  end
+
+  defp assert_private_text_rejected(campaign, session, key, overrides) do
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(campaign.id, session.id, key, "Look around carefully.",
+               provider: ordinary_provider(overrides),
+               model: "test-model"
+             )
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
   defp ordinary_provider(overrides \\ %{}) do

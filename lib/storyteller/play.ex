@@ -2005,25 +2005,322 @@ defmodule Storyteller.Play do
               continuity_changes != []) do
         {:error, :invalid_response}
       else
-        {:ok,
-         %{
-           narration: narration,
-           dialogue: dialogue,
-           activities: activities,
-           public_changes: public_changes,
-           private_changes: private_changes,
-           panel_changes: panel_changes,
-           character_updates: character_updates,
-           character_creations: character_creations,
-           inventory_changes: inventory_changes,
-           location_changes: location_changes,
-           objective_changes: objective_changes,
-           continuity_changes: continuity_changes,
-           memory_update: memory_update,
-           roll_request: roll_request
-         }}
+        validated = %{
+          narration: narration,
+          dialogue: dialogue,
+          activities: activities,
+          public_changes: public_changes,
+          private_changes: private_changes,
+          panel_changes: panel_changes,
+          character_updates: character_updates,
+          character_creations: character_creations,
+          inventory_changes: inventory_changes,
+          location_changes: location_changes,
+          objective_changes: objective_changes,
+          continuity_changes: continuity_changes,
+          memory_update: memory_update,
+          roll_request: roll_request
+        }
+
+        case validate_public_text_privacy(validated, turn.campaign_id) do
+          :ok -> {:ok, validated}
+          {:error, _reason} -> {:error, :invalid_response}
+        end
       end
     end
+  end
+
+  # Reject exact private canonical phrases in player-visible prose. Public
+  # structured state is an explicit disclosure; semantic paraphrase detection is
+  # intentionally outside this deterministic guard.
+  defp validate_public_text_privacy(proposal, campaign_id) do
+    state = Repo.get_by!(State, campaign_id: campaign_id)
+    characters = campaign_characters(campaign_id)
+    places = Repo.all(from place in Place, where: place.campaign_id == ^campaign_id)
+    panels = Panels.list_fields(campaign_id)
+
+    private_place_ids =
+      places |> Enum.filter(&(&1.visibility == :gm_private)) |> MapSet.new(& &1.place_id)
+
+    private_values =
+      private_json_values(Map.drop(state.gm_private_state || %{}, ["inventory"])) ++
+        private_json_values(state.gm_private_history_summary) ++
+        Enum.flat_map(characters, &private_json_values(&1.gm_private_facts)) ++
+        Enum.flat_map(characters, fn character ->
+          if MapSet.member?(private_place_ids, character.current_place_id),
+            do: [{character.name, :name}],
+            else: []
+        end) ++
+        Enum.flat_map(places, &private_place_values/1) ++
+        private_inventory_values(Map.get(state.gm_private_state || %{}, "inventory", [])) ++
+        Enum.flat_map(panels, fn panel ->
+          if panel.visibility == :gm_private, do: [Map.get(panel.value || %{}, "value")], else: []
+        end) ++
+        private_objective_values(campaign_id) ++
+        private_continuity_values(campaign_id) ++
+        private_proposal_values(proposal, campaign_id) ++
+        private_json_values(Map.get(proposal.memory_update || %{}, :gm_private_history_summary))
+
+    public_values =
+      public_json_values(Map.drop(state.public_state || %{}, ["inventory"])) ++
+        Enum.flat_map(characters, fn character ->
+          name =
+            if MapSet.member?(private_place_ids, character.current_place_id),
+              do: [],
+              else: [character.name]
+
+          name ++ public_json_values(character.visible_facts)
+        end) ++
+        Enum.flat_map(places, &public_place_values/1) ++
+        public_inventory_values(Map.get(state.public_state || %{}, "inventory", [])) ++
+        Enum.flat_map(panels, fn panel ->
+          if panel.visibility == :public, do: [Map.get(panel.value || %{}, "value")], else: []
+        end) ++
+        public_objective_values(campaign_id) ++
+        public_continuity_values(campaign_id) ++
+        public_proposal_values(proposal, campaign_id)
+
+    private_phrases = private_phrases(private_values)
+    public_phrases = Enum.map(public_values, &privacy_text/1)
+    visible_texts = public_proposal_texts(proposal, campaign_id)
+
+    if Enum.any?(visible_texts, fn text ->
+         Enum.any?(private_phrases, fn phrase ->
+           phrase_in_text?(text, phrase) and
+             not Enum.any?(public_phrases, &phrase_in_text?(&1, phrase))
+         end)
+       end) do
+      {:error, :private_fact_in_public_text}
+    else
+      :ok
+    end
+  end
+
+  defp private_place_values(%Place{visibility: :gm_private} = place) do
+    [{place.name, :name}, place.description] ++ private_json_values(place.facts)
+  end
+
+  defp private_place_values(_place), do: []
+
+  defp private_objective_values(campaign_id) do
+    Repo.all(
+      from objective in Objective,
+        where: objective.campaign_id == ^campaign_id and objective.visibility == :gm_private
+    )
+    |> Enum.flat_map(&[&1.title, &1.details])
+  end
+
+  defp public_objective_values(campaign_id) do
+    Repo.all(
+      from objective in Objective,
+        where: objective.campaign_id == ^campaign_id and objective.visibility == :public
+    )
+    |> Enum.flat_map(&[&1.title, &1.details])
+  end
+
+  defp private_continuity_values(campaign_id) do
+    Repo.all(
+      from entry in ContinuityEntry,
+        where: entry.campaign_id == ^campaign_id and entry.visibility == :gm_private
+    )
+    |> Enum.flat_map(&[&1.title, &1.details])
+  end
+
+  defp public_continuity_values(campaign_id) do
+    Repo.all(
+      from entry in ContinuityEntry,
+        where: entry.campaign_id == ^campaign_id and entry.visibility == :public
+    )
+    |> Enum.flat_map(&[&1.title, &1.details])
+  end
+
+  defp public_place_values(%Place{visibility: :public} = place) do
+    [place.name, place.description] ++ public_json_values(place.facts)
+  end
+
+  defp public_place_values(_place), do: []
+
+  defp private_inventory_values(items) when is_list(items) do
+    Enum.flat_map(items, fn
+      item when is_map(item) ->
+        [{Map.get(item, "name"), :name}, Map.get(item, "description")] ++
+          private_json_values(Map.get(item, "properties", %{}))
+
+      _ ->
+        []
+    end)
+  end
+
+  defp private_inventory_values(_items), do: []
+
+  defp public_inventory_values(items) when is_list(items) do
+    Enum.flat_map(items, fn
+      item when is_map(item) -> [Map.get(item, "name")]
+      _ -> []
+    end)
+  end
+
+  defp public_inventory_values(_items), do: []
+
+  defp private_proposal_values(proposal, campaign_id) do
+    speaker_visibility =
+      character_visibility_after_changes(campaign_id, proposal.location_changes)
+
+    private_json_values(proposal.private_changes) ++
+      Enum.flat_map(proposal.character_creations, &private_json_values(&1.gm_private_facts)) ++
+      Enum.flat_map(proposal.character_creations, fn character ->
+        if Map.get(speaker_visibility, character.speaker_id, :public) == :gm_private,
+          do: [{character.name, :name}],
+          else: []
+      end) ++
+      Enum.flat_map(proposal.character_updates, &private_json_values(&1.gm_private_facts)) ++
+      Enum.flat_map(proposal.location_changes, fn
+        %{"type" => "create_place", "visibility" => "gm_private", "place" => place} ->
+          [{place["name"], :name}, place["description"]] ++ private_json_values(place["facts"])
+
+        _ ->
+          []
+      end) ++
+      Enum.flat_map(proposal.inventory_changes, fn
+        %{"type" => "add", "visibility" => "gm_private", "item" => item} ->
+          private_inventory_values([item])
+
+        %{"type" => "update", "visibility" => "gm_private", "properties" => properties} ->
+          private_json_values(properties)
+
+        _ ->
+          []
+      end) ++
+      Enum.flat_map(proposal.panel_changes, fn
+        %{visibility: :gm_private, type: "set", value: value} -> [value]
+        _ -> []
+      end) ++
+      Enum.flat_map(proposal.objective_changes, fn
+        %{snapshot: %{visibility: :gm_private} = snapshot} -> [snapshot.title, snapshot.details]
+        _ -> []
+      end) ++
+      Enum.flat_map(proposal.continuity_changes, fn
+        %{snapshot: %{visibility: :gm_private} = snapshot} -> [snapshot.title, snapshot.details]
+        _ -> []
+      end)
+  end
+
+  defp public_proposal_values(proposal, campaign_id) do
+    speaker_visibility =
+      character_visibility_after_changes(campaign_id, proposal.location_changes)
+
+    private_json_values(proposal.public_changes) ++
+      (campaign_characters(campaign_id)
+       |> Enum.filter(&(Map.get(speaker_visibility, &1.speaker_id, :public) == :public))
+       |> Enum.map(& &1.name)) ++
+      Enum.flat_map(proposal.character_creations, fn character ->
+        if Map.get(speaker_visibility, character.speaker_id, :public) == :public,
+          do: [character.name | public_json_values(character.visible_facts)],
+          else: []
+      end) ++
+      Enum.flat_map(proposal.character_updates, fn update ->
+        if Map.get(speaker_visibility, update.speaker_id, :public) == :public,
+          do: public_json_values(update.visible_facts),
+          else: []
+      end) ++
+      Enum.flat_map(proposal.location_changes, fn
+        %{"type" => "create_place", "visibility" => "public", "place" => place} ->
+          [place["name"], place["description"]] ++ public_json_values(place["facts"])
+
+        _ ->
+          []
+      end) ++
+      Enum.flat_map(proposal.inventory_changes, fn
+        %{"type" => "add", "visibility" => "public", "item" => item} ->
+          public_inventory_values([item])
+
+        %{"type" => "update", "visibility" => "public", "properties" => properties} ->
+          public_json_values(properties)
+
+        _ ->
+          []
+      end) ++
+      Enum.flat_map(proposal.panel_changes, fn
+        %{visibility: :public, type: "set", value: value} -> [value]
+        _ -> []
+      end) ++
+      Enum.flat_map(proposal.objective_changes, fn
+        %{snapshot: %{visibility: :public} = snapshot} -> [snapshot.title, snapshot.details]
+        _ -> []
+      end) ++
+      Enum.flat_map(proposal.continuity_changes, fn
+        %{snapshot: %{visibility: :public} = snapshot} -> [snapshot.title, snapshot.details]
+        _ -> []
+      end)
+  end
+
+  defp public_proposal_texts(proposal, campaign_id) do
+    speaker_visibility =
+      character_visibility_after_changes(campaign_id, proposal.location_changes)
+
+    [proposal.narration, Map.get(proposal.memory_update || %{}, :public_history_summary)] ++
+      Enum.flat_map(proposal.dialogue ++ proposal.activities, fn line ->
+        if Map.get(speaker_visibility, line.speaker_id, :public) == :public,
+          do: [line.text],
+          else: []
+      end)
+  end
+
+  defp private_json_values(value), do: json_string_values(value, :private)
+  defp public_json_values(value), do: json_string_values(value, :public)
+
+  defp json_string_values(value, _visibility) when is_binary(value), do: [value]
+
+  defp json_string_values(value, visibility) when is_map(value) do
+    Enum.flat_map(value, fn {_key, child} -> json_string_values(child, visibility) end)
+  end
+
+  defp json_string_values(value, visibility) when is_list(value) do
+    Enum.flat_map(value, &json_string_values(&1, visibility))
+  end
+
+  defp json_string_values(_value, _visibility), do: []
+
+  defp private_phrases(values) do
+    values
+    |> Enum.map(fn
+      {value, :name} -> normalized_phrase(value, :name)
+      value -> normalized_phrase(value, :fact)
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp normalized_phrase(value, kind) when is_binary(value) do
+    tokens = String.split(privacy_text(value), " ", trim: true)
+
+    case tokens do
+      [] ->
+        nil
+
+      [token] ->
+        minimum = if kind == :name, do: 5, else: 8
+        if String.length(token) >= minimum, do: token, else: nil
+
+      _multiple ->
+        Enum.join(tokens, " ")
+    end
+  end
+
+  defp normalized_phrase(_value, _kind), do: nil
+
+  defp privacy_text(value) when is_binary(value) do
+    value
+    |> String.normalize(:nfc)
+    |> String.downcase()
+    |> String.split(~r/[^\p{L}\p{N}]+/u, trim: true)
+    |> Enum.join(" ")
+  end
+
+  defp privacy_text(_value), do: ""
+
+  defp phrase_in_text?(text, phrase) when is_binary(text) do
+    String.contains?(" " <> privacy_text(text) <> " ", " " <> phrase <> " ")
   end
 
   defp validate_panel_changes(changes, campaign_id)

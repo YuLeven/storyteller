@@ -110,6 +110,55 @@ defmodule StorytellerWeb.CampaignLiveTest do
     end
   end
 
+  test "GM character setup creates stable identities from names without showing internal IDs", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    view |> element("button[phx-click=add-character]") |> render_click()
+    view |> element("button[phx-click=add-character]") |> render_click()
+    view |> element("button[phx-click=add-character]") |> render_click()
+
+    refute has_element?(view, "input[name='campaign[gm_characters][0][speaker_id]']")
+    assert has_element?(view, "input[name='campaign[gm_characters][0][name]']")
+
+    attrs = %{
+      title: "The Lantern Watch",
+      premise: "A signal has returned to the empty harbor.",
+      setting: "A quiet coastal town",
+      tone: "Grounded and mysterious",
+      narration_language: "English",
+      player_character: "Ilya, a patient courier",
+      gm_characters: %{
+        "0" => %{name: "Captain Ren"},
+        "1" => %{name: "Captain Ren"},
+        "2" => %{name: "Player"}
+      }
+    }
+
+    review_html = view |> form("#campaign-form", campaign: attrs) |> render_submit()
+    assert review_html =~ "Captain Ren"
+    assert review_html =~ "Player"
+    refute review_html =~ "captain_ren"
+    refute review_html =~ "gm_player"
+
+    view |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    gm_speakers =
+      projection.characters
+      |> Enum.filter(&(&1.role == :gm))
+      |> MapSet.new(&{&1.name, &1.speaker_id})
+
+    assert gm_speakers ==
+             MapSet.new([
+               {"Captain Ren", "captain_ren"},
+               {"Captain Ren", "captain_ren_2"},
+               {"Player", "gm_player"}
+             ])
+  end
+
   test "starting inventory is editable in setup, reviewed, and visible on the play board", %{
     conn: conn
   } do
@@ -221,7 +270,6 @@ defmodule StorytellerWeb.CampaignLiveTest do
       weather: "Dry snow",
       gm_characters: %{
         "0" => %{
-          speaker_id: "warden-eli",
           name: "Warden Eli",
           visible_facts_text: "The station's night keeper.",
           private_notes: "Knows why the signal stopped."
@@ -258,7 +306,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert {:ok, state} = Play.public_projection(campaign.id)
     assert state.world["date"] == "The last day of autumn"
     assert state.world["time"] == "Near midnight"
-    assert [%{speaker_id: "warden-eli"}] = Enum.filter(state.characters, &(&1.role == :gm))
+    assert [%{speaker_id: "warden_eli"}] = Enum.filter(state.characters, &(&1.role == :gm))
 
     assert {:ok, %{panels: panels}} = Panels.public_projection(campaign.id)
     assert [%{name: "Supplies", fields: [%{key: "lamp_oil", value: 2}]}] = panels

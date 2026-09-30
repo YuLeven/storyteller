@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Simplify character setup and guard exact private facts
+
+- Campaign setup now generates stable GM character IDs from names, handles duplicate and reserved names, and keeps those implementation IDs off both the setup form and review screen. The player can focus on character identity and role instead of inventing database-like speaker keys; English, Spanish, and French catalogs were refreshed.
+- Added a deterministic guard that rejects exact normalized GM-private phrases in public narration, public character dialogue/activity, and the public memory summary used in later GM context. It checks private character/place facts and names, inventory, objectives, continuity entries, and campaign panels; accepted public state can explicitly disclose a phrase. One-word facts under eight characters and entity names under five characters are ignored to limit false positives. Semantic paraphrases are not detected, so scenario review remains necessary.
+- **Checks:** Full WSL suite **205 tests, 0 failures**; focused setup LiveView suite **11/11**; focused private-fact suite **5/5**; JavaScript tests **10/10**. Format, gettext freshness, warnings-as-errors compile, asset build, and `git diff --check` pass. Tests use the isolated test database and fake provider. No live AI request or QA-campaign mutation was made.
+
 ## 2026-09-30 — Put the campaign first and ground scenes in visual cues
 
 - Moved the interface-language control from the always-visible global header into a collapsed Settings menu, translated as **Ajustes** and **Paramètres**. Removed repeated campaign-title and narration-language metadata from the active session header while keeping the setting and player character visible.
