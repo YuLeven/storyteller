@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-09-30 — Make campaign resource changes transactional
+
+- Replaced absolute panel-value proposals with strict typed operations: signed deltas for quantity and money, typed sets for text/status/date, and a required grounded reason for every change.
+- The commit transaction locks the campaign panel rows, calculates numeric results from the canonical current values, rejects negative balances and no-ops, then persists the new value together with visibility-scoped before/change/after audit events.
+- The session timeline shows each resource label, before/after values, delta or set, unit, and reason. Public history omits GM-private panel operations; the GM receives the updated values in later-session context.
+- Updated GM policy, checkpoint, and UX acceptance criteria. Reading or reviewing a ledger alone must leave its values unchanged.
+- **Checked:** Play, Panels, and SessionLive focused suites **47 tests, 0 failures**; full WSL suite **145 tests, 0 failures**. WSL format check, warnings-as-errors compile, asset build, and `git diff --check` passed. Extracted English keys and merged translated Spanish/French labels. All tests used the isolated `storyteller_test` database and fake providers; no campaign rows were touched.
+
 ## 2026-09-30 — Responsive session section shortcuts
 
 - Added a compact sticky in-page navigation bar on narrow session layouts for the scene, current place, campaign story, and inventory. Public objectives and tracked resources appear as shortcuts only when those sections contain public data; the desktop two-column layout stays unchanged.

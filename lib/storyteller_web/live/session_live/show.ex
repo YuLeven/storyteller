@@ -426,7 +426,8 @@ defmodule StorytellerWeb.SessionLive.Show do
       is_map(Map.get(event.payload, "character_created")) ->
         gettext("Character introduced")
 
-      is_map(Map.get(event.payload, "panel_changes")) ->
+      is_list(Map.get(event.payload, "panel_changes")) or
+          is_map(Map.get(event.payload, "panel_changes")) ->
         gettext("Campaign values")
 
       event.speaker_id == "player" and is_map(Map.get(event.payload, "visible_facts")) ->
@@ -457,6 +458,38 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: facts
 
   defp state_change_values(_event), do: %{}
+
+  defp panel_change_values(%{payload: %{"panel_changes" => changes}}) when is_list(changes),
+    do: changes
+
+  defp panel_change_values(_event), do: []
+
+  defp panel_change_summary(change) do
+    gettext("%{label}: %{before} → %{after}",
+      label: Map.get(change, "label", Map.get(change, "key", "")),
+      before: panel_value(Map.get(change, "before"), Map.get(change, "unit")),
+      after: panel_value(Map.get(change, "after"), Map.get(change, "unit"))
+    )
+  end
+
+  defp panel_change_operation(%{"type" => "delta", "delta" => delta} = change) do
+    value = display_value(delta)
+    value = if String.starts_with?(value, "-"), do: value, else: "+" <> value
+    gettext("Change: %{change}", change: panel_value(value, Map.get(change, "unit")))
+  end
+
+  defp panel_change_operation(%{"type" => "set", "value" => value} = change) do
+    gettext("Change: set to %{value}", value: panel_value(value, Map.get(change, "unit")))
+  end
+
+  defp panel_change_operation(_change), do: gettext("Campaign value changed")
+
+  defp panel_value(value, unit) do
+    value =
+      if is_nil(value) or value == "", do: gettext("Not recorded"), else: display_value(value)
+
+    if is_binary(unit) and unit != "", do: "#{value} #{unit}", else: value
+  end
 
   defp state_change_reason(%{payload: %{"visible_facts" => facts, "reason" => reason}})
        when is_map(facts) and is_binary(reason),

@@ -9,6 +9,9 @@ defmodule Storyteller.Panels do
 
   @value_types [:quantity, :money, :text, :status, :date]
   @max_text_length 2_000
+  @max_money_input_bytes 80
+  @max_money_exponent 40
+  @max_money_value_chars 40
 
   def list_fields(campaign_id) do
     Repo.all(
@@ -73,9 +76,10 @@ defmodule Storyteller.Panels do
   def validate_value(:money, value) do
     with {:ok, decimal} <- parse_decimal(value),
          true <- finite_decimal?(decimal),
+         true <- bounded_money_decimal?(decimal),
          true <- Decimal.compare(decimal, Decimal.new(0)) != :lt,
          normalized <- Decimal.to_string(Decimal.normalize(decimal), :normal),
-         true <- String.length(normalized) <= 40 do
+         true <- byte_size(normalized) <= @max_money_value_chars do
       {:ok, normalized}
     else
       _ -> {:error, "must be a nonnegative amount"}
@@ -105,6 +109,34 @@ defmodule Storyteller.Panels do
   end
 
   def validate_value(_type, _value), do: {:error, "is not a supported panel type"}
+
+  @doc "Applies a signed numeric change to a canonical quantity or money value."
+  def apply_delta(%Field{value_type: :quantity}, current, delta) when is_integer(delta) do
+    with {:ok, current} <- validate_value(:quantity, current),
+         true <- delta != 0,
+         {:ok, next} <- validate_value(:quantity, current + delta) do
+      {:ok, current, delta, next}
+    else
+      false -> {:error, :zero_delta}
+      {:error, _reason} -> {:error, :invalid_result}
+    end
+  end
+
+  def apply_delta(%Field{value_type: :money}, current, delta) when is_binary(delta) do
+    with {:ok, current} <- validate_value(:money, current),
+         {:ok, delta} <- parse_signed_decimal(delta),
+         false <- Decimal.compare(delta, Decimal.new(0)) == :eq,
+         next <- Decimal.add(Decimal.new(current), delta),
+         {:ok, next} <- validate_value(:money, next) do
+      normalized_delta = Decimal.to_string(Decimal.normalize(delta), :normal)
+      {:ok, current, normalized_delta, next}
+    else
+      true -> {:error, :zero_delta}
+      _ -> {:error, :invalid_result}
+    end
+  end
+
+  def apply_delta(_field, _current, _delta), do: {:error, :invalid_delta}
 
   @doc """
   Low-level scoped value update for a field key within one campaign.
@@ -148,12 +180,15 @@ defmodule Storyteller.Panels do
 
   defp parse_decimal(value) when is_integer(value), do: {:ok, Decimal.new(value)}
 
-  defp parse_decimal(value) when is_binary(value) do
+  defp parse_decimal(value)
+       when is_binary(value) and byte_size(value) <= @max_money_input_bytes do
     case Decimal.parse(String.trim(value)) do
       {%Decimal{} = decimal, ""} -> {:ok, decimal}
       _ -> :error
     end
   end
+
+  defp parse_decimal(value) when is_binary(value), do: :error
 
   defp parse_decimal(value) when is_float(value) do
     if value == value and abs(value) < 1.0e100 do
@@ -164,6 +199,32 @@ defmodule Storyteller.Panels do
   end
 
   defp parse_decimal(_), do: :error
+
+  defp parse_signed_decimal(value) when is_binary(value) and byte_size(value) <= 40 do
+    case Decimal.parse(String.trim(value)) do
+      {%Decimal{} = decimal, ""} ->
+        if finite_decimal?(decimal) and bounded_money_decimal?(decimal) do
+          normalized = Decimal.to_string(Decimal.normalize(decimal), :normal)
+
+          if byte_size(normalized) <= @max_money_value_chars,
+            do: {:ok, decimal},
+            else: {:error, :invalid_decimal}
+        else
+          {:error, :invalid_decimal}
+        end
+
+      _ ->
+        {:error, :invalid_decimal}
+    end
+  end
+
+  defp parse_signed_decimal(_), do: {:error, :invalid_decimal}
+
+  defp bounded_money_decimal?(%Decimal{exp: exponent})
+       when is_integer(exponent) and abs(exponent) <= @max_money_exponent,
+       do: true
+
+  defp bounded_money_decimal?(_), do: false
 
   defp formula_like?(value), do: String.starts_with?(String.trim_leading(value), "=")
 

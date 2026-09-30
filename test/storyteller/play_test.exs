@@ -1224,7 +1224,14 @@ defmodule Storyteller.PlayTest do
                "reason" => "A customer buys one basket at the orchard stand."
              }
            ],
-           "panel_changes" => %{"orchard_cash" => "24.75"}
+           "panel_changes" => [
+             %{
+               "type" => "delta",
+               "key" => "orchard_cash",
+               "delta" => "6.25",
+               "reason" => "A customer buys one basket at the orchard stand."
+             }
+           ]
          })
        )}
     end
@@ -1243,6 +1250,27 @@ defmodule Storyteller.PlayTest do
 
     assert [%{"key" => "orchard_cash", "value" => "18.5", "unit" => "silver"}] =
              Enum.filter(before_sale_context["panels"], &(&1["key"] == "orchard_cash"))
+
+    sale_event =
+      Repo.all(
+        from event in Event,
+          where: event.campaign_id == ^campaign.id and event.event_type == :state_change,
+          order_by: [asc: event.sequence]
+      )
+      |> Enum.find(&Map.has_key?(&1.payload, "panel_changes"))
+
+    assert sale_event.payload["panel_changes"] == [
+             %{
+               "key" => "orchard_cash",
+               "label" => "Cash",
+               "unit" => "silver",
+               "type" => "delta",
+               "before" => "18.5",
+               "delta" => "6.25",
+               "after" => "24.75",
+               "reason" => "A customer buys one basket at the orchard stand."
+             }
+           ]
 
     assert {:ok, next_session} = Campaigns.start_session(campaign)
     next_context = Agent.start_link(fn -> nil end) |> elem(1)
@@ -1650,6 +1678,24 @@ defmodule Storyteller.PlayTest do
       value: %{"value" => "unnoticed crack"}
     })
 
+    insert_panel_field!(campaign.id, %{
+      key: "season",
+      panel: "Orchard",
+      label: "Season",
+      value_type: :status,
+      visibility: :public,
+      value: %{"value" => "Dormant"}
+    })
+
+    insert_panel_field!(campaign.id, %{
+      key: "next_review",
+      panel: "Calendar",
+      label: "Next review",
+      value_type: :date,
+      visibility: :public,
+      value: %{"value" => "2026-09-15"}
+    })
+
     context_agent = Agent.start_link(fn -> nil end) |> elem(1)
 
     provider = fn request ->
@@ -1658,14 +1704,43 @@ defmodule Storyteller.PlayTest do
 
       proposal =
         ordinary_proposal(%{
-          "panel_changes" => %{"cash" => "1250.50", "keeper_secret" => "revealed later"}
+          "panel_changes" => [
+            %{
+              "type" => "delta",
+              "key" => "cash",
+              "delta" => "250.50",
+              "reason" => "A patron pays for the evening's telescope viewing."
+            },
+            %{
+              "type" => "set",
+              "key" => "season",
+              "value" => "Harvest",
+              "reason" => "The campaign calendar marks the harvest season."
+            },
+            %{
+              "type" => "set",
+              "key" => "next_review",
+              "value" => "2026-10-01",
+              "reason" => "The campaign calendar schedules the next ledger review."
+            },
+            %{
+              "type" => "set",
+              "key" => "keeper_secret",
+              "value" => "revealed later",
+              "reason" => "The keeper revises the private observation note."
+            }
+          ]
         })
 
       {:ok, Jason.encode!(proposal)}
     end
 
     assert {:ok, %{status: :completed}} =
-             Play.submit_turn(campaign.id, session.id, "panel-update", "Review the accounts.",
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "panel-update",
+               "A patron pays 250.50 ARS to view the telescope.",
                provider: provider,
                model: "test-model"
              )
@@ -1676,14 +1751,43 @@ defmodule Storyteller.PlayTest do
                Enum.filter(context["panels"], &(&1["key"] == "cash"))
              end)
 
-    assert {:ok, %{panels: [panel]}} = Play.public_projection(campaign.id)
-    assert panel.name == "Finances"
-    assert [%{key: "cash", value: "1250.5"}] = panel.fields
+    assert {:ok, %{panels: panels}} = Play.public_projection(campaign.id)
+    assert [%{key: "cash", value: "1250.5"}] = Enum.find(panels, &(&1.name == "Finances")).fields
+
+    assert [%{key: "season", value: "Harvest"}] =
+             Enum.find(panels, &(&1.name == "Orchard")).fields
+
+    assert [%{key: "next_review", value: "2026-10-01"}] =
+             Enum.find(panels, &(&1.name == "Calendar")).fields
 
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     public_panel_event = Enum.find(timeline, &Map.has_key?(&1.payload, "panel_changes"))
-    assert public_panel_event.payload["panel_changes"] == %{"cash" => "1250.5"}
-    refute Map.has_key?(public_panel_event.payload["panel_changes"], "keeper_secret")
+
+    assert Enum.map(public_panel_event.payload["panel_changes"], & &1["key"]) == [
+             "cash",
+             "season",
+             "next_review"
+           ]
+
+    refute inspect(public_panel_event.payload) =~ "keeper_secret"
+    refute inspect(timeline) =~ "revealed later"
+
+    private_panel_event =
+      Repo.all(
+        from event in Event,
+          where: event.campaign_id == ^campaign.id and event.visibility == :gm_private,
+          order_by: [asc: event.sequence]
+      )
+      |> Enum.find(&Map.has_key?(&1.payload, "panel_changes"))
+
+    assert [
+             %{
+               "key" => "keeper_secret",
+               "before" => "unnoticed crack",
+               "after" => "revealed later"
+             }
+           ] =
+             private_panel_event.payload["panel_changes"]
 
     assert {:ok, private_field} = Panels.public_projection(campaign.id)
 
@@ -1692,21 +1796,126 @@ defmodule Storyteller.PlayTest do
              &Enum.any?(&1.fields, fn field -> field.key == "keeper_secret" end)
            )
 
-    invalid_provider =
-      ordinary_provider(%{"panel_changes" => %{"cash" => "-10"}})
+    timeline_before_invalid = timeline
 
-    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
-             Play.submit_turn(
-               campaign.id,
-               session.id,
-               "invalid-panel",
-               "Spend beyond the balance.",
-               provider: invalid_provider,
-               model: "test-model"
-             )
+    invalid_operations = [
+      {"missing-panel-reason", "Sell the last bottle.",
+       [
+         %{
+           "type" => "delta",
+           "key" => "cash",
+           "delta" => "3"
+         }
+       ]},
+      {"negative-panel-result", "Spend beyond the balance.",
+       [
+         %{
+           "type" => "delta",
+           "key" => "cash",
+           "delta" => "-2000",
+           "reason" => "The player buys supplies."
+         }
+       ]},
+      {"duplicate-panel-operation", "Sell two baskets.",
+       [
+         %{
+           "type" => "delta",
+           "key" => "cash",
+           "delta" => "3",
+           "reason" => "A customer buys the first basket."
+         },
+         %{
+           "type" => "delta",
+           "key" => "cash",
+           "delta" => "3",
+           "reason" => "A customer buys the second basket."
+         }
+       ]},
+      {"wrong-panel-operation", "Change the cash field to text.",
+       [
+         %{
+           "type" => "set",
+           "key" => "cash",
+           "value" => "900",
+           "reason" => "The cash field has the wrong operation type."
+         }
+       ]}
+    ]
 
-    assert {:ok, %{panels: [%{fields: [%{key: "cash", value: "1250.5"}]}]}} =
-             Panels.public_projection(campaign.id)
+    for {key, action, operations} <- invalid_operations do
+      assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 key,
+                 action,
+                 provider: ordinary_provider(%{"panel_changes" => operations}),
+                 model: "test-model"
+               )
+    end
+
+    assert {:ok, unchanged} = Play.public_projection(campaign.id)
+
+    assert [%{key: "cash", value: "1250.5"}] =
+             Enum.find(unchanged.panels, &(&1.name == "Finances")).fields
+
+    assert {:ok, unchanged_timeline} = Play.public_timeline(campaign.id)
+    assert unchanged_timeline == timeline_before_invalid
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    next_context_agent = Agent.start_link(fn -> nil end) |> elem(1)
+
+    next_session_provider = fn request ->
+      Agent.update(next_context_agent, fn _ -> decode_request(request) end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    complete_turn(
+      campaign,
+      next_session,
+      "read-panel-values-next-session",
+      "Check the campaign ledger.",
+      next_session_provider
+    )
+
+    next_context = Agent.get(next_context_agent, & &1)
+    assert Enum.find(next_context["panels"], &(&1["key"] == "cash"))["value"] == "1250.5"
+    assert Enum.find(next_context["panels"], &(&1["key"] == "season"))["value"] == "Harvest"
+
+    assert Enum.find(next_context["panels"], &(&1["key"] == "keeper_secret"))["value"] ==
+             "revealed later"
+  end
+
+  test "reviewing a ledger without a transaction does not change canonical balances" do
+    {campaign, session} = play_campaign("The Quiet Accounts")
+
+    insert_panel_field!(campaign.id, %{
+      key: "cash",
+      panel: "Finances",
+      label: "Cash",
+      value_type: :money,
+      unit: "ARS",
+      visibility: :public,
+      value: %{"value" => "100"}
+    })
+
+    instructions_agent = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(instructions_agent, fn _ -> request.instructions end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    complete_turn(campaign, session, "review-accounts", "Review the account balance.", provider)
+
+    instructions = Agent.get(instructions_agent, & &1) |> String.replace(~r/\s+/, " ")
+    assert instructions =~ "Merely reading or reviewing a ledger does not change it"
+
+    assert {:ok, %{panels: [panel]}} = Play.public_projection(campaign.id)
+    assert [%{key: "cash", value: "100"}] = panel.fields
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    refute Enum.any?(timeline, &Map.has_key?(&1.payload, "panel_changes"))
   end
 
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
@@ -2278,7 +2487,7 @@ defmodule Storyteller.PlayTest do
         "activities" => [%{"speaker_id" => "npc:lyra", "text" => "She checks the brass shutter."}],
         "public_changes" => %{},
         "private_changes" => %{"weather_cause" => "a distant pressure front"},
-        "panel_changes" => %{},
+        "panel_changes" => [],
         "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
         "character_updates" => [
           %{
@@ -2322,7 +2531,7 @@ defmodule Storyteller.PlayTest do
       "activities" => [],
       "public_changes" => %{},
       "private_changes" => %{},
-      "panel_changes" => %{},
+      "panel_changes" => [],
       "character_updates" => [],
       "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
       "roll_request" => %{

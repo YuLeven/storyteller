@@ -19,6 +19,25 @@ defmodule Storyteller.PanelsTest do
     assert {:error, _} = Panels.validate_value(:date, "not a date")
   end
 
+  test "numeric resource deltas use exact typed arithmetic and reject zero or negative balances" do
+    quantity = %Field{value_type: :quantity}
+    money = %Field{value_type: :money}
+
+    assert {:ok, 8, -3, 5} = Panels.apply_delta(quantity, "8", -3)
+    assert {:error, :invalid_result} = Panels.apply_delta(quantity, 2, -3)
+    assert {:error, :zero_delta} = Panels.apply_delta(quantity, 2, 0)
+
+    assert {:ok, "18.5", "6.25", "24.75"} = Panels.apply_delta(money, "18.50", "6.25")
+    assert {:error, :invalid_result} = Panels.apply_delta(money, "1.25", "-1.26")
+    assert {:error, :zero_delta} = Panels.apply_delta(money, "1.25", "0.00")
+    assert {:error, :invalid_result} = Panels.apply_delta(money, "1.25", "NaN")
+    assert {:error, :invalid_result} = Panels.apply_delta(money, "1.25", "1e999999999")
+    assert {:error, :invalid_result} = Panels.apply_delta(money, "1.25", "1e-999999999")
+
+    assert {:error, :invalid_result} =
+             Panels.apply_delta(money, "1.25", "0.00000000000000000000000000000000000000001")
+  end
+
   test "public panel projection omits private fields and their values" do
     attrs =
       valid_campaign_attrs()

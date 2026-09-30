@@ -12,6 +12,7 @@ defmodule Storyteller.Play do
 
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Panels
+  alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play.{Character, Event, LocationChanges, Objective, Place, Roll, State, Turn}
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
@@ -72,8 +73,13 @@ defmodule Storyteller.Play do
   new_item_id; the source keeps the remainder and the transferred stack keeps
   the item's properties and visibility. Never create or duplicate quantity
   through a transfer. Keep stable item IDs unchanged. Use configured panel
-  fields for fungible campaign balances. Each operation needs a concise reason
-  grounded in the action or established fiction. Use update only to revise an
+  fields for fungible campaign balances. Numeric quantity and money fields
+  change only through a nonzero signed delta that the application applies to
+  the latest canonical balance; negative results are rejected. Text, status,
+  and date fields use an explicit set operation. Each operation needs a concise
+  reason grounded in the player's action or established history. Merely reading
+  or reviewing a ledger does not change it; leave panel_changes empty unless an
+  established transaction or event supports the change. Use update only to revise an
   existing item's flexible properties, such as charges or condition. Its
   properties object is a patch: nested maps merge recursively and unrelated
   existing keys remain. Never use update to change an item's ID, name, quantity,
@@ -123,8 +129,10 @@ defmodule Storyteller.Play do
   Return exactly one JSON object with these fields: narration (non-empty string),
   dialogue (array of {speaker_id, text}), activities (array of {speaker_id,
   text}), public_changes (object), private_changes (object), panel_changes
-  (object mapping an existing campaign panel field key to its new absolute
-  value), character_updates (array of {speaker_id, visible_facts?,
+  (array of operations: {type: "delta", key, delta, reason} for quantity
+  fields (integer delta) and money fields (signed decimal-string delta), or
+  {type: "set", key, value, reason} for text/status/date fields),
+  character_updates (array of {speaker_id, visible_facts?,
   gm_private_facts?} for GM-controlled characters or {speaker_id: "player",
   visible_facts, reason} for the player character), memory_update
   ({public_summary, gm_private_summary}),
@@ -725,6 +733,7 @@ defmodule Storyteller.Play do
       end
 
       include_action? = turn.resolution_phase == :initial
+      proposal = prepare_panel_changes!(turn.campaign_id, proposal)
 
       # Create new speaker records before appending dialogue/activity events so
       # their names and visible activity resolve inside this same transaction.
@@ -1035,7 +1044,7 @@ defmodule Storyteller.Play do
   defp append_panel_change_event(_state, _turn, sequence, _visibility, []), do: sequence
 
   defp append_panel_change_event(state, turn, sequence, visibility, changes) do
-    panel_changes = Map.new(changes, &{&1.key, &1.value})
+    panel_changes = Enum.map(changes, &panel_event_change/1)
 
     append_event!(
       %{state | event_sequence: sequence},
@@ -1045,6 +1054,24 @@ defmodule Storyteller.Play do
       nil,
       %{panel_changes: panel_changes}
     )
+  end
+
+  defp panel_event_change(change) do
+    %{
+      "key" => change.key,
+      "label" => change.label,
+      "unit" => change.unit,
+      "type" => change.type,
+      "before" => change.before,
+      "after" => change.after,
+      "reason" => change.reason
+    }
+    |> then(fn event_change ->
+      case change do
+        %{type: "delta", delta: delta} -> Map.put(event_change, "delta", delta)
+        %{type: "set", value: value} -> Map.put(event_change, "value", value)
+      end
+    end)
   end
 
   defp append_inventory_change_event(_state, _turn, sequence, _visibility, []), do: sequence
@@ -1239,7 +1266,7 @@ defmodule Storyteller.Play do
     end)
 
     Enum.each(proposal.panel_changes, fn change ->
-      case Panels.update_value(campaign_id, change.key, change.value) do
+      case Repo.update(PanelField.changeset(change.field, %{value: %{"value" => change.after}})) do
         {:ok, _field} -> :ok
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -1347,7 +1374,7 @@ defmodule Storyteller.Play do
          {:ok, public_changes} <- world_changes_field(proposal, :public_changes),
          {:ok, private_changes} <- world_changes_field(proposal, :private_changes),
          {:ok, panel_changes} <-
-           validate_panel_changes(field(proposal, :panel_changes, %{}), turn.campaign_id),
+           validate_panel_changes(field(proposal, :panel_changes, []), turn.campaign_id),
          {:ok, character_updates} <-
            validate_character_updates(field(proposal, :character_updates, []), characters),
          {:ok, inventory_changes} <-
@@ -1398,32 +1425,134 @@ defmodule Storyteller.Play do
   end
 
   defp validate_panel_changes(changes, campaign_id)
-       when is_map(changes) and map_size(changes) <= 100 do
+       when is_list(changes) and length(changes) <= 100 do
     definitions = Map.new(Panels.list_fields(campaign_id), &{&1.key, &1})
 
-    Enum.reduce_while(changes, {:ok, []}, fn {raw_key, value}, {:ok, acc} ->
-      key = if is_binary(raw_key), do: raw_key, else: key_name(raw_key)
-
-      case Map.get(definitions, key) do
-        nil ->
-          {:halt, {:error, :invalid_response}}
-
-        definition ->
-          case Panels.validate_value(definition, value) do
-            {:ok, normalized} ->
-              {:cont,
-               {:ok,
-                acc ++
-                  [%{key: definition.key, visibility: definition.visibility, value: normalized}]}}
-
-            {:error, _reason} ->
-              {:halt, {:error, :invalid_response}}
-          end
+    Enum.reduce_while(changes, {:ok, [], MapSet.new()}, fn raw_change, {:ok, acc, seen_keys} ->
+      with {:ok, change} <- normalize_panel_change(raw_change, definitions),
+           false <- MapSet.member?(seen_keys, change.key) do
+        {:cont, {:ok, acc ++ [change], MapSet.put(seen_keys, change.key)}}
+      else
+        _ -> {:halt, {:error, :invalid_response}}
       end
     end)
+    |> case do
+      {:ok, normalized, _seen_keys} -> {:ok, normalized}
+      {:error, _reason} -> {:error, :invalid_response}
+    end
   end
 
   defp validate_panel_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+
+  defp normalize_panel_change(change, definitions) when is_map(change) do
+    keys = Enum.map(Map.keys(change), &key_name/1)
+    type = field(change, :type)
+    key = field(change, :key)
+    reason = field(change, :reason)
+
+    with true <- is_binary(key),
+         %PanelField{} = definition <- Map.get(definitions, key),
+         true <-
+           is_binary(reason) and String.trim(reason) != "" and String.length(reason) <= 1_000,
+         {:ok, normalized} <- normalize_panel_operation(type, change, definition, keys, reason) do
+      {:ok, Map.merge(normalized, %{key: definition.key, visibility: definition.visibility})}
+    else
+      _ -> {:error, :invalid_panel_change}
+    end
+  end
+
+  defp normalize_panel_change(_change, _definitions), do: {:error, :invalid_panel_change}
+
+  defp normalize_panel_operation("delta", change, %{value_type: :quantity}, keys, reason) do
+    with true <- Enum.sort(keys) == Enum.sort(~w(delta key reason type)),
+         delta when is_integer(delta) and delta != 0 and abs(delta) <= 1_000_000 <-
+           field(change, :delta) do
+      {:ok, %{type: "delta", delta: delta, reason: String.trim(reason)}}
+    else
+      _ -> {:error, :invalid_panel_delta}
+    end
+  end
+
+  defp normalize_panel_operation("delta", change, %{value_type: :money}, keys, reason) do
+    with true <- Enum.sort(keys) == Enum.sort(~w(delta key reason type)),
+         delta when is_binary(delta) and byte_size(delta) <= 40 <- field(change, :delta) do
+      {:ok, %{type: "delta", delta: String.trim(delta), reason: String.trim(reason)}}
+    else
+      _ -> {:error, :invalid_panel_delta}
+    end
+  end
+
+  defp normalize_panel_operation("set", change, %{value_type: type} = definition, keys, reason)
+       when type in [:text, :status, :date] do
+    with true <- Enum.sort(keys) == Enum.sort(~w(key reason type value)),
+         {:ok, value} <- Panels.validate_value(definition, field(change, :value)) do
+      {:ok, %{type: "set", value: value, reason: String.trim(reason)}}
+    else
+      _ -> {:error, :invalid_panel_set}
+    end
+  end
+
+  defp normalize_panel_operation(_type, _change, _definition, _keys, _reason),
+    do: {:error, :invalid_panel_operation}
+
+  defp prepare_panel_changes!(_campaign_id, %{panel_changes: []} = proposal), do: proposal
+
+  defp prepare_panel_changes!(campaign_id, proposal) do
+    keys = Enum.map(proposal.panel_changes, & &1.key)
+
+    locked_fields =
+      Repo.all(
+        from field in PanelField,
+          where: field.campaign_id == ^campaign_id and field.key in ^keys,
+          order_by: [asc: field.key],
+          lock: "FOR UPDATE"
+      )
+
+    fields_by_key = Map.new(locked_fields, &{&1.key, &1})
+
+    if length(locked_fields) != length(keys) do
+      Repo.rollback(:invalid_response)
+    end
+
+    prepared =
+      Enum.map(proposal.panel_changes, fn change ->
+        field = Map.fetch!(fields_by_key, change.key)
+        current = Map.get(field.value || %{}, "value")
+        result = prepare_panel_change(field, current, change)
+
+        change
+        |> Map.merge(result)
+        |> Map.put(:field, field)
+        |> Map.put(:label, field.label)
+        |> Map.put(:unit, field.unit)
+        |> Map.put(:visibility, field.visibility)
+      end)
+
+    %{proposal | panel_changes: prepared}
+  end
+
+  defp prepare_panel_change(%{value_type: type} = field, current, %{type: "delta"} = change)
+       when type in [:quantity, :money] do
+    case Panels.apply_delta(field, current, change.delta) do
+      {:ok, before, delta, after_value} ->
+        %{before: before, delta: delta, after: after_value}
+
+      {:error, _reason} ->
+        Repo.rollback(:invalid_response)
+    end
+  end
+
+  defp prepare_panel_change(field, current, %{type: "set", value: value}) do
+    with {:ok, before} <- Panels.validate_value(field, current),
+         {:ok, after_value} <- Panels.validate_value(field, value),
+         true <- before != after_value do
+      %{before: before, value: after_value, after: after_value}
+    else
+      _ -> Repo.rollback(:invalid_response)
+    end
+  end
+
+  defp prepare_panel_change(_field, _current, _change), do: Repo.rollback(:invalid_response)
 
   defp validate_inventory_changes(changes, campaign_id, speaker_ids) when is_list(changes) do
     state = Repo.get_by!(State, campaign_id: campaign_id)

@@ -362,6 +362,18 @@
                   </div>
                 </dl>
                 <ul
+                  :if={event.event_type == :state_change && panel_change_values(event) != []}
+                  class="mt-2 space-y-2 text-sm text-stone-700"
+                >
+                  <li :for={change <- panel_change_values(event)}>
+                    <p class="font-medium text-stone-800">{panel_change_summary(change)}</p>
+                    <p>{panel_change_operation(change)}</p>
+                    <p class="text-stone-600">
+                      {gettext("Reason: %{reason}", reason: change["reason"])}
+                    </p>
+                  </li>
+                </ul>
+                <ul
                   :if={event.event_type == :state_change && inventory_change_values(event) != []}
                   class="mt-2 space-y-1 text-sm text-stone-700"
                 >

@@ -237,7 +237,7 @@ defmodule StorytellerWeb.SessionLiveTest do
          activities: [],
          public_changes: %{},
          private_changes: %{},
-         panel_changes: %{},
+         panel_changes: [],
          character_updates: [
            %{
              speaker_id: "player",
@@ -283,6 +283,64 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert player.visible_facts["Health"] == "Rested"
   end
 
+  test "resource transaction timeline shows the before value, delta, result, and reason", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        panel_fields: %{
+          "0" => %{
+            key: "orchard_cash",
+            panel: "Orchard ledger",
+            label: "Cash",
+            value_type: "money",
+            unit: "silver",
+            visibility: "public",
+            initial_value: "18.50"
+          }
+        }
+      })
+
+    [session] = campaign.sessions
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "The customer pays for a basket of apples.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: [
+           %{
+             type: "delta",
+             key: "orchard_cash",
+             delta: "6.25",
+             reason: "A customer pays for one basket of apples."
+           }
+         ],
+         character_updates: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         inventory_changes: [],
+         location_changes: [],
+         objective_changes: [],
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    view
+    |> form("#turn-composer", turn: %{input: "Sell a basket of apples."})
+    |> render_submit()
+
+    assert wait_until(fn -> render(view) =~ "A customer pays for one basket of apples." end)
+    html = render(view)
+    assert html =~ "Cash: 18.5 silver → 24.75 silver"
+    assert html =~ "Change: +6.25 silver"
+    assert html =~ "Reason: A customer pays for one basket of apples."
+  end
+
   test "new character introductions render the name and public facts without private facts", %{
     conn: conn
   } do
@@ -298,7 +356,7 @@ defmodule StorytellerWeb.SessionLiveTest do
          activities: [],
          public_changes: %{},
          private_changes: %{},
-         panel_changes: %{},
+         panel_changes: [],
          character_creations: [
            %{
              speaker_id: "npc:orin",
