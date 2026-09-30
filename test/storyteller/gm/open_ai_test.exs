@@ -124,6 +124,32 @@ defmodule Storyteller.GM.OpenAITest do
              )
   end
 
+  test "maps plan-sharing errors from asynchronous HTTP error bodies", context do
+    error_cases = [
+      {429, "subscription_sharing_usage_limit_exceeded", :usage_limit},
+      {503, "subscription_sharing_usage_unavailable", :usage_unavailable},
+      {503, "subscription_sharing_user_unavailable", :usage_unavailable},
+      {403, "subscription_sharing_user_not_eligible", :account_ineligible},
+      {403, "subscription_sharing_route_not_supported", :unsupported_capability},
+      {400, "subscription_sharing_unsupported_capability", :unsupported_capability}
+    ]
+
+    Enum.each(error_cases, fn {status, code, expected} ->
+      body = Jason.encode!(%{"error" => %{"code" => code, "param" => "model"}})
+      http = provider_http_error(self(), status, async_body(split_stream(body)))
+
+      assert {:error, ^expected} =
+               OpenAI.stream_response(
+                 %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+                 store: context.store,
+                 http: http
+               )
+
+      assert_receive {:models_request, _}
+      assert_receive {:responses_request, _}
+    end)
+  end
+
   test "maps response.incomplete separately from a broken stream", context do
     incomplete =
       "event: response.incomplete\ndata: " <>
@@ -201,6 +227,42 @@ defmodule Storyteller.GM.OpenAITest do
           {:error, :unexpected_request}
       end
     end
+  end
+
+  defp provider_http_error(test_pid, status, body) do
+    fn method, url, options ->
+      cond do
+        method == :get and url == "https://api.openai.com/v1/models" ->
+          send(test_pid, {:models_request, options})
+          %{status: 200, body: Jason.encode!(model_catalog())}
+
+        method == :post and url == "https://api.openai.com/v1/responses" ->
+          send(test_pid, {:responses_request, options})
+          %{status: status, body: body}
+
+        true ->
+          {:error, :unexpected_request}
+      end
+    end
+  end
+
+  defp async_body(chunks) do
+    ref = make_ref()
+
+    stream_fun = fn
+      ^ref, {^ref, {:data, chunk}} -> {:ok, [data: chunk]}
+      ^ref, {^ref, :done} -> {:ok, [:done]}
+    end
+
+    Enum.each(chunks, &send(self(), {ref, {:data, &1}}))
+    send(self(), {ref, :done})
+
+    %Req.Response.Async{
+      pid: self(),
+      ref: ref,
+      stream_fun: stream_fun,
+      cancel_fun: fn _ref -> :ok end
+    }
   end
 
   defp model_catalog do

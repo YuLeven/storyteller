@@ -12,6 +12,7 @@ defmodule Storyteller.GM.OpenAI do
 
   @models_url "https://api.openai.com/v1/models"
   @responses_url "https://api.openai.com/v1/responses"
+  @max_error_body_bytes 65_536
 
   @doc "Lists displayable models for the currently connected ChatGPT account."
   def models(opts \\ []) do
@@ -146,12 +147,20 @@ defmodule Storyteller.GM.OpenAI do
     case response_status(response) do
       200 -> :ok
       401 -> {:error, :reauth_required}
-      403 -> {:error, :account_ineligible}
+      403 -> status_error(response, :account_ineligible)
       404 -> {:error, :model_unavailable}
       429 -> {:error, http_error_code(response_body(response))}
+      status when status in [400, 503] -> status_error(response, :provider_error)
       status when is_integer(status) and status >= 500 -> {:error, :provider_error}
       status when is_integer(status) -> {:error, http_error_code(response_body(response))}
       _ -> {:error, :provider_error}
+    end
+  end
+
+  defp status_error(response, fallback) do
+    case http_error_code(response_body(response)) do
+      :provider_error -> {:error, fallback}
+      code -> {:error, code}
     end
   end
 
@@ -328,11 +337,43 @@ defmodule Storyteller.GM.OpenAI do
   defp error_code(_), do: :provider_error
 
   defp http_error_code(body) do
-    case HTTP.decode_json(body) do
+    case decode_error_body(body) do
       {:ok, %{"error" => error}} -> error_code(error)
       {:ok, %{"code" => code}} when is_binary(code) -> map_error_code(code)
       _ -> :provider_error
     end
+  end
+
+  defp decode_error_body(body) when is_binary(body), do: HTTP.decode_json(body)
+  defp decode_error_body(%_{} = body), do: decode_streamed_error_body(body)
+  defp decode_error_body(body) when is_map(body), do: HTTP.decode_json(body)
+  defp decode_error_body(body), do: decode_streamed_error_body(body)
+
+  defp decode_streamed_error_body(body) do
+    if Enumerable.impl_for(body) do
+      body
+      |> Enum.reduce_while({:ok, [], 0}, fn
+        chunk, {:ok, chunks, size}
+        when is_binary(chunk) and size + byte_size(chunk) <= @max_error_body_bytes ->
+          {:cont, {:ok, [chunk | chunks], size + byte_size(chunk)}}
+
+        _chunk, {:ok, _chunks, _size} ->
+          {:halt, :too_large}
+      end)
+      |> case do
+        {:ok, chunks, _size} ->
+          chunks |> Enum.reverse() |> IO.iodata_to_binary() |> HTTP.decode_json()
+
+        _ ->
+          {:error, :invalid_response}
+      end
+    else
+      {:error, :invalid_response}
+    end
+  rescue
+    _ -> {:error, :invalid_response}
+  catch
+    _, _ -> {:error, :invalid_response}
   end
 
   defp map_error_code(code)
@@ -342,6 +383,21 @@ defmodule Storyteller.GM.OpenAI do
   defp map_error_code(code)
        when code in ["subscription_sharing_usage_unavailable", "usage_unavailable"],
        do: :usage_unavailable
+
+  defp map_error_code(code)
+       when code in ["subscription_sharing_user_unavailable"],
+       do: :usage_unavailable
+
+  defp map_error_code(code)
+       when code in ["subscription_sharing_user_not_eligible"],
+       do: :account_ineligible
+
+  defp map_error_code(code)
+       when code in [
+              "subscription_sharing_unsupported_capability",
+              "subscription_sharing_route_not_supported"
+            ],
+       do: :unsupported_capability
 
   defp map_error_code(code)
        when code in ["invalid_api_key", "invalid_token", "token_expired", "authentication_error"],

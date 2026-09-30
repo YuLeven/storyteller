@@ -39,6 +39,12 @@
 - Reduced animation and transition duration for visitors who prefer reduced motion, including pending-turn indicators.
 - **Checked:** the frontend asset build passes. Real keyboard navigation, narrow-screen, and screen-reader review are still outstanding.
 
+## 2026-09-29 — Streamed plan-error recovery
+
+- Fixed handling of HTTP error bodies returned as Req `into: :self` asynchronous streams. The error parser consumes bounded response bodies before decoding their JSON error code.
+- Added recovery mappings for ChatGPT plan usage, eligibility, and unsupported-route/capability errors so saved turns reach the intended retry guidance instead of a generic provider failure.
+- **Checked:** adapter behavior tests passed (9 tests, 0 failures), including synthetic Req async-body messages for HTTP 429, 503, 403, and 400 cases. The full WSL suite passed (83 tests, 0 failures), as did formatting and warnings-as-errors compilation. No live account or model request was made.
+
 ## 2026-09-29 — Versioned GM policy
 
 - Recorded the original vineyard chat's gameplay rules in `docs/GM_POLICY.md` without including its private plot or state: the GM advances time and weather, the player makes decisions and supplies rolls, and the in-world date remains visible.
