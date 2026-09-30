@@ -1,9 +1,15 @@
 # Feature log
 
+## 2026-09-30 — Inspect recent tracked-resource changes in place
+
+- Added a collapsed “Last changed” detail beside each changed public resource. It shows the accepted before/after, the change reason, and its in-world time, without adding another entry to the story. The projection reads only recent public state-change events and current public resource keys; private panel changes never appear.
+- Extended the private-text guard to public panel-change reasons before they are recorded, so the new receipt cannot expose an exact GM-private phrase.
+- **Checks:** Play and SessionLive focused suites **76 tests, 0 failures**; full WSL suite **205 tests, 0 failures**; JavaScript tests **10/10**. Formatting, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. SessionLive coverage confirms the receipt is collapsed, sits beside the updated value, and omits a private panel seed.
+
 ## 2026-09-30 — Simplify character setup and guard exact private facts
 
 - Campaign setup now generates stable GM character IDs from names, handles duplicate and reserved names, and keeps those implementation IDs off both the setup form and review screen. The player can focus on character identity and role instead of inventing database-like speaker keys; English, Spanish, and French catalogs were refreshed.
-- Added a deterministic guard that rejects exact normalized GM-private phrases in public narration, public character dialogue/activity, and the public memory summary used in later GM context. It checks private character/place facts and names, inventory, objectives, continuity entries, and campaign panels; accepted public state can explicitly disclose a phrase. One-word facts under eight characters and entity names under five characters are ignored to limit false positives. Semantic paraphrases are not detected, so scenario review remains necessary.
+- Added a deterministic guard that rejects exact normalized GM-private phrases in public narration, character dialogue/activity, public panel-change reasons, and the public memory summary used in later GM context. It checks private character/place facts and names, inventory, objectives, continuity entries, and campaign panels; accepted public state can explicitly disclose a phrase. One-word facts under eight characters and entity names under five characters are ignored to limit false positives. Semantic paraphrases are not detected, so scenario review remains necessary.
 - **Checks:** Full WSL suite **205 tests, 0 failures**; focused setup LiveView suite **11/11**; focused private-fact suite **5/5**; JavaScript tests **10/10**. Format, gettext freshness, warnings-as-errors compile, asset build, and `git diff --check` pass. Tests use the isolated test database and fake provider. No live AI request or QA-campaign mutation was made.
 
 ## 2026-09-30 — Put the campaign first and ground scenes in visual cues

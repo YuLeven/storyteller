@@ -690,6 +690,14 @@ defmodule StorytellerWeb.SessionLiveTest do
             unit: "silver",
             visibility: "public",
             initial_value: "18.50"
+          },
+          "1" => %{
+            key: "keeper_secret",
+            panel: "GM notes",
+            label: "Hidden clue",
+            value_type: "text",
+            visibility: "gm_private",
+            initial_value: "secret stock in the north cellar"
           }
         }
       })
@@ -729,6 +737,17 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert wait_until(fn -> render(view) =~ "The customer pays for a basket of apples." end)
     assert has_element?(view, "#campaign-fields", "24.75")
+    assert has_element?(view, "#campaign-fields details > summary", "Last changed")
+    assert has_element?(view, "#campaign-fields details", "Cash: 18.5 silver → 24.75 silver")
+
+    assert has_element?(
+             view,
+             "#campaign-fields details",
+             "A customer pays for one basket of apples."
+           )
+
+    refute has_element?(view, "#campaign-fields details[open]")
+    refute render(view) =~ "secret stock in the north cellar"
     refute has_element?(view, "#story-timeline", "Cash: 18.5 silver → 24.75 silver")
     refute has_element?(view, "#story-timeline", "A customer pays for one basket of apples.")
 

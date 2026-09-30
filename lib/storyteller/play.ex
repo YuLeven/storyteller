@@ -426,12 +426,53 @@ defmodule Storyteller.Play do
          inventory: Inventory.public_projection(Map.get(state.public_state, "inventory", [])),
          objectives: public_objectives(campaign_id),
          continuity_entries: public_continuity_entries(campaign_id),
+         latest_panel_changes: latest_public_panel_changes(campaign_id, panel_projection.panels),
          characters: characters,
          panels: panel_projection.panels
        }}
     else
       nil -> {:error, :not_initialized}
     end
+  end
+
+  defp latest_public_panel_changes(_campaign_id, []), do: %{}
+
+  defp latest_public_panel_changes(campaign_id, panels) do
+    panel_keys =
+      panels
+      |> Enum.flat_map(&Enum.map(&1.fields, fn field -> field.key end))
+      |> MapSet.new()
+
+    Repo.all(
+      from event in Event,
+        where:
+          event.campaign_id == ^campaign_id and event.event_type == :state_change and
+            event.visibility == :public,
+        order_by: [desc: event.sequence],
+        limit: 500,
+        select: {event.payload, event.game_time}
+    )
+    |> Enum.reduce_while(%{}, fn {payload, game_time}, latest ->
+      changes = Map.get(payload, "panel_changes", [])
+
+      latest =
+        if is_list(changes) do
+          Enum.reduce(changes, latest, fn change, acc ->
+            key = Map.get(change, "key")
+
+            if is_binary(key) and MapSet.member?(panel_keys, key) and
+                 not Map.has_key?(acc, key) do
+              Map.put(acc, key, Map.put(change, "game_time", game_time))
+            else
+              acc
+            end
+          end)
+        else
+          latest
+        end
+
+      if map_size(latest) == MapSet.size(panel_keys), do: {:halt, latest}, else: {:cont, latest}
+    end)
   end
 
   @doc "Returns only public events, in campaign order across all sessions."
@@ -2263,6 +2304,10 @@ defmodule Storyteller.Play do
         if Map.get(speaker_visibility, line.speaker_id, :public) == :public,
           do: [line.text],
           else: []
+      end) ++
+      Enum.flat_map(proposal.panel_changes, fn
+        %{visibility: :public, reason: reason} -> [reason]
+        _ -> []
       end)
   end
 

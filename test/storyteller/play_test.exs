@@ -32,6 +32,27 @@ defmodule Storyteller.PlayTest do
         "gm_private_summary" => "A hidden mark is beneath the north sill."
       }
     })
+
+    insert_panel_field!(campaign.id, %{
+      key: "season",
+      panel: "Calendar",
+      label: "Season",
+      value_type: :text,
+      visibility: :public,
+      value: %{"value" => "Dormant"}
+    })
+
+    assert_private_text_rejected(campaign, session, "private-fact-panel-reason", %{
+      "narration" => "The season changes.",
+      "panel_changes" => [
+        %{
+          "type" => "set",
+          "key" => "season",
+          "value" => "Awakening",
+          "reason" => "The truth is to protect the chart."
+        }
+      ]
+    })
   end
 
   @tag :privacy_guard
@@ -2867,8 +2888,18 @@ defmodule Storyteller.PlayTest do
                Enum.filter(context["panels"], &(&1["key"] == "cash"))
              end)
 
-    assert {:ok, %{panels: panels}} = Play.public_projection(campaign.id)
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    panels = projection.panels
     assert [%{key: "cash", value: "1250.5"}] = Enum.find(panels, &(&1.name == "Finances")).fields
+
+    assert %{
+             "before" => "1000",
+             "after" => "1250.5",
+             "reason" => "A patron pays for the evening's telescope viewing.",
+             "game_time" => _game_time
+           } = Map.fetch!(projection.latest_panel_changes, "cash")
+
+    refute Map.has_key?(projection.latest_panel_changes, "keeper_secret")
 
     assert [%{key: "season", value: "Harvest"}] =
              Enum.find(panels, &(&1.name == "Orchard")).fields

@@ -523,6 +523,27 @@ defmodule StorytellerWeb.SessionLive.Show do
     """
   end
 
+  attr :change, :map, required: true
+
+  defp panel_change_receipt(assigns) do
+    ~H"""
+    <details class="mt-1 text-left text-xs font-normal">
+      <summary class="cursor-pointer text-amber-800 underline decoration-amber-700/40 underline-offset-2">
+        {gettext("Last changed")}
+      </summary>
+      <div class="mt-2 space-y-1 rounded-lg border border-amber-100 bg-amber-50/60 p-2">
+        <p class="font-medium text-stone-800">{panel_change_summary(@change)}</p>
+        <p class="leading-5 text-stone-600">
+          {gettext("Reason: %{reason}", reason: @change["reason"])}
+        </p>
+        <p :if={game_time_label(@change["game_time"])} class="text-stone-500">
+          {game_time_label(@change["game_time"])}
+        </p>
+      </div>
+    </details>
+    """
+  end
+
   attr :item, :map, required: true
   attr :characters_by_id, :map, required: true
   attr :playable, :boolean, required: true
