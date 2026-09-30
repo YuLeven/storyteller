@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-09-30 — Keep inventory canon inside the turn loop
+
+- Decided against direct player writes to canonical inventory in the single-player MVP. Item use, transfers, consumption, and resource changes go through the normal action composer and GM-validated proposals, preserving the story reason and audit trail for accepted changes.
+- Reconsider a separate correction request only if playtesting shows the normal action flow cannot reliably resolve mistakes; no player-facing inventory edit screen is planned now.
+
 ## 2026-09-30 — Accessible story timeline updates
 
 - Marked the chronological story list as a polite, additions-only live region with non-atomic updates, so newly appended events can be announced without repeating existing history.

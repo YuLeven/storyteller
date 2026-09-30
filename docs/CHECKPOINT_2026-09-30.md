@@ -37,11 +37,12 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 
 ## Next work
 
-1. Decide whether to add a player-facing inventory correction workflow that remains auditable and does not bypass the GM's game-state decisions. Item use already enters the normal action flow; the Amber Orchard test now covers selling produce for cash without touching vineyard data.
-2. Continue exercising the fictional **The Amber Orchard** QA campaign through session restart/resume and failed-turn recovery. Normal dialogue/activity, inventory and location changes, D20, and a cross-session produce-for-cash trade have already been covered with fake providers. A live GM turn still needs the owner to complete OAuth consent. Never reuse the vineyard campaign or its data for tests.
-3. Compare hands-on campaign and AI role-playing tasks in Friends & Fables, Kanka, and LegendKeeper against the product goals and Apple's interaction design principles. Current notes are based on public documentation, not interactive product testing.
-4. Check keyboard use, screen-reader labels, small-screen layouts, and readable contrast on the play board.
-5. Recheck the ChatGPT-plan OAuth preview eligibility and run a live-provider smoke check only after the owner completes account consent. Do not add API billing or an API-key fallback.
-6. Review the complete vineyard history and request confirmation only for uncertain campaign facts before any import.
+1. Continue exercising the fictional **The Amber Orchard** QA campaign through session restart/resume and failed-turn recovery. Normal dialogue/activity, inventory and location changes, D20, and a cross-session produce-for-cash trade have already been covered with fake providers. A live GM turn still needs the owner to complete OAuth consent. Never reuse the vineyard campaign or its data for tests.
+2. Compare hands-on campaign and AI role-playing tasks in Friends & Fables, Kanka, and LegendKeeper against the product goals and Apple's interaction design principles. Current notes are based on public documentation, not interactive product testing.
+3. Check keyboard use, screen-reader labels, small-screen layouts, and readable contrast on the play board.
+4. Recheck the ChatGPT-plan OAuth preview eligibility and run a live-provider smoke check only after the owner completes account consent. Do not add API billing or an API-key fallback.
+5. Review the complete vineyard history and request confirmation only for uncertain campaign facts before any import.
+
+Direct player edits to canonical inventory are out of scope for the single-player MVP. The player describes an in-world change in the normal action composer and the GM returns validated item or panel deltas, preserving a reason and audit trail. Reconsider a correction request only if playtesting shows that this flow cannot reliably resolve data mistakes.
 
 The WSL PostgreSQL development database is separate from test data. Check the current Phoenix server status before relying on `http://127.0.0.1:4000/`.
