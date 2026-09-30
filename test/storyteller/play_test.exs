@@ -748,6 +748,267 @@ defmodule Storyteller.PlayTest do
     assert Enum.any?(next_context["places"]["gm_private"], &(&1["place_id"] == "sealed-vault"))
   end
 
+  test "introduces a new GM character who can speak, act, carry an item, and be publicly present immediately" do
+    {campaign, session} = play_campaign("The Amber Orchard")
+
+    creation = %{
+      "speaker_id" => "npc:orin",
+      "name" => "Orin Vale",
+      "visible_facts" => %{"role" => "orchard courier", "known_for" => "careful maps"},
+      "gm_private_facts" => %{"motive" => "quietly searching for his missing sister"}
+    }
+
+    location_changes = [
+      %{
+        "type" => "create_place",
+        "place" => %{
+          "place_id" => "south-gate",
+          "name" => "South Gate",
+          "visibility" => "public",
+          "facts" => %{"surroundings" => "A low stone wall borders the road."}
+        },
+        "reason" => "The scene establishes the meeting place."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "npc:orin",
+        "place_id" => "south-gate",
+        "reason" => "Orin meets the player at the gate."
+      }
+    ]
+
+    inventory_changes = [
+      %{
+        "type" => "add",
+        "item" => %{
+          "id" => "orin-route-book",
+          "name" => "Route book",
+          "quantity" => 1,
+          "owner_id" => "npc:orin",
+          "visibility" => "public",
+          "properties" => %{}
+        },
+        "reason" => "Orin arrives carrying his route book."
+      }
+    ]
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "meet-orin",
+               "Ask the courier for directions.",
+               provider:
+                 ordinary_provider(%{
+                   "character_creations" => [creation],
+                   "dialogue" => [
+                     %{"speaker_id" => "npc:orin", "text" => "The north path is clear."}
+                   ],
+                   "activities" => [
+                     %{"speaker_id" => "npc:orin", "text" => "Orin checks his map."}
+                   ],
+                   "character_updates" => [
+                     %{
+                       "speaker_id" => "npc:orin",
+                       "visible_facts" => %{"met_at" => "South Gate"},
+                       "gm_private_facts" => %{
+                         "first_impression" => "The player seems observant."
+                       }
+                     }
+                   ],
+                   "location_changes" => location_changes,
+                   "inventory_changes" => inventory_changes
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    orin = Enum.find(projection.characters, &(&1.speaker_id == "npc:orin"))
+    assert orin.name == "Orin Vale"
+    assert orin.role == :gm
+    assert orin.visible_facts == Map.put(creation["visible_facts"], "met_at", "South Gate")
+    assert orin.visible_activity == "Orin checks his map."
+    assert orin.current_place.name == "South Gate"
+    assert Enum.any?(projection.inventory, &(&1["owner_id"] == "npc:orin"))
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    assert Enum.any?(events, &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:orin"))
+
+    assert Enum.any?(
+             events,
+             &(&1.event_type == :character_activity and &1.speaker_id == "npc:orin")
+           )
+
+    assert Enum.any?(events, &Map.has_key?(&1.payload, "character_created"))
+    refute Jason.encode!(events) =~ "quietly searching for his missing sister"
+    refute Jason.encode!(events) =~ "The player seems observant."
+  end
+
+  test "new NPC private facts and GM-private presence reach later sessions without public leakage" do
+    {campaign, session} = play_campaign("The Amber Orchard")
+
+    creation = %{
+      "speaker_id" => "npc:elira",
+      "name" => "Elira Moss",
+      "visible_facts" => %{"trade" => "herbalist"},
+      "gm_private_facts" => %{"fear" => "the flooded passage", "plan" => "hide the silver key"}
+    }
+
+    location_changes = [
+      %{
+        "type" => "create_place",
+        "place" => %{
+          "place_id" => "flooded-passage",
+          "name" => "Flooded Passage",
+          "visibility" => "gm_private",
+          "facts" => %{"concealed" => "A silver key rests under a loose stone."}
+        },
+        "reason" => "The GM establishes a hidden passage."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "npc:elira",
+        "place_id" => "flooded-passage",
+        "reason" => "Elira keeps watch in the hidden passage."
+      }
+    ]
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "meet-elira",
+               "Look for a guide.",
+               provider:
+                 ordinary_provider(%{
+                   "character_creations" => [creation],
+                   "dialogue" => [],
+                   "activities" => [],
+                   "location_changes" => location_changes,
+                   "character_updates" => []
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    elira = Enum.find(projection.characters, &(&1.speaker_id == "npc:elira"))
+    assert elira.visible_facts == creation["visible_facts"]
+    assert elira.current_place == nil
+    refute Enum.any?(projection.places, &(&1.place_id == "flooded-passage"))
+
+    assert {:ok, public_events} = Play.public_timeline(campaign.id)
+    public_json = Jason.encode!(public_events)
+    refute public_json =~ "fear"
+    refute public_json =~ "flooded-passage"
+    refute public_json =~ "Flooded Passage"
+    refute public_json =~ "silver key"
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "ask-elira",
+               "Ask the herbalist about her work.",
+               provider: fn request ->
+                 Agent.update(captured_context, fn _context -> decode_request(request) end)
+
+                 {:ok,
+                  Jason.encode!(
+                    ordinary_proposal(%{
+                      "dialogue" => [],
+                      "activities" => [],
+                      "character_updates" => []
+                    })
+                  )}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(captured_context, & &1)
+    context_elira = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:elira"))
+    assert context_elira["visible_facts"] == creation["visible_facts"]
+    assert context_elira["gm_private_facts"] == creation["gm_private_facts"]
+    assert context_elira["current_place"]["place_id"] == "flooded-passage"
+    assert Enum.any?(context["places"]["gm_private"], &(&1["place_id"] == "flooded-passage"))
+  end
+
+  test "rejects duplicate new character IDs and unknown or invalid place references atomically" do
+    invalid_scenarios = [
+      {"existing-id", [%{"speaker_id" => "npc:lyra", "name" => "Another Lyra"}], []},
+      {"player-id", [%{"speaker_id" => "player", "name" => "Replacement"}], []},
+      {
+        "duplicate-new-ids",
+        [
+          %{"speaker_id" => "npc:new", "name" => "First"},
+          %{"speaker_id" => "npc:new", "name" => "Second"}
+        ],
+        []
+      },
+      {
+        "unknown-place",
+        [%{"speaker_id" => "npc:new", "name" => "Newcomer"}],
+        [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:new",
+            "place_id" => "missing-place",
+            "reason" => "No place exists."
+          }
+        ]
+      },
+      {
+        "invalid-place-id",
+        [%{"speaker_id" => "npc:new", "name" => "Newcomer"}],
+        [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "bad/place",
+              "name" => "Bad place",
+              "visibility" => "public"
+            },
+            "reason" => "Invalid IDs are rejected."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:new",
+            "place_id" => "bad/place",
+            "reason" => "It cannot be used."
+          }
+        ]
+      }
+    ]
+
+    for {key, creations, location_changes} <- invalid_scenarios do
+      {campaign, session} = play_campaign("The Quiet Observatory")
+      before_projection = Play.public_projection(campaign.id)
+
+      assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 "invalid-introduction-#{key}",
+                 "Meet someone new.",
+                 provider:
+                   ordinary_provider(%{
+                     "character_creations" => creations,
+                     "location_changes" => location_changes
+                   }),
+                 model: "test-model"
+               )
+
+      assert Play.public_projection(campaign.id) == before_projection
+      assert {:ok, []} = Play.public_timeline(campaign.id)
+      refute Repo.get_by(Character, campaign_id: campaign.id, speaker_id: "npc:new")
+
+      assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").name ==
+               campaign.player_character
+    end
+  end
+
   test "free-form world changes cannot teleport the player or overwrite the canonical location" do
     {campaign, session} = play_campaign("The Quiet Vineyard")
     state = Repo.get_by!(State, campaign_id: campaign.id)

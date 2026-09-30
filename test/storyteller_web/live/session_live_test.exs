@@ -214,6 +214,57 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert player.visible_facts["Health"] == "Rested"
   end
 
+  test "new character introductions render the name and public facts without private facts", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture(%{title: "The Amber Road"})
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "A courier steps out from under the stone arch.",
+         dialogue: [%{speaker_id: "npc:orin", text: "I can show you the safe road."}],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: %{},
+         character_creations: [
+           %{
+             speaker_id: "npc:orin",
+             name: "Orin Vale",
+             visible_facts: %{"trade" => "Courier"},
+             gm_private_facts: %{"real_goal" => "find the sealed map"}
+           }
+         ],
+         character_updates: [],
+         memory_update: %{
+           public_summary: "Orin is a courier.",
+           gm_private_summary: "Orin seeks a map."
+         },
+         inventory_changes: [],
+         location_changes: [],
+         objective_changes: [],
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    view
+    |> form("#turn-composer", turn: %{input: "Ask the stranger about the road."})
+    |> render_submit()
+
+    assert wait_until(fn -> render(view) =~ "Orin Vale" end)
+    html = render(view)
+    assert has_element?(view, "#story-timeline", "Character introduced")
+    assert has_element?(view, "#story-timeline", "Courier")
+    assert html =~ "Orin Vale"
+    refute html =~ "find the sealed map"
+    refute html =~ "seeks a map"
+  end
+
   test "a connected ChatGPT plan is clear beside the composer and links to usage settings", %{
     conn: conn
   } do

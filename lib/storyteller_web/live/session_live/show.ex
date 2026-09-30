@@ -423,6 +423,9 @@ defmodule StorytellerWeb.SessionLive.Show do
       is_list(Map.get(event.payload, "objective_changes")) ->
         gettext("Campaign objectives")
 
+      is_map(Map.get(event.payload, "character_created")) ->
+        gettext("Character introduced")
+
       is_map(Map.get(event.payload, "panel_changes")) ->
         gettext("Campaign values")
 
@@ -443,6 +446,12 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: changes
 
   defp state_change_values(%{payload: %{"changes" => changes}}) when is_map(changes), do: changes
+
+  defp state_change_values(%{payload: %{"character_created" => created}}) when is_map(created) do
+    created
+    |> Map.get("visible_facts", %{})
+    |> Map.put("name", Map.get(created, "name"))
+  end
 
   defp state_change_values(%{payload: %{"visible_facts" => facts}}) when is_map(facts),
     do: facts
@@ -590,6 +599,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       "world_time" -> gettext("Time")
       "weather" -> gettext("Weather")
       "location" -> gettext("Location")
+      "name" -> gettext("Name")
       custom -> custom |> String.replace("_", " ") |> String.capitalize()
     end
   end

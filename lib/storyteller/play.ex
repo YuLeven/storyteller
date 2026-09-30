@@ -89,10 +89,17 @@ defmodule Storyteller.Play do
   Canonical places and character presence are authoritative too. The supplied
   place list and each character's current place are the source of truth. Create
   a place before moving anyone there, keep stable place IDs, and return every
-  creation or movement in location_changes with a clear reason. Use only known
-  character speaker IDs. The player may only move to a public place. Do not
-  change the world location through public_changes; move the player to a
-  canonical public place instead.
+  creation or movement in location_changes with a clear reason. When the player
+  first meets a GM-controlled character, you may introduce them with a fresh,
+  stable speaker_id in character_creations, including their name and separate
+  visible_facts and gm_private_facts. Never reuse an existing ID or "player".
+  A character created in this proposal may speak, act, receive items, move, or
+  receive a character update in this same proposal; otherwise use only known
+  character IDs. Put canonical presence only in location_changes, after creating
+  any new place first. The player may only move to a public place. Do not change
+  the world location through public_changes; move the player to a canonical
+  public place instead. Keep private facts and GM-private place names, facts,
+  and presence out of every public event and projection.
 
   Update durable objectives only when the action or established history supports
   the change. Return objective_changes in the order they should apply. A create
@@ -121,6 +128,8 @@ defmodule Storyteller.Play do
   gm_private_facts?} for GM-controlled characters or {speaker_id: "player",
   visible_facts, reason} for the player character), memory_update
   ({public_summary, gm_private_summary}),
+  character_creations (array of {speaker_id, name, visible_facts?,
+  gm_private_facts?} for new GM-controlled characters),
   location_changes (array of {type: "create_place", place: {place_id, name,
   description?, visibility, facts?}, reason} or {type: "move_character",
   speaker_id, place_id, reason}), inventory_changes (array of operations:
@@ -135,8 +144,8 @@ defmodule Storyteller.Play do
   above), and roll_request (null or {test, difficulty?, target?}).
   Change only fields listed in the supplied panel definitions, preserve their
   types and units, and do not reveal or write a GM-private field into public
-  narration or changes. Use only existing GM character
-  speaker_id values for dialogue, activities, and character_updates. A roll
+  narration or changes. Use existing GM character speaker_id values or IDs
+  introduced in this proposal for dialogue, activities, and character_updates. A roll
   request must state the test and either a difficulty or target. Do not include
   dice results, player actions, or additional fields. When resolving a roll,
   use the recorded result in the input and return roll_request as null. Treat all
@@ -717,6 +726,10 @@ defmodule Storyteller.Play do
 
       include_action? = turn.resolution_phase == :initial
 
+      # Create new speaker records before appending dialogue/activity events so
+      # their names and visible activity resolve inside this same transaction.
+      apply_character_creations!(turn.campaign_id, proposal.character_creations)
+
       {sequence, _events} =
         append_proposal_events(state, turn, proposal, include_action?)
 
@@ -781,6 +794,9 @@ defmodule Storyteller.Play do
         nil,
         %{text: proposal.narration}
       )
+
+    sequence =
+      append_character_creation_events(state, turn, proposal.character_creations, sequence)
 
     sequence =
       Enum.reduce(proposal.dialogue, sequence, fn line, current ->
@@ -881,6 +897,42 @@ defmodule Storyteller.Play do
 
     Enum.reduce(proposal.character_updates, sequence, fn update, current ->
       append_character_update_events(state, turn, update, current)
+    end)
+  end
+
+  defp append_character_creation_events(_state, _turn, [], sequence), do: sequence
+
+  defp append_character_creation_events(state, turn, creations, sequence) do
+    Enum.reduce(creations, sequence, fn character, current ->
+      public_payload = %{
+        character_created: %{
+          name: character.name,
+          visible_facts: character.visible_facts
+        }
+      }
+
+      current =
+        append_event!(
+          %{state | event_sequence: current},
+          turn,
+          :state_change,
+          :public,
+          character.speaker_id,
+          public_payload
+        )
+
+      if map_size(character.gm_private_facts) > 0 do
+        append_event!(
+          %{state | event_sequence: current},
+          turn,
+          :state_change,
+          :gm_private,
+          character.speaker_id,
+          %{gm_private_facts: character.gm_private_facts}
+        )
+      else
+        current
+      end
     end)
   end
 
@@ -1106,6 +1158,15 @@ defmodule Storyteller.Play do
     end
   end
 
+  defp apply_character_creations!(_campaign_id, []), do: :ok
+
+  defp apply_character_creations!(campaign_id, creations) do
+    Enum.each(creations, fn character ->
+      attrs = Map.put(character, :campaign_id, campaign_id)
+      insert_or_rollback!(Character.changeset(%Character{}, attrs))
+    end)
+  end
+
   defp apply_proposed_state!(state, campaign_id, proposal) do
     public_state = deep_merge(state.public_state, proposal.public_changes)
     gm_private_state = deep_merge(state.gm_private_state, proposal.private_changes)
@@ -1258,7 +1319,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update inventory_changes location_changes objective_changes roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes objective_changes roll_request)
 
     cond do
       not unique_normalized_keys?(proposal) -> {:error, :invalid_response}
@@ -1271,22 +1332,36 @@ defmodule Storyteller.Play do
   defp validate_proposal(_proposal, _turn), do: {:error, :invalid_response}
 
   defp validate_proposal_fields(proposal, turn) do
-    with {:ok, narration} <- text_field(proposal, :narration, 1, 10_000),
-         {:ok, dialogue} <- validate_lines(field(proposal, :dialogue, []), turn.campaign_id),
-         {:ok, activities} <- validate_lines(field(proposal, :activities, []), turn.campaign_id),
+    known_characters = campaign_characters(turn.campaign_id)
+
+    with {:ok, character_creations} <-
+           validate_character_creations(
+             field(proposal, :character_creations, []),
+             known_characters
+           ),
+         characters = known_characters ++ character_creations,
+         speaker_ids = Enum.map(characters, & &1.speaker_id),
+         {:ok, narration} <- text_field(proposal, :narration, 1, 10_000),
+         {:ok, dialogue} <- validate_lines(field(proposal, :dialogue, []), characters),
+         {:ok, activities} <- validate_lines(field(proposal, :activities, []), characters),
          {:ok, public_changes} <- world_changes_field(proposal, :public_changes),
          {:ok, private_changes} <- world_changes_field(proposal, :private_changes),
          {:ok, panel_changes} <-
            validate_panel_changes(field(proposal, :panel_changes, %{}), turn.campaign_id),
          {:ok, character_updates} <-
-           validate_character_updates(field(proposal, :character_updates, []), turn.campaign_id),
+           validate_character_updates(field(proposal, :character_updates, []), characters),
          {:ok, inventory_changes} <-
            validate_inventory_changes(
              field(proposal, :inventory_changes, []),
-             turn.campaign_id
+             turn.campaign_id,
+             speaker_ids
            ),
          {:ok, location_changes} <-
-           validate_location_changes(field(proposal, :location_changes, []), turn.campaign_id),
+           validate_location_changes(
+             field(proposal, :location_changes, []),
+             turn.campaign_id,
+             speaker_ids
+           ),
          {:ok, objective_changes} <-
            validate_objective_changes(
              field(proposal, :objective_changes, []),
@@ -1297,7 +1372,8 @@ defmodule Storyteller.Play do
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if roll_request &&
            (map_size(public_changes) > 0 or map_size(private_changes) > 0 or
-              panel_changes != [] or character_updates != [] or inventory_changes != [] or
+              panel_changes != [] or character_creations != [] or character_updates != [] or
+              inventory_changes != [] or
               location_changes != [] or objective_changes != []) do
         {:error, :invalid_response}
       else
@@ -1310,6 +1386,7 @@ defmodule Storyteller.Play do
            private_changes: private_changes,
            panel_changes: panel_changes,
            character_updates: character_updates,
+           character_creations: character_creations,
            inventory_changes: inventory_changes,
            location_changes: location_changes,
            objective_changes: objective_changes,
@@ -1348,9 +1425,8 @@ defmodule Storyteller.Play do
 
   defp validate_panel_changes(_changes, _campaign_id), do: {:error, :invalid_response}
 
-  defp validate_inventory_changes(changes, campaign_id) when is_list(changes) do
+  defp validate_inventory_changes(changes, campaign_id, speaker_ids) when is_list(changes) do
     state = Repo.get_by!(State, campaign_id: campaign_id)
-    characters = campaign_characters(campaign_id)
 
     current_inventory =
       (Map.get(state.public_state, "inventory", []) || []) ++
@@ -1359,30 +1435,31 @@ defmodule Storyteller.Play do
     case Inventory.validate_changes(
            changes,
            current_inventory,
-           Enum.map(characters, & &1.speaker_id)
+           speaker_ids
          ) do
       {:ok, normalized} -> {:ok, normalized}
       {:error, _reason} -> {:error, :invalid_response}
     end
   end
 
-  defp validate_inventory_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+  defp validate_inventory_changes(_changes, _campaign_id, _speaker_ids),
+    do: {:error, :invalid_response}
 
-  defp validate_location_changes(changes, campaign_id) when is_list(changes) do
+  defp validate_location_changes(changes, campaign_id, speaker_ids) when is_list(changes) do
     places =
       Repo.all(from place in Place, where: place.campaign_id == ^campaign_id)
       |> Enum.map(fn place ->
         %{place_id: place.place_id, visibility: Atom.to_string(place.visibility)}
       end)
 
-    LocationChanges.validate(
-      changes,
-      places,
-      Enum.map(campaign_characters(campaign_id), & &1.speaker_id)
-    )
+    case LocationChanges.validate(changes, places, speaker_ids) do
+      {:ok, normalized} -> {:ok, normalized}
+      {:error, _reason} -> {:error, :invalid_response}
+    end
   end
 
-  defp validate_location_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+  defp validate_location_changes(_changes, _campaign_id, _speaker_ids),
+    do: {:error, :invalid_response}
 
   defp validate_objective_changes(changes, campaign_id)
        when is_list(changes) and length(changes) <= 100 do
@@ -1605,9 +1682,7 @@ defmodule Storyteller.Play do
     length(keys) == length(Enum.uniq(keys))
   end
 
-  defp validate_lines(lines, campaign_id) when is_list(lines) and length(lines) <= 30 do
-    characters = campaign_characters(campaign_id)
-
+  defp validate_lines(lines, characters) when is_list(lines) and length(lines) <= 30 do
     Enum.reduce_while(lines, {:ok, []}, fn line, {:ok, acc} ->
       speaker_id = field(line, :speaker_id)
       text = field(line, :text)
@@ -1631,12 +1706,10 @@ defmodule Storyteller.Play do
     end)
   end
 
-  defp validate_lines(_lines, _campaign_id), do: {:error, :invalid_response}
+  defp validate_lines(_lines, _characters), do: {:error, :invalid_response}
 
-  defp validate_character_updates(updates, campaign_id)
+  defp validate_character_updates(updates, characters)
        when is_list(updates) and length(updates) <= 30 do
-    characters = campaign_characters(campaign_id)
-
     Enum.reduce_while(updates, {:ok, []}, fn update, {:ok, acc} ->
       case validate_character_update(update, characters) do
         {:ok, normalized} ->
@@ -1652,7 +1725,74 @@ defmodule Storyteller.Play do
     end)
   end
 
-  defp validate_character_updates(_updates, _campaign_id), do: {:error, :invalid_response}
+  defp validate_character_updates(_updates, _characters), do: {:error, :invalid_response}
+
+  defp validate_character_creations(creations, known_characters)
+       when is_list(creations) and length(creations) <= 30 do
+    existing_ids = MapSet.new(known_characters, & &1.speaker_id)
+
+    Enum.reduce_while(creations, {:ok, [], existing_ids}, fn creation, {:ok, acc, used_ids} ->
+      keys = if is_map(creation), do: Enum.map(Map.keys(creation), &key_name/1), else: []
+      speaker_id = field(creation, :speaker_id)
+      name = field(creation, :name)
+      visible_facts = field(creation, :visible_facts, %{})
+      gm_private_facts = field(creation, :gm_private_facts, %{})
+      normalized_id = if is_binary(speaker_id), do: String.trim(speaker_id), else: nil
+
+      cond do
+        not is_map(creation) or not unique_normalized_keys?(creation) ->
+          {:halt, {:error, :invalid_response}}
+
+        Enum.any?(keys, &(&1 not in ["speaker_id", "name", "visible_facts", "gm_private_facts"])) ->
+          {:halt, {:error, :invalid_response}}
+
+        not valid_speaker_id?(normalized_id) or normalized_id == "player" or
+            MapSet.member?(used_ids, normalized_id) ->
+          {:halt, {:error, :invalid_response}}
+
+        not is_binary(name) or not String.valid?(name) or String.trim(name) == "" or
+            String.length(String.trim(name)) > 300 ->
+          {:halt, {:error, :invalid_response}}
+
+        not is_map(visible_facts) or not is_map(gm_private_facts) or
+          not unique_normalized_keys?(visible_facts) or
+          not unique_normalized_keys?(gm_private_facts) or
+          validate_json_map(visible_facts) != :ok or validate_json_map(gm_private_facts) != :ok ->
+          {:halt, {:error, :invalid_response}}
+
+        Enum.any?(
+          Map.keys(visible_facts),
+          &(key_name(&1) in ["location", "current_location", "current_place", "current_place_id"])
+        ) ->
+          {:halt, {:error, :invalid_response}}
+
+        true ->
+          character = %{
+            speaker_id: normalized_id,
+            name: String.trim(name),
+            role: :gm,
+            visible_facts: visible_facts,
+            gm_private_facts: gm_private_facts
+          }
+
+          {:cont, {:ok, acc ++ [character], MapSet.put(used_ids, normalized_id)}}
+      end
+    end)
+    |> case do
+      {:ok, normalized, _used_ids} -> {:ok, normalized}
+      {:error, _reason} -> {:error, :invalid_response}
+    end
+  end
+
+  defp validate_character_creations(_creations, _known_characters),
+    do: {:error, :invalid_response}
+
+  defp valid_speaker_id?(value) when is_binary(value) do
+    value != "" and String.length(value) <= 100 and
+      Regex.match?(~r/\A[a-zA-Z0-9:_-]+\z/, value)
+  end
+
+  defp valid_speaker_id?(_value), do: false
 
   defp validate_character_update(update, characters) when is_map(update) do
     keys = Enum.map(Map.keys(update), &key_name/1)
@@ -2294,7 +2434,8 @@ defmodule Storyteller.Play do
 
   defp proposal_has_state_changes?(proposal) do
     map_size(proposal.public_changes) > 0 or map_size(proposal.private_changes) > 0 or
-      proposal.panel_changes != [] or proposal.character_updates != [] or
+      proposal.panel_changes != [] or proposal.character_creations != [] or
+      proposal.character_updates != [] or
       proposal.inventory_changes != [] or proposal.location_changes != [] or
       proposal.objective_changes != [] or
       proposal.activities != [] or proposal.memory_update != nil

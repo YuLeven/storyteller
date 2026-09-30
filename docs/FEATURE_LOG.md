@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-09-30 — Introduce new GM characters during play
+
+- GM proposals can create stable GM-controlled character IDs with public and GM-private facts. The same proposal may let a newly created character speak, act, receive an item, move to a known or newly created place, or receive a fact update.
+- Character IDs, facts, owners, speakers, and places are validated before the existing locked commit transaction. New character records are inserted before same-turn dialogue, activity, and location events, so the first encounter remains atomic with its public and GM-private audit entries.
+- Public projections and audit events include only names, visible facts, public items, and public presence. GM-private character facts and hidden places and presence remain in GM context and private history across sessions.
+- Updated the GM policy, proposal shape, introduction timeline entry, and this checkpoint. No database migration is needed.
+- **Checked:** Play behavior tests pass (30 tests, 0 failures), and SessionLive tests pass (9 tests, 0 failures). Coverage includes introduce-and-speak, public presence, hidden-fact and hidden-place continuity across sessions, atomic rejection of duplicate IDs and unknown or malformed place references, and player-visible introduction rendering without private facts. Format check, warnings-as-errors compilation, asset build, and `git diff --check` pass in WSL. No migration was needed.
+
 ## 2026-09-30 — Keep roll targets in the story timeline
 
 - Roll-request timeline entries now show the test plus any specified difficulty and target. Players can still see what a D20 result was judged against after resolution or reconnect.
