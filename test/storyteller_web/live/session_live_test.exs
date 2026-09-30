@@ -16,8 +16,9 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.Play
-  alias Storyteller.Play.{Event, Turn}
+  alias Storyteller.Play.{Event, State, Turn}
   alias Storyteller.Repo
+  alias Storyteller.Settings
   alias StorytellerWeb.SessionLiveTest.FakeProvider
 
   setup do
@@ -167,6 +168,79 @@ defmodule StorytellerWeb.SessionLiveTest do
              "#chatgpt-plan-status a[href='https://chatgpt.com/settings/usage']",
              "Manage usage"
            )
+  end
+
+  test "public player and party items append an editable action in the narration language", %{
+    conn: conn
+  } do
+    cases = [
+      {"English", "es", "Usar en la acción", "Usa Sunstone en tu acción", "I use Sunstone.",
+       "I use Copper lantern."},
+      {"Spanish", "fr", "Utiliser dans l’action", "Utiliser Sunstone dans votre action",
+       "Uso Sunstone.", "Uso Copper lantern."},
+      {"French", "en", "Use in action", "Use Sunstone in your action", "J’utilise Sunstone.",
+       "J’utilise Copper lantern."}
+    ]
+
+    for {narration_language, ui_locale, button_label, accessible_label, sentence, party_sentence} <-
+          cases do
+      campaign =
+        campaign_fixture(%{
+          narration_language: narration_language
+        })
+
+      session = hd(campaign.sessions)
+      seed_action_items(campaign.id)
+      assert {:ok, _preference} = Settings.set_ui_locale(ui_locale)
+      {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+      player_button = "#inventory-item-player-sunstone button[phx-click]"
+      party_button = "#inventory-item-party-lantern button[phx-click]"
+      npc_button = "#inventory-item-keeper-key button[phx-click]"
+
+      assert has_element?(view, player_button, button_label)
+      assert has_element?(view, party_button, button_label)
+      refute has_element?(view, npc_button)
+      refute render(view) =~ "Hidden obsidian relic"
+
+      assert [accessible_label] ==
+               Floki.parse_document!(render(view))
+               |> Floki.find(player_button)
+               |> Floki.attribute("aria-label")
+
+      {:ok, before_projection} = Play.public_projection(campaign.id)
+      {:ok, before_timeline} = Play.public_timeline(campaign.id)
+
+      view
+      |> form("#turn-composer", turn: %{input: "I listen at the door."})
+      |> render_change()
+
+      view |> element(player_button) |> render_click()
+      assert render(view) =~ "I listen at the door.\n#{sentence}"
+
+      view |> element(party_button) |> render_click()
+      assert render(view) =~ "I listen at the door.\n#{sentence}\n#{party_sentence}"
+
+      edited_draft = "I listen at the door.\n#{sentence}\n#{party_sentence} I change my mind."
+
+      view
+      |> form("#turn-composer", turn: %{input: edited_draft})
+      |> render_change()
+
+      assert render(view) =~ edited_draft
+      assert is_nil(Play.public_current_turn(campaign.id))
+      {:ok, after_projection} = Play.public_projection(campaign.id)
+      {:ok, after_timeline} = Play.public_timeline(campaign.id)
+      assert after_projection.inventory == before_projection.inventory
+      assert after_timeline == before_timeline
+
+      # Forged public-NPC and hidden IDs are treated exactly like unknown IDs.
+      before_forged_click = render(view)
+      render_click(view, "use-in-action", %{"item_id" => "keeper-key"})
+      render_click(view, "use-in-action", %{"item_id" => "hidden-relic"})
+      assert render(view) == before_forged_click
+      assert is_nil(Play.public_current_turn(campaign.id))
+    end
   end
 
   test "D20 is only generated after the validated roll request is clicked", %{conn: conn} do
@@ -339,6 +413,55 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   defp session_path(campaign, session),
     do: ~p"/campaigns/#{campaign.id}/sessions/#{session.id}"
+
+  defp seed_action_items(campaign_id) do
+    state = Repo.get_by!(State, campaign_id: campaign_id)
+
+    public_inventory = [
+      %{
+        "id" => "player-sunstone",
+        "name" => "Sunstone",
+        "quantity" => 1,
+        "owner_id" => "player",
+        "visibility" => "public",
+        "properties" => %{}
+      },
+      %{
+        "id" => "party-lantern",
+        "name" => "Copper lantern",
+        "quantity" => 1,
+        "owner_id" => "party",
+        "visibility" => "public",
+        "properties" => %{}
+      },
+      %{
+        "id" => "keeper-key",
+        "name" => "Keeper's key",
+        "quantity" => 1,
+        "owner_id" => "npc:keeper",
+        "visibility" => "public",
+        "properties" => %{}
+      }
+    ]
+
+    private_inventory = [
+      %{
+        "id" => "hidden-relic",
+        "name" => "Hidden obsidian relic",
+        "quantity" => 1,
+        "owner_id" => "player",
+        "visibility" => "gm_private",
+        "properties" => %{}
+      }
+    ]
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", public_inventory),
+        gm_private_state: Map.put(state.gm_private_state, "inventory", private_inventory)
+      })
+    )
+  end
 
   defp set_handler(handler) do
     Application.put_env(:storyteller, :session_live_test_handler, handler)

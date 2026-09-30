@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Inventory actions from the play board
+
+- Added a localized action button to public player- and party-owned inventory items. It appends a short item-use sentence in the campaign narration language, preserves the current composer draft, and focuses the textarea for review and editing.
+- The server only uses item data found in the session's public inventory projection and silently ignores hidden, unknown, or NPC-owned item IDs. The player still submits the normal turn explicitly; the button does not change inventory or create a turn.
+- **Checked:** focused session LiveView tests pass (6 tests, 0 failures), covering all three narration languages, interface-language independence, draft append/edit behavior, ownership filtering, forged IDs, and no inventory or timeline mutation before submission. `mix format` passed.
+
 ## 2026-09-30 — Campaign objectives and story commitments
 
 - Added an optional campaign-scoped objective ledger with stable IDs, open/completed/abandoned status, public or GM-private visibility, and no delete path. Objectives remain canonical when a new session starts.

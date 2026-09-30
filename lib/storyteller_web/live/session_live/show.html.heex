@@ -619,6 +619,20 @@
                 <summary class="cursor-pointer font-medium">{gettext("Item details")}</summary>
                 <pre class="mt-2 whitespace-pre-wrap font-sans">{Jason.encode!(item["properties"], pretty: true)}</pre>
               </details>
+              <button
+                :if={item["owner_id"] in ["player", "party"] and playable?(@session)}
+                type="button"
+                phx-click={
+                  JS.push("use-in-action", value: %{item_id: item["id"]})
+                  |> JS.focus(to: "#turn-input")
+                }
+                aria-label={gettext("Use %{item} in your action", item: item["name"])}
+                disabled={
+                  @current_turn &&
+                    @current_turn.status in [:pending, :resolving, :awaiting_roll]
+                }
+                class="mt-3 inline-flex items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >{gettext("Use in action")}</button>
             </li>
           </ul>
           <p :if={@projection.inventory == []} class="mt-3 text-sm leading-6 text-stone-500">

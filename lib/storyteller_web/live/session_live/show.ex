@@ -55,6 +55,27 @@ defmodule StorytellerWeb.SessionLive.Show do
     {:noreply, assign(socket, draft: input, input_error?: false)}
   end
 
+  def handle_event("use-in-action", %{"item_id" => item_id}, socket) when is_binary(item_id) do
+    item = player_action_item(socket.assigns.projection, item_id)
+    latest = Play.public_current_turn(socket.assigns.session.campaign_id)
+
+    if item && playable?(socket.assigns.session) && not blocking_turn?(latest) do
+      sentence =
+        item_action_sentence(item["name"], socket.assigns.session.campaign.narration_language)
+
+      {:noreply,
+       assign(socket,
+         draft: append_action_sentence(socket.assigns.draft, sentence),
+         input_error?: false
+       )}
+    else
+      # Unknown, hidden, or non-player-owned item IDs deliberately have the same result.
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("use-in-action", _params, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event("submit-turn", %{"turn" => params}, socket) do
     input = Map.get(params, "input", "")
@@ -282,6 +303,34 @@ defmodule StorytellerWeb.SessionLive.Show do
       %{name: name} -> name
       _ -> gettext("Someone nearby")
     end
+  end
+
+  defp player_action_item(%{inventory: inventory}, item_id) when is_list(inventory) do
+    Enum.find(inventory, fn item ->
+      item["id"] == item_id and item["visibility"] == "public" and
+        item["owner_id"] in ["player", "party"]
+    end)
+  end
+
+  defp player_action_item(_projection, _item_id), do: nil
+
+  defp item_action_sentence(item_name, narration_language) do
+    locale =
+      case narration_language do
+        "Spanish" -> "es"
+        "French" -> "fr"
+        _ -> "en"
+      end
+
+    Gettext.with_locale(StorytellerWeb.Gettext, locale, fn ->
+      gettext("I use %{item}.", item: item_name)
+    end)
+  end
+
+  defp append_action_sentence(draft, sentence) do
+    draft = String.trim_trailing(draft || "")
+
+    if draft == "", do: sentence, else: draft <> "\n" <> sentence
   end
 
   defp public_values(map) do
