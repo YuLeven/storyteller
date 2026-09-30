@@ -52,7 +52,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, Event, Objective, State, Turn}
+  alias Storyteller.Play.{Character, Event, Objective, Place, State, Turn}
   alias Storyteller.Repo
   alias Storyteller.Settings
   alias StorytellerWeb.SessionLiveTest.FakeProvider
@@ -1056,6 +1056,15 @@ defmodule StorytellerWeb.SessionLiveTest do
            )
 
     assert has_element?(view, "#campaign-characters", "Health")
+    assert has_element?(view, "#character-change-player > summary", "Last changed")
+    refute has_element?(view, "#character-change-player[open]")
+    assert has_element?(view, "#character-change-player", "Weary → Rested")
+
+    assert has_element?(
+             view,
+             "#character-change-player",
+             "The player rests through the afternoon."
+           )
 
     {:ok, projection} = Play.public_projection(campaign.id)
     player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
@@ -1267,6 +1276,151 @@ defmodule StorytellerWeb.SessionLiveTest do
     for reason <- [transfer_reason, update_reason, add_reason] do
       refute has_element?(view, "#story-timeline", reason)
     end
+  end
+
+  test "place and character receipts stay on their panels and exclude GM-private changes", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        starting_date: "The 14th day of thaw",
+        world_time: "First watch",
+        gm_characters: [
+          %{
+            speaker_id: "npc:lyra",
+            name: "Lyra",
+            visible_facts: %{"role" => "scout"},
+            gm_private_facts: %{}
+          },
+          %{
+            speaker_id: "npc:orin",
+            name: "Orin Vale",
+            visible_facts: %{"role" => "traveler"},
+            gm_private_facts: %{}
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+
+    old_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "old-quay",
+          name: "Old quay",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: old_place.place_id}))
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "The coast road opens beyond the old quay.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: [],
+         character_updates: [
+           %{
+             speaker_id: "npc:lyra",
+             visible_facts: %{"trust" => "She trusts your judgment."},
+             gm_private_facts: %{"motive" => "The hidden ledger lies beneath the north sill."}
+           }
+         ],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         inventory_changes: [],
+         location_changes: [
+           %{
+             type: "create_place",
+             place: %{
+               place_id: "beacon-road",
+               name: "Beacon road",
+               visibility: "public",
+               facts: %{}
+             },
+             reason: "The coast path opens beyond the old quay."
+           },
+           %{
+             type: "move_character",
+             speaker_id: "player",
+             place_id: "beacon-road",
+             reason: "You follow the path beyond the old quay."
+           },
+           %{
+             type: "move_character",
+             speaker_id: "npc:lyra",
+             place_id: "beacon-road",
+             reason: "Lyra joins you on the coast path."
+           },
+           %{
+             type: "create_place",
+             place: %{
+               place_id: "saffron-vault",
+               name: "Saffron Vault",
+               visibility: "gm_private",
+               facts: %{"inscription" => "Beneath the north sill"}
+             },
+             reason: "The hidden chamber remains sealed from the party."
+           },
+           %{
+             type: "move_character",
+             speaker_id: "npc:orin",
+             place_id: "saffron-vault",
+             reason: "Orin slips into Saffron Vault unseen."
+           }
+         ],
+         objective_changes: [],
+         continuity_changes: [],
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: "Follow the road with Lyra."})
+    |> render_submit()
+
+    assert wait_until(fn -> has_element?(view, "#current-place", "Beacon road") end)
+
+    assert has_element?(view, "#place-change-beacon-road > summary", "Last changed")
+    refute has_element?(view, "#place-change-beacon-road[open]")
+
+    assert has_element?(
+             view,
+             "#place-change-beacon-road",
+             "The coast path opens beyond the old quay."
+           )
+
+    assert has_element?(view, "#place-change-beacon-road", "The 14th day of thaw · First watch")
+
+    assert has_element?(view, "[id='character-change-player'] > summary", "Last changed")
+    refute has_element?(view, "[id='character-change-player'][open]")
+
+    assert has_element?(
+             view,
+             "[id='character-change-player']",
+             "You follow the path beyond the old quay."
+           )
+
+    assert has_element?(view, "[id='character-change-npc:lyra'] > summary", "Last changed")
+    assert has_element?(view, "[id='character-change-npc:lyra']", "She trusts your judgment.")
+
+    html = render(view)
+    refute html =~ "Saffron Vault"
+    refute html =~ "The hidden ledger lies beneath the north sill."
+    refute html =~ "Orin slips into Saffron Vault unseen."
+    refute has_element?(view, "#story-timeline", "The coast path opens beyond the old quay.")
+    refute has_element?(view, "#story-timeline", "Last changed")
+
+    {:ok, %{events: story_events}} = Play.public_story_timeline_page(campaign.id)
+    refute Enum.any?(story_events, &(&1.event_type == :state_change))
   end
 
   test "new character introductions render the name and public facts without private facts", %{

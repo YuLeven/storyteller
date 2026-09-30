@@ -850,6 +850,23 @@
           >
             {@player_character.current_place.name}
           </h2>
+          <.canonical_change_receipt
+            :if={
+              @player_character && @player_character.current_place &&
+                Map.has_key?(
+                  @projection.latest_place_changes,
+                  @player_character.current_place.place_id
+                )
+            }
+            id={"place-change-#{@player_character.current_place && @player_character.current_place.place_id}"}
+            change={
+              Map.get(
+                @projection.latest_place_changes,
+                @player_character && @player_character.current_place &&
+                  @player_character.current_place.place_id
+              )
+            }
+          />
           <p
             :if={!@player_character || !@player_character.current_place}
             class="mt-2 text-sm leading-6 text-stone-600"
@@ -1048,6 +1065,11 @@
               <p class="mt-1 text-xs text-stone-500">
                 {character_location_label(character, @player_character)}
               </p>
+              <.canonical_change_receipt
+                :if={Map.has_key?(@projection.latest_character_changes, character.speaker_id)}
+                id={"character-change-#{character.speaker_id}"}
+                change={Map.fetch!(@projection.latest_character_changes, character.speaker_id)}
+              />
               <p :if={character.visible_activity} class="mt-1 text-sm leading-5 text-stone-700">
                 {character.visible_activity}
               </p>

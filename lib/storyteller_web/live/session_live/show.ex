@@ -606,6 +606,51 @@ defmodule StorytellerWeb.SessionLive.Show do
     """
   end
 
+  attr :id, :string, required: true
+  attr :change, :map, required: true
+
+  defp canonical_change_receipt(assigns) do
+    ~H"""
+    <details id={@id} class="mt-1 text-left text-xs font-normal">
+      <summary class="cursor-pointer text-amber-800 underline decoration-amber-700/40 underline-offset-2">
+        {gettext("Last changed")}
+      </summary>
+      <div class="mt-2 space-y-1 rounded-lg border border-amber-100 bg-amber-50/60 p-2">
+        <dl class="space-y-1">
+          <div :for={{key, before, after_value} <- canonical_change_rows(@change)}>
+            <dt :if={key != ""} class="font-medium text-stone-600">{world_label(key)}</dt>
+            <dd class="whitespace-pre-wrap break-words text-stone-800">
+              <span :if={!is_nil(before)}>{display_value(before)} → </span>{display_value(after_value)}
+            </dd>
+          </div>
+        </dl>
+        <p
+          :if={is_binary(@change["reason"]) && String.trim(@change["reason"]) != ""}
+          class="leading-5 text-stone-600"
+        >
+          {gettext("Reason: %{reason}", reason: @change["reason"])}
+        </p>
+        <p :if={game_time_label(@change["game_time"])} class="text-stone-500">
+          {game_time_label(@change["game_time"])}
+        </p>
+      </div>
+    </details>
+    """
+  end
+
+  defp canonical_change_rows(%{"after" => after_value} = change) when is_map(after_value) do
+    before_values = if is_map(change["before"]), do: change["before"], else: %{}
+
+    after_value
+    |> Enum.sort_by(fn {key, _value} -> key end)
+    |> Enum.map(fn {key, value} -> {key, Map.get(before_values, key), value} end)
+  end
+
+  defp canonical_change_rows(%{"after" => after_value} = change),
+    do: [{"", change["before"], after_value}]
+
+  defp canonical_change_rows(_change), do: []
+
   attr :item, :map, required: true
   attr :change, :map, default: nil
   attr :characters_by_id, :map, required: true

@@ -438,6 +438,8 @@ defmodule Storyteller.Play do
          places: places,
          inventory: inventory,
          latest_inventory_changes: latest_public_inventory_changes(campaign_id, inventory),
+         latest_place_changes: latest_public_canonical_changes(campaign_id, "place"),
+         latest_character_changes: latest_public_canonical_changes(campaign_id, "character"),
          objectives: public_objectives(campaign_id),
          continuity_entries: public_continuity_entries(campaign_id),
          latest_panel_changes: latest_public_panel_changes(campaign_id, panel_projection.panels),
@@ -548,6 +550,65 @@ defmodule Storyteller.Play do
   end
 
   defp inventory_change_item_ids(_change), do: []
+
+  defp latest_public_canonical_changes(campaign_id, kind) do
+    Repo.all(
+      from event in Event,
+        where:
+          event.campaign_id == ^campaign_id and event.event_type == :state_change and
+            event.visibility == :public,
+        order_by: [desc: event.sequence],
+        limit: 500,
+        select: {event.payload, event.game_time}
+    )
+    |> Enum.reduce_while(%{}, fn {payload, game_time}, latest ->
+      receipts = Map.get(payload, "canonical_receipts", [])
+
+      latest =
+        if is_list(receipts) do
+          receipts
+          |> Enum.reverse()
+          |> Enum.reduce(latest, fn receipt, acc ->
+            if valid_public_canonical_receipt?(receipt, kind) do
+              id = receipt["id"]
+
+              if Map.has_key?(acc, id) do
+                acc
+              else
+                Map.put(acc, id, Map.put(receipt, "game_time", game_time))
+              end
+            else
+              acc
+            end
+          end)
+        else
+          latest
+        end
+
+      {:cont, latest}
+    end)
+  end
+
+  defp valid_public_canonical_receipt?(
+         %{"kind" => "place", "id" => id, "after" => after_value, "reason" => reason},
+         "place"
+       )
+       when is_binary(id) and is_binary(after_value) and is_binary(reason),
+       do: String.trim(id) != "" and String.trim(after_value) != "" and String.trim(reason) != ""
+
+  defp valid_public_canonical_receipt?(
+         %{"kind" => "character", "id" => id, "after" => after_value} = receipt,
+         "character"
+       )
+       when is_binary(id) and id != "" and (is_binary(after_value) or is_map(after_value)) do
+    before_value = Map.get(receipt, "before")
+    reason = Map.get(receipt, "reason")
+
+    (is_nil(before_value) or is_binary(before_value) or is_map(before_value)) and
+      (is_nil(reason) or (is_binary(reason) and String.trim(reason) != ""))
+  end
+
+  defp valid_public_canonical_receipt?(_receipt, _kind), do: false
 
   @doc "Returns only public events, in campaign order across all sessions."
   def public_timeline(campaign_id, opts \\ []) do
@@ -1457,12 +1518,29 @@ defmodule Storyteller.Play do
         }
       }
 
+      visibility = Map.get(speaker_visibility, character.speaker_id, :public)
+
+      public_payload =
+        if visibility == :public do
+          Map.put(public_payload, :canonical_receipts, [
+            %{
+              "kind" => "character",
+              "id" => character.speaker_id,
+              "before" => nil,
+              "after" => character.name,
+              "reason" => nil
+            }
+          ])
+        else
+          public_payload
+        end
+
       current =
         append_event!(
           %{state | event_sequence: current},
           turn,
           :state_change,
-          Map.get(speaker_visibility, character.speaker_id, :public),
+          visibility,
           character.speaker_id,
           public_payload
         )
@@ -1489,26 +1567,65 @@ defmodule Storyteller.Play do
          sequence,
          _visibility
        ) do
+    character =
+      Repo.get_by!(Character,
+        campaign_id: turn.campaign_id,
+        speaker_id: update.speaker_id
+      )
+
+    receipt = character_update_receipt(character, update, true)
+
     append_event!(
       %{state | event_sequence: sequence},
       turn,
       :state_change,
       :public,
       update.speaker_id,
-      %{visible_facts: update.visible_facts, reason: update.reason}
+      %{
+        visible_facts: update.visible_facts,
+        reason: update.reason,
+        canonical_receipts: [receipt]
+      }
     )
   end
 
   defp append_character_update_events(state, turn, update, sequence, visibility) do
+    character =
+      Repo.get_by!(Character,
+        campaign_id: turn.campaign_id,
+        speaker_id: update.speaker_id
+      )
+
     sequence =
       if map_size(update.visible_facts) > 0 do
+        was_public? =
+          is_nil(character.current_place_id) or
+            case Repo.get_by(Place,
+                   campaign_id: turn.campaign_id,
+                   place_id: character.current_place_id
+                 ) do
+              %Place{visibility: :public} -> true
+              _ -> false
+            end
+
+        payload = %{visible_facts: update.visible_facts}
+
+        payload =
+          if visibility == :public do
+            Map.put(payload, :canonical_receipts, [
+              character_update_receipt(character, update, was_public?)
+            ])
+          else
+            payload
+          end
+
         append_event!(
           %{state | event_sequence: sequence},
           turn,
           :state_change,
           visibility,
           update.speaker_id,
-          %{visible_facts: update.visible_facts}
+          payload
         )
       else
         sequence
@@ -1526,6 +1643,26 @@ defmodule Storyteller.Play do
     else
       sequence
     end
+  end
+
+  defp character_update_receipt(character, update, include_before?) do
+    changed_keys = Map.keys(update.visible_facts)
+
+    after_facts =
+      character.visible_facts |> deep_merge(update.visible_facts) |> Map.take(changed_keys)
+
+    before_facts =
+      if include_before? do
+        Map.new(changed_keys, &{&1, Map.get(character.visible_facts, &1)})
+      end
+
+    %{
+      "kind" => "character",
+      "id" => character.speaker_id,
+      "before" => before_facts,
+      "after" => after_facts,
+      "reason" => Map.get(update, :reason)
+    }
   end
 
   defp append_objective_change_events(_state, _turn, [], sequence), do: sequence
@@ -1691,47 +1828,114 @@ defmodule Storyteller.Play do
   defp append_location_change_event(_state, _turn, sequence, _visibility, []), do: sequence
 
   defp append_location_change_event(state, turn, sequence, visibility, changes) do
-    created_places =
-      changes
-      |> Enum.filter(&(Map.get(&1, "type") == "create_place"))
-      |> Map.new(fn change ->
-        place = change["place"]
-        {place["place_id"], place["name"]}
-      end)
+    places =
+      Repo.all(from place in Place, where: place.campaign_id == ^turn.campaign_id)
+      |> Map.new(&{&1.place_id, %{name: &1.name, visibility: &1.visibility}})
 
-    character_names =
+    characters =
       campaign_characters(turn.campaign_id)
-      |> Map.new(&{&1.speaker_id, &1.name})
+      |> Map.new(&{&1.speaker_id, %{name: &1.name, current_place_id: &1.current_place_id}})
 
-    changes =
-      Enum.map(changes, fn change ->
-        enriched =
-          case change do
-            %{"type" => "create_place", "place" => place} ->
-              Map.put(change, "place_name", place["name"])
+    {changes, canonical_receipts, _places, _characters} =
+      Enum.reduce(changes, {[], [], places, characters}, fn change,
+                                                            {events, receipts, known_places,
+                                                             known_characters} ->
+        case change do
+          %{"type" => "create_place", "place" => place} ->
+            place_id = place["place_id"]
 
-            %{"type" => "move_character", "place_id" => place_id} ->
-              place_name =
-                Map.get(created_places, place_id) ||
-                  case Repo.get_by(Place, campaign_id: turn.campaign_id, place_id: place_id) do
-                    %Place{name: name} -> name
-                    nil -> place_id
-                  end
+            place_visibility =
+              if place["visibility"] == "public", do: :public, else: :gm_private
 
-              enriched = Map.put(change, "place_name", place_name)
+            info = %{name: place["name"], visibility: place_visibility}
 
-              case Map.fetch(character_names, change["speaker_id"]) do
-                {:ok, name} -> Map.put(enriched, "character_name", name)
-                :error -> enriched
+            receipt =
+              if visibility == :public do
+                [
+                  %{
+                    "kind" => "place",
+                    "id" => place_id,
+                    "before" => nil,
+                    "after" => place["name"],
+                    "reason" => change["reason"]
+                  }
+                ]
+              else
+                []
               end
-          end
 
-        if visibility == :public, do: Map.drop(enriched, ["reason"]), else: enriched
+            enriched = Map.put(change, "place_name", place["name"])
+
+            enriched =
+              if visibility == :public, do: Map.drop(enriched, ["reason"]), else: enriched
+
+            {events ++ [enriched], receipts ++ receipt, Map.put(known_places, place_id, info),
+             known_characters}
+
+          %{"type" => "move_character", "speaker_id" => speaker_id, "place_id" => place_id} ->
+            place = Map.get(known_places, place_id)
+            character = Map.get(known_characters, speaker_id)
+            place_name = if place, do: place.name, else: place_id
+            enriched = Map.put(change, "place_name", place_name)
+
+            enriched =
+              case character do
+                %{name: name} -> Map.put(enriched, "character_name", name)
+                nil -> enriched
+              end
+
+            previous_place =
+              with %{current_place_id: current_place_id} when is_binary(current_place_id) <-
+                     character,
+                   %{name: name, visibility: :public} <- Map.get(known_places, current_place_id) do
+                name
+              else
+                _ -> nil
+              end
+
+            receipt =
+              if ((visibility == :public and place) && place.visibility == :public) and character do
+                [
+                  %{
+                    "kind" => "character",
+                    "id" => speaker_id,
+                    "before" => previous_place,
+                    "after" => place.name,
+                    "reason" => change["reason"]
+                  }
+                ]
+              else
+                []
+              end
+
+            enriched =
+              if visibility == :public, do: Map.drop(enriched, ["reason"]), else: enriched
+
+            known_characters =
+              if character,
+                do:
+                  Map.put(known_characters, speaker_id, %{character | current_place_id: place_id}),
+                else: known_characters
+
+            {events ++ [enriched], receipts ++ receipt, known_places, known_characters}
+        end
       end)
 
-    append_event!(%{state | event_sequence: sequence}, turn, :state_change, visibility, nil, %{
-      location_changes: changes
-    })
+    payload = %{location_changes: changes}
+
+    payload =
+      if visibility == :public,
+        do: Map.put(payload, :canonical_receipts, canonical_receipts),
+        else: payload
+
+    append_event!(
+      %{state | event_sequence: sequence},
+      turn,
+      :state_change,
+      visibility,
+      nil,
+      payload
+    )
   end
 
   defp append_event!(state, turn, type, visibility, speaker_id, payload) do
@@ -2509,6 +2713,16 @@ defmodule Storyteller.Play do
       Enum.flat_map(proposal.inventory_changes, fn
         %{"visibility" => "public", "reason" => reason} -> [reason]
         _ -> []
+      end) ++
+      Enum.flat_map(proposal.location_changes, fn
+        %{"visibility" => "public", "reason" => reason} -> [reason]
+        _ -> []
+      end) ++
+      Enum.flat_map(proposal.character_updates, fn update ->
+        if Map.get(speaker_visibility, update.speaker_id, :public) == :public and
+             is_binary(Map.get(update, :reason)),
+           do: [Map.get(update, :reason)],
+           else: []
       end)
   end
 

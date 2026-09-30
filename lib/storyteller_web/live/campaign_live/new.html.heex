@@ -21,616 +21,711 @@
       for={@form}
       id="campaign-form"
       phx-change="validate"
-      phx-submit="review"
+      phx-submit="navigate"
       class="space-y-6"
     >
-      <.input
-        field={@form[:title]}
-        label={gettext("Campaign title")}
-        placeholder={gettext("The Cartographers of Hollowmere")}
-        autocomplete="off"
-      />
-      <.input
-        field={@form[:premise]}
-        type="textarea"
-        label={gettext("Story premise")}
-        placeholder={gettext("What is happening at the start of the story?")}
-        rows="4"
-      />
-      <div class="grid gap-6 sm:grid-cols-2">
-        <.input
-          field={@form[:setting]}
-          label={gettext("Setting")}
-          placeholder={gettext("A remote archipelago after the long thaw")}
-        />
-        <.input
-          field={@form[:tone]}
-          label={gettext("Tone")}
-          placeholder={gettext("Thoughtful, adventurous, and grounded")}
-        />
+      <div id="campaign-setup-progress" class="space-y-3">
+        <div class="flex items-center justify-between text-sm">
+          <span class="font-semibold text-stone-900">{gettext("Step %{step} of 4", step: @step)}</span>
+          <span class="text-stone-500">{gettext(
+            "Your entries stay with you as you move through setup."
+          )}</span>
+        </div>
+        <ol class="grid grid-cols-4 gap-2" aria-label={gettext("Campaign setup steps")}>
+          <li
+            :for={{step_number, label} <- setup_steps()}
+            aria-current={if @step == step_number, do: "step", else: nil}
+          >
+            <div class={
+              if @step == step_number,
+                do: "h-1.5 rounded-full bg-amber-700",
+                else: "h-1.5 rounded-full bg-stone-200"
+            }>
+            </div>
+            <span class={
+              if @step == step_number,
+                do: "mt-2 block text-xs font-semibold text-stone-900",
+                else: "mt-2 block text-xs text-stone-500"
+            }>{label}</span>
+          </li>
+        </ol>
       </div>
-      <.input
-        field={@form[:player_character_name]}
-        label={gettext("Character name")}
-        placeholder="Mira Vale"
-        maxlength="300"
-        required
-      />
-      <.input
-        field={@form[:player_character]}
-        type="textarea"
-        label={gettext("Character description")}
-        placeholder={gettext("A short description of your character.")}
-        rows="3"
-        maxlength="300"
-        required
-      />
 
-      <details
-        id="player-character-details"
-        open={@player_detail_rows != []}
-        class="space-y-4 border-t border-stone-100 pt-6"
-      >
-        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
-          <h2 class="inline">
-            {gettext("Player character details")}
-            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
-              "Optional"
-            )}</span>
-          </h2>
-        </summary>
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p class="mt-1 text-sm text-stone-600">
-              {gettext(
-                "Add optional public facts such as health, skills, or responsibilities. These are descriptive details, not game-system stats."
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            phx-click="add-player-detail"
-            class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
-          >{gettext("Add character detail")}</button>
-        </div>
-        <div
-          :if={@player_detail_rows == []}
-          class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
-        >
-          {gettext("No extra character details added.")}
-        </div>
-        <div
-          :for={{index, row} <- @player_detail_rows}
-          id={"player-detail-#{index}"}
-          class="grid gap-4 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end"
-        >
-          <label
-            for={"player-detail-label-#{index}"}
-            class="block text-sm font-medium text-stone-700"
-          >
-            {gettext("Detail label")}
-            <input
-              id={"player-detail-label-#{index}"}
-              name={"campaign[player_character_details][#{index}][label]"}
-              value={row_value(row, "label")}
-              placeholder={gettext("Health, skills, or role")}
-              maxlength="80"
-              autocomplete="off"
-              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-            />
-          </label>
-          <label
-            for={"player-detail-value-#{index}"}
-            class="block text-sm font-medium text-stone-700"
-          >
-            {gettext("Detail value")}
-            <input
-              id={"player-detail-value-#{index}"}
-              name={"campaign[player_character_details][#{index}][value]"}
-              value={row_value(row, "value")}
-              placeholder={gettext("A short player-visible fact")}
-              maxlength="500"
-              autocomplete="off"
-              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-            />
-          </label>
-          <button
-            type="button"
-            phx-click="remove-player-detail"
-            phx-value-index={index}
-            class="text-left text-sm font-medium text-rose-700 hover:text-rose-900 sm:pb-2"
-          >{gettext("Remove")}</button>
-        </div>
-      </details>
-      <.input
-        field={@form[:narration_language]}
-        type="select"
-        label={gettext("Narration language")}
-        options={[
-          {gettext("English"), "English"},
-          {gettext("Spanish"), "Spanish"},
-          {gettext("French"), "French"}
-        ]}
-      />
-      <p class="-mt-4 text-sm text-stone-500">
-        {gettext("This controls GM narration. Your interface language can be changed separately.")}
-      </p>
-
-      <div class="space-y-4 border-t border-stone-100 pt-6">
+      <section id="campaign-setup-step-1" hidden={@step != 1} class="space-y-6">
         <div>
-          <h2 class="text-lg font-semibold text-stone-950">{gettext("Starting world")}</h2>
+          <h2 class="text-xl font-semibold text-stone-950">{gettext("The story")}</h2>
           <p class="mt-1 text-sm text-stone-600">
-            {gettext("Set the public location, time, and weather for the opening scene.")}
+            {gettext(
+              "Give the campaign a name and a starting direction. You can refine it later."
+            )}
           </p>
         </div>
+        <.input
+          field={@form[:title]}
+          label={gettext("Campaign title")}
+          placeholder={gettext("The Cartographers of Hollowmere")}
+          autocomplete="off"
+        />
+        <.input
+          field={@form[:premise]}
+          type="textarea"
+          label={gettext("Story premise")}
+          placeholder={gettext("What is happening at the start of the story?")}
+          rows="4"
+        />
         <div class="grid gap-6 sm:grid-cols-2">
           <.input
-            field={@form[:starting_location]}
-            label={gettext("Starting location")}
-            placeholder={gettext("The old observatory terrace")}
+            field={@form[:setting]}
+            label={gettext("Setting")}
+            placeholder={gettext("A remote archipelago after the long thaw")}
           />
           <.input
-            field={@form[:starting_date]}
-            label={gettext("In-world date")}
-            placeholder={gettext("The 14th day of the thaw")}
+            field={@form[:tone]}
+            label={gettext("Tone")}
+            placeholder={gettext("Thoughtful, adventurous, and grounded")}
           />
+        </div>
+        <div class="border-t border-stone-100 pt-5">
           <.input
-            field={@form[:world_time]}
-            label={gettext("Time of day")}
-            placeholder={gettext("Late evening, just after moonrise")}
+            field={@form[:narration_language]}
+            type="select"
+            label={gettext("Narration language")}
+            options={[
+              {gettext("English"), "English"},
+              {gettext("Spanish"), "Spanish"},
+              {gettext("French"), "French"}
+            ]}
           />
+          <p class="mt-2 text-sm text-stone-500">
+            {gettext(
+              "This controls GM narration. Your interface language can be changed separately."
+            )}
+          </p>
+        </div>
+      </section>
+
+      <section id="campaign-setup-step-2" hidden={@step != 2} class="space-y-6">
+        <div>
+          <h2 class="text-xl font-semibold text-stone-950">{gettext("Your character")}</h2>
+          <p class="mt-1 text-sm text-stone-600">
+            {gettext("Set who you play and add any optional character details.")}
+          </p>
         </div>
         <.input
-          field={@form[:weather]}
-          label={gettext("Weather")}
-          placeholder={gettext("Clear skies with a cold wind")}
+          field={@form[:player_character_name]}
+          label={gettext("Character name")}
+          placeholder="Mira Vale"
+          maxlength="300"
+          required
         />
-      </div>
+        <.input
+          field={@form[:player_character]}
+          type="textarea"
+          label={gettext("Character description")}
+          placeholder={gettext("A short description of your character.")}
+          rows="3"
+          maxlength="300"
+          required
+        />
 
-      <details
-        id="starting-inventory"
-        open={@inventory_rows != []}
-        class="space-y-4 border-t border-stone-100 pt-6"
-      >
-        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
-          <h2 class="inline">
-            {gettext("Starting inventory")}
-            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
-              "Optional"
-            )}</span>
-          </h2>
-        </summary>
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p class="mt-1 text-sm text-stone-600">
-              {gettext(
-                "Add items the player starts with. They are public and belong to the player; you can change ownership during play."
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            phx-click="add-starting-item"
-            class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
-          >{gettext("Add starting item")}</button>
-        </div>
-        <div
-          :if={@inventory_rows == []}
-          class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
+        <details
+          id="player-character-details"
+          open={@player_detail_rows != []}
+          class="space-y-4 border-t border-stone-100 pt-6"
         >
-          {gettext("No starting items added yet.")}
-        </div>
-        <div
-          :for={{index, row} <- @inventory_rows}
-          id={"starting-item-#{index}"}
-          class="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4"
-        >
-          <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-stone-800">{gettext("Starting item")}</h3>
+          <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+            <h2 class="inline">
+              {gettext("Player character details")}
+              <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+                "Optional"
+              )}</span>
+            </h2>
+          </summary>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p class="mt-1 text-sm text-stone-600">
+                {gettext(
+                  "Add optional public facts such as health, skills, or responsibilities. These are descriptive details, not game-system stats."
+                )}
+              </p>
+            </div>
             <button
               type="button"
-              phx-click="remove-starting-item"
-              phx-value-index={index}
-              class="text-sm font-medium text-rose-700 hover:text-rose-900"
-            >{gettext("Remove")}</button>
+              phx-click="add-player-detail"
+              class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >{gettext("Add character detail")}</button>
           </div>
-          <div class="grid gap-4 sm:grid-cols-2">
+          <div
+            :if={@player_detail_rows == []}
+            class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
+          >
+            {gettext("No extra character details added.")}
+          </div>
+          <div
+            :for={{index, row} <- @player_detail_rows}
+            id={"player-detail-#{index}"}
+            class="grid gap-4 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end"
+          >
             <label
-              for={"inventory-name-#{index}"}
+              for={"player-detail-label-#{index}"}
               class="block text-sm font-medium text-stone-700"
             >
-              {gettext("Item name")}
+              {gettext("Detail label")}
               <input
-                id={"inventory-name-#{index}"}
-                name={"campaign[inventory][#{index}][name]"}
-                value={row_value(row, "name")}
-                placeholder={gettext("Healing potion")}
-                maxlength="160"
+                id={"player-detail-label-#{index}"}
+                name={"campaign[player_character_details][#{index}][label]"}
+                value={row_value(row, "label")}
+                placeholder={gettext("Health, skills, or role")}
+                maxlength="80"
                 autocomplete="off"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
               />
             </label>
             <label
-              for={"inventory-quantity-#{index}"}
+              for={"player-detail-value-#{index}"}
               class="block text-sm font-medium text-stone-700"
             >
-              {gettext("Quantity")}
+              {gettext("Detail value")}
               <input
-                id={"inventory-quantity-#{index}"}
-                name={"campaign[inventory][#{index}][quantity]"}
-                value={row_value(row, "quantity")}
-                type="number"
-                min="1"
-                max="1000000"
-                step="1"
-                inputmode="numeric"
+                id={"player-detail-value-#{index}"}
+                name={"campaign[player_character_details][#{index}][value]"}
+                value={row_value(row, "value")}
+                placeholder={gettext("A short player-visible fact")}
+                maxlength="500"
+                autocomplete="off"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
               />
             </label>
-          </div>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <label
-              for={"inventory-unit-#{index}"}
-              class="block text-sm font-medium text-stone-700"
-            >
-              {gettext("Unit (optional)")}
-              <input
-                id={"inventory-unit-#{index}"}
-                name={"campaign[inventory][#{index}][unit]"}
-                value={row_value(row, "unit")}
-                placeholder={gettext("bottles, coins, or doses")}
-                maxlength="80"
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
-            </label>
-            <label
-              for={"inventory-category-#{index}"}
-              class="block text-sm font-medium text-stone-700"
-            >
-              {gettext("Category (optional)")}
-              <input
-                id={"inventory-category-#{index}"}
-                name={"campaign[inventory][#{index}][category]"}
-                value={row_value(row, "category")}
-                placeholder={gettext("Potion, tool, or keepsake")}
-                maxlength="100"
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
-            </label>
-          </div>
-          <label
-            for={"inventory-description-#{index}"}
-            class="block text-sm font-medium text-stone-700"
-          >
-            {gettext("Description (optional)")}
-            <textarea
-              id={"inventory-description-#{index}"}
-              name={"campaign[inventory][#{index}][description]"}
-              rows="2"
-              maxlength="2000"
-              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-            >{row_value(row, "description")}</textarea>
-          </label>
-        </div>
-      </details>
-
-      <details
-        id="gm-characters"
-        open={@character_rows != []}
-        class="space-y-4 border-t border-stone-100 pt-6"
-      >
-        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
-          <h2 class="inline">
-            {gettext("GM-controlled characters")}
-            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
-              "Optional"
-            )}</span>
-          </h2>
-        </summary>
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p class="mt-1 text-sm text-stone-600">
-              {gettext("The GM can introduce these characters during play.")}
-            </p>
-          </div>
-          <button
-            type="button"
-            phx-click="add-character"
-            class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
-          >{gettext("Add character")}</button>
-        </div>
-        <div
-          :if={@character_rows == []}
-          class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
-        >
-          {gettext("No GM characters added yet.")}
-        </div>
-        <div
-          :for={{index, row} <- @character_rows}
-          id={"gm-character-#{index}"}
-          class="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4"
-        >
-          <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-stone-800">{gettext("GM character")}</h3>
             <button
               type="button"
-              phx-click="remove-character"
+              phx-click="remove-player-detail"
               phx-value-index={index}
-              class="text-sm font-medium text-rose-700 hover:text-rose-900"
+              class="text-left text-sm font-medium text-rose-700 hover:text-rose-900 sm:pb-2"
             >{gettext("Remove")}</button>
           </div>
-          <div class="grid gap-4">
-            <label for={"gm-name-#{index}"} class="block text-sm font-medium text-stone-700">
-              {gettext("Character name")}
-              <input
-                id={"gm-name-#{index}"}
-                name={"campaign[gm_characters][#{index}][name]"}
-                value={row_value(row, "name")}
-                placeholder={gettext("Captain Ren")}
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
-            </label>
-          </div>
-          <label for={"gm-facts-#{index}"} class="block text-sm font-medium text-stone-700">
-            {gettext("Player-visible facts")}
-            <textarea
-              id={"gm-facts-#{index}"}
-              name={"campaign[gm_characters][#{index}][visible_facts_text]"}
-              rows="2"
-              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-            >{row_value(row, "visible_facts_text")}</textarea>
-          </label>
-          <label for={"gm-private-#{index}"} class="block text-sm font-medium text-stone-700">
-            {gettext("GM-only notes")}
-            <textarea
-              id={"gm-private-#{index}"}
-              name={"campaign[gm_characters][#{index}][private_notes]"}
-              rows="2"
-              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-            >{row_value(row, "private_notes")}</textarea>
-          </label>
-          <details class="rounded-lg border border-stone-200 bg-white p-4">
-            <summary class="cursor-pointer text-sm font-semibold text-stone-800">
-              {gettext("Character voice guidance")}
-              <span class="ml-1 font-normal text-stone-500">({gettext("optional, GM only")})</span>
-            </summary>
-            <p class="mt-2 text-sm text-stone-600">
-              {gettext(
-                "Keep delivery notes separate from character facts. Each field allows up to 280 characters; all notes together allow 1,200."
-              )}
+        </details>
+      </section>
+
+      <section id="campaign-setup-step-3" hidden={@step != 3} class="space-y-6">
+        <div>
+          <h2 class="text-xl font-semibold text-stone-950">{gettext("The opening scene")}</h2>
+          <p class="mt-1 text-sm text-stone-600">
+            {gettext("Choose where and when play begins, and what your character starts with.")}
+          </p>
+          <p class="mt-1 text-sm text-stone-500">
+            {gettext(
+              "Every field here is optional. Leave them blank if you want the GM to frame the opening."
+            )}
+          </p>
+        </div>
+        <div class="space-y-4 border-t border-stone-100 pt-6">
+          <div>
+            <h2 class="text-lg font-semibold text-stone-950">{gettext("Starting world")}</h2>
+            <p class="mt-1 text-sm text-stone-600">
+              {gettext("Set the public location, time, and weather for the opening scene.")}
             </p>
-            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          </div>
+          <div class="grid gap-6 sm:grid-cols-2">
+            <.input
+              field={@form[:starting_location]}
+              label={gettext("Starting location")}
+              placeholder={gettext("The old observatory terrace")}
+            />
+            <.input
+              field={@form[:starting_date]}
+              label={gettext("In-world date")}
+              placeholder={gettext("The 14th day of the thaw")}
+            />
+            <.input
+              field={@form[:world_time]}
+              label={gettext("Time of day")}
+              placeholder={gettext("Late evening, just after moonrise")}
+            />
+          </div>
+          <.input
+            field={@form[:weather]}
+            label={gettext("Weather")}
+            placeholder={gettext("Clear skies with a cold wind")}
+          />
+        </div>
+
+        <details
+          id="starting-inventory"
+          open={@inventory_rows != []}
+          class="space-y-4 border-t border-stone-100 pt-6"
+        >
+          <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+            <h2 class="inline">
+              {gettext("Starting inventory")}
+              <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+                "Optional"
+              )}</span>
+            </h2>
+          </summary>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p class="mt-1 text-sm text-stone-600">
+                {gettext(
+                  "Add items the player starts with. They are public and belong to the player; you can change ownership during play."
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              phx-click="add-starting-item"
+              class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >{gettext("Add starting item")}</button>
+          </div>
+          <div
+            :if={@inventory_rows == []}
+            class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
+          >
+            {gettext("No starting items added yet.")}
+          </div>
+          <div
+            :for={{index, row} <- @inventory_rows}
+            id={"starting-item-#{index}"}
+            class="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4"
+          >
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold text-stone-800">{gettext("Starting item")}</h3>
+              <button
+                type="button"
+                phx-click="remove-starting-item"
+                phx-value-index={index}
+                class="text-sm font-medium text-rose-700 hover:text-rose-900"
+              >{gettext("Remove")}</button>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
               <label
-                for={"gm-voice-quirks-#{index}"}
+                for={"inventory-name-#{index}"}
                 class="block text-sm font-medium text-stone-700"
               >
-                {gettext("Quirks")}
-                <textarea
-                  id={"gm-voice-quirks-#{index}"}
-                  name={"campaign[gm_characters][#{index}][voice_guidance][quirks]"}
-                  rows="2"
-                  maxlength="280"
+                {gettext("Item name")}
+                <input
+                  id={"inventory-name-#{index}"}
+                  name={"campaign[inventory][#{index}][name]"}
+                  value={row_value(row, "name")}
+                  placeholder={gettext("Healing potion")}
+                  maxlength="160"
+                  autocomplete="off"
                   class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-                >{voice_value(row, "quirks")}</textarea>
+                />
               </label>
               <label
-                for={"gm-voice-accent-#{index}"}
+                for={"inventory-quantity-#{index}"}
                 class="block text-sm font-medium text-stone-700"
               >
-                {gettext("Accent or dialect")}
-                <textarea
-                  id={"gm-voice-accent-#{index}"}
-                  name={"campaign[gm_characters][#{index}][voice_guidance][accent_dialect]"}
-                  rows="2"
-                  maxlength="280"
+                {gettext("Quantity")}
+                <input
+                  id={"inventory-quantity-#{index}"}
+                  name={"campaign[inventory][#{index}][quantity]"}
+                  value={row_value(row, "quantity")}
+                  type="number"
+                  min="1"
+                  max="1000000"
+                  step="1"
+                  inputmode="numeric"
                   class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-                >{voice_value(row, "accent_dialect")}</textarea>
-              </label>
-              <label
-                for={"gm-voice-cadence-#{index}"}
-                class="block text-sm font-medium text-stone-700"
-              >
-                {gettext("Cadence")}
-                <textarea
-                  id={"gm-voice-cadence-#{index}"}
-                  name={"campaign[gm_characters][#{index}][voice_guidance][cadence]"}
-                  rows="2"
-                  maxlength="280"
-                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-                >{voice_value(row, "cadence")}</textarea>
-              </label>
-              <label
-                for={"gm-voice-vocabulary-#{index}"}
-                class="block text-sm font-medium text-stone-700"
-              >
-                {gettext("Vocabulary")}
-                <textarea
-                  id={"gm-voice-vocabulary-#{index}"}
-                  name={"campaign[gm_characters][#{index}][voice_guidance][vocabulary]"}
-                  rows="2"
-                  maxlength="280"
-                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-                >{voice_value(row, "vocabulary")}</textarea>
-              </label>
-              <label
-                for={"gm-voice-mannerisms-#{index}"}
-                class="block text-sm font-medium text-stone-700 sm:col-span-2"
-              >
-                {gettext("Mannerisms")}
-                <textarea
-                  id={"gm-voice-mannerisms-#{index}"}
-                  name={"campaign[gm_characters][#{index}][voice_guidance][mannerisms]"}
-                  rows="2"
-                  maxlength="280"
-                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-                >{voice_value(row, "mannerisms")}</textarea>
+                />
               </label>
             </div>
-          </details>
-        </div>
-      </details>
-
-      <details
-        id="campaign-panels"
-        open={@panel_rows != []}
-        class="space-y-4 border-t border-stone-100 pt-6"
-      >
-        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
-          <h2 class="inline">
-            {gettext("Campaign panels")}
-            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
-              "Optional"
-            )}</span>
-          </h2>
-        </summary>
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p class="mt-1 text-sm text-stone-600">
-              {gettext(
-                "Define tracked values with a type, unit, visibility, and starting value. Values are stored as data; formulas are not supported."
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            phx-click="add-panel-field"
-            class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
-          >{gettext("Add panel field")}</button>
-        </div>
-        <div
-          :if={@panel_rows == []}
-          class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
-        >
-          {gettext("No custom panel fields added yet.")}
-        </div>
-        <div
-          :for={{index, row} <- @panel_rows}
-          id={"panel-field-#{index}"}
-          class="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4"
-        >
-          <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-stone-800">{gettext("Panel field")}</h3>
-            <button
-              type="button"
-              phx-click="remove-panel-field"
-              phx-value-index={index}
-              class="text-sm font-medium text-rose-700 hover:text-rose-900"
-            >{gettext("Remove")}</button>
-          </div>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <label for={"panel-name-#{index}"} class="block text-sm font-medium text-stone-700">
-              {gettext("Panel name")}
-              <input
-                id={"panel-name-#{index}"}
-                name={"campaign[panel_fields][#{index}][panel]"}
-                value={row_value(row, "panel")}
-                placeholder={gettext("Supplies")}
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
-            </label>
-            <label for={"panel-key-#{index}"} class="block text-sm font-medium text-stone-700">
-              {gettext("Stable field key")}
-              <input
-                id={"panel-key-#{index}"}
-                name={"campaign[panel_fields][#{index}][key]"}
-                value={row_value(row, "key")}
-                placeholder="healing_potions"
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
-            </label>
-          </div>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <label for={"panel-label-#{index}"} class="block text-sm font-medium text-stone-700">
-              {gettext("Field label")}
-              <input
-                id={"panel-label-#{index}"}
-                name={"campaign[panel_fields][#{index}][label]"}
-                value={row_value(row, "label")}
-                placeholder={gettext("Healing potions")}
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
-            </label>
-            <label for={"panel-type-#{index}"} class="block text-sm font-medium text-stone-700">
-              {gettext("Value type")}
-              <select
-                id={"panel-type-#{index}"}
-                name={"campaign[panel_fields][#{index}][value_type]"}
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label
+                for={"inventory-unit-#{index}"}
+                class="block text-sm font-medium text-stone-700"
               >
-                <option value="">{gettext("Choose a type")}</option>
-                <option value="quantity" selected={row_value(row, "value_type") == "quantity"}>
-                  {gettext("Quantity")}
-                </option>
-                <option value="money" selected={row_value(row, "value_type") == "money"}>
-                  {gettext("Money")}
-                </option>
-                <option value="text" selected={row_value(row, "value_type") == "text"}>
-                  {gettext("Text")}
-                </option>
-                <option value="status" selected={row_value(row, "value_type") == "status"}>
-                  {gettext("Status")}
-                </option>
-                <option value="date" selected={row_value(row, "value_type") == "date"}>
-                  {gettext("Date")}
-                </option>
-              </select>
-            </label>
-          </div>
-          <div class="grid gap-4 sm:grid-cols-3">
-            <label for={"panel-unit-#{index}"} class="block text-sm font-medium text-stone-700">
-              {gettext("Unit")}
-              <input
-                id={"panel-unit-#{index}"}
-                name={"campaign[panel_fields][#{index}][unit]"}
-                value={row_value(row, "unit")}
-                placeholder={gettext("coins, days, or kg")}
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
-            </label>
+                {gettext("Unit (optional)")}
+                <input
+                  id={"inventory-unit-#{index}"}
+                  name={"campaign[inventory][#{index}][unit]"}
+                  value={row_value(row, "unit")}
+                  placeholder={gettext("bottles, coins, or doses")}
+                  maxlength="80"
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+              <label
+                for={"inventory-category-#{index}"}
+                class="block text-sm font-medium text-stone-700"
+              >
+                {gettext("Category (optional)")}
+                <input
+                  id={"inventory-category-#{index}"}
+                  name={"campaign[inventory][#{index}][category]"}
+                  value={row_value(row, "category")}
+                  placeholder={gettext("Potion, tool, or keepsake")}
+                  maxlength="100"
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+            </div>
             <label
-              for={"panel-visibility-#{index}"}
+              for={"inventory-description-#{index}"}
               class="block text-sm font-medium text-stone-700"
             >
-              {gettext("Visibility")}
-              <select
-                id={"panel-visibility-#{index}"}
-                name={"campaign[panel_fields][#{index}][visibility]"}
+              {gettext("Description (optional)")}
+              <textarea
+                id={"inventory-description-#{index}"}
+                name={"campaign[inventory][#{index}][description]"}
+                rows="2"
+                maxlength="2000"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              >
-                <option value="">{gettext("Choose visibility")}</option>
-                <option value="public" selected={row_value(row, "visibility") == "public"}>
-                  {gettext("Player-visible")}
-                </option>
-                <option value="gm_private" selected={row_value(row, "visibility") == "gm_private"}>
-                  {gettext("GM only")}
-                </option>
-              </select>
-            </label>
-            <label for={"panel-value-#{index}"} class="block text-sm font-medium text-stone-700">
-              {gettext("Initial value")}
-              <input
-                id={"panel-value-#{index}"}
-                name={"campaign[panel_fields][#{index}][initial_value]"}
-                value={row_value(row, "initial_value")}
-                placeholder={gettext("Enter a starting value")}
-                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              />
+              >{row_value(row, "description")}</textarea>
             </label>
           </div>
+        </details>
+      </section>
+
+      <section id="campaign-setup-step-4" hidden={@step != 4} class="space-y-6">
+        <div>
+          <h2 class="text-xl font-semibold text-stone-950">
+            {gettext("People and campaign details")}
+          </h2>
+          <p class="mt-1 text-sm text-stone-600">
+            {gettext(
+              "Add optional supporting characters and the campaign-specific facts you want to track."
+            )}
+          </p>
         </div>
-      </details>
+        <details
+          id="gm-characters"
+          open={@character_rows != []}
+          class="space-y-4 border-t border-stone-100 pt-6"
+        >
+          <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+            <h2 class="inline">
+              {gettext("GM-controlled characters")}
+              <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+                "Optional"
+              )}</span>
+            </h2>
+          </summary>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p class="mt-1 text-sm text-stone-600">
+                {gettext("The GM can introduce these characters during play.")}
+              </p>
+            </div>
+            <button
+              type="button"
+              phx-click="add-character"
+              class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >{gettext("Add character")}</button>
+          </div>
+          <div
+            :if={@character_rows == []}
+            class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
+          >
+            {gettext("No GM characters added yet.")}
+          </div>
+          <div
+            :for={{index, row} <- @character_rows}
+            id={"gm-character-#{index}"}
+            class="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4"
+          >
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold text-stone-800">{gettext("GM character")}</h3>
+              <button
+                type="button"
+                phx-click="remove-character"
+                phx-value-index={index}
+                class="text-sm font-medium text-rose-700 hover:text-rose-900"
+              >{gettext("Remove")}</button>
+            </div>
+            <div class="grid gap-4">
+              <label for={"gm-name-#{index}"} class="block text-sm font-medium text-stone-700">
+                {gettext("Character name")}
+                <input
+                  id={"gm-name-#{index}"}
+                  name={"campaign[gm_characters][#{index}][name]"}
+                  value={row_value(row, "name")}
+                  placeholder={gettext("Captain Ren")}
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+            </div>
+            <label for={"gm-facts-#{index}"} class="block text-sm font-medium text-stone-700">
+              {gettext("Player-visible facts")}
+              <textarea
+                id={"gm-facts-#{index}"}
+                name={"campaign[gm_characters][#{index}][visible_facts_text]"}
+                rows="2"
+                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+              >{row_value(row, "visible_facts_text")}</textarea>
+            </label>
+            <label for={"gm-private-#{index}"} class="block text-sm font-medium text-stone-700">
+              {gettext("GM-only notes")}
+              <textarea
+                id={"gm-private-#{index}"}
+                name={"campaign[gm_characters][#{index}][private_notes]"}
+                rows="2"
+                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+              >{row_value(row, "private_notes")}</textarea>
+            </label>
+            <details class="rounded-lg border border-stone-200 bg-white p-4">
+              <summary class="cursor-pointer text-sm font-semibold text-stone-800">
+                {gettext("Character voice guidance")}
+                <span class="ml-1 font-normal text-stone-500">({gettext("optional, GM only")})</span>
+              </summary>
+              <p class="mt-2 text-sm text-stone-600">
+                {gettext(
+                  "Keep delivery notes separate from character facts. Each field allows up to 280 characters; all notes together allow 1,200."
+                )}
+              </p>
+              <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <label
+                  for={"gm-voice-quirks-#{index}"}
+                  class="block text-sm font-medium text-stone-700"
+                >
+                  {gettext("Quirks")}
+                  <textarea
+                    id={"gm-voice-quirks-#{index}"}
+                    name={"campaign[gm_characters][#{index}][voice_guidance][quirks]"}
+                    rows="2"
+                    maxlength="280"
+                    class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                  >{voice_value(row, "quirks")}</textarea>
+                </label>
+                <label
+                  for={"gm-voice-accent-#{index}"}
+                  class="block text-sm font-medium text-stone-700"
+                >
+                  {gettext("Accent or dialect")}
+                  <textarea
+                    id={"gm-voice-accent-#{index}"}
+                    name={"campaign[gm_characters][#{index}][voice_guidance][accent_dialect]"}
+                    rows="2"
+                    maxlength="280"
+                    class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                  >{voice_value(row, "accent_dialect")}</textarea>
+                </label>
+                <label
+                  for={"gm-voice-cadence-#{index}"}
+                  class="block text-sm font-medium text-stone-700"
+                >
+                  {gettext("Cadence")}
+                  <textarea
+                    id={"gm-voice-cadence-#{index}"}
+                    name={"campaign[gm_characters][#{index}][voice_guidance][cadence]"}
+                    rows="2"
+                    maxlength="280"
+                    class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                  >{voice_value(row, "cadence")}</textarea>
+                </label>
+                <label
+                  for={"gm-voice-vocabulary-#{index}"}
+                  class="block text-sm font-medium text-stone-700"
+                >
+                  {gettext("Vocabulary")}
+                  <textarea
+                    id={"gm-voice-vocabulary-#{index}"}
+                    name={"campaign[gm_characters][#{index}][voice_guidance][vocabulary]"}
+                    rows="2"
+                    maxlength="280"
+                    class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                  >{voice_value(row, "vocabulary")}</textarea>
+                </label>
+                <label
+                  for={"gm-voice-mannerisms-#{index}"}
+                  class="block text-sm font-medium text-stone-700 sm:col-span-2"
+                >
+                  {gettext("Mannerisms")}
+                  <textarea
+                    id={"gm-voice-mannerisms-#{index}"}
+                    name={"campaign[gm_characters][#{index}][voice_guidance][mannerisms]"}
+                    rows="2"
+                    maxlength="280"
+                    class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                  >{voice_value(row, "mannerisms")}</textarea>
+                </label>
+              </div>
+            </details>
+          </div>
+        </details>
+
+        <details
+          id="campaign-panels"
+          open={@panel_rows != []}
+          class="space-y-4 border-t border-stone-100 pt-6"
+        >
+          <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+            <h2 class="inline">
+              {gettext("Campaign panels")}
+              <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+                "Optional"
+              )}</span>
+            </h2>
+          </summary>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p class="mt-1 text-sm text-stone-600">
+                {gettext(
+                  "Define tracked values with a type, unit, visibility, and starting value. Values are stored as data; formulas are not supported."
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              phx-click="add-panel-field"
+              class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >{gettext("Add panel field")}</button>
+          </div>
+          <div
+            :if={@panel_rows == []}
+            class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
+          >
+            {gettext("No custom panel fields added yet.")}
+          </div>
+          <div
+            :for={{index, row} <- @panel_rows}
+            id={"panel-field-#{index}"}
+            class="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4"
+          >
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold text-stone-800">{gettext("Panel field")}</h3>
+              <button
+                type="button"
+                phx-click="remove-panel-field"
+                phx-value-index={index}
+                class="text-sm font-medium text-rose-700 hover:text-rose-900"
+              >{gettext("Remove")}</button>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label for={"panel-name-#{index}"} class="block text-sm font-medium text-stone-700">
+                {gettext("Panel name")}
+                <input
+                  id={"panel-name-#{index}"}
+                  name={"campaign[panel_fields][#{index}][panel]"}
+                  value={row_value(row, "panel")}
+                  placeholder={gettext("Supplies")}
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+              <label for={"panel-key-#{index}"} class="block text-sm font-medium text-stone-700">
+                {gettext("Stable field key")}
+                <input
+                  id={"panel-key-#{index}"}
+                  name={"campaign[panel_fields][#{index}][key]"}
+                  value={row_value(row, "key")}
+                  placeholder="healing_potions"
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label for={"panel-label-#{index}"} class="block text-sm font-medium text-stone-700">
+                {gettext("Field label")}
+                <input
+                  id={"panel-label-#{index}"}
+                  name={"campaign[panel_fields][#{index}][label]"}
+                  value={row_value(row, "label")}
+                  placeholder={gettext("Healing potions")}
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+              <label for={"panel-type-#{index}"} class="block text-sm font-medium text-stone-700">
+                {gettext("Value type")}
+                <select
+                  id={"panel-type-#{index}"}
+                  name={"campaign[panel_fields][#{index}][value_type]"}
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                >
+                  <option value="">{gettext("Choose a type")}</option>
+                  <option value="quantity" selected={row_value(row, "value_type") == "quantity"}>
+                    {gettext("Quantity")}
+                  </option>
+                  <option value="money" selected={row_value(row, "value_type") == "money"}>
+                    {gettext("Money")}
+                  </option>
+                  <option value="text" selected={row_value(row, "value_type") == "text"}>
+                    {gettext("Text")}
+                  </option>
+                  <option value="status" selected={row_value(row, "value_type") == "status"}>
+                    {gettext("Status")}
+                  </option>
+                  <option value="date" selected={row_value(row, "value_type") == "date"}>
+                    {gettext("Date")}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-3">
+              <label for={"panel-unit-#{index}"} class="block text-sm font-medium text-stone-700">
+                {gettext("Unit")}
+                <input
+                  id={"panel-unit-#{index}"}
+                  name={"campaign[panel_fields][#{index}][unit]"}
+                  value={row_value(row, "unit")}
+                  placeholder={gettext("coins, days, or kg")}
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+              <label
+                for={"panel-visibility-#{index}"}
+                class="block text-sm font-medium text-stone-700"
+              >
+                {gettext("Visibility")}
+                <select
+                  id={"panel-visibility-#{index}"}
+                  name={"campaign[panel_fields][#{index}][visibility]"}
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                >
+                  <option value="">{gettext("Choose visibility")}</option>
+                  <option value="public" selected={row_value(row, "visibility") == "public"}>
+                    {gettext("Player-visible")}
+                  </option>
+                  <option
+                    value="gm_private"
+                    selected={row_value(row, "visibility") == "gm_private"}
+                  >
+                    {gettext("GM only")}
+                  </option>
+                </select>
+              </label>
+              <label for={"panel-value-#{index}"} class="block text-sm font-medium text-stone-700">
+                {gettext("Initial value")}
+                <input
+                  id={"panel-value-#{index}"}
+                  name={"campaign[panel_fields][#{index}][initial_value]"}
+                  value={row_value(row, "initial_value")}
+                  placeholder={gettext("Enter a starting value")}
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+            </div>
+          </div>
+        </details>
+      </section>
 
       <p :if={@setup_error} class="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">
         {@setup_error}
       </p>
-      <div class="flex flex-col-reverse gap-3 border-t border-stone-100 pt-6 sm:flex-row sm:justify-between">
+
+      <div class="flex flex-col-reverse gap-3 border-t border-stone-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
         <.link
           navigate={~p"/"}
           class="rounded-lg px-4 py-2.5 text-center text-sm font-semibold text-stone-600 hover:bg-stone-50"
         >{gettext("Cancel")}</.link>
-        <.button type="submit" class="bg-amber-700 hover:bg-amber-800">{gettext(
-          "Review campaign setup"
-        )}</.button>
+        <div class="flex flex-col-reverse gap-3 sm:flex-row-reverse">
+          <button
+            type="submit"
+            name="direction"
+            value="continue"
+            formnovalidate
+            class="phx-submit-loading:opacity-75 rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold leading-6 text-white hover:bg-amber-800 active:text-white/80"
+          >
+            {if @step == 4, do: gettext("Review campaign setup"), else: gettext("Continue")}
+          </button>
+          <button
+            :if={@step > 1}
+            type="submit"
+            name="direction"
+            value="previous"
+            formnovalidate
+            class="rounded-lg px-4 py-2.5 text-center text-sm font-semibold text-stone-600 hover:bg-stone-50"
+          >{gettext("Back")}</button>
+        </div>
       </div>
     </.form>
   </div>
@@ -639,6 +734,30 @@
     :if={@reviewed && @draft}
     class="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8"
   >
+    <div id="campaign-setup-progress" class="mb-6 space-y-3">
+      <div class="flex items-center justify-between text-sm">
+        <span class="font-semibold text-stone-900">{gettext("Step 5 of 5")}</span>
+        <span class="text-stone-500">{gettext("Review before creating")}</span>
+      </div>
+      <ol class="grid grid-cols-5 gap-2" aria-label={gettext("Campaign setup steps")}>
+        <li
+          :for={{step_number, label} <- setup_steps() ++ [{5, gettext("Review")}]}
+          aria-current={if step_number == 5, do: "step", else: nil}
+        >
+          <div class={
+            if step_number == 5,
+              do: "h-1.5 rounded-full bg-amber-700",
+              else: "h-1.5 rounded-full bg-stone-200"
+          }>
+          </div>
+          <span class={
+            if step_number == 5,
+              do: "mt-2 block text-xs font-semibold text-stone-900",
+              else: "mt-2 block text-xs text-stone-500"
+          }>{label}</span>
+        </li>
+      </ol>
+    </div>
     <h2 class="text-xl font-semibold text-stone-950">{gettext("Review your campaign")}</h2>
     <p class="mt-1 text-sm text-stone-600">
       {gettext("A first session will be created with this campaign.")}

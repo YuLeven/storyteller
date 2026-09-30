@@ -65,17 +65,24 @@ defmodule StorytellerWeb.CampaignLiveTest do
   } do
     {:ok, view, _html} = live(conn, ~p"/campaigns/new")
 
-    attrs = %{
+    story = %{
       title: "The Blue Lantern",
       premise: "A signal appears on the cliffs after a century of silence.",
       setting: "A fictional coastal city",
       tone: "Patient and hopeful",
-      narration_language: "French",
+      narration_language: "French"
+    }
+
+    character = %{
       player_character_name: "Noa Marin",
       player_character: "A lighthouse keeper who listens for bells in fog."
     }
 
-    review_html = view |> form("#campaign-form", campaign: attrs) |> render_submit()
+    submit_wizard_step(view, story, "continue")
+    submit_wizard_step(view, Map.merge(story, character), "continue")
+    submit_wizard_step(view, Map.merge(story, character), "continue")
+    review_html = submit_wizard_step(view, Map.merge(story, character), "continue")
+
     assert review_html =~ "Review your campaign"
     assert review_html =~ "The Blue Lantern"
     assert review_html =~ "Noa Marin"
@@ -96,6 +103,90 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert player.visible_facts["description"] == campaign.player_character
 
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
+  end
+
+  test "campaign setup moves through grouped steps and backtracking preserves entered values", %{
+    conn: conn
+  } do
+    {:ok, view, html} = live(conn, ~p"/campaigns/new")
+    assert html =~ "Step 1 of 4"
+    refute has_element?(view, "#campaign-setup-step-1[hidden]")
+    assert has_element?(view, "#campaign-setup-step-2[hidden]")
+
+    story = %{
+      title: "The Quiet Beacon",
+      premise: "A lighthouse answers a signal no one sent.",
+      setting: "The northern coast",
+      tone: "Quiet and curious",
+      narration_language: "English"
+    }
+
+    view |> submit_wizard_step(story, "continue")
+    assert has_element?(view, "#campaign-setup-step-2:not([hidden])")
+
+    character = %{
+      player_character_name: "Iris",
+      player_character: "A keeper who remembers every ship."
+    }
+
+    view |> submit_wizard_step(Map.merge(story, character), "continue")
+    assert has_element?(view, "#campaign-setup-step-3:not([hidden])")
+
+    submit_wizard_step(view, Map.merge(story, character), "previous")
+    assert has_element?(view, "#campaign-setup-step-2:not([hidden])")
+    assert render(view) =~ "value=\"Iris\""
+    assert render(view) =~ "A keeper who remembers every ship."
+
+    submit_wizard_step(view, Map.merge(story, character), "previous")
+    assert has_element?(view, "#campaign-setup-step-1:not([hidden])")
+    assert render(view) =~ "value=\"The Quiet Beacon\""
+    assert render(view) =~ "The northern coast"
+  end
+
+  test "review validation returns the player to the step containing invalid fields", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    attrs = %{
+      title: "x",
+      premise: "A signal appears.",
+      setting: "A coastal town",
+      tone: "Thoughtful",
+      narration_language: "English",
+      player_character_name: "Mira",
+      player_character: "A keeper who watches the sea."
+    }
+
+    submit_wizard_step(view, attrs, "continue")
+    submit_wizard_step(view, attrs, "continue")
+    submit_wizard_step(view, attrs, "continue")
+    html = submit_wizard_step(view, attrs, "continue")
+
+    assert has_element?(view, "#campaign-setup-step-1:not([hidden])")
+    assert html =~ "should be at least 2 character(s)"
+    assert Campaigns.list_campaigns() == []
+  end
+
+  test "review validation returns the player to the character step when required details are missing",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    story = %{
+      title: "The Quiet Beacon",
+      premise: "A signal appears.",
+      setting: "A coastal town",
+      tone: "Thoughtful",
+      narration_language: "English"
+    }
+
+    submit_wizard_step(view, story, "continue")
+    submit_wizard_step(view, story, "continue")
+    submit_wizard_step(view, story, "continue")
+    html = submit_wizard_step(view, story, "continue")
+
+    assert has_element?(view, "#campaign-setup-step-2:not([hidden])")
+    html_text = html |> Floki.parse_document!() |> Floki.text()
+    assert html_text =~ "can't be blank"
+    assert Campaigns.list_campaigns() == []
   end
 
   test "optional setup sections stay collapsed until they contain rows", %{conn: conn} do
@@ -441,5 +532,12 @@ defmodule StorytellerWeb.CampaignLiveTest do
     html_text = html |> Floki.parse_document!() |> Floki.text()
     assert html_text =~ "can't be blank"
     assert Campaigns.list_campaigns() == []
+  end
+
+  defp submit_wizard_step(view, attrs, direction) do
+    view
+    |> form("#campaign-form", campaign: attrs)
+    |> put_submitter("button[name=direction][value=#{direction}]")
+    |> render_submit()
   end
 end

@@ -2461,6 +2461,150 @@ defmodule Storyteller.PlayTest do
              %{"condition" => "rebound"}
   end
 
+  test "public place and character receipts come only from public state-change events" do
+    {campaign, session} = play_campaign("The Beacon Road")
+
+    old_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "old-quay",
+          name: "Old quay",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(Character.changeset(lyra, %{current_place_id: old_place.place_id}))
+
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:orin",
+        name: "Orin Vale",
+        role: :gm,
+        visible_facts: %{},
+        gm_private_facts: %{}
+      })
+    )
+
+    complete_turn(
+      campaign,
+      session,
+      "public-place-character-receipts",
+      "Follow the road with Lyra.",
+      ordinary_provider(%{
+        "location_changes" => [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "beacon-road",
+              "name" => "Beacon road",
+              "visibility" => "public",
+              "facts" => %{}
+            },
+            "reason" => "The coast path opens beyond the old quay."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "beacon-road",
+            "reason" => "You follow the path beyond the old quay."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => "beacon-road",
+            "reason" => "Lyra joins you on the coast path."
+          },
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "saffron-vault",
+              "name" => "Saffron Vault",
+              "visibility" => "gm_private",
+              "facts" => %{"inscription" => "Beneath the north sill"}
+            },
+            "reason" => "The hidden chamber remains sealed from the party."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:orin",
+            "place_id" => "saffron-vault",
+            "reason" => "Orin slips into Saffron Vault unseen."
+          }
+        ]
+      })
+    )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert %{
+             "kind" => "place",
+             "before" => nil,
+             "after" => "Beacon road",
+             "reason" => "The coast path opens beyond the old quay.",
+             "game_time" => %{"time" => "First watch"}
+           } = Map.fetch!(projection.latest_place_changes, "beacon-road")
+
+    assert %{
+             "kind" => "character",
+             "before" => nil,
+             "after" => "Beacon road",
+             "reason" => "You follow the path beyond the old quay.",
+             "game_time" => %{"time" => "First watch"}
+           } = Map.fetch!(projection.latest_character_changes, "player")
+
+    assert %{
+             "kind" => "character",
+             "before" => %{"last_spoke" => nil},
+             "after" => %{"last_spoke" => "The eastern star moved once."},
+             "reason" => nil,
+             "game_time" => %{"time" => "First watch"}
+           } = Map.fetch!(projection.latest_character_changes, "npc:lyra")
+
+    refute Map.has_key?(projection.latest_place_changes, "saffron-vault")
+    refute Map.has_key?(projection.latest_character_changes, "npc:orin")
+
+    assert {:ok, %{events: story_events}} = Play.public_story_timeline_page(campaign.id)
+    refute Enum.any?(story_events, &(&1.event_type == :state_change))
+
+    public_location_event =
+      Repo.all(
+        from event in Event,
+          where:
+            event.campaign_id == ^campaign.id and event.event_type == :state_change and
+              event.visibility == :public,
+          order_by: [desc: event.sequence]
+      )
+      |> Enum.find(&Map.has_key?(&1.payload, "location_changes"))
+
+    assert Enum.any?(public_location_event.payload["canonical_receipts"], fn receipt ->
+             receipt["id"] == "npc:lyra" and receipt["before"] == "Old quay" and
+               receipt["after"] == "Beacon road" and
+               receipt["reason"] == "Lyra joins you on the coast path."
+           end)
+
+    private_location_event =
+      Repo.all(
+        from event in Event,
+          where:
+            event.campaign_id == ^campaign.id and event.event_type == :state_change and
+              event.visibility == :gm_private,
+          order_by: [desc: event.sequence]
+      )
+      |> Enum.find(&Map.has_key?(&1.payload, "location_changes"))
+
+    refute Map.has_key?(private_location_event.payload, "canonical_receipts")
+
+    assert Enum.any?(private_location_event.payload["location_changes"], fn change ->
+             change["place_name"] == "Saffron Vault" and
+               change["reason"] == "Orin slips into Saffron Vault unseen."
+           end)
+  end
+
   test "an Amber Orchard harvest sale consumes produce and carries cash into the next session" do
     {campaign, session} = play_campaign("Amber Orchard harvest sale test fixture")
 

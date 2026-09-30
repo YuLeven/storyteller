@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Guide campaign setup and surface canonical change receipts
+
+- Campaign creation is now a four-step wizard for story, player character, starting scene, and optional people/details, followed by a review step. Backtracking preserves every entered value; validation returns to the step that needs attention. Optional setup groups remain skippable, and successful creation still opens the new campaign.
+- Public place and character changes now have collapsed “Last changed” receipts beside their relevant board cards. Receipts come from accepted state-change events and show safe before/after values, a grounded reason when available, and in-world time. GM-private locations and character changes are excluded, and receipts do not add system messages to the story.
+- **Checks:** full WSL suite **241 tests, 0 failures**; JavaScript tests **13/13**; format check, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. Automated tests use `storyteller_test` and fake providers; no live AI call or Vineyard campaign mutation was made.
+
 ## 2026-09-30 — Keep campaign maintenance secondary and protect time-passage agency
 
 - The campaign detail action now says **Edit campaign**. Import/export now live in a collapsed **Backup and restore** section after the main campaign actions on both the campaign library and detail page; opening it explains backup sensitivity and separate-copy restore behavior.

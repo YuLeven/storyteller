@@ -12,6 +12,7 @@ defmodule StorytellerWeb.CampaignLive.New do
      assign(socket,
        page_title: gettext("New campaign"),
        form: to_form(changeset, as: :campaign),
+       step: 1,
        reviewed: false,
        draft: nil,
        setup_error: nil,
@@ -67,6 +68,7 @@ defmodule StorytellerWeb.CampaignLive.New do
         {:noreply,
          assign(socket,
            form: to_form(%{changeset | action: :validate}, as: :campaign),
+           step: first_error_step(changeset),
            reviewed: false,
            draft: nil,
            setup_error: nil,
@@ -80,6 +82,7 @@ defmodule StorytellerWeb.CampaignLive.New do
         {:noreply,
          assign(socket,
            form: to_form(%{changeset | action: :validate}, as: :campaign),
+           step: setup_error_step(message),
            reviewed: false,
            draft: nil,
            setup_error: setup_error_message(message),
@@ -93,7 +96,39 @@ defmodule StorytellerWeb.CampaignLive.New do
 
   @impl true
   def handle_event("edit", _params, socket) do
-    {:noreply, assign(socket, reviewed: false, setup_error: nil)}
+    {:noreply, assign(socket, reviewed: false, step: 4, setup_error: nil)}
+  end
+
+  @impl true
+  def handle_event("navigate", %{"campaign" => attrs, "direction" => "continue"}, socket) do
+    if socket.assigns.step < 4 do
+      changeset = Campaigns.change_campaign(%Campaign{}, attrs)
+
+      {:noreply,
+       socket
+       |> assign_form(attrs, changeset)
+       |> assign(step: socket.assigns.step + 1, reviewed: false, draft: nil, setup_error: nil)}
+    else
+      handle_event("review", %{"campaign" => attrs}, socket)
+    end
+  end
+
+  def handle_event("navigate", %{"campaign" => attrs, "direction" => "previous"}, socket) do
+    changeset = Campaigns.change_campaign(%Campaign{}, attrs)
+
+    {:noreply,
+     socket
+     |> assign_form(attrs, changeset)
+     |> assign(
+       step: max(socket.assigns.step - 1, 1),
+       reviewed: false,
+       draft: nil,
+       setup_error: nil
+     )}
+  end
+
+  def handle_event("navigate", %{"campaign" => attrs}, socket) do
+    handle_event("review", %{"campaign" => attrs}, socket)
   end
 
   @impl true
@@ -163,13 +198,19 @@ defmodule StorytellerWeb.CampaignLive.New do
         {:noreply,
          assign(socket,
            reviewed: false,
+           step: first_error_step(changeset),
            setup_error:
              gettext("The campaign could not be created. Please review the setup and try again."),
            form: to_form(%{changeset | action: :validate}, as: :campaign)
          )}
 
       {:error, {:setup, message}} ->
-        {:noreply, assign(socket, reviewed: false, setup_error: setup_error_message(message))}
+        {:noreply,
+         assign(socket,
+           reviewed: false,
+           step: setup_error_step(message),
+           setup_error: setup_error_message(message)
+         )}
 
       {:error, _reason} ->
         {:noreply,
@@ -218,6 +259,46 @@ defmodule StorytellerWeb.CampaignLive.New do
   defp remove_row(rows, index) do
     index = parse_index(index)
     Enum.reject(rows, fn {row_index, _row} -> row_index == index end)
+  end
+
+  defp assign_form(socket, attrs, changeset) do
+    assign(socket,
+      form: to_form(changeset, as: :campaign),
+      character_rows: rows(attrs, "gm_characters"),
+      player_detail_rows: rows(attrs, "player_character_details"),
+      panel_rows: rows(attrs, "panel_fields"),
+      inventory_rows: rows(attrs, "inventory")
+    )
+  end
+
+  defp first_error_step(changeset) do
+    changeset.errors
+    |> Enum.find_value(4, fn {field, _error} -> field_step(field) end)
+  end
+
+  defp field_step(field)
+       when field in [:title, :premise, :setting, :tone, :narration_language],
+       do: 1
+
+  defp field_step(field) when field in [:player_character_name, :player_character], do: 2
+  defp field_step(_field), do: 4
+
+  defp setup_error_step(message) do
+    cond do
+      String.starts_with?(message, "Player character detail") or
+        String.starts_with?(message, "Every player character detail") or
+          String.starts_with?(message, "The label 'description'") ->
+        2
+
+      String.starts_with?(message, "Starting world") or
+        String.starts_with?(message, "Starting inventory") or
+        String.starts_with?(message, "Starting item") or
+          String.starts_with?(message, "Add no more than 200 starting items") ->
+        3
+
+      true ->
+        4
+    end
   end
 
   defp setup_error_message("Starting world details must be JSON-safe and under 100 KB.") do
@@ -335,6 +416,15 @@ defmodule StorytellerWeb.CampaignLive.New do
   defp panel_type_label(:text), do: gettext("Text")
   defp panel_type_label(:status), do: gettext("Status")
   defp panel_type_label(:date), do: gettext("Date")
+
+  defp setup_steps do
+    [
+      {1, gettext("Story")},
+      {2, gettext("Your character")},
+      {3, gettext("Opening scene")},
+      {4, gettext("People and details")}
+    ]
+  end
 
   defp starting_world(campaign) do
     [campaign.starting_location, campaign.starting_date, campaign.world_time, campaign.weather]
