@@ -506,6 +506,106 @@ defmodule Storyteller.PlayTest do
     refute Enum.any?(events, &Map.has_key?(&1.payload, "inventory_changes"))
   end
 
+  test "partial stack transfer conserves quantity and rejects a later invalid operation atomically" do
+    {campaign, session} = play_campaign("The Quiet Observatory")
+
+    herbs = %{
+      "id" => "healing-herbs",
+      "name" => "Healing herbs",
+      "quantity" => 4,
+      "unit" => "bundles",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{"healing" => %{"points" => 2}}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "inventory", [herbs])})
+    )
+
+    split = %{
+      "type" => "transfer",
+      "item_id" => "healing-herbs",
+      "quantity" => 2,
+      "new_item_id" => "lyra-herbs",
+      "owner_id" => "npc:lyra",
+      "reason" => "Lyra carries two bundles to the infirmary."
+    }
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "partial-transfer",
+               "I hand Lyra two bundles.",
+               provider: ordinary_provider(%{"inventory_changes" => [split]}),
+               model: "test-model"
+             )
+
+    assert {:ok, %{inventory: inventory}} = Play.public_projection(campaign.id)
+    source = Enum.find(inventory, &(&1["id"] == "healing-herbs"))
+    transferred = Enum.find(inventory, &(&1["id"] == "lyra-herbs"))
+
+    assert source["quantity"] == 2
+    assert source["owner_id"] == "player"
+    assert transferred["quantity"] == 2
+    assert transferred["owner_id"] == "npc:lyra"
+    assert transferred["properties"] == source["properties"]
+    assert Enum.sum(Enum.map(inventory, & &1["quantity"])) == 4
+
+    {:ok, events} = Play.public_timeline(campaign.id)
+    inventory_event = Enum.find(events, &Map.has_key?(&1.payload, "inventory_changes"))
+
+    assert inventory_event.payload["inventory_changes"] == [
+             %{
+               "type" => "transfer",
+               "item_id" => "healing-herbs",
+               "new_item_id" => "lyra-herbs",
+               "item_name" => "Healing herbs",
+               "quantity" => 2,
+               "unit" => "bundles",
+               "owner_id" => "npc:lyra"
+             }
+           ]
+
+    invalid_split = %{split | "new_item_id" => "another-stack"}
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "partial-transfer-rollback",
+               "I hand Lyra three more bundles.",
+               provider:
+                 ordinary_provider(%{
+                   "inventory_changes" => [
+                     invalid_split,
+                     %{
+                       "type" => "consume",
+                       "item_id" => "healing-herbs",
+                       "quantity" => 3,
+                       "reason" => "Use more bundles than remain."
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, %{inventory: unchanged}} = Play.public_projection(campaign.id)
+    assert unchanged == inventory
+
+    {:ok, events_after_invalid_proposal} = Play.public_timeline(campaign.id)
+
+    assert length(
+             Enum.filter(
+               events_after_invalid_proposal,
+               &Map.has_key?(&1.payload, "inventory_changes")
+             )
+           ) == 1
+  end
+
   test "GM panel changes are typed, atomic, and private values stay out of public events" do
     {campaign, session} = play_campaign("The Glass Observatory")
 

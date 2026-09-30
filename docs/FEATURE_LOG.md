@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Partial inventory transfers and proposal recovery
+
+- Added quantity-aware transfers: a partial stack keeps its existing stable ID and remainder, while the moved quantity becomes a new stack with copied properties and visibility. Whole-stack transfer event shape remains compatible.
+- GM instructions now explain split identity and conservation. Invalid inventory proposals map to the normal `invalid_response` recovery state instead of being mislabeled as provider failures.
+- **Checked:** domain and end-to-end behavior tests cover valid split ownership, properties, quantity conservation, stack limits, public audit payloads, and all-or-nothing rejection when a later operation over-consumes the remainder. `mix test` passed (117 tests, 0 failures).
+
 ## 2026-09-30 — Canonical places and character presence
 
 - Added durable, campaign-scoped place records with stable IDs, descriptions, flexible surroundings, and public or GM-private visibility. A campaign's starting location becomes the player's initial place; explicitly visible character locations seed known NPC presence.
@@ -12,7 +18,7 @@
 ## 2026-09-30 — Campaign inventory and continuity
 
 - Added optional starting items to the reviewed campaign setup, with a name, quantity, unit, category, and description. Items begin in the player's public inventory; the item structure also supports stable IDs, campaign-defined JSON properties, party/NPC ownership, and GM-private visibility.
-- Added explicit GM-proposed add, whole-stack transfer, and consume operations. Validation rejects unknown items/owners, duplicate IDs, malformed properties, and over-consumption. Inventory mutations apply atomically with the turn and append visibility-scoped timeline events; general world changes cannot overwrite the inventory ledger.
+- Added explicit GM-proposed add, whole- or partial-stack transfer, and consume operations. Validation rejects unknown items/owners, duplicate IDs, malformed properties, and over-consumption. Inventory mutations apply atomically with the turn and append visibility-scoped timeline events; general world changes cannot overwrite the inventory ledger.
 - Added canonical public/GM-private inventory to each GM prompt and a player-facing board for known items. Public projections and public events omit hidden items and internal operation reasons. Campaign panels remain the place for fungible balances such as vineyard cash and stock quantities.
 - **Checked:** starting inventory campaign-setup tests, inventory domain tests, and end-to-end play tests cover public/private visibility, item ownership, consumption, invalid mutations, narration without an accepted inventory operation, and continuity into another session. Full-suite and UI build checks are recorded in `docs/CHECKPOINT_2026-09-30.md`.
 

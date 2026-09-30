@@ -5,7 +5,7 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 ## Implemented
 
 - Reviewed campaign setup seeds stable player-owned inventory entries, public world details, GM characters, and typed campaign panels. Inventory supports stable IDs, flexible properties, quantity, unit, category, owner, and visibility.
-- The GM receives canonical public and private inventories. Validated add, whole-stack transfer, and consume operations commit atomically with timeline events; generic state changes cannot edit or replace inventory.
+- The GM receives canonical public and private inventories. Validated add, whole- or partial-stack transfer, and consume operations commit atomically with timeline events; generic state changes cannot edit or replace inventory. Partial splits preserve the source remainder, item properties and visibility, and total quantity. Invalid proposals fail as `invalid_response` and apply no inventory changes.
 - Campaigns persist campaign-scoped places with stable IDs, descriptions, JSON surroundings, and public or GM-private visibility. The starting world location seeds the player's first place, and a GM character's explicitly visible location seeds known presence.
 - The GM receives both visibility scopes for places and every character's current place. Place creation must precede movement; movement uses a known character and place, and the player cannot move to a GM-private place. Location changes commit with the turn. Generic world changes cannot overwrite the canonical location.
 - The play board shows the player's current place and surroundings, who is publicly present, tracked campaign resources, owned items, character details, and the campaign story. Public history and projections omit GM-private places and presence.
@@ -15,7 +15,7 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 
 ## Verification
 
-- `mix test`: **110 tests, 0 failures**; focused location and play LiveView tests cover seeded presence, movement, private-place isolation, invalid free-form teleportation, and persistence into a later session.
+- `mix test`: **117 tests, 0 failures**; focused play and inventory behavior tests cover partial-stack conservation, stack limits, public audit events, atomic rejection, private-place isolation, and persistence into a later session.
 - Locale LiveView tests pass for Spanish and French current-place labels, public presence, and inventory content.
 - `mix format`, `mix compile --warnings-as-errors`, and `mix assets.build` passed during this iteration; rerun the format check and `git diff --check` before committing.
 - `mix gettext.extract` and `mix gettext.merge priv/gettext` completed. Ten new location strings were translated in both Spanish and French.
@@ -25,7 +25,7 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 
 ## Next work
 
-1. Extend inventory operations with partial transfers, item edits (such as condition or charges), and a clear way to manage inventory after campaign creation.
+1. Add safe item edits (such as condition or charges) and a clear player-facing way to manage inventory after campaign creation. Add an end-to-end vineyard resource scenario alongside the dungeon-style item scenario.
 2. Continue exercising the fictional **The Amber Orchard** QA campaign through normal play, a consequential D20, inventory and location changes, session restart/resume, and recovery. The UI is seeded, but a live GM turn still needs the owner to complete OAuth consent; fake-provider behavior remains covered by ExUnit. Never reuse the vineyard campaign or its data for tests.
 3. Compare hands-on campaign and AI role-playing tasks in Friends & Fables, Kanka, and LegendKeeper against the product goals and Apple's interaction design principles. Current notes are based on public documentation, not interactive product testing.
 4. Check keyboard use, screen-reader labels, small-screen layouts, and readable contrast on the play board.

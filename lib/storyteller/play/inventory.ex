@@ -4,8 +4,9 @@ defmodule Storyteller.Play.Inventory do
 
   Operations use JSON-shaped maps. Add an item with `%{"type" => "add", "item" => item,
   "reason" => reason}`, transfer a whole stack with `%{"type" => "transfer",
-  "item_id" => id, "owner_id" => owner, "reason" => reason}`, or consume part of a
-  stack with `%{"type" => "consume", "item_id" => id, "quantity" => n,
+  "item_id" => id, "owner_id" => owner, "reason" => reason}`. A partial transfer
+  includes `"quantity"` and a fresh `"new_item_id"`. Consume part of a stack with
+  `%{"type" => "consume", "item_id" => id, "quantity" => n,
   "reason" => reason}`. Validation is all-or-nothing: callers should only apply the
   returned normalized operations after the entire proposal succeeds.
   """
@@ -157,24 +158,60 @@ defmodule Storyteller.Play.Inventory do
   end
 
   defp normalize_transfer(change, inventory, owners) do
-    with :ok <- only_keys(change, ~w(type item_id owner_id reason)),
+    with :ok <- only_keys(change, ~w(type item_id owner_id quantity new_item_id reason)),
          {:ok, reason} <- reason(change),
          {:ok, id} <- required_id(change, "item_id"),
          {:ok, owner_id} <- required_id(change, "owner_id"),
          :ok <- valid_owner(owner_id, owners),
-         {:ok, item} <- find_item(inventory, id) do
-      {:ok,
-       %{
-         "type" => "transfer",
-         "item_id" => id,
-         "item_name" => item["name"],
-         "quantity" => item["quantity"],
-         "unit" => item["unit"],
-         "owner_id" => owner_id,
-         "reason" => reason,
-         "visibility" => item["visibility"]
-       }}
+         {:ok, item} <- find_item(inventory, id),
+         {:ok, quantity, new_item_id} <- transfer_quantity(change, item, inventory) do
+      normalized = %{
+        "type" => "transfer",
+        "item_id" => id,
+        "item_name" => item["name"],
+        "quantity" => quantity,
+        "unit" => item["unit"],
+        "owner_id" => owner_id,
+        "reason" => reason,
+        "visibility" => item["visibility"]
+      }
+
+      normalized =
+        if new_item_id, do: Map.put(normalized, "new_item_id", new_item_id), else: normalized
+
+      {:ok, normalized}
     end
+  end
+
+  defp transfer_quantity(change, item, inventory) do
+    cond do
+      not has_key?(change, "quantity") and has_key?(change, "new_item_id") ->
+        {:error, :invalid_operation}
+
+      not has_key?(change, "quantity") ->
+        {:ok, item["quantity"], nil}
+
+      true ->
+        with {:ok, quantity} <- required_quantity(change, "quantity"),
+             :ok <- transferable_quantity(quantity, item["quantity"]),
+             {:ok, new_item_id} <- required_id(change, "new_item_id"),
+             :ok <- unique_item_id(new_item_id, inventory) do
+          {:ok, quantity, new_item_id}
+        end
+    end
+  end
+
+  defp transferable_quantity(quantity, current_quantity) when quantity < current_quantity, do: :ok
+
+  defp transferable_quantity(quantity, current_quantity) when quantity > current_quantity,
+    do: {:error, :insufficient_quantity}
+
+  defp transferable_quantity(_quantity, _current_quantity), do: {:error, :invalid_quantity}
+
+  defp unique_item_id(id, inventory) do
+    if Enum.any?(inventory, &(get(&1, "id") == id)),
+      do: {:error, :duplicate_item_id},
+      else: :ok
   end
 
   defp normalize_consume(change, inventory) do
@@ -359,9 +396,58 @@ defmodule Storyteller.Play.Inventory do
   end
 
   defp apply_checked(inventory, %{"type" => "add", "item" => item}) do
-    if Enum.any?(inventory, &(get(&1, "id") == item["id"])),
-      do: {:error, :duplicate_item_id},
-      else: {:ok, inventory ++ [item]}
+    cond do
+      Enum.any?(inventory, &(get(&1, "id") == item["id"])) ->
+        {:error, :duplicate_item_id}
+
+      length(inventory) >= @max_items ->
+        {:error, :inventory_limit}
+
+      true ->
+        {:ok, inventory ++ [item]}
+    end
+  end
+
+  defp apply_checked(
+         inventory,
+         %{
+           "type" => "transfer",
+           "item_id" => id,
+           "new_item_id" => new_item_id,
+           "quantity" => quantity,
+           "owner_id" => owner_id
+         }
+       ) do
+    case Enum.find(inventory, &(&1["id"] == id)) do
+      %{"quantity" => current_quantity} = item when current_quantity > quantity ->
+        cond do
+          Enum.any?(inventory, &(&1["id"] == new_item_id)) ->
+            {:error, :duplicate_item_id}
+
+          length(inventory) >= @max_items ->
+            {:error, :inventory_limit}
+
+          true ->
+            updated_source = Map.put(item, "quantity", current_quantity - quantity)
+
+            transferred_item =
+              item
+              |> Map.put("id", new_item_id)
+              |> Map.put("quantity", quantity)
+              |> Map.put("owner_id", owner_id)
+
+            updated_inventory =
+              Enum.map(inventory, fn
+                %{"id" => ^id} -> updated_source
+                current -> current
+              end)
+
+            {:ok, updated_inventory ++ [transferred_item]}
+        end
+
+      _ ->
+        {:error, :item_not_found}
+    end
   end
 
   defp apply_checked(inventory, %{"type" => "transfer", "item_id" => id, "owner_id" => owner_id}) do
@@ -436,6 +522,8 @@ defmodule Storyteller.Play.Inventory do
       :error -> Map.get(map, atom_key(key))
     end
   end
+
+  defp has_key?(map, key), do: Map.has_key?(map, key) or Map.has_key?(map, atom_key(key))
 
   defp atom_key("type"), do: :type
   defp atom_key("item"), do: :item

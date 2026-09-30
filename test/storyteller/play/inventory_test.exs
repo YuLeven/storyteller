@@ -101,6 +101,166 @@ defmodule Storyteller.Play.InventoryTest do
                Inventory.apply_changes([item()], normalized)
     end
 
+    test "partially transfers a stack into a new stack with copied fields" do
+      change = %{
+        "type" => "transfer",
+        "item_id" => "healing-herbs",
+        "quantity" => 1,
+        "new_item_id" => "lyra-healing-herbs",
+        "owner_id" => "lyra",
+        "reason" => "Lyra takes one bundle"
+      }
+
+      assert {:ok, [normalized]} = Inventory.validate_changes([change], [item()], @owners)
+
+      assert normalized == %{
+               "type" => "transfer",
+               "item_id" => "healing-herbs",
+               "new_item_id" => "lyra-healing-herbs",
+               "item_name" => "Healing herbs",
+               "quantity" => 1,
+               "unit" => "bundle",
+               "owner_id" => "lyra",
+               "reason" => "Lyra takes one bundle",
+               "visibility" => "public"
+             }
+
+      assert Inventory.apply_changes([item()], [normalized]) == [
+               item(%{"quantity" => 2}),
+               item(%{
+                 "id" => "lyra-healing-herbs",
+                 "quantity" => 1,
+                 "owner_id" => "lyra"
+               })
+             ]
+    end
+
+    test "whole-stack transfer keeps its established normalized event shape" do
+      change = %{
+        "type" => "transfer",
+        "item_id" => "healing-herbs",
+        "owner_id" => "lyra",
+        "reason" => "Lyra takes the whole bundle"
+      }
+
+      assert {:ok, [normalized]} = Inventory.validate_changes([change], [item()], @owners)
+
+      assert normalized == %{
+               "type" => "transfer",
+               "item_id" => "healing-herbs",
+               "item_name" => "Healing herbs",
+               "quantity" => 3,
+               "unit" => "bundle",
+               "owner_id" => "lyra",
+               "reason" => "Lyra takes the whole bundle",
+               "visibility" => "public"
+             }
+
+      assert Inventory.apply_changes([item()], [normalized]) == [item(%{"owner_id" => "lyra"})]
+    end
+
+    test "rejects invalid or colliding IDs and quantities for partial transfers" do
+      transfer = fn overrides ->
+        Map.merge(
+          %{
+            "type" => "transfer",
+            "item_id" => "healing-herbs",
+            "quantity" => 1,
+            "new_item_id" => "lyra-healing-herbs",
+            "owner_id" => "lyra",
+            "reason" => "Lyra takes one bundle"
+          },
+          overrides
+        )
+      end
+
+      existing_id = item(%{"id" => "already-here", "name" => "Rations"})
+
+      assert {:error, :duplicate_item_id} =
+               Inventory.validate_changes(
+                 [transfer.(%{"new_item_id" => "already-here"})],
+                 [item(), existing_id],
+                 @owners
+               )
+
+      assert {:error, :duplicate_item_id} =
+               Inventory.validate_changes(
+                 [transfer.(%{"new_item_id" => "healing-herbs"})],
+                 [item()],
+                 @owners
+               )
+
+      assert {:error, :invalid_id} =
+               Inventory.validate_changes([transfer.(%{"new_item_id" => " "})], [item()], @owners)
+
+      assert {:error, :invalid_id} =
+               Inventory.validate_changes(
+                 [Map.delete(transfer.(%{}), "new_item_id")],
+                 [item()],
+                 @owners
+               )
+
+      assert {:error, :invalid_quantity} =
+               Inventory.validate_changes([transfer.(%{"quantity" => 0})], [item()], @owners)
+
+      assert {:error, :invalid_quantity} =
+               Inventory.validate_changes([transfer.(%{"quantity" => 3})], [item()], @owners)
+
+      assert {:error, :insufficient_quantity} =
+               Inventory.validate_changes([transfer.(%{"quantity" => 4})], [item()], @owners)
+    end
+
+    test "rejects an unknown item or owner in a partial transfer" do
+      change = %{
+        "type" => "transfer",
+        "item_id" => "healing-herbs",
+        "quantity" => 1,
+        "new_item_id" => "lyra-healing-herbs",
+        "owner_id" => "lyra",
+        "reason" => "Lyra takes one bundle"
+      }
+
+      assert {:error, :item_not_found} =
+               Inventory.validate_changes(
+                 [Map.put(change, "item_id", "missing")],
+                 [item()],
+                 @owners
+               )
+
+      assert {:error, :invalid_owner} =
+               Inventory.validate_changes(
+                 [Map.put(change, "owner_id", "stranger")],
+                 [item()],
+                 @owners
+               )
+    end
+
+    test "rejects the entire split-transfer proposal when a later operation fails" do
+      before = [item()]
+
+      changes = [
+        %{
+          "type" => "transfer",
+          "item_id" => "healing-herbs",
+          "quantity" => 1,
+          "new_item_id" => "lyra-healing-herbs",
+          "owner_id" => "lyra",
+          "reason" => "Lyra takes one bundle"
+        },
+        %{
+          "type" => "consume",
+          "item_id" => "healing-herbs",
+          "quantity" => 3,
+          "reason" => "Use more than remains"
+        }
+      ]
+
+      assert {:error, :insufficient_quantity} =
+               Inventory.validate_changes(changes, before, @owners)
+
+      assert before == [item()]
+    end
+
     test "removes a stack when the final quantity is consumed" do
       change = %{
         "type" => "consume",
@@ -216,6 +376,33 @@ defmodule Storyteller.Play.InventoryTest do
 
       assert {:error, :invalid_changes} =
                Inventory.validate_changes(too_many_changes, [], @owners)
+    end
+
+    test "does not exceed the campaign stack limit with an add or partial transfer" do
+      inventory =
+        Enum.map(1..200, fn index ->
+          item(%{"id" => "stack-#{index}", "name" => "Supply #{index}"})
+        end)
+
+      add = %{
+        "type" => "add",
+        "item" => item(%{"id" => "extra-stack", "name" => "Extra supply"}),
+        "reason" => "Found more supplies"
+      }
+
+      split = %{
+        "type" => "transfer",
+        "item_id" => "stack-1",
+        "quantity" => 1,
+        "new_item_id" => "split-stack",
+        "owner_id" => "lyra",
+        "reason" => "Lyra takes one bundle"
+      }
+
+      assert {:error, :inventory_limit} = Inventory.validate_changes([add], inventory, @owners)
+
+      assert {:error, :inventory_limit} =
+               Inventory.validate_changes([split], inventory, @owners)
     end
   end
 
