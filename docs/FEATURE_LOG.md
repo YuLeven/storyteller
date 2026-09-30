@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-09-30 — Keep the campaign premise close during play
+
+- Added a native collapsed disclosure near the session header so the player can reopen the campaign's premise without leaving the active session. The premise remains user-authored and is not added to each timeline entry.
+- **Checked:** SessionLive behavior test confirms the disclosure label, collapsed default, and saved premise content. In the isolated Amber Orchard session, Enter opened the disclosure, exposed the saved premise, and collapsed it again without leaving play.
+
 ## 2026-09-30 — Make active sessions easy to resume
 
 - Campaign details now offer a prominent direct link back to the active session. When starting another session will complete it, the page says so and explains that the full story remains saved.

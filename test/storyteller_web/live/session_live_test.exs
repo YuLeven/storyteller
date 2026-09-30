@@ -40,6 +40,18 @@ defmodule StorytellerWeb.SessionLiveTest do
     :ok
   end
 
+  test "campaign premise stays available as a collapsed in-play reference", %{conn: conn} do
+    premise = "A lantern has gone dark above the sleeping harbor."
+    campaign = campaign_fixture(%{premise: premise})
+    session = hd(campaign.sessions)
+
+    {:ok, view, html} = live(conn, session_path(campaign, session))
+
+    assert has_element?(view, "details#campaign-premise > summary", "Story premise")
+    refute has_element?(view, "details#campaign-premise[open]")
+    assert html =~ premise
+  end
+
   test "narrow session navigation targets the scene, story, and character board",
        %{
          conn: conn
