@@ -135,10 +135,17 @@
   box-shadow: 0 0 0 2px rgb(208 164 94 / 24%) !important;
 }
 .tabletop-shell option { color: #eee8d8; background: #18211a; }
-.tabletop-shell button:focus-visible,
-.tabletop-shell a:focus-visible,
-.tabletop-shell summary:focus-visible {
-  outline-color: #e3b86d !important;
+.tabletop-shell :where(
+    a,
+    button,
+    input:not([type="hidden"]),
+    select,
+    textarea,
+    summary,
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+  outline: 2px solid #e3b86d !important;
+  outline-offset: 3px;
 }
 .tabletop-shell button:disabled {
   color: #eee5d0 !important;
@@ -442,6 +449,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tabletop-shell article[id^="campaign-"] { transition: none; }
+  .tabletop-shell *,
+  .tabletop-shell *::before,
+  .tabletop-shell *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .tabletop-shell article[id^="campaign-"]:hover { transform: none; }
 }

@@ -33,6 +33,12 @@
 - Added the same usage-settings link to the connected account page and translated all new copy into Spanish and French.
 - **Checked:** focused account and session LiveView tests passed (9 tests, 0 failures), the full suite passed (82 tests, 0 failures), and formatting, warnings-as-errors compilation, and asset build passed. A local request to `/auth/connect` returns HTTP 200 under the restarted WSL Phoenix server. The owner has not completed OAuth consent or a live model call.
 
+## 2026-09-29 — Keyboard and reduced-motion affordances
+
+- Added a high-contrast `:focus-visible` outline for interactive elements across the tabletop theme.
+- Reduced animation and transition duration for visitors who prefer reduced motion, including pending-turn indicators.
+- **Checked:** the frontend asset build passes. Real keyboard navigation, narrow-screen, and screen-reader review are still outstanding.
+
 ## 2026-09-29 — Versioned GM policy
 
 - Recorded the original vineyard chat's gameplay rules in `docs/GM_POLICY.md` without including its private plot or state: the GM advances time and weather, the player makes decisions and supplies rolls, and the in-world date remains visible.

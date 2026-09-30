@@ -13,6 +13,7 @@ Storyteller is an in-progress local Phoenix LiveView TTRPG site. This checkpoint
 - Versioned, campaign-independent GM policy in `docs/GM_POLICY.md`, based on the original vineyard game's explicit play rules. No vineyard plot or state is in the public repository.
 - ChatGPT-plan OAuth and Responses adapter code using the locally hosted preview flow, protected server-side token storage, and a fake-testable HTTP boundary. Live account consent and a real Responses call have not occurred.
 - The play composer now shows whether ChatGPT plan usage is connected, links to usage settings when connected, and links to account setup otherwise. The connected account page also links to usage settings. English, Spanish, and French catalogs include these labels.
+- The shared tabletop theme includes a visible keyboard focus ring and honors reduced-motion preferences. Keyboard testing and assistive-technology review remain outstanding.
 
 ## Verification at the checkpoint
 
