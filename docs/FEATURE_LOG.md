@@ -6,6 +6,12 @@
 - This tests fungible campaign resources alongside item inventory without using vineyard campaign data.
 - **Checked:** the focused Play suite passes (27 tests, 0 failures); full `mix test` passes (136 tests, 0 failures). Format, warnings-as-errors compilation, asset build, and `git diff --check` pass in WSL.
 
+## 2026-09-30 — Amber Orchard D20 playtest
+
+- Exercised a second session in the separate fictional QA campaign with a fake provider. The GM asked for a D20 against target 12; the player's click recorded 16 once, after which the GM completed the turn with dialogue and visible activity.
+- A later malformed fake-provider response failed without adding turn events. Retrying the saved action completed once, with one player-action event and one narration event.
+- **Checked:** public timeline contains the accepted result, the session page returns HTTP 200 with the resolution, and the GM-private character fact and campaign panel note are absent from player HTML. No live model or OAuth call was made.
+
 ## 2026-09-30 — In-play player character details
 
 - GM proposals may add or revise the player's flexible public `visible_facts` when the action establishes a durable detail. Existing unrelated facts stay intact; player updates require a concise action-grounded reason and cannot write GM-private player facts or overwrite name, identity, description, or canonical location keys.
