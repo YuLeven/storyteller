@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Complete ChatGPT connection and check live inference
+
+- The local Connect page now reports ChatGPT plan usage connected after the account owner completed OAuth consent. An authenticated `/v1/models` request returned five models for the selected account.
+- A minimal live `/v1/responses` smoke request was blocked with the recognized usage-limit error. It returned no model output, and no live GM turn has completed yet. Plus usage is shared with other ChatGPT apps; no reset time is inferred. Check ChatGPT Usage settings before retrying.
+- The separate Amber Orchard QA session still holds its saved, unresolved test action. This does not involve the Vineyard campaign. Retry it after usage is available and verify one complete response before calling live gameplay ready.
+
 ## 2026-09-30 — Restore the ChatGPT connection redirect
 
 - Fixed the default HTTP path that prevented OAuth provider discovery. In Elixir `nil` is an atom, so the default adapter guard called `nil.request/1` instead of Req; nil now selects Req before the generic module clause. A network-free Req.Test regression test covers the default branch.

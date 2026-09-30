@@ -827,6 +827,12 @@ defmodule Storyteller.Play do
       # their names and visible activity resolve inside this same transaction.
       apply_character_creations!(turn.campaign_id, proposal.character_creations)
 
+      clear_moved_character_activities!(
+        turn.campaign_id,
+        proposal.location_changes,
+        proposal.activities
+      )
+
       {sequence, _events} =
         append_proposal_events(state, turn, proposal, include_action?)
 
@@ -1399,6 +1405,27 @@ defmodule Storyteller.Play do
           )
 
         update_or_rollback!(Character.changeset(character, %{current_place_id: place_id}))
+    end)
+  end
+
+  defp clear_moved_character_activities!(_campaign_id, [], _activities), do: :ok
+
+  defp clear_moved_character_activities!(campaign_id, location_changes, activities) do
+    activity_speakers = MapSet.new(activities, & &1.speaker_id)
+
+    location_changes
+    |> Enum.filter(&(Map.get(&1, "type") == "move_character"))
+    |> Enum.map(&Map.get(&1, "speaker_id"))
+    |> Enum.uniq()
+    |> Enum.reject(&MapSet.member?(activity_speakers, &1))
+    |> Enum.each(fn speaker_id ->
+      case Repo.get_by(Character, campaign_id: campaign_id, speaker_id: speaker_id) do
+        %Character{visible_activity: activity} = character when not is_nil(activity) ->
+          update_or_rollback!(Character.changeset(character, %{visible_activity: nil}))
+
+        _ ->
+          :ok
+      end
     end)
   end
 

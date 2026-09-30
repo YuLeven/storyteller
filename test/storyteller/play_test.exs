@@ -1109,6 +1109,147 @@ defmodule Storyteller.PlayTest do
     assert Enum.any?(context["places"]["gm_private"], &(&1["place_id"] == "flooded-passage"))
   end
 
+  test "moving a character without new activity clears their stale public activity across sessions" do
+    {campaign, session} = play_campaign("The Amber Orchard")
+
+    public_place = %{
+      "type" => "create_place",
+      "place" => %{
+        "place_id" => "orchard-walk",
+        "name" => "Orchard Walk",
+        "visibility" => "public"
+      },
+      "reason" => "The keeper is working along the orchard walk."
+    }
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "lyra-starts-work",
+               "Ask Lyra what she is doing.",
+               provider:
+                 ordinary_provider(%{
+                   "activities" => [
+                     %{"speaker_id" => "npc:lyra", "text" => "She checks the irrigation gate."}
+                   ],
+                   "location_changes" => [
+                     public_place,
+                     %{
+                       "type" => "move_character",
+                       "speaker_id" => "npc:lyra",
+                       "place_id" => "orchard-walk",
+                       "reason" => "Lyra is present on the orchard walk."
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, %{characters: characters}} = Play.public_projection(campaign.id)
+
+    assert Enum.find(characters, &(&1.speaker_id == "npc:lyra")).visible_activity ==
+             "She checks the irrigation gate."
+
+    private_place = %{
+      "type" => "create_place",
+      "place" => %{
+        "place_id" => "hidden-cistern",
+        "name" => "Hidden Cistern",
+        "visibility" => "gm_private"
+      },
+      "reason" => "The keeper leaves for a concealed cistern."
+    }
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "lyra-leaves-work",
+               "Follow the track past the orchard.",
+               provider:
+                 ordinary_provider(%{
+                   "activities" => [],
+                   "dialogue" => [],
+                   "location_changes" => [
+                     private_place,
+                     %{
+                       "type" => "move_character",
+                       "speaker_id" => "npc:lyra",
+                       "place_id" => "hidden-cistern",
+                       "reason" => "Lyra leaves the orchard walk."
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    lyra = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
+    assert lyra.current_place == nil
+    assert lyra.visible_activity == nil
+    refute Jason.encode!(projection) =~ "Hidden Cistern"
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "lyra-next-session-context",
+               "Ask Lyra about the orchard.",
+               provider: fn request ->
+                 Agent.update(captured_context, fn _ -> decode_request(request) end)
+                 {:ok, Jason.encode!(ordinary_proposal(%{"activities" => [], "dialogue" => []}))}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(captured_context, & &1)
+    context_lyra = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:lyra"))
+    assert context_lyra["current_place"]["place_id"] == "hidden-cistern"
+    assert context_lyra["visible_activity"] == nil
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "lyra-resumes-work",
+               "Meet Lyra at the north trellis.",
+               provider:
+                 ordinary_provider(%{
+                   "activities" => [
+                     %{"speaker_id" => "npc:lyra", "text" => "Lyra prunes the north trellis."}
+                   ],
+                   "dialogue" => [],
+                   "location_changes" => [
+                     %{
+                       "type" => "create_place",
+                       "place" => %{
+                         "place_id" => "north-trellis",
+                         "name" => "North Trellis",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The scene establishes Lyra's new workplace."
+                     },
+                     %{
+                       "type" => "move_character",
+                       "speaker_id" => "npc:lyra",
+                       "place_id" => "north-trellis",
+                       "reason" => "Lyra moves to the north trellis."
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, %{characters: characters}} = Play.public_projection(campaign.id)
+    lyra = Enum.find(characters, &(&1.speaker_id == "npc:lyra"))
+    assert lyra.current_place.name == "North Trellis"
+    assert lyra.visible_activity == "Lyra prunes the north trellis."
+  end
+
   test "rejects duplicate new character IDs and unknown or invalid place references atomically" do
     invalid_scenarios = [
       {"existing-id", [%{"speaker_id" => "npc:lyra", "name" => "Another Lyra"}], []},
