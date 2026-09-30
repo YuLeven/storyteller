@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-09-29 — Product priorities: player board, inventory, and continuity
+
+- Rebalanced the product plan around useful play, not appearance alone: the player should see where they are, what is happening, and what their character owns or controls.
+- Added a campaign-flexible inventory and resource direction for distinct dungeon items as well as vineyard cash, wine, and vine stock. Required changes must be canonical, validated, accepted once, and traceable to campaign events.
+- Documented the current gap: prompt construction already includes hidden GM context and bounded history summaries, but there are no first-class owned-item or location records. Generic fact maps and scalar panels do not enforce item identity, transfers, or NPC presence.
+- Added an initial sourced desk benchmark of Friends & Fables, Kanka, LegendKeeper, and Apple's interaction-design principles. No competitor flows have yet received hands-on evaluation.
+- **Checked:** reviewed the current `Play.State`, `Play.Character`, `Panels.Field`, GM request context, and player play-page projection. No feature code or campaign data was changed in this planning pass.
+
 ## 2026-09-29 — In-progress implementation checkpoint
 
 - Added atomic campaign setup for starting world details, GM-controlled characters, and typed campaign panels with public/private visibility.

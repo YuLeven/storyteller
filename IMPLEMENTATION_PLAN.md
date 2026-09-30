@@ -63,6 +63,15 @@ Token volumes are assumptions for budgeting, not measured usage. Longer conversa
 
 ## Product behaviour
 
+### Product quality priorities
+
+- Deliver the full play experience, not just a beautiful shell: a player should be able to follow the campaign, understand their character's current situation, act with confidence, and pick up the same world later.
+- Give the player a clear character board for their current place, surroundings, immediate situation, known character details, and owned items or resources. Present only information the character would know. Keep campaign-specific information configurable so the same interaction supports an adventurer's equipment and a vineyard's wine stock and cash.
+- Treat the model as the narrator and proposer, not the source of truth. Durable world facts, character presence, possessions, resources, and accepted events live in the local database. Give the GM concise hidden context for private motives and unresolved facts, while deriving player views only from public state.
+- Validate state-changing proposals against canonical entities and safe campaign-defined schemas. Apply accepted changes atomically with a traceable event; reject unknown entities, invalid ownership or quantities, and unapproved changes. A narrative sentence must not silently create or remove a tracked item.
+- Benchmark both AI-native play tools and campaign-management tools before finalizing this information model. Use their useful interaction patterns as evidence, not as a feature checklist. Apply Apple's documented principles of purpose, agency, responsibility, familiarity, feedback, flexibility, simplicity, craft, and delight to the web experience without copying Apple platform styling.
+- Balance appearance work with usability, play quality, continuity, accessibility, and recovery. A visual iteration is complete only when the relevant play task remains clear and usable.
+
 ### Campaigns and sessions
 
 - A campaign creation flow accepts a title, story premise, setting, tone, language, player character details, optional GM-controlled characters, initial location/date/weather, and any campaign-specific mechanics. A review step shows the setup before play begins.
@@ -78,8 +87,18 @@ Token volumes are assumptions for budgeting, not measured usage. Longer conversa
 ### World and campaign panels
 
 - Maintain canonical, persisted state for location, in-world date/time, weather, characters, and campaign resources. Do not rely on prose or model memory as the only source of truth.
-- Define campaign panel fields with safe data types such as quantity, money, text, status, and date, plus units and visibility. The vineyard configuration can show cash, wine inventory, and vine inventory. New campaigns can choose different fields without application code changes. Avoid arbitrary executable formulas in the MVP.
+- Provide an at-a-glance, player-facing character board for the present scene and current character details. It should make place, surroundings, immediate activity, visible NPC presence, and character resources findable during play, without forcing players to scan the whole transcript.
+- Support a flexible, campaign-defined inventory and resource model. Dungeon campaigns need named items, consumables, equipment, quantities, and ownership; a vineyard may need cash, wine stock, vine stock, or other domain-specific quantities. Track stable identities and ownership so updates change the correct item instead of an ambiguous label. Avoid arbitrary executable formulas in the MVP.
+- Define safe field types, units, visibility, and editable schemas. Existing quantity, money, text, status, and date fields can cover simple ledgers, including cash and wine/vine levels, but they do not replace a first-class owned-item inventory when items have identity or per-character ownership.
+- Keep a canonical place/character-presence record so an NPC's known location and a character's movement can be checked against accepted events. Show private GM facts only in prompts and never in player projections.
 - Keep an append-only record of player actions, rolls, GM outputs, and applied state changes, with current state snapshots for quick loading. Every visible value should be traceable to a turn or an explicit setup/edit action.
+
+### GM continuity and canon
+
+- Assemble each GM request from the versioned play policy, campaign setup, the latest canonical public state, the private GM state, typed character and inventory facts, current character locations, the most recent events across sessions, and separate public/private continuity summaries.
+- Treat summaries as navigation aids, not as replacements for canonical inventory, location, ownership, or unresolved facts. Older events remain inspectable even when they leave the bounded prompt window.
+- Require proposed changes to identify stable records and explicit operations such as add, remove, transfer, move, or update. Validate quantities and permitted destinations before committing; record accepted deltas with the turn and refresh snapshot state atomically.
+- Keep private facts in the GM context and private event history. Public timeline, character board, campaign panels, validation errors, and reconnect state must not disclose them.
 
 ## Technical design for the selected local site
 
@@ -114,6 +133,10 @@ Required behavioural scenarios:
 - Submit player action/speech and see narration, correct NPC speech bubbles, current NPC activity, and updated world state without a page refresh.
 - Request a consequential player roll, show the target first, wait for the player's click, record a D20 result, and resolve exactly once. An ordinary action should not trigger a roll.
 - Update vineyard cash or inventory through an accepted event and see the configured panel reflect the new value; reject an invalid or hidden state change.
+- Create a dungeon-style inventory with distinct owned items and consumables; add, consume, and transfer an item by stable identity, and verify no action duplicates or removes the wrong item. Create a vineyard-style resource panel and verify money and product quantities remain correct across multiple sessions.
+- Move a character between known places and verify the accepted location is visible to the player only when appropriate and reaches the next GM prompt as canonical context. Reject references to unknown characters or destinations; verify NPCs do not appear in an unrelated location without an accepted move or established event.
+- Attempt to gain, lose, duplicate, or transfer a tracked item through narration alone. The item ledger must remain unchanged unless the proposal contains a valid accepted state delta, and the player can trace a committed change to its event.
+- Seed private motives, hidden places, and secret inventory in the separate GM context. Verify the GM receives them while player-facing views, state-change events, and reconnect output omit them.
 - Survive provider timeout, invalid model output, refresh, reconnect, and repeated submit without a duplicate turn or partial state change.
 - Change among English, Spanish, and French and see interface text and formatting change while stored story text remains intact.
 - Review GM scenario fixtures for natural consequences, player agency, restrained escalation, consistent facts, and independent NPC behaviour.
@@ -129,7 +152,8 @@ Milestones 2–6 describe the shared domain goals and selected standalone UI. On
 3. **Implement canonical state and configurable panels.** Add characters, visible/private state, resource fields, event history, snapshots, and vineyard panel configuration. Exit: explicit state changes are validated, traceable, and rendered.
 4. **Implement the GM turn loop and dice.** Add provider behaviour, context assembly, structured output validation, pending turns, player-initiated D20, GM rolls, retries, and atomic state application. Exit: the key turn and failure scenarios pass with a fake provider.
 5. **Build the LiveView play experience.** Add responsive timeline, NPC speech bubbles and activity, world header, campaign panels, text composer, die, progress and recovery states. Exit: complete play flow works without full page refreshes and survives reconnects.
-6. **Localize, migrate, and harden.** Complete three locales, import the reviewed vineyard state, run behavioural and GM scenario suites, check accessibility and mobile layout, and exercise an opt-in live-provider smoke flow. Exit: the vineyard campaign can continue from its approved state and a fresh campaign can be created and played.
+6. **Add the campaign board and robust inventory canon.** Complete player-facing character details, typed inventory ownership, character/place presence, accepted state-delta operations, and event traceability. Exit: dungeon-item and vineyard-resource behavioural scenarios pass with a fake provider across session boundaries.
+7. **Benchmark, localize, and harden.** Compare the public feature sets of AI-native play and campaign-management products, then review task flows against the acceptance criteria and Apple design principles. Complete three locales, import the reviewed vineyard state, run behavioral and GM scenario suites, check accessibility and mobile layout, and exercise an opt-in live-provider smoke flow. Exit: the vineyard campaign can continue from its approved state and a fresh campaign can be created and played.
 
 ## Implementation workflow, persistence, and test isolation
 
@@ -144,6 +168,7 @@ Milestones 2–6 describe the shared domain goals and selected standalone UI. On
 - **Account access:** The chosen OAuth route is a preview for eligible open-source, locally hosted apps. The user's Plus allowance is shared with other apps and can stop GM requests at a usage limit; the app must pause cleanly and must not switch to billed API calls. Remote hosting requires a separate eligibility process. Conventional API-key usage is a future option only if the owner changes the budget.
 - **Legacy history:** The original chat is accessible read-only, but long retrieved messages may be truncated. Review the whole timeline and obtain an authoritative export or owner-approved summary before importing private campaign state.
 - **Model fallibility:** A structured or constrained response reduces parsing ambiguity but does not guarantee correct fiction or arithmetic. Validate changes, keep the canonical state in the application, and preserve a reviewable event record.
+- **Continuity drift:** LLM-generated summaries can omit, merge, or contradict details. Stable item, location, character, and relationship records plus event-linked state deltas are required before relying on the product for a long-running campaign.
 - **Session meaning:** This plan treats a session as a segment inside a campaign. Confirm that model during the creation-flow review if the owner intends independent branches instead.
 
 ## Reference documentation
@@ -155,3 +180,4 @@ Milestones 2–6 describe the shared domain goals and selected standalone UI. On
 - [GPT-6 Sol pricing](https://developers.openai.com/api/docs/models/gpt-6-sol) for the API-key comparison estimate. Prices and plan terms should be rechecked before implementation and before making future cost promises.
 - [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and [conversation state](https://developers.openai.com/api/docs/guides/conversation-state) for the GM adapter.
 - [Phoenix LiveView guide](https://phoenix.hexdocs.pm/live_view.html), [LiveView testing](https://phoenix-live-view.hexdocs.pm/1.2.11/Phoenix.LiveViewTest.html), and [Gettext](https://gettext.hexdocs.pm/) for the server-rendered interface, behavioural tests, and localization.
+- [Initial product benchmark and design principles](docs/PRODUCT_BENCHMARK_2026-09.md) for the comparison set, sourced feature observations, product implications, and interaction-design guidance.

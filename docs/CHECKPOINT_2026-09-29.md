@@ -2,6 +2,14 @@
 
 Storyteller is an in-progress local Phoenix LiveView TTRPG site. This checkpoint is committed to `main` so work can resume without reconstructing the current state. It is not a polished or live-provider-verified MVP.
 
+## Product direction added 2026-09-29
+
+The owner asked that product work balance visual polish with excellent UX and gameplay. Prioritize a player-facing board for character, place, surroundings, immediate events, and owned inventory/resources; make inventory flexible across campaigns, from dungeon items and potions to vineyard wine and cash; and strengthen canon so hidden GM context helps prevent continuity errors. See [the benchmark and interaction principles](PRODUCT_BENCHMARK_2026-09.md), [implementation plan](../IMPLEMENTATION_PLAN.md), and [observable UX acceptance](UX_ACCEPTANCE.md).
+
+The source review confirmed that each GM request already contains public and private world maps, separate public/private summaries, all character fact maps, campaign panel definitions/values, and the latest 40 campaign events. Player projections omit private character facts and panel values. The model does not yet provide first-class item identity/ownership or place/character-presence records: possessions and locations can only be represented in flexible maps or scalar campaign fields, so the app cannot fully validate transfers, item conservation, or NPC placement. The current visible play rail has world, character-fact/activity, and resource panels, but no owned-item inventory view. These are the next product and architecture priorities. No campaign data or feature code was changed while recording this direction.
+
+An initial documentation-based benchmark compares Friends & Fables, Kanka, and LegendKeeper with Apple's interaction-design principles. Hands-on task evaluation and implementation of the player board/canonical inventory remain future work.
+
 ## Implemented and checked
 
 - Durable PostgreSQL campaigns and continuous sessions, with a separate fictional development QA campaign and a separate test database. The vineyard campaign has not been imported or used for QA.
