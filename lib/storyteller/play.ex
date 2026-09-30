@@ -331,6 +331,28 @@ defmodule Storyteller.Play do
 
   @doc "Returns only public events, in campaign order across all sessions."
   def public_timeline(campaign_id, opts \\ []) do
+    with {:ok, %{events: events}} <- public_timeline_page(campaign_id, opts) do
+      {:ok, events}
+    end
+  end
+
+  @doc "Returns a bounded campaign timeline page and whether earlier public events remain."
+  def public_timeline_page(campaign_id, opts \\ [])
+
+  def public_timeline_page(campaign_id, opts) when is_list(opts) do
+    limit = opts |> Keyword.get(:limit, 500) |> valid_limit()
+    before_sequence = Keyword.get(opts, :before_sequence)
+
+    if is_nil(before_sequence) or (is_integer(before_sequence) and before_sequence > 0) do
+      fetch_public_timeline_page(campaign_id, opts, limit, before_sequence)
+    else
+      {:error, :invalid_cursor}
+    end
+  end
+
+  def public_timeline_page(_campaign_id, _opts), do: {:error, :invalid_cursor}
+
+  defp fetch_public_timeline_page(campaign_id, opts, limit, before_sequence) do
     query =
       from event in Event,
         where: event.campaign_id == ^campaign_id and event.visibility == :public,
@@ -342,14 +364,24 @@ defmodule Storyteller.Play do
         session_id -> from event in query, where: event.session_id == ^session_id
       end
 
-    limit = opts |> Keyword.get(:limit, 500) |> valid_limit()
+    query =
+      if is_integer(before_sequence) do
+        from event in query, where: event.sequence < ^before_sequence
+      else
+        query
+      end
+
+    rows = Repo.all(from event in query, limit: ^(limit + 1))
+    has_earlier? = length(rows) > limit
 
     events =
-      Repo.all(from event in query, limit: ^limit)
+      rows
+      |> Enum.take(limit)
       |> Enum.reverse()
       |> Enum.with_index(1)
       |> Enum.map(fn {event, position} ->
         %{
+          sequence: event.sequence,
           position: position,
           session_id: event.session_id,
           turn_id: event.turn_id,
@@ -360,7 +392,7 @@ defmodule Storyteller.Play do
         }
       end)
 
-    {:ok, events}
+    {:ok, %{events: events, has_earlier?: has_earlier?}}
   end
 
   @doc "Returns the newest player-visible turn that still needs attention."

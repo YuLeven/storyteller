@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Page through earlier campaign story
+
+- The campaign timeline starts with a bounded 500-event recent window and exposes a localized “Load earlier story” action for preceding public events. Cursor and DOM identity use immutable event sequence values, so page loads are ordered and idempotent.
+- Previously loaded pages remain visible when LiveView refreshes for a new turn. The latest 20 entries stay in the polite additions-only live region; fetched history stays outside it, so reviewing old entries is not announced as new story. Earlier-session markers are computed in one linear pass across loaded history.
+- **Checked:** focused Play and SessionLive suites pass (**45 tests, 0 failures**) and the full suite passes (**147 tests, 0 failures**). Tests cover sequence-cursor ordering, 1,101 events across two sessions, repeated loads without duplicates, session headings, and a refresh that appends new activity without dropping loaded pages. WSL formatting, warnings-as-errors compilation, asset build, gettext extraction/merges, and `git diff --check` pass.
+
 ## 2026-09-30 — Make campaign resource changes transactional
 
 - Replaced absolute panel-value proposals with strict typed operations: signed deltas for quantity and money, typed sets for text/status/date, and a required grounded reason for every change.

@@ -1966,6 +1966,54 @@ defmodule Storyteller.PlayTest do
     assert Enum.map(first_history, & &1.position) == Enum.to_list(1..length(first_history))
   end
 
+  test "public timeline pages use the event sequence cursor without gaps or overlap" do
+    {campaign, session} = play_campaign("The Sequence Archive")
+
+    {:ok, turn} =
+      Play.submit_turn(campaign.id, session.id, "timeline-pages", "Study the archive.")
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^turn.id), set: [status: :completed])
+
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    events =
+      Enum.map(1..7, fn sequence ->
+        %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          turn_id: turn.id,
+          sequence: sequence,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{"text" => "Sequence marker #{sequence}"},
+          inserted_at: now
+        }
+      end)
+
+    assert {7, nil} = Repo.insert_all(Event, events)
+
+    assert {:ok, %{events: newest, has_earlier?: true}} =
+             Play.public_timeline_page(campaign.id, limit: 3)
+
+    assert Enum.map(newest, & &1.sequence) == [5, 6, 7]
+
+    assert {:ok, %{events: middle, has_earlier?: true}} =
+             Play.public_timeline_page(campaign.id, limit: 3, before_sequence: 5)
+
+    assert Enum.map(middle, & &1.sequence) == [2, 3, 4]
+
+    assert {:ok, %{events: oldest, has_earlier?: false}} =
+             Play.public_timeline_page(campaign.id, limit: 3, before_sequence: 2)
+
+    assert Enum.map(oldest, & &1.sequence) == [1]
+
+    assert {:ok, %{events: [], has_earlier?: false}} =
+             Play.public_timeline_page(campaign.id, limit: 3, before_sequence: 1)
+
+    assert {:error, :invalid_cursor} =
+             Play.public_timeline_page(campaign.id, before_sequence: 0)
+  end
+
   test "idempotency replays a completed turn and rejects key reuse with different text" do
     {campaign, session} = play_campaign("The Glass Observatory")
     caller = self()

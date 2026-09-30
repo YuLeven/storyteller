@@ -8,6 +8,8 @@ defmodule StorytellerWeb.SessionLive.Show do
   @poll_interval 1_500
   @turn_in_progress [:pending, :resolving]
   @turn_blocking [:pending, :resolving, :awaiting_roll]
+  @timeline_page_size 500
+  @timeline_live_window 20
 
   @impl true
   def mount(%{"campaign_id" => campaign_id, "session_id" => session_id}, _session, socket) do
@@ -32,6 +34,10 @@ defmodule StorytellerWeb.SessionLive.Show do
             player_character: nil,
             characters_by_id: %{},
             timeline: [],
+            timeline_history: [],
+            timeline_live: [],
+            timeline_has_earlier?: false,
+            timeline_loaded_earlier?: false,
             game_error: nil,
             worker_turn_id: nil,
             poll_scheduled?: false
@@ -75,6 +81,35 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   def handle_event("use-in-action", _params, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("load-earlier-story", _params, socket) do
+    case List.first(socket.assigns.timeline) do
+      %{sequence: before_sequence} ->
+        case Play.public_timeline_page(socket.assigns.session.campaign_id,
+               before_sequence: before_sequence,
+               limit: @timeline_page_size
+             ) do
+          {:ok, %{events: events, has_earlier?: has_earlier?}} ->
+            timeline = merge_timeline(socket.assigns.timeline, events)
+
+            {:noreply,
+             socket
+             |> assign(
+               timeline: timeline,
+               timeline_has_earlier?: has_earlier?,
+               timeline_loaded_earlier?: true
+             )
+             |> assign_timeline_regions()}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, gettext("Earlier story could not be loaded."))}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
 
   @impl true
   def handle_event("submit-turn", %{"turn" => params}, socket) do
@@ -172,6 +207,149 @@ defmodule StorytellerWeb.SessionLive.Show do
     {:noreply, socket}
   end
 
+  attr :event, :map, required: true
+  attr :earlier_session?, :boolean, required: true
+  attr :characters_by_id, :map, required: true
+  attr :projection, :map, required: true
+
+  defp timeline_entry(assigns) do
+    ~H"""
+    <li
+      id={"event-#{@event.sequence}"}
+      class="min-w-0"
+    >
+      <p
+        :if={@earlier_session?}
+        class="mb-2 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400"
+      >
+        {gettext("Earlier session")}
+      </p>
+      <article class={[
+        "story-entry",
+        @event.event_type == :player_action && "story-entry-player",
+        @event.event_type == :npc_dialogue && "story-entry-dialogue",
+        @event.event_type == :gm_narration && "story-entry-narration",
+        @event.event_type in [
+          :character_activity,
+          :roll_request,
+          :player_roll,
+          :state_change
+        ] &&
+          "story-entry-note"
+      ]}>
+        <div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
+            {case @event.event_type do
+              :player_action -> gettext("You")
+              :gm_narration -> gettext("Game master")
+              :npc_dialogue -> speaker_name(@characters_by_id, @event.speaker_id)
+              :character_activity -> speaker_name(@characters_by_id, @event.speaker_id)
+              :roll_request -> gettext("Roll requested")
+              :player_roll -> gettext("D20 roll")
+              :state_change -> state_change_label(@event, @characters_by_id)
+            end}
+          </h3>
+          <time class="text-[11px] text-stone-400">
+            {gettext("%{date} at %{time} UTC",
+              date: Calendar.strftime(@event.inserted_at, "%Y-%m-%d"),
+              time: Calendar.strftime(@event.inserted_at, "%H:%M")
+            )}
+          </time>
+        </div>
+
+        <p
+          :if={
+            @event.event_type in [
+              :player_action,
+              :gm_narration,
+              :npc_dialogue,
+              :character_activity
+            ]
+          }
+          class="whitespace-pre-wrap leading-7 text-stone-800"
+        >
+          {event_text(@event)}
+        </p>
+
+        <p :if={@event.event_type == :roll_request} class="leading-7 text-stone-800">
+          <span class="block">
+            {@projection.characters
+            |> Enum.find(&(&1.role == :player))
+            |> then(fn character -> character && character.name end) ||
+              gettext("Your character")} {gettext("needs to roll")} <strong>{@event.payload["test"]}</strong>.
+          </span>
+          <span
+            :if={@event.payload["difficulty"]}
+            class="mt-1 block text-sm text-stone-600"
+          >
+            {gettext("Difficulty:")} {@event.payload["difficulty"]}
+          </span>
+          <span :if={@event.payload["target"]} class="mt-1 block text-sm text-stone-600">
+            {gettext("Target:")} {@event.payload["target"]}
+          </span>
+        </p>
+
+        <p :if={@event.event_type == :player_roll} class="font-semibold text-violet-900">
+          {gettext("D20 result:")} {@event.payload["result"]}
+        </p>
+
+        <p
+          :if={@event.event_type == :state_change && state_change_reason(@event)}
+          class="mt-2 text-sm leading-6 text-stone-600"
+        >
+          {gettext("Reason: %{reason}", reason: state_change_reason(@event))}
+        </p>
+
+        <dl
+          :if={@event.event_type == :state_change && map_size(state_change_values(@event)) > 0}
+          class="mt-2 grid gap-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]"
+        >
+          <div :for={{key, value} <- state_change_values(@event)} class="contents">
+            <dt class="font-medium text-stone-600">{world_label(key)}</dt>
+            <dd class="whitespace-pre-wrap text-stone-800">{display_value(value)}</dd>
+          </div>
+        </dl>
+        <ul
+          :if={@event.event_type == :state_change && panel_change_values(@event) != []}
+          class="mt-2 space-y-2 text-sm text-stone-700"
+        >
+          <li :for={change <- panel_change_values(@event)}>
+            <p class="font-medium text-stone-800">{panel_change_summary(change)}</p>
+            <p>{panel_change_operation(change)}</p>
+            <p class="text-stone-600">
+              {gettext("Reason: %{reason}", reason: change["reason"])}
+            </p>
+          </li>
+        </ul>
+        <ul
+          :if={@event.event_type == :state_change && inventory_change_values(@event) != []}
+          class="mt-2 space-y-1 text-sm text-stone-700"
+        >
+          <li :for={change <- inventory_change_values(@event)}>
+            {inventory_event_text(change, @characters_by_id)}
+          </li>
+        </ul>
+        <ul
+          :if={@event.event_type == :state_change && location_change_values(@event) != []}
+          class="mt-2 space-y-1 text-sm text-stone-700"
+        >
+          <li :for={change <- location_change_values(@event)}>
+            {location_event_text(change, @characters_by_id)}
+          </li>
+        </ul>
+        <ul
+          :if={@event.event_type == :state_change && objective_change_values(@event) != []}
+          class="mt-2 space-y-1 text-sm text-stone-700"
+        >
+          <li :for={change <- objective_change_values(@event)}>
+            {objective_event_text(change)}
+          </li>
+        </ul>
+      </article>
+    </li>
+    """
+  end
+
   defp submit_turn(socket, input, key) do
     case Play.submit_turn(
            socket.assigns.session.campaign_id,
@@ -218,19 +396,89 @@ defmodule StorytellerWeb.SessionLive.Show do
     campaign_id = socket.assigns.session.campaign_id
 
     with {:ok, projection} <- Play.public_projection(campaign_id),
-         {:ok, timeline} <- Play.public_timeline(campaign_id) do
+         {:ok, %{events: recent_events, has_earlier?: has_earlier?}} <-
+           Play.public_timeline_page(campaign_id, limit: @timeline_page_size) do
+      timeline = merge_timeline(socket.assigns.timeline, recent_events)
+
+      timeline_has_earlier? =
+        if socket.assigns.timeline_loaded_earlier?,
+          do: socket.assigns.timeline_has_earlier?,
+          else: has_earlier?
+
       assign(socket,
         projection: projection,
         player_character: Enum.find(projection.characters, &(&1.speaker_id == "player")),
         characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
         timeline: timeline,
+        timeline_has_earlier?: timeline_has_earlier?,
         current_turn: Play.public_current_turn(campaign_id),
         game_error: nil
       )
+      |> assign_timeline_regions(recent_events)
     else
       _ ->
         assign(socket, game_error: gettext("The campaign's play state could not be refreshed."))
     end
+  end
+
+  defp merge_timeline(existing, incoming), do: merge_timeline(existing, incoming, [])
+
+  defp merge_timeline([], incoming, acc), do: Enum.reverse(acc, incoming)
+  defp merge_timeline(existing, [], acc), do: Enum.reverse(acc, existing)
+
+  defp merge_timeline(
+         [%{sequence: left_sequence} = event | left],
+         [%{sequence: right_sequence} | _] = incoming,
+         acc
+       )
+       when left_sequence < right_sequence do
+    merge_timeline(left, incoming, [event | acc])
+  end
+
+  defp merge_timeline(
+         [%{sequence: left_sequence} | _] = existing,
+         [%{sequence: right_sequence} = event | right],
+         acc
+       )
+       when left_sequence > right_sequence do
+    merge_timeline(existing, right, [event | acc])
+  end
+
+  defp merge_timeline([event | left], [_duplicate | right], acc),
+    do: merge_timeline(left, right, [event | acc])
+
+  defp assign_timeline_regions(socket, recent_events \\ nil) do
+    latest_events = recent_events || socket.assigns.timeline
+
+    live_from_sequence =
+      latest_events
+      |> Enum.take(-@timeline_live_window)
+      |> List.first()
+      |> case do
+        %{sequence: sequence} -> sequence
+        _ -> nil
+      end
+
+    {indexed_events, _previous_session_id} =
+      socket.assigns.timeline
+      |> Enum.with_index()
+      |> Enum.map_reduce(nil, fn {event, index}, previous_session_id ->
+        earlier_session? =
+          event.session_id != socket.assigns.session.id and
+            (index == 0 or previous_session_id != event.session_id)
+
+        {{event, earlier_session?}, event.session_id}
+      end)
+
+    {history, live} =
+      Enum.split_with(indexed_events, fn {event, _earlier_session?} ->
+        is_nil(live_from_sequence) or event.sequence < live_from_sequence
+      end)
+
+    assign(socket,
+      timeline_history: history,
+      timeline_live: live
+    )
   end
 
   defp maybe_start_resolution(socket, turn) do
@@ -404,13 +652,6 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp compact_inventory_collection_value(value) when is_binary(value), do: Jason.encode!(value)
   defp compact_inventory_collection_value(value), do: compact_inventory_property_value(value)
-
-  defp earlier_session_start?(timeline, index, current_session_id) do
-    event = Enum.at(timeline, index)
-
-    event.session_id != current_session_id and
-      (index == 0 or Enum.at(timeline, index - 1).session_id != event.session_id)
-  end
 
   defp state_change_label(event, characters) do
     cond do

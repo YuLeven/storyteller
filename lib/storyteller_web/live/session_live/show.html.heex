@@ -254,152 +254,51 @@
               )}
             </p>
           </div>
-          <ol
+          <div
             id="story-timeline"
             tabindex="-1"
+            role="region"
             aria-label={gettext("Campaign story")}
-            aria-live="polite"
-            aria-relevant="additions"
-            aria-atomic="false"
-            class="story-timeline scroll-mt-20 space-y-4 px-4 py-5 sm:px-7"
+            class="scroll-mt-20"
           >
-            <li
-              :for={{event, index} <- Enum.with_index(@timeline)}
-              id={"event-#{event.position}"}
-              class="min-w-0"
+            <button
+              :if={@timeline_has_earlier?}
+              id="load-earlier-story"
+              type="button"
+              phx-click="load-earlier-story"
+              class="mx-4 mt-4 rounded-lg border border-amber-300 bg-stone-900 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 sm:mx-7"
+            >{gettext("Load earlier story")}</button>
+            <ol
+              :if={@timeline_history != []}
+              id="story-history"
+              aria-label={gettext("Earlier campaign story")}
+              class="story-timeline space-y-4 px-4 py-5 sm:px-7"
             >
-              <p
-                :if={earlier_session_start?(@timeline, index, @session.id)}
-                class="mb-2 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400"
-              >
-                {gettext("Earlier session")}
-              </p>
-              <article class={[
-                "story-entry",
-                event.event_type == :player_action && "story-entry-player",
-                event.event_type == :npc_dialogue && "story-entry-dialogue",
-                event.event_type == :gm_narration && "story-entry-narration",
-                event.event_type in [
-                  :character_activity,
-                  :roll_request,
-                  :player_roll,
-                  :state_change
-                ] &&
-                  "story-entry-note"
-              ]}>
-                <div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
-                    {case event.event_type do
-                      :player_action -> gettext("You")
-                      :gm_narration -> gettext("Game master")
-                      :npc_dialogue -> speaker_name(@characters_by_id, event.speaker_id)
-                      :character_activity -> speaker_name(@characters_by_id, event.speaker_id)
-                      :roll_request -> gettext("Roll requested")
-                      :player_roll -> gettext("D20 roll")
-                      :state_change -> state_change_label(event, @characters_by_id)
-                    end}
-                  </h3>
-                  <time class="text-[11px] text-stone-400">
-                    {gettext("%{date} at %{time} UTC",
-                      date: Calendar.strftime(event.inserted_at, "%Y-%m-%d"),
-                      time: Calendar.strftime(event.inserted_at, "%H:%M")
-                    )}
-                  </time>
-                </div>
-
-                <p
-                  :if={
-                    event.event_type in [
-                      :player_action,
-                      :gm_narration,
-                      :npc_dialogue,
-                      :character_activity
-                    ]
-                  }
-                  class="whitespace-pre-wrap leading-7 text-stone-800"
-                >
-                  {event_text(event)}
-                </p>
-
-                <p :if={event.event_type == :roll_request} class="leading-7 text-stone-800">
-                  <span class="block">
-                    {@projection.characters
-                    |> Enum.find(&(&1.role == :player))
-                    |> then(fn character -> character && character.name end) ||
-                      gettext("Your character")} {gettext("needs to roll")} <strong>{event.payload["test"]}</strong>.
-                  </span>
-                  <span
-                    :if={event.payload["difficulty"]}
-                    class="mt-1 block text-sm text-stone-600"
-                  >
-                    {gettext("Difficulty:")} {event.payload["difficulty"]}
-                  </span>
-                  <span :if={event.payload["target"]} class="mt-1 block text-sm text-stone-600">
-                    {gettext("Target:")} {event.payload["target"]}
-                  </span>
-                </p>
-
-                <p :if={event.event_type == :player_roll} class="font-semibold text-violet-900">
-                  {gettext("D20 result:")} {event.payload["result"]}
-                </p>
-
-                <p
-                  :if={event.event_type == :state_change && state_change_reason(event)}
-                  class="mt-2 text-sm leading-6 text-stone-600"
-                >
-                  {gettext("Reason: %{reason}", reason: state_change_reason(event))}
-                </p>
-
-                <dl
-                  :if={
-                    event.event_type == :state_change && map_size(state_change_values(event)) > 0
-                  }
-                  class="mt-2 grid gap-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]"
-                >
-                  <div :for={{key, value} <- state_change_values(event)} class="contents">
-                    <dt class="font-medium text-stone-600">{world_label(key)}</dt>
-                    <dd class="whitespace-pre-wrap text-stone-800">{display_value(value)}</dd>
-                  </div>
-                </dl>
-                <ul
-                  :if={event.event_type == :state_change && panel_change_values(event) != []}
-                  class="mt-2 space-y-2 text-sm text-stone-700"
-                >
-                  <li :for={change <- panel_change_values(event)}>
-                    <p class="font-medium text-stone-800">{panel_change_summary(change)}</p>
-                    <p>{panel_change_operation(change)}</p>
-                    <p class="text-stone-600">
-                      {gettext("Reason: %{reason}", reason: change["reason"])}
-                    </p>
-                  </li>
-                </ul>
-                <ul
-                  :if={event.event_type == :state_change && inventory_change_values(event) != []}
-                  class="mt-2 space-y-1 text-sm text-stone-700"
-                >
-                  <li :for={change <- inventory_change_values(event)}>
-                    {inventory_event_text(change, @characters_by_id)}
-                  </li>
-                </ul>
-                <ul
-                  :if={event.event_type == :state_change && location_change_values(event) != []}
-                  class="mt-2 space-y-1 text-sm text-stone-700"
-                >
-                  <li :for={change <- location_change_values(event)}>
-                    {location_event_text(change, @characters_by_id)}
-                  </li>
-                </ul>
-                <ul
-                  :if={event.event_type == :state_change && objective_change_values(event) != []}
-                  class="mt-2 space-y-1 text-sm text-stone-700"
-                >
-                  <li :for={change <- objective_change_values(event)}>
-                    {objective_event_text(change)}
-                  </li>
-                </ul>
-              </article>
-            </li>
-          </ol>
+              <.timeline_entry
+                :for={{event, earlier_session?} <- @timeline_history}
+                event={event}
+                earlier_session?={earlier_session?}
+                characters_by_id={@characters_by_id}
+                projection={@projection}
+              />
+            </ol>
+            <ol
+              id="story-live-timeline"
+              aria-label={gettext("Recent campaign story")}
+              aria-live="polite"
+              aria-relevant="additions"
+              aria-atomic="false"
+              class="story-timeline space-y-4 px-4 py-5 sm:px-7"
+            >
+              <.timeline_entry
+                :for={{event, earlier_session?} <- @timeline_live}
+                event={event}
+                earlier_session?={earlier_session?}
+                characters_by_id={@characters_by_id}
+                projection={@projection}
+              />
+            </ol>
+          </div>
         </section>
 
         <section

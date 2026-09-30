@@ -257,7 +257,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(
              view,
-             "#story-timeline[aria-live='polite'][aria-relevant='additions'][aria-atomic='false']"
+             "#story-live-timeline[aria-live='polite'][aria-relevant='additions'][aria-atomic='false']"
            )
 
     assert has_element?(view, "#empty-timeline")
@@ -273,7 +273,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(
              view,
-             "#story-timeline[aria-live='polite'][aria-relevant='additions'][aria-atomic='false']"
+             "#story-live-timeline[aria-live='polite'][aria-relevant='additions'][aria-atomic='false']"
            )
 
     assert has_element?(view, "#story-timeline", "Health")
@@ -672,13 +672,124 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert render(resumed) =~ "The saved action now moves the story forward."
   end
 
-  test "the timeline window keeps recent campaign events in chronological order", %{conn: conn} do
+  test "campaign story pages reach older events and keep them through live refreshes", %{
+    conn: conn
+  } do
     campaign = campaign_fixture()
-    [session] = campaign.sessions
+    [earlier_session] = campaign.sessions
+
+    {:ok, earlier_turn} =
+      Play.submit_turn(
+        campaign.id,
+        earlier_session.id,
+        "earlier-history-turn",
+        "Seed earlier history"
+      )
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^earlier_turn.id),
+      set: [status: :completed]
+    )
+
+    {:ok, session} = Storyteller.Campaigns.start_session(campaign)
     {:ok, _state} = Play.initialize_campaign(campaign)
 
     {:ok, turn} =
       Play.submit_turn(campaign.id, session.id, "history-window-turn", "Seed long history")
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^turn.id), set: [status: :completed])
+
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    events =
+      Enum.map(1..1_101, fn sequence ->
+        %{
+          campaign_id: campaign.id,
+          session_id: if(sequence <= 551, do: earlier_session.id, else: session.id),
+          turn_id: if(sequence <= 551, do: earlier_turn.id, else: turn.id),
+          sequence: sequence,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{"text" => "History marker #{sequence}"},
+          inserted_at: now
+        }
+      end)
+
+    assert {1_101, nil} = Repo.insert_all(Event, events)
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert length(timeline) == 500
+    assert hd(timeline).payload["text"] == "History marker 602"
+    assert List.last(timeline).payload["text"] == "History marker 1101"
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+    assert has_element?(view, "#load-earlier-story", "Load earlier story")
+    assert has_element?(view, "#event-602", "History marker 602")
+    assert has_element?(view, "#event-1101", "History marker 1101")
+    refute has_element?(view, "#event-601")
+
+    event_ids = fn html ->
+      html
+      |> Floki.parse_document!()
+      |> Floki.find("#story-timeline li[id]")
+      |> Enum.flat_map(&Floki.attribute(&1, "id"))
+      |> Enum.filter(&String.starts_with?(&1, "event-"))
+      |> Enum.map(&(String.replace_prefix(&1, "event-", "") |> String.to_integer()))
+    end
+
+    assert event_ids.(render(view)) == Enum.to_list(602..1_101)
+
+    live_ids = fn html ->
+      html
+      |> Floki.parse_document!()
+      |> Floki.find("#story-live-timeline li[id]")
+      |> Enum.flat_map(&Floki.attribute(&1, "id"))
+      |> Enum.map(&(String.replace_prefix(&1, "event-", "") |> String.to_integer()))
+    end
+
+    assert live_ids.(render(view)) == Enum.to_list(1_082..1_101)
+
+    view |> element("#load-earlier-story") |> render_click()
+    assert has_element?(view, "#event-102", "History marker 102")
+    refute has_element?(view, "#event-101")
+    assert event_ids.(render(view)) == Enum.to_list(102..1_101)
+    assert live_ids.(render(view)) == Enum.to_list(1_082..1_101)
+    assert has_element?(view, "#event-102", "Earlier session")
+
+    Repo.insert!(
+      Event.changeset(%Event{}, %{
+        campaign_id: campaign.id,
+        session_id: session.id,
+        turn_id: turn.id,
+        sequence: 1_102,
+        event_type: :gm_narration,
+        visibility: :public,
+        payload: %{"text" => "A new scene arrives."}
+      })
+    )
+
+    send(view.pid, :refresh_turn)
+    assert wait_until(fn -> has_element?(view, "#event-1102", "A new scene arrives.") end)
+    assert has_element?(view, "#event-102", "History marker 102")
+    assert event_ids.(render(view)) == Enum.to_list(102..1_102)
+    assert live_ids.(render(view)) == Enum.to_list(1_083..1_102)
+    assert has_element?(view, "#load-earlier-story")
+
+    view |> element("#load-earlier-story") |> render_click()
+    assert has_element?(view, "#event-1", "History marker 1")
+    assert has_element?(view, "#event-1", "Earlier session")
+    refute has_element?(view, "#load-earlier-story")
+    assert event_ids.(render(view)) == Enum.to_list(1..1_102)
+
+    before_forged_load = event_ids.(render(view))
+    render_click(view, "load-earlier-story", %{})
+    assert event_ids.(render(view)) == before_forged_load
+  end
+
+  test "older campaign story controls use the selected interface locale", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+    {:ok, turn} = Play.submit_turn(campaign.id, session.id, "localized-history", "Seed history")
 
     Repo.update_all(from(turn in Turn, where: turn.id == ^turn.id), set: [status: :completed])
 
@@ -693,31 +804,23 @@ defmodule StorytellerWeb.SessionLiveTest do
           sequence: sequence,
           event_type: :gm_narration,
           visibility: :public,
-          payload: %{"text" => "History marker #{sequence}"},
+          payload: %{"text" => "Localized marker #{sequence}"},
           inserted_at: now
         }
       end)
 
     assert {501, nil} = Repo.insert_all(Event, events)
 
-    {:ok, timeline} = Play.public_timeline(campaign.id)
-    assert length(timeline) == 500
-    assert hd(timeline).payload["text"] == "History marker 2"
-    assert List.last(timeline).payload["text"] == "History marker 501"
+    for {locale, button, history_label} <- [
+          {"es", "Cargar relato anterior", "Relato anterior de la campaña"},
+          {"fr", "Charger le récit précédent", "Récit précédent de la campagne"}
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, view, _html} = live(conn, session_path(campaign, session))
 
-    {:ok, _view, html} = live(conn, session_path(campaign, session))
-    document = Floki.parse_document!(html)
-    first_event = document |> Floki.find("#event-1") |> Floki.text()
-    last_event = document |> Floki.find("#event-500") |> Floki.text()
-
-    event_texts =
-      document
-      |> Floki.find("#story-timeline .story-entry > p")
-      |> Enum.map(&Floki.text/1)
-
-    assert first_event =~ "History marker 2"
-    assert last_event =~ "History marker 501"
-    refute "History marker 1" in event_texts
+      assert has_element?(view, "#load-earlier-story", button)
+      assert has_element?(view, "#story-history[aria-label='#{history_label}']")
+    end
   end
 
   defp session_path(campaign, session),
