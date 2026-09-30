@@ -1,5 +1,26 @@
 # Feature log
 
+## 2026-09-30 — Jump straight to the mobile turn composer
+
+- The sticky session bar begins with a “Your turn” link on playable sessions. It focuses the labeled composer and offsets it below the sticky bar; completed/read-only sessions have no dead composer link.
+- **Checked:** LiveView behavior tests cover the focusable target and navigation link. At a 370px browser viewport, keyboard Enter activated the link, focused the composer, and kept the board within viewport width. Visual review also confirmed the translucent amber and white card surfaces stay dark and readable.
+
+## 2026-09-30 — Keep date and time canonical in GM context
+
+- Public world aliases for date, time, and weather now normalize to one canonical key before storage and again when older state is read. Legacy conflicts use the latest matching public state-change event value (or the existing field precedence when history has no matching update); multiple aliases for one fact in a single proposal are rejected. Accepted updates reconcile legacy state before applying the new value.
+- The GM request and player-facing board now see the same single date/time/weather values, so old data cannot present one time in the header and another in the scene facts.
+- **Checked:** focused Play and SessionLive suites pass (**49 tests, 0 failures**). Behavioral coverage verifies that the latest event value wins over stale persisted aliases, the value appears once on the board and in GM context, newer updates survive reconciliation, state heals to one canonical field, and conflicting aliases in one proposal fail atomically. Isolated `storyteller_test`, fake providers only.
+
+## 2026-09-30 — Preserve dark card contrast on narrow screens
+
+- Added dark palette mappings for translucent amber and white utility backgrounds used by campaign commitments, current-place cards, and nested people/objective rows.
+- **Checked:** read-only 370px viewport review confirmed those card surfaces remain dark and readable. This was a visual spot check; keyboard, screen-reader, and full contrast verification remain open.
+
+## 2026-09-30 — Keep multi-step player travel canonical
+
+- When a turn records multiple player movements, the public world location now uses the final destination, matching the player's persisted current place.
+- **Checked:** a behavioral regression verifies final place and world location agree in public projection and in the next session's GM context. It is included in the focused Play and SessionLive run (**49 tests, 0 failures**).
+
 ## 2026-09-30 — Page through earlier campaign story
 
 - The campaign timeline starts with a bounded 500-event recent window and exposes a localized “Load earlier story” action for preceding public events. Cursor and DOM identity use immutable event sequence values, so page loads are ordered and idempotent.

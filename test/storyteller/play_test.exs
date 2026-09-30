@@ -9,6 +9,136 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Play
   alias Storyteller.Play.{Character, Event, Objective, Roll, State, Turn}
 
+  test "legacy world time aliases collapse consistently in the next GM context and persisted state" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "set-early-time",
+               "The orchard wakes at dawn.",
+               provider: ordinary_provider(%{"public_changes" => %{"time" => "Early morning"}}),
+               model: "test-model"
+             )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "legacy-world-time-change",
+               "The morning advances.",
+               provider:
+                 ordinary_provider(%{"public_changes" => %{"world_time" => "Midmorning"}}),
+               model: "test-model"
+             )
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          Map.merge(state.public_state, %{
+            "time" => "Early morning",
+            "world_time" => "Stale legacy value"
+          })
+      })
+    )
+
+    latest_state_change =
+      Repo.one!(
+        from event in Event,
+          where:
+            event.campaign_id == ^campaign.id and event.event_type == :state_change and
+              event.visibility == :public,
+          order_by: [desc: event.sequence],
+          limit: 1
+      )
+
+    Repo.update!(
+      Event.changeset(latest_state_change, %{
+        payload: %{"changes" => %{"world_time" => "Midmorning"}}
+      })
+    )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.world["time"] == "Midmorning"
+    refute Map.has_key?(projection.world, "world_time")
+
+    first_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "canonical-world-time",
+               "Watch the orchard wake.",
+               provider: fn request ->
+                 context = decode_request(request)
+                 Agent.update(first_context, fn _ -> context end)
+
+                 {:ok,
+                  Jason.encode!(
+                    ordinary_proposal(%{
+                      "public_changes" => %{"time" => "Late morning"}
+                    })
+                  )}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(first_context, & &1)
+    assert context["world"]["public"]["time"] == "Midmorning"
+    refute Map.has_key?(context["world"]["public"], "world_time")
+
+    canonical_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert canonical_state.public_state["time"] == "Late morning"
+    refute Map.has_key?(canonical_state.public_state, "world_time")
+
+    next_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "confirm-canonical-world-time",
+               "Continue into the day.",
+               provider: fn request ->
+                 Agent.update(next_context, fn _ -> decode_request(request) end)
+                 {:ok, Jason.encode!(ordinary_proposal())}
+               end,
+               model: "test-model"
+             )
+
+    next = Agent.get(next_context, & &1)
+    assert next["world"]["public"]["time"] == "Late morning"
+    refute Map.has_key?(next["world"]["public"], "world_time")
+  end
+
+  test "conflicting aliases in one world-time proposal are rejected atomically" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    state_before = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "conflicting-world-time",
+               "Wait for the watch to change.",
+               provider:
+                 ordinary_provider(%{
+                   "public_changes" => %{
+                     "time" => "Early morning",
+                     "world_time" => "Midmorning"
+                   }
+                 }),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).public_state == state_before.public_state
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+  end
+
   test "GM memory is persisted by visibility and only recent events are sent back to the model" do
     {campaign, session} = play_campaign("The Glass Observatory")
 
@@ -746,6 +876,50 @@ defmodule Storyteller.PlayTest do
     next_player = Enum.find(next_context["characters"], &(&1["speaker_id"] == "player"))
     assert next_player["current_place"]["name"] == "Old press room"
     assert Enum.any?(next_context["places"]["gm_private"], &(&1["place_id"] == "sealed-vault"))
+  end
+
+  test "the final player movement in one proposal determines canonical world location" do
+    {campaign, session} = play_campaign("The Quiet Vineyard")
+
+    location_changes =
+      move_player_to("orchard-gate", "Orchard gate") ++
+        move_player_to("press-house", "Press house")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "cross-two-places",
+               "Walk from the gate to the press house.",
+               provider: ordinary_provider(%{"location_changes" => location_changes}),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    assert player.current_place.name == "Press house"
+    assert projection.world["location"] == player.current_place.name
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    observed_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "verify-cross-session-location",
+               "Look around the press house.",
+               provider: fn request ->
+                 Agent.update(observed_context, fn _ -> decode_request(request) end)
+                 {:ok, Jason.encode!(ordinary_proposal())}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(observed_context, & &1)
+    context_player = Enum.find(context["characters"], &(&1["speaker_id"] == "player"))
+    assert context_player["current_place"]["name"] == "Press house"
+    assert context["world"]["public"]["location"] == "Press house"
   end
 
   test "introduces a new GM character who can speak, act, carry an item, and be publicly present immediately" do

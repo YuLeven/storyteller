@@ -17,7 +17,12 @@ defmodule Storyteller.Play do
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
-  @default_world %{"location" => nil, "world_time" => nil, "weather" => nil}
+  @default_world %{"location" => nil, "time" => nil, "weather" => nil}
+  @public_world_field_aliases [
+    {"date", ~w(date current_date world_date calendar_date)},
+    {"time", ~w(time current_time time_of_day world_time)},
+    {"weather", ~w(weather conditions)}
+  ]
   @resolution_lease_seconds 120
   @max_turn_text 20_000
   @max_provider_output_bytes 100_000
@@ -47,6 +52,10 @@ defmodule Storyteller.Play do
   only when the narrated events establish that its stated goal was achieved;
   abandon it only when the fiction establishes that it is no longer pursued.
   Keep GM-private objectives and their details out of player-facing narration.
+
+  Use only the canonical public world keys date, time, and weather for those
+  facts. Do not write aliases such as current_date, world_time, time_of_day,
+  or conditions; the application keeps one canonical value for each fact.
 
   Give actions plausible, proportionate consequences. Ordinary actions may
   simply work. Balance favorable and unfavorable outcomes according to the
@@ -188,6 +197,7 @@ defmodule Storyteller.Play do
     public_state =
       @default_world
       |> deep_merge(attr(attrs, :public_state, %{}))
+      |> canonical_public_world()
 
     private_state = attr(attrs, :gm_private_state, %{})
 
@@ -306,7 +316,10 @@ defmodule Storyteller.Play do
       player = Enum.find(characters, &(&1.speaker_id == "player"))
       player_location = player && player.current_place && player.current_place.name
 
-      world = Map.delete(state.public_state, "inventory")
+      world =
+        state.public_state
+        |> canonical_public_world(campaign_id)
+        |> Map.delete("inventory")
 
       world =
         if is_binary(player_location),
@@ -1227,16 +1240,23 @@ defmodule Storyteller.Play do
   end
 
   defp apply_proposed_state!(state, campaign_id, proposal) do
-    public_state = deep_merge(state.public_state, proposal.public_changes)
+    public_state =
+      state.public_state
+      |> canonical_public_world(campaign_id)
+      |> deep_merge(proposal.public_changes)
+      |> canonical_public_world()
+
     gm_private_state = deep_merge(state.gm_private_state, proposal.private_changes)
 
     apply_location_changes!(campaign_id, proposal.location_changes)
 
     public_state =
-      case Enum.find(proposal.location_changes, fn change ->
+      case proposal.location_changes
+           |> Enum.filter(fn change ->
              Map.get(change, "type") == "move_character" and
                Map.get(change, "speaker_id") == "player"
-           end) do
+           end)
+           |> List.last() do
         nil ->
           public_state
 
@@ -2158,11 +2178,132 @@ defmodule Storyteller.Play do
     with {:ok, changes} <- object_field(map, key),
          false <-
            Enum.any?(Map.keys(changes), fn change_key ->
-             key_name(change_key) in ["inventory", "location", "current_location"]
-           end) do
-      {:ok, changes}
+             normalized_key = String.downcase(String.trim(key_name(change_key)))
+             normalized_key in ["inventory", "location", "current_location"]
+           end),
+         {:ok, canonical_changes} <-
+           if(key == :public_changes,
+             do: canonical_world_changes(changes),
+             else: {:ok, changes}
+           ) do
+      {:ok, canonical_changes}
     else
       _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp canonical_public_world(world), do: canonical_public_world(world, nil)
+
+  defp canonical_public_world(world, campaign_id) when is_map(world) do
+    aliases = Enum.flat_map(@public_world_field_aliases, fn {_field, names} -> names end)
+
+    world_without_aliases =
+      Enum.reject(world, fn {key, _value} -> world_field_name(key) in aliases end)
+      |> Map.new()
+
+    Enum.reduce(@public_world_field_aliases, world_without_aliases, fn {field, names}, acc ->
+      latest_change = latest_world_alias(world, campaign_id, names)
+
+      case preferred_world_value(world, names, latest_change) do
+        {:found, value} -> Map.put(acc, field, value)
+        :missing -> acc
+      end
+    end)
+  end
+
+  defp canonical_public_world(world, _campaign_id), do: world
+
+  defp canonical_world_changes(changes) do
+    Enum.reduce_while(changes, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
+      canonical_key = canonical_world_field_name(key)
+
+      if Map.has_key?(acc, canonical_key) do
+        {:halt, {:error, :duplicate_world_field}}
+      else
+        {:cont, {:ok, Map.put(acc, canonical_key, value)}}
+      end
+    end)
+  end
+
+  defp canonical_world_field_name(key) do
+    normalized = world_field_name(key)
+
+    case Enum.find(@public_world_field_aliases, fn {_field, aliases} ->
+           normalized in aliases
+         end) do
+      {field, _aliases} -> field
+      nil -> key
+    end
+  end
+
+  defp world_field_name(key), do: key |> key_name() |> String.trim() |> String.downcase()
+
+  defp preferred_world_value(_world, _aliases, {:event_value, _alias, value}),
+    do: {:found, value}
+
+  defp preferred_world_value(world, aliases, _latest_change) do
+    Enum.reduce_while(aliases, :missing, fn alias_name, _result ->
+      case Enum.find(Map.keys(world), &(world_field_name(&1) == alias_name)) do
+        nil ->
+          {:cont, :missing}
+
+        key ->
+          case Map.fetch!(world, key) do
+            value when value in [nil, ""] -> {:cont, :missing}
+            value -> {:halt, {:found, value}}
+          end
+      end
+    end)
+  end
+
+  defp latest_world_alias(world, campaign_id, aliases)
+       when is_integer(campaign_id) do
+    values =
+      aliases
+      |> Enum.flat_map(fn alias_name ->
+        Enum.flat_map(world, fn {key, value} ->
+          if world_field_name(key) == alias_name and value not in [nil, ""],
+            do: [value],
+            else: []
+        end)
+      end)
+      |> Enum.uniq()
+
+    if length(values) > 1 do
+      latest_public_world_alias_change(campaign_id, aliases)
+    end
+  end
+
+  defp latest_world_alias(_world, _campaign_id, _aliases), do: nil
+
+  defp latest_public_world_alias_change(campaign_id, aliases) do
+    latest_event =
+      Repo.one(
+        from event in Event,
+          where:
+            event.campaign_id == ^campaign_id and event.event_type == :state_change and
+              event.visibility == :public,
+          where:
+            fragment(
+              "jsonb_exists_any(? -> 'changes', ?)",
+              event.payload,
+              type(^aliases, {:array, :string})
+            ),
+          order_by: [desc: event.sequence],
+          limit: 1
+      )
+
+    case latest_event do
+      %Event{payload: %{"changes" => changes}} when is_map(changes) ->
+        Enum.find_value(aliases, fn alias_name ->
+          case Enum.find(Map.keys(changes), &(world_field_name(&1) == alias_name)) do
+            nil -> nil
+            key -> {:event_value, alias_name, Map.fetch!(changes, key)}
+          end
+        end)
+
+      _ ->
+        nil
     end
   end
 
@@ -2264,7 +2405,10 @@ defmodule Storyteller.Play do
       },
       player_action: turn.player_input,
       player_roll: roll && %{die: "D20", result: roll.result, authorized_by: :player_click},
-      world: %{public: state.public_state, gm_private: state.gm_private_state},
+      world: %{
+        public: canonical_public_world(state.public_state, turn.campaign_id),
+        gm_private: state.gm_private_state
+      },
       inventory: %{
         player_visible: Map.get(state.public_state, "inventory", []),
         gm_private: Map.get(state.gm_private_state, "inventory", [])

@@ -53,7 +53,13 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(view, "nav#session-sections[aria-label]")
     assert has_element?(view, "#session-sections.lg\\:hidden")
 
-    for target <- ["world-state", "current-place", "story-timeline", "character-inventory"] do
+    for target <- [
+          "turn-composer-card",
+          "world-state",
+          "current-place",
+          "story-timeline",
+          "character-inventory"
+        ] do
       assert has_element?(view, "#session-sections a[href='##{target}']")
       assert has_element?(view, "##{target}[tabindex='-1']")
     end
@@ -101,6 +107,7 @@ defmodule StorytellerWeb.SessionLiveTest do
           "current-place",
           "story-timeline",
           "character-inventory",
+          "turn-composer-card",
           "campaign-objectives",
           "campaign-fields"
         ] do
@@ -217,6 +224,36 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, reloaded_view, reloaded_html} = live(conn, session_path(campaign, session))
     assert has_element?(reloaded_view, "#world-location", "The western road")
     refute reloaded_html =~ "A stale world location"
+  end
+
+  test "legacy time aliases appear once and agree across the player board", %{conn: conn} do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          Map.merge(state.public_state, %{
+            "time" => "Early morning",
+            "world_time" => "Midmorning"
+          })
+      })
+    )
+
+    {:ok, view, html} = live(conn, session_path(campaign, session))
+
+    assert has_element?(view, "#world-time", "Early morning")
+    refute html =~ "Midmorning"
+
+    time_labels =
+      html
+      |> Floki.parse_document!()
+      |> Floki.find("#world-state dt")
+      |> Enum.map(&(Floki.text(&1) |> String.trim()))
+      |> Enum.count(&(&1 == "Time"))
+
+    assert time_labels == 1
   end
 
   test "player character fact updates appear on the board with a reasoned timeline entry", %{

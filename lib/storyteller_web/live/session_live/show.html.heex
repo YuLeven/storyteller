@@ -89,6 +89,12 @@
       class="sticky top-0 z-20 -mx-4 flex min-w-0 items-center border-b border-stone-200 bg-white/95 px-4 py-2 shadow-sm backdrop-blur lg:hidden"
     >
       <ul class="flex min-w-0 gap-2 overflow-x-auto whitespace-nowrap py-1">
+        <li :if={playable?(@session)}>
+          <a
+            href="#turn-composer-card"
+            class="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-100"
+          >{gettext("Your turn")}</a>
+        </li>
         <li>
           <a
             href="#world-state"
@@ -303,7 +309,10 @@
 
         <section
           :if={playable?(@session)}
-          class="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm sm:p-5"
+          id="turn-composer-card"
+          tabindex="-1"
+          aria-label={gettext("Your turn")}
+          class="scroll-mt-20 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm sm:p-5"
         >
           <.form
             for={%{}}

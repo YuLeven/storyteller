@@ -53,7 +53,9 @@
   background-image: linear-gradient(145deg, rgb(255 255 255 / 2%), transparent 52%);
 }
 .tabletop-shell [class~="bg-white/70"],
-.tabletop-shell [class~="bg-white/90"] {
+.tabletop-shell [class~="bg-white/80"],
+.tabletop-shell [class~="bg-white/90"],
+.tabletop-shell [class~="bg-white/95"] {
   background-color: rgb(28 38 30 / 94%) !important;
 }
 .tabletop-shell [class~="bg-stone-50"] { background-color: #171f19 !important; }
@@ -77,6 +79,8 @@
 .tabletop-shell [class~="border-dashed"] { border-color: #53604f !important; }
 
 .tabletop-shell [class~="bg-amber-50"],
+.tabletop-shell [class~="bg-amber-50/50"],
+.tabletop-shell [class~="bg-amber-50/60"],
 .tabletop-shell [class~="bg-amber-50/70"] { background-color: #30291d !important; }
 .tabletop-shell [class~="bg-amber-100"] { background-color: #3b3020 !important; }
 .tabletop-shell [class~="bg-amber-700"] { background-color: #b18343 !important; }
