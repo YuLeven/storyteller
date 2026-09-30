@@ -16,7 +16,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.Play
-  alias Storyteller.Play.{Event, State, Turn}
+  alias Storyteller.Play.{Event, Objective, State, Turn}
   alias Storyteller.Repo
   alias Storyteller.Settings
   alias StorytellerWeb.SessionLiveTest.FakeProvider
@@ -38,6 +38,75 @@ defmodule StorytellerWeb.SessionLiveTest do
     end)
 
     :ok
+  end
+
+  test "narrow session navigation targets the scene, story, and character board",
+       %{
+         conn: conn
+       } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    assert has_element?(view, "nav#session-sections[aria-label]")
+    assert has_element?(view, "#session-sections.lg\\:hidden")
+
+    for target <- ["world-state", "current-place", "story-timeline", "character-inventory"] do
+      assert has_element?(view, "#session-sections a[href='##{target}']")
+      assert has_element?(view, "##{target}[tabindex='-1']")
+    end
+
+    refute has_element?(view, "#session-sections a[href='#campaign-objectives']")
+    refute has_element?(view, "#session-sections a[href='#campaign-fields']")
+    refute has_element?(view, "#campaign-fields")
+  end
+
+  test "session navigation adds links when public objectives or tracked resources exist", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        panel_fields: %{
+          "0" => %{
+            key: "lamp_oil",
+            panel: "Supplies",
+            label: "Lamp oil",
+            value_type: "quantity",
+            unit: "flasks",
+            visibility: "public",
+            initial_value: "2"
+          }
+        }
+      })
+
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    Repo.insert!(
+      Objective.changeset(%Objective{}, %{
+        campaign_id: campaign.id,
+        objective_id: "find-the-signal",
+        title: "Find the signal source",
+        status: :open,
+        visibility: :public
+      })
+    )
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    for target <- [
+          "world-state",
+          "current-place",
+          "story-timeline",
+          "character-inventory",
+          "campaign-objectives",
+          "campaign-fields"
+        ] do
+      assert has_element?(view, "#session-sections a[href='##{target}']")
+      assert has_element?(view, "##{target}[tabindex='-1']")
+    end
   end
 
   test "submitting an action updates the public world, NPC activity, and attributed timeline", %{

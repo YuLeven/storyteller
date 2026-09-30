@@ -142,7 +142,7 @@
     select,
     textarea,
     summary,
-    [tabindex]:not([tabindex="-1"])
+    [tabindex]
   ):focus-visible {
   outline: 2px solid #e3b86d !important;
   outline-offset: 3px;

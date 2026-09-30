@@ -26,7 +26,7 @@ This brief defines observable acceptance for the locally hosted, single-player S
 - The GM responds to player choices with natural consequences, preserves established facts, and returns control to the player. The UI never writes the player's actions, speech, thoughts, or choices on their behalf. It does not present a proposed state change as canonical before the application accepts it.
 - Location, character presence, inventory ownership, and resource quantities are canonical persisted state. Narration alone cannot change them: accepted state deltas reference stable records, are validated, committed once with their turn, and appear in a traceable history.
 - Long campaigns retain separate public and GM-private continuity summaries. A bounded recent-event window keeps each GM request practical, while older events remain in the stored campaign timeline. Summaries support retrieval but never replace the authoritative item, location, character, and resource records. Private continuity must never appear in player projections.
-- Narrow layouts keep the timeline, composer, die when relevant, world header, and access to campaign panels usable without horizontal page overflow. The precise panel arrangement at each breakpoint remains open.
+- Narrow layouts keep the timeline, composer, die when relevant, world header, and access to campaign panels usable without horizontal page overflow. A compact sticky in-page navigation provides direct keyboard-accessible jumps to the campaign story, current scene and place, and inventory, plus objectives and tracked resources when those public sections have content. Anchor targets receive focus with a visible indicator. The precise panel arrangement at each breakpoint remains open.
 
 ## Player-click D20 flow
 

@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Responsive session section shortcuts
+
+- Added a compact sticky in-page navigation bar on narrow session layouts for the scene, current place, campaign story, and inventory. Public objectives and tracked resources appear as shortcuts only when those sections contain public data; the desktop two-column layout stays unchanged.
+- Native fragment links move focus to their section targets. The targets have visible keyboard focus treatment and scroll spacing below the sticky bar. The navigation name and reused section labels are available in English, Spanish, and French.
+- **Checked:** focused SessionLive suite **11 tests, 0 failures**; full suite **142 tests, 0 failures**; WSL format check, warnings-as-errors compilation, asset build, `git diff --check`, and Spanish/French catalog merges passed.
+
 ## 2026-09-30 — Introduce new GM characters during play
 
 - GM proposals can create stable GM-controlled character IDs with public and GM-private facts. The same proposal may let a newly created character speak, act, receive an item, move to a known or newly created place, or receive a fact update.
