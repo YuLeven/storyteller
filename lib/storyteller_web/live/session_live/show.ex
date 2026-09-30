@@ -545,6 +545,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   attr :item, :map, required: true
+  attr :change, :map, default: nil
   attr :characters_by_id, :map, required: true
   attr :playable, :boolean, required: true
   attr :turn_blocked, :boolean, required: true
@@ -590,6 +591,40 @@ defmodule StorytellerWeb.SessionLive.Show do
               <dd class="min-w-0 whitespace-pre-wrap break-words text-stone-700">{value}</dd>
             </div>
           </dl>
+        </div>
+      </details>
+      <details :if={@change} class="mt-1 text-xs font-normal">
+        <summary class="cursor-pointer text-amber-800 underline decoration-amber-700/40 underline-offset-2">
+          {gettext("Last changed")}
+        </summary>
+        <div class="mt-2 space-y-1 rounded-lg border border-amber-100 bg-amber-50/60 p-2">
+          <p class="font-medium text-stone-800">
+            {inventory_event_text(@change, @characters_by_id)}
+          </p>
+          <p :if={inventory_change_owner(@change, @characters_by_id)} class="text-stone-600">
+            {inventory_change_owner(@change, @characters_by_id)}
+          </p>
+          <dl
+            :if={
+              @change["type"] == "update" and is_map(@change["properties"]) and
+                map_size(@change["properties"]) > 0
+            }
+            class="space-y-1"
+          >
+            <div
+              :for={{label, value} <- inventory_property_rows(@change["properties"])}
+              class="grid grid-cols-[minmax(0,auto)_1fr] gap-x-2"
+            >
+              <dt class="font-medium text-stone-600">{label}</dt>
+              <dd class="min-w-0 break-words text-stone-700">{value}</dd>
+            </div>
+          </dl>
+          <p class="leading-5 text-stone-600">
+            {gettext("Reason: %{reason}", reason: @change["reason"])}
+          </p>
+          <p :if={game_time_label(@change["game_time"])} class="text-stone-500">
+            {game_time_label(@change["game_time"])}
+          </p>
         </div>
       </details>
       <button
@@ -1289,6 +1324,21 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp inventory_event_text(_change, _characters), do: gettext("Inventory updated")
+
+  defp inventory_change_owner(
+         %{"type" => "add", "item" => %{"owner_id" => "party"}},
+         _characters
+       ),
+       do: gettext("Stored with the party")
+
+  defp inventory_change_owner(
+         %{"type" => "add", "item" => %{"owner_id" => owner_id}},
+         characters
+       )
+       when is_binary(owner_id) and owner_id != "player",
+       do: gettext("Carried by %{name}", name: speaker_name(characters, owner_id))
+
+  defp inventory_change_owner(_change, _characters), do: nil
 
   defp quantity_label(quantity, nil), do: to_string(quantity)
   defp quantity_label(quantity, unit), do: "#{quantity} #{unit}"

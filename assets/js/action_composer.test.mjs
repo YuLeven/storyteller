@@ -8,7 +8,20 @@ const fakeInput = () => ({
   disabled: false,
   focused: false,
   selection: null,
+  form: {
+    submissions: 0,
+    requestSubmit() {
+      this.submissions += 1
+    }
+  },
+  listeners: new Map(),
   eventHandlers: new Map(),
+  addEventListener(event, handler) {
+    this.listeners.set(event, handler)
+  },
+  removeEventListener(event, handler) {
+    if (this.listeners.get(event) === handler) this.listeners.delete(event)
+  },
   focus() {
     this.focused = true
   },
@@ -72,4 +85,50 @@ test("a disabled composer retains the suggested action without trying to steal f
 
   assert.equal(input.value, "I use Amber apples.")
   assert.equal(input.focused, false)
+})
+
+test("Ctrl+Enter submits the action through the form", () => {
+  const input = fakeInput()
+  const hook = fakeHook(input)
+  hook.mounted()
+  let prevented = false
+
+  input.listeners.get("keydown")({
+    key: "Enter",
+    ctrlKey: true,
+    metaKey: false,
+    isComposing: false,
+    preventDefault() { prevented = true }
+  })
+
+  assert.equal(prevented, true)
+  assert.equal(input.form.submissions, 1)
+})
+
+test("plain Enter keeps its textarea newline behavior", () => {
+  const input = fakeInput()
+  const hook = fakeHook(input)
+  hook.mounted()
+  let prevented = false
+
+  input.listeners.get("keydown")({
+    key: "Enter",
+    ctrlKey: false,
+    metaKey: false,
+    isComposing: false,
+    preventDefault() { prevented = true }
+  })
+
+  assert.equal(prevented, false)
+  assert.equal(input.form.submissions, 0)
+})
+
+test("the hook removes its keyboard listener when destroyed", () => {
+  const input = fakeInput()
+  const hook = fakeHook(input)
+  hook.mounted()
+
+  hook.destroyed()
+
+  assert.equal(input.listeners.has("keydown"), false)
 })

@@ -1,5 +1,27 @@
 # Feature log
 
+## 2026-09-30 — Add character identity and GM-led play goals
+
+- Added MVP requirements for character-specific voice notes (quirks, optional accent, cadence, vocabulary, and mannerisms) that persist and inform future GM prompts without reducing a character to a caricature.
+- Added post-creation campaign editing and explicit, auditable out-of-character canon corrections so a player can repair mistakes without losing campaign history.
+- Added distinct **Act or say** and **Ask the GM** interaction goals plus contextual look, wait, and pass-time nudges. Direct questions should clarify the current scene without advancing time or canon; chosen time passage should invite the GM to move the world forward and pause at the next meaningful player decision.
+- **Checks:** Product requirements and behavior scenarios recorded in `IMPLEMENTATION_PLAN.md` and the checkpoint. Documentation-only update; application behavior is not yet implemented for these goals.
+
+## 2026-09-30 — Back up campaigns safely and speed up action entry
+
+- Added a versioned, sensitive campaign backup. Downloads preserve each session, canonical public and GM-private state, inventory, panels, continuity records, rolls, turns, and ordered event history. The export reads from one repeatable database snapshot; imports validate the complete file and record references before atomically restoring it as a new campaign. Interrupted in-flight turns become retryable failures, and OAuth credentials are outside the export path.
+- The campaign library accepts one bounded JSON backup and makes the separate-copy behavior and private GM contents clear. Downloads are attachments marked private/no-store. Import rejects unknown fields, unsupported versions, oversized files, invalid ownership/references, and credential-shaped additions.
+- Added Ctrl+Enter submission through the same form flow as Send; plain Enter remains a newline, including in multiline dialogue. Added setup-wizard and GM-first opening-scene outcomes to the product plan and checkpoint for the next gameplay iteration.
+- **Checks:** full WSL suite **215 tests, 0 failures**; backup-focused round-trip, malformed-file, atomic rollback, controller, and 501-session portability tests pass. Composer/timeline/panel JavaScript tests **13/13**. Format, warnings-as-errors compile, gettext freshness, asset build, and `git diff --check` pass. Tests use fictional fixtures and `storyteller_test`; no live provider or campaign data was changed.
+- **Read-only local smoke:** the fresh production-style transaction exported the separate Amber Orchard QA campaign successfully (27,964 bytes). The JSON stayed in memory; no campaign records, OAuth store, or files were changed.
+
+## 2026-09-30 — Reaffirm open-source and bring-your-own-GPT release scope
+
+- Clarified the staged account model: V1 is a polished, MIT-licensed, locally run open-source app whose operator connects their own eligible GPT/ChatGPT account from Settings using the supported plan-usage OAuth flow. No shared project credential or secrets in Git; document eligibility, limits, setup, backup/recovery, upgrades, disconnect, and credential handling before the V1 release.
+- V2 is reserved for other AI providers, with each provider's connection and billing path decided explicitly. The plan does not promise support for unverified GPT account types or silently fall back to API billing.
+- Recorded campaign backup/export and restore as an MVP trust feature: versioned, sensitive campaign-only backups; validate before atomic import into a new campaign; preserve canon and event provenance; exclude the OAuth token store. Whole-install recovery instructions remain part of V1.
+- **Checks:** Documentation-only update; no application behavior or campaign data changed.
+
 ## 2026-09-30 — Inspect recent tracked-resource changes in place
 
 - Added a collapsed “Last changed” detail beside each changed public resource. It shows the accepted before/after, the change reason, and its in-world time, without adding another entry to the story. The projection reads only recent public state-change events and current public resource keys; private panel changes never appear.

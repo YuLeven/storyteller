@@ -33,6 +33,8 @@ defmodule StorytellerWeb.Router do
   scope "/", StorytellerWeb do
     pipe_through :browser
 
+    get "/campaigns/:id/backup", CampaignBackupController, :show
+
     live_session :default, on_mount: [{StorytellerWeb.Locale, :default}] do
       live "/", CampaignLive.Index, :index
       live "/campaigns/new", CampaignLive.New, :new

@@ -488,7 +488,9 @@
             </p>
             <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p class="text-xs leading-5 text-stone-600">
-                {gettext("Actions and dialogue become part of your saved campaign history.")}
+                {gettext("Actions and dialogue become part of your saved campaign history.")} {gettext(
+                  "Press Ctrl+Enter to send."
+                )}
               </p>
               <button
                 type="submit"
@@ -873,6 +875,7 @@
             <.inventory_item
               :for={item <- Enum.take(@projection.inventory, 2)}
               item={item}
+              change={Map.get(@projection.latest_inventory_changes, item["id"])}
               characters_by_id={@characters_by_id}
               playable={playable?(@session)}
               turn_blocked={
@@ -892,6 +895,7 @@
               <.inventory_item
                 :for={item <- Enum.drop(@projection.inventory, 2)}
                 item={item}
+                change={Map.get(@projection.latest_inventory_changes, item["id"])}
                 characters_by_id={@characters_by_id}
                 playable={playable?(@session)}
                 turn_blocked={

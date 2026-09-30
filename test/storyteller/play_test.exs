@@ -132,6 +132,52 @@ defmodule Storyteller.PlayTest do
   end
 
   @tag :privacy_guard
+  test "rejects a hidden inventory phrase in a proposed public inventory reason" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    hidden_item = %{
+      "id" => "moonstone-key",
+      "name" => "Moonstone key",
+      "quantity" => 1,
+      "unit" => "item",
+      "category" => "relic",
+      "description" => "beneath the north sill",
+      "owner_id" => "npc:lyra",
+      "visibility" => "gm_private",
+      "properties" => %{}
+    }
+
+    Repo.update!(
+      State.changeset(state, %{
+        gm_private_state: Map.put(state.gm_private_state, "inventory", [hidden_item])
+      })
+    )
+
+    assert_private_text_rejected(campaign, session, "private-inventory-reason", %{
+      "inventory_changes" => [
+        %{
+          "type" => "add",
+          "item" => %{
+            "id" => "public-brass-key",
+            "name" => "Brass key",
+            "quantity" => 1,
+            "owner_id" => "player",
+            "visibility" => "public",
+            "properties" => %{}
+          },
+          "reason" => "The contents were found beneath the north sill."
+        }
+      ]
+    })
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.inventory == []
+    refute Jason.encode!(projection) =~ "beneath the north sill"
+    refute Jason.encode!(projection) =~ "public-brass-key"
+  end
+
+  @tag :privacy_guard
   test "an explicit public state reveal permits the same phrase now and in later turns" do
     {campaign, session} = play_campaign("The Glass Observatory")
 
@@ -2280,7 +2326,7 @@ defmodule Storyteller.PlayTest do
     {:ok, public_events} = Play.public_timeline(campaign.id)
     inventory_event = Enum.find(public_events, &Map.has_key?(&1.payload, "inventory_changes"))
     assert length(inventory_event.payload["inventory_changes"]) == 3
-    refute Jason.encode!(inventory_event.payload) =~ "reason"
+    assert Enum.all?(inventory_event.payload["inventory_changes"], &is_binary(&1["reason"]))
     refute Jason.encode!(inventory_event.payload) =~ "sealed-key"
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
@@ -2313,6 +2359,106 @@ defmodule Storyteller.PlayTest do
            ]
 
     assert Enum.map(next_context["inventory"]["gm_private"], & &1["id"]) == []
+  end
+
+  test "public inventory receipts follow add, transfer, and update on current items" do
+    {campaign, session} = play_campaign("The Quiet Observatory")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    inventory = [
+      %{
+        "id" => "field-compass",
+        "name" => "Field compass",
+        "quantity" => 1,
+        "unit" => "compass",
+        "owner_id" => "player",
+        "visibility" => "public",
+        "properties" => %{}
+      },
+      %{
+        "id" => "field-journal",
+        "name" => "Field journal",
+        "quantity" => 1,
+        "unit" => "book",
+        "owner_id" => "player",
+        "visibility" => "public",
+        "properties" => %{"condition" => "worn"}
+      }
+    ]
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "inventory", inventory)})
+    )
+
+    complete_turn(
+      campaign,
+      session,
+      "inventory-receipts",
+      "Prepare the supplies for the crossing.",
+      ordinary_provider(%{
+        "inventory_changes" => [
+          %{
+            "type" => "transfer",
+            "item_id" => "field-compass",
+            "owner_id" => "npc:lyra",
+            "reason" => "Lyra takes the compass to chart the western inlet."
+          },
+          %{
+            "type" => "update",
+            "item_id" => "field-journal",
+            "properties" => %{"condition" => "rebound"},
+            "reason" => "The journal's binding is repaired."
+          },
+          %{
+            "type" => "add",
+            "item" => %{
+              "id" => "dry-rations",
+              "name" => "Dry rations",
+              "quantity" => 3,
+              "unit" => "meals",
+              "owner_id" => "party",
+              "visibility" => "public",
+              "category" => "Supplies",
+              "properties" => %{}
+            },
+            "reason" => "The keeper shares three meals for the road."
+          }
+        ]
+      })
+    )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert MapSet.new(Map.keys(projection.latest_inventory_changes)) ==
+             MapSet.new(["field-compass", "field-journal", "dry-rations"])
+
+    assert %{
+             "type" => "transfer",
+             "quantity" => 1,
+             "owner_id" => "npc:lyra",
+             "reason" => "Lyra takes the compass to chart the western inlet.",
+             "game_time" => %{"time" => "First watch"}
+           } = Map.fetch!(projection.latest_inventory_changes, "field-compass")
+
+    assert %{
+             "type" => "update",
+             "properties" => %{"condition" => "rebound"},
+             "reason" => "The journal's binding is repaired.",
+             "game_time" => %{"time" => "First watch"}
+           } = Map.fetch!(projection.latest_inventory_changes, "field-journal")
+
+    assert %{
+             "type" => "add",
+             "item" => %{"quantity" => 3, "owner_id" => "party"},
+             "reason" => "The keeper shares three meals for the road.",
+             "game_time" => %{"time" => "First watch"}
+           } = Map.fetch!(projection.latest_inventory_changes, "dry-rations")
+
+    assert Enum.find(projection.inventory, &(&1["id"] == "field-compass"))["owner_id"] ==
+             "npc:lyra"
+
+    assert Enum.find(projection.inventory, &(&1["id"] == "field-journal"))["properties"] ==
+             %{"condition" => "rebound"}
   end
 
   test "an Amber Orchard harvest sale consumes produce and carries cash into the next session" do
@@ -2548,7 +2694,8 @@ defmodule Storyteller.PlayTest do
                "item_name" => "Healing herbs",
                "quantity" => 2,
                "unit" => "bundles",
-               "owner_id" => "npc:lyra"
+               "owner_id" => "npc:lyra",
+               "reason" => split["reason"]
              }
            ]
 
@@ -2688,7 +2835,7 @@ defmodule Storyteller.PlayTest do
     [public_change] = public_inventory_event.payload["inventory_changes"]
     assert public_change["type"] == "update"
     assert public_change["item_id"] == "brass-focus"
-    refute Map.has_key?(public_change, "reason")
+    assert public_change["reason"] == public_update["reason"]
     refute Jason.encode!(public_change) =~ "sealed-wand"
     refute Jason.encode!(public_change) =~ "hidden vault"
 

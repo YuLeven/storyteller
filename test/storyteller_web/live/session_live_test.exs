@@ -758,6 +758,131 @@ defmodule StorytellerWeb.SessionLiveTest do
              "A customer pays for one basket of apples."
   end
 
+  test "public inventory receipts stay collapsed beside current items and outside the story feed",
+       %{
+         conn: conn
+       } do
+    campaign =
+      campaign_fixture(%{
+        starting_date: "The 14th day of thaw",
+        world_time: "First watch",
+        gm_characters: [
+          %{
+            speaker_id: "npc:lyra",
+            name: "Lyra",
+            visible_facts: %{"role" => "scout"},
+            gm_private_facts: %{}
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    items = [
+      %{
+        "id" => "field-compass",
+        "name" => "Field compass",
+        "quantity" => 1,
+        "unit" => "compass",
+        "owner_id" => "player",
+        "visibility" => "public",
+        "properties" => %{}
+      },
+      %{
+        "id" => "field-journal",
+        "name" => "Field journal",
+        "quantity" => 1,
+        "unit" => "book",
+        "owner_id" => "player",
+        "visibility" => "public",
+        "properties" => %{"condition" => "worn"}
+      }
+    ]
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "inventory", items)})
+    )
+
+    transfer_reason = "Lyra takes the compass to chart the western inlet."
+    update_reason = "The journal's binding is repaired."
+    add_reason = "The keeper shares three meals for the road."
+
+    set_handler(fn _request ->
+      {:ok,
+       Jason.encode!(%{
+         narration: "Lyra checks the supplies and nods.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: [],
+         inventory_changes: [
+           %{
+             type: "transfer",
+             item_id: "field-compass",
+             owner_id: "npc:lyra",
+             reason: transfer_reason
+           },
+           %{
+             type: "update",
+             item_id: "field-journal",
+             properties: %{"condition" => "rebound"},
+             reason: update_reason
+           },
+           %{
+             type: "add",
+             item: %{
+               id: "dry-rations",
+               name: "Dry rations",
+               quantity: 3,
+               unit: "meals",
+               owner_id: "party",
+               visibility: "public",
+               category: "Supplies",
+               properties: %{}
+             },
+             reason: add_reason
+           }
+         ],
+         location_changes: [],
+         objective_changes: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         roll_request: nil
+       })}
+    end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    view
+    |> form("#turn-composer", turn: %{input: "Prepare the supplies for the crossing."})
+    |> render_submit()
+
+    assert wait_until(fn -> render(view) =~ "Lyra checks the supplies and nods." end)
+
+    for {item_id, reason, operation} <- [
+          {"field-compass", transfer_reason, "Transferred 1 compass Field compass to Lyra"},
+          {"field-journal", update_reason, "Inventory updated"},
+          {"dry-rations", add_reason, "Added 3 meals Dry rations"}
+        ] do
+      receipt = "#inventory-item-#{item_id} details"
+      assert has_element?(view, receipt <> " > summary", "Last changed")
+      refute has_element?(view, receipt <> "[open]")
+      assert has_element?(view, receipt, operation)
+      assert has_element?(view, receipt, reason)
+      assert has_element?(view, receipt, "The 14th day of thaw · First watch")
+    end
+
+    assert has_element?(view, "#inventory-item-dry-rations details", "Stored with the party")
+    assert has_element?(view, "#inventory-item-field-journal details", "Condition")
+    assert has_element?(view, "#inventory-item-field-journal details", "rebound")
+    assert has_element?(view, "#story-timeline", "Lyra checks the supplies and nods.")
+
+    for reason <- [transfer_reason, update_reason, add_reason] do
+      refute has_element?(view, "#story-timeline", reason)
+    end
+  end
+
   test "new character introductions render the name and public facts without private facts", %{
     conn: conn
   } do

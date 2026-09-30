@@ -417,13 +417,16 @@ defmodule Storyteller.Play do
           do: Map.put(world, "location", player_location),
           else: Map.delete(world, "location")
 
+      inventory = Inventory.public_projection(Map.get(state.public_state, "inventory", []))
+
       {:ok,
        %{
          campaign_id: state.campaign_id,
          revision: state.revision,
          world: world,
          places: places,
-         inventory: Inventory.public_projection(Map.get(state.public_state, "inventory", [])),
+         inventory: inventory,
+         latest_inventory_changes: latest_public_inventory_changes(campaign_id, inventory),
          objectives: public_objectives(campaign_id),
          continuity_entries: public_continuity_entries(campaign_id),
          latest_panel_changes: latest_public_panel_changes(campaign_id, panel_projection.panels),
@@ -474,6 +477,66 @@ defmodule Storyteller.Play do
       if map_size(latest) == MapSet.size(panel_keys), do: {:halt, latest}, else: {:cont, latest}
     end)
   end
+
+  defp latest_public_inventory_changes(_campaign_id, []), do: %{}
+
+  defp latest_public_inventory_changes(campaign_id, inventory) do
+    item_ids = MapSet.new(inventory, &Map.get(&1, "id"))
+
+    Repo.all(
+      from event in Event,
+        where:
+          event.campaign_id == ^campaign_id and event.event_type == :state_change and
+            event.visibility == :public,
+        order_by: [desc: event.sequence],
+        limit: 500,
+        select: {event.payload, event.game_time}
+    )
+    |> Enum.reduce_while(%{}, fn {payload, game_time}, latest ->
+      changes = Map.get(payload, "inventory_changes", [])
+
+      latest =
+        if is_list(changes) do
+          Enum.reduce(changes, latest, fn change, acc ->
+            if is_map(change) and valid_public_inventory_receipt?(change) do
+              change
+              |> inventory_change_item_ids()
+              |> Enum.filter(&MapSet.member?(item_ids, &1))
+              |> Enum.reduce(acc, fn item_id, item_changes ->
+                if Map.has_key?(item_changes, item_id) do
+                  item_changes
+                else
+                  Map.put(item_changes, item_id, Map.put(change, "game_time", game_time))
+                end
+              end)
+            else
+              acc
+            end
+          end)
+        else
+          latest
+        end
+
+      if map_size(latest) == MapSet.size(item_ids), do: {:halt, latest}, else: {:cont, latest}
+    end)
+  end
+
+  defp valid_public_inventory_receipt?(%{"reason" => reason}) when is_binary(reason),
+    do: String.trim(reason) != ""
+
+  defp valid_public_inventory_receipt?(_change), do: false
+
+  defp inventory_change_item_ids(%{"type" => "add", "item" => %{"id" => id}})
+       when is_binary(id),
+       do: [id]
+
+  defp inventory_change_item_ids(%{"type" => type, "item_id" => item_id} = change)
+       when type in ["transfer", "consume", "update"] and is_binary(item_id) do
+    [item_id, Map.get(change, "new_item_id")]
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp inventory_change_item_ids(_change), do: []
 
   @doc "Returns only public events, in campaign order across all sessions."
   def public_timeline(campaign_id, opts \\ []) do
@@ -1546,9 +1609,7 @@ defmodule Storyteller.Play do
   defp append_inventory_change_event(state, turn, sequence, visibility, changes) do
     changes =
       Enum.map(changes, fn change ->
-        if visibility == :public,
-          do: Map.drop(change, ["visibility", "reason"]),
-          else: Map.drop(change, ["visibility"])
+        Map.drop(change, ["visibility"])
       end)
 
     append_event!(%{state | event_sequence: sequence}, turn, :state_change, visibility, nil, %{
@@ -2307,6 +2368,10 @@ defmodule Storyteller.Play do
       end) ++
       Enum.flat_map(proposal.panel_changes, fn
         %{visibility: :public, reason: reason} -> [reason]
+        _ -> []
+      end) ++
+      Enum.flat_map(proposal.inventory_changes, fn
+        %{"visibility" => "public", "reason" => reason} -> [reason]
         _ -> []
       end)
   end
