@@ -107,6 +107,26 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ premise
   end
 
+  test "session header uses the character name while the full player details stay intact", %{
+    conn: conn
+  } do
+    character_name = "Mira Vale"
+    character_details = "A patient apprentice astronomer who follows unusual star maps."
+
+    campaign =
+      campaign_fixture(%{
+        player_character_name: character_name,
+        player_character: character_details
+      })
+
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "header p", "Playing as #{character_name}")
+    refute has_element?(view, "header p", character_details)
+    assert campaign.player_character == character_details
+  end
+
   test "an incomplete textarea change event does not take down the live play screen", %{
     conn: conn
   } do
@@ -1758,13 +1778,13 @@ defmodule StorytellerWeb.SessionLiveTest do
   } do
     test_pid = self()
 
-    for {locale, guidance, resume_label, retry_label} <- [
+    for {locale, guidance, saved_label, resume_label, retry_label} <- [
           {"es",
-           "ChatGPT informó de un límite de uso del plan, así que las solicitudes están pausadas en todas las sesiones. Revisa los ajustes de Uso, reanuda cuando creas que las solicitudes vuelven a estar disponibles y luego vuelve a intentar este turno guardado.",
-           "Reanudar solicitudes", "Reintentar este turno"},
+           "ChatGPT informó de un límite de uso de esta cuenta. El director de juego no puede responder hasta que haya uso disponible en la cuenta.",
+           "Tu turno está guardado", "Reanudar solicitudes", "Reintentar este turno"},
           {"fr",
-           "ChatGPT a signalé une limite d’utilisation du forfait ; les requêtes sont donc suspendues dans toutes les sessions. Consultez les paramètres d’utilisation, reprenez les requêtes lorsque vous pensez qu’elles sont de nouveau disponibles, puis réessayez ce tour sauvegardé.",
-           "Reprendre les requêtes", "Réessayer ce tour"}
+           "ChatGPT a signalé une limite d’utilisation du compte. Le maître du jeu ne peut pas répondre tant que le compte n’a pas de quota disponible.",
+           "Votre tour est enregistré", "Reprendre les requêtes", "Réessayer ce tour"}
         ] do
       campaign = campaign_fixture()
       [session] = campaign.sessions
@@ -1790,8 +1810,12 @@ defmodule StorytellerWeb.SessionLiveTest do
                resume_label
              )
 
+      assert has_element?(view, "#plan-usage-paused a[href='https://chatgpt.com/settings/usage']")
+      assert has_element?(view, "#turn-error", saved_label)
+      assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
+
       refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
-      assert render(view) =~ "I check whether the road is open."
+      turn_id = Play.public_current_turn(campaign.id).id
 
       view
       |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
@@ -1799,6 +1823,8 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       refute has_element?(view, "#plan-usage-paused")
       assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+      assert Play.public_current_turn(campaign.id).id == turn_id
+      assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
       refute_receive :fake_usage_limit_call, 50
     end
   end
@@ -2014,8 +2040,10 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(
              view,
              "#turn-announcement",
-             "ChatGPT reported a plan usage limit"
+             "ChatGPT reported an account usage limit"
            )
+
+    assert has_element?(view, "#turn-error[class~='border-amber-300']")
 
     assert has_element?(
              view,
@@ -2028,16 +2056,19 @@ defmodule StorytellerWeb.SessionLiveTest do
            )
 
     assert has_element?(view, "#plan-usage-paused")
+    failed_turn_id = Play.public_current_turn(campaign.id).id
 
     view
     |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
     |> render_click()
 
     refute has_element?(view, "#plan-usage-paused")
+    assert Play.public_current_turn(campaign.id).id == failed_turn_id
     refute_receive {:fake_gm_call, _, "after_roll", 17}, 50
 
     view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
     assert_receive {:fake_gm_call, retry_provider, "after_roll", 17}, 1_000
+    assert Play.public_current_turn(campaign.id).id == failed_turn_id
     assert has_element?(view, "#turn-announcement", "Retrying…")
     assert has_element?(view, "#turn-announcement", "D20 result: 17")
     send(retry_provider, :continue_retry)

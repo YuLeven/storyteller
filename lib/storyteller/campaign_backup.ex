@@ -105,7 +105,7 @@ defmodule Storyteller.CampaignBackup do
             "state" => export_state(state),
             "characters" =>
               Repo.all(from(character in Character, where: character.campaign_id == ^campaign_id))
-              |> Enum.map(&export_character/1),
+              |> Enum.map(&export_character(&1, campaign)),
             "places" =>
               Repo.all(from(place in Place, where: place.campaign_id == ^campaign_id))
               |> Enum.map(&export_place/1),
@@ -163,6 +163,7 @@ defmodule Storyteller.CampaignBackup do
       "setting" => campaign.setting,
       "tone" => campaign.tone,
       "narration_language" => campaign.narration_language,
+      "player_character_name" => campaign.player_character_name,
       "player_character" => campaign.player_character,
       "status" => Atom.to_string(campaign.status),
       "inserted_at" => encode_datetime(campaign.inserted_at),
@@ -194,10 +195,14 @@ defmodule Storyteller.CampaignBackup do
     }
   end
 
-  defp export_character(character) do
+  defp export_character(character, campaign) do
     %{
       "speaker_id" => character.speaker_id,
-      "name" => character.name,
+      "name" =>
+        if(character.speaker_id == "player",
+          do: campaign.player_character_name,
+          else: character.name
+        ),
       "role" => Atom.to_string(character.role),
       "visible_facts" => character.visible_facts,
       "gm_private_facts" => character.gm_private_facts,
@@ -326,6 +331,7 @@ defmodule Storyteller.CampaignBackup do
          {:ok, sessions} <- validate_sessions(backup["sessions"]),
          :ok <- validate_campaign_sessions(campaign, sessions),
          {:ok, characters} <- validate_characters(backup["characters"]),
+         {campaign, characters} <- normalize_player_character_name(campaign, characters),
          {:ok, places} <- validate_places(backup["places"]),
          :ok <- validate_character_places(characters, places),
          {:ok, state} <- validate_state(backup["state"], characters),
@@ -362,7 +368,12 @@ defmodule Storyteller.CampaignBackup do
     with :ok <-
            exact_keys(
              map,
-             ~w(title premise setting tone narration_language player_character status inserted_at updated_at),
+             if(Map.has_key?(map, "player_character_name"),
+               do:
+                 ~w(title premise setting tone narration_language player_character_name player_character status inserted_at updated_at),
+               else:
+                 ~w(title premise setting tone narration_language player_character status inserted_at updated_at)
+             ),
              :campaign
            ),
          {:ok, title} <- text(map["title"], 2, 100),
@@ -370,6 +381,11 @@ defmodule Storyteller.CampaignBackup do
          {:ok, setting} <- text(map["setting"], 0, 500),
          {:ok, tone} <- text(map["tone"], 0, 300),
          {:ok, language} <- choice(map["narration_language"], ~w(English Spanish French)),
+         {:ok, player_character_name} <-
+           if(Map.has_key?(map, "player_character_name"),
+             do: text(map["player_character_name"], 1, 300),
+             else: {:ok, nil}
+           ),
          {:ok, player_character} <- text(map["player_character"], 1, 300),
          {:ok, status} <- enum(map["status"], ~w(active archived)),
          {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
@@ -381,6 +397,7 @@ defmodule Storyteller.CampaignBackup do
          setting: setting,
          tone: tone,
          narration_language: language,
+         player_character_name: player_character_name,
          player_character: player_character,
          status: status,
          inserted_at: inserted_at,
@@ -528,6 +545,21 @@ defmodule Storyteller.CampaignBackup do
   end
 
   defp validate_characters(_), do: {:error, :invalid_backup}
+
+  defp normalize_player_character_name(campaign, characters) do
+    player = Enum.find(characters, &(&1.role == :player))
+    player_name = campaign.player_character_name || player.name
+
+    campaign = Map.put(campaign, :player_character_name, player_name)
+
+    characters =
+      Enum.map(characters, fn
+        %{role: :player} = character -> Map.put(character, :name, player_name)
+        character -> character
+      end)
+
+    {campaign, characters}
+  end
 
   defp validate_places(rows) when is_list(rows) and length(rows) <= 5_000 do
     with {:ok, places} <-

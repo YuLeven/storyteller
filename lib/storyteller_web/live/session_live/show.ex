@@ -1687,10 +1687,7 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: gettext("The connected account is not eligible to continue this turn.")
 
   defp failure_message("usage_limit"),
-    do:
-      gettext(
-        "ChatGPT reported a plan usage limit, so requests are paused in every session. Check Usage settings, resume when you believe requests are available, then retry this saved turn."
-      )
+    do: gettext("ChatGPT reported an account usage limit before the GM could respond.")
 
   defp failure_message("usage_unavailable"),
     do: gettext("The connected account's usage could not be confirmed.")
@@ -1703,6 +1700,18 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp failure_message(_),
     do: gettext("The game master could not resolve this turn. Your action is saved.")
+
+  defp failure_message("usage_limit", true),
+    do:
+      gettext(
+        "ChatGPT reported an account usage limit. The GM cannot respond until account usage is available."
+      )
+
+  defp failure_message("usage_limit", false),
+    do: gettext("ChatGPT reported an account usage limit before the GM could respond.")
+
+  defp failure_message(failure_code, _plan_usage_paused?),
+    do: failure_message(failure_code)
 
   defp reconnect_needed?(code),
     do: code in ["reauth_required", "account_ineligible", "model_unavailable"]

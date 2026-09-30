@@ -19,7 +19,7 @@
       </div>
       <p class="mt-2 text-sm text-stone-600">
         {@session.campaign.setting} <span aria-hidden="true">·</span>
-        {gettext("Playing as %{character}", character: @session.campaign.player_character)}
+        {gettext("Playing as %{character}", character: @session.campaign.player_character_name)}
       </p>
     </div>
   </header>
@@ -54,10 +54,10 @@
     role="status"
     class="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4"
   >
-    <h2 class="font-semibold text-amber-950">{gettext("ChatGPT plan requests are paused")}</h2>
+    <h2 class="font-semibold text-amber-950">{gettext("Game master responses are paused")}</h2>
     <p class="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
       {gettext(
-        "ChatGPT reported a plan usage limit, so Storyteller paused game-master requests in every session. Check your Usage settings, then resume when you believe requests are available again. Resuming only clears the pause; retry a saved turn separately."
+        "ChatGPT reported an account usage limit. The game master cannot respond in any session until account usage is available. Check Usage settings; when you believe usage is available, resume requests here. Resuming only clears the pause; it does not send anything. Then retry a saved turn or start a new one."
       )}
     </p>
     <div class="mt-3 flex flex-wrap items-center gap-4">
@@ -66,7 +66,7 @@
         target="_blank"
         rel="noreferrer"
         class="text-sm font-semibold text-amber-950 underline underline-offset-2"
-      >{gettext("Open ChatGPT Usage settings")}</a>
+      >{gettext("Check ChatGPT Usage")}</a>
       <button
         type="button"
         phx-click="resume-plan-usage"
@@ -242,17 +242,34 @@
         <section
           :if={@current_turn && @current_turn.status == :failed}
           id="turn-error"
-          class="rounded-2xl border border-rose-200 bg-rose-50 p-5"
+          class={
+            if @current_turn.failure_code == "usage_limit",
+              do: "rounded-2xl border border-amber-300 bg-amber-50 p-5",
+              else: "rounded-2xl border border-rose-200 bg-rose-50 p-5"
+          }
         >
-          <h2 class="font-semibold text-rose-950">{gettext("This turn needs attention")}</h2>
-          <p class="mt-1 text-sm leading-6 text-rose-800">
-            {failure_message(@current_turn.failure_code)}
+          <h2 class="font-semibold text-stone-950">
+            {if @current_turn.failure_code == "usage_limit",
+              do: gettext("Your turn is saved"),
+              else: gettext("This turn needs attention")}
+          </h2>
+          <p class={
+            if @current_turn.failure_code == "usage_limit",
+              do: "mt-1 text-sm leading-6 text-amber-950",
+              else: "mt-1 text-sm leading-6 text-rose-800"
+          }>
+            {failure_message(@current_turn.failure_code, @plan_usage_paused?)}
           </p>
           <p
             :if={!opening_scene?(@current_turn)}
             class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700"
           >
-            {gettext("Your submitted action remains in the campaign story below.")}
+            {if @current_turn.failure_code == "usage_limit",
+              do:
+                gettext(
+                  "Your submitted action is saved below. Retrying continues this same turn."
+                ),
+              else: gettext("Your submitted action remains in the campaign story below.")}
           </p>
           <p
             :if={opening_scene?(@current_turn)}
@@ -270,7 +287,11 @@
           </p>
           <p
             :if={retryable?(@current_turn) && playable?(@session)}
-            class="mt-3 text-sm leading-6 text-rose-800"
+            class={
+              if @current_turn.failure_code == "usage_limit",
+                do: "mt-3 text-sm leading-6 text-amber-950",
+                else: "mt-3 text-sm leading-6 text-rose-800"
+            }
           >
             {if @current_turn.resolution_phase == :after_roll,
               do:
@@ -293,7 +314,13 @@
               phx-click="retry-turn"
               phx-value-turn_id={@current_turn.id}
               disabled={@worker_turn_id == @current_turn.id}
-              class="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-900 disabled:cursor-wait disabled:opacity-60"
+              class={
+                if @current_turn.failure_code == "usage_limit",
+                  do:
+                    "rounded-lg bg-amber-900 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-950 disabled:cursor-wait disabled:opacity-60",
+                  else:
+                    "rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-900 disabled:cursor-wait disabled:opacity-60"
+              }
             >{cond do
               @worker_turn_id == @current_turn.id -> gettext("Retrying…")
               opening_scene?(@current_turn) -> gettext("Retry opening scene")

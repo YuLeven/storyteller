@@ -22,7 +22,8 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
       setting: "A quiet coastal town",
       tone: "Grounded and mysterious",
       narration_language: "English",
-      player_character: "Ilya, a patient courier",
+      player_character_name: "Ilya",
+      player_character: "A patient courier",
       gm_characters: %{
         "0" => %{
           name: "Captain Ren",
@@ -55,6 +56,8 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
   test "campaign editor saves story setup and known character voices", %{conn: conn} do
     campaign =
       campaign_fixture(%{
+        player_character_name: "Ilya",
+        player_character: "A patient harbor courier who studies the tides.",
         gm_characters: [
           %{
             speaker_id: "keeper-elin",
@@ -76,6 +79,8 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
 
     assert has_element?(view, "#campaign-edit-form")
+    assert has_element?(view, "input[name='campaign[player_character_name]']")
+    assert has_element?(view, "textarea[name='campaign[player_character]']")
 
     assert has_element?(view, "#facts-keeper-elin details > summary", "Voice and mannerisms")
     refute has_element?(view, "h2", "Character voice guidance")
@@ -98,7 +103,8 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
       setting: "A fictional island harbor",
       tone: "Warm and quietly suspenseful",
       narration_language: "French",
-      player_character: "Ilya, a patient harbor courier",
+      player_character_name: "Ilya Venn",
+      player_character: "A patient harbor courier who knows every island path.",
       gm_character_setup: %{
         "keeper-elin" => %{
           visible_facts_text: "Maintains the lighthouse and studies the reef lights.",
@@ -123,7 +129,8 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert updated.title == "The Beacon at Low Tide"
     assert updated.premise == "A new signal arrives from the outer reef."
     assert updated.narration_language == "French"
-    assert updated.player_character == "Ilya, a patient harbor courier"
+    assert updated.player_character_name == "Ilya Venn"
+    assert updated.player_character == "A patient harbor courier who knows every island path."
     assert [%{id: session_id}] = updated.sessions
     assert session_id == session.id
 
@@ -139,7 +146,15 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
              "She has found a second signal beneath the lower lens."
 
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
-    assert player.name == "Ilya, a patient harbor courier"
-    assert player.visible_facts["description"] == "Ilya, a patient harbor courier"
+    assert player.name == "Ilya Venn"
+
+    assert player.visible_facts["description"] ==
+             "A patient harbor courier who knows every island path."
+
+    {:ok, _detail_view, detail_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert detail_html =~ "Character name"
+    assert detail_html =~ "Ilya Venn"
+    assert detail_html =~ "Character description"
+    assert detail_html =~ "A patient harbor courier who knows every island path."
   end
 end

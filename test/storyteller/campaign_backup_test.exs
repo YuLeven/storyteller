@@ -15,6 +15,7 @@ defmodule Storyteller.CampaignBackupTest do
   test "round-trips complete multi-session canon and remaps internal provenance IDs" do
     campaign =
       campaign_fixture(%{
+        player_character_name: "Mira Vale",
         starting_location: "Villa terrace",
         starting_date: "14 October 1567",
         world_time: "First watch",
@@ -218,7 +219,13 @@ defmodule Storyteller.CampaignBackupTest do
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
     assert document["schema_version"] == 1
     assert document["campaign"]["title"] == campaign.title
+    assert document["campaign"]["player_character_name"] == "Mira Vale"
+    assert document["campaign"]["player_character"] == campaign.player_character
     assert document["state"]["gm_private_state"]["history_clue"]
+
+    exported_player = Enum.find(document["characters"], &(&1["speaker_id"] == "player"))
+    assert exported_player["name"] == "Mira Vale"
+    assert exported_player["visible_facts"]["description"] == campaign.player_character
 
     assert Enum.any?(
              document["characters"],
@@ -239,6 +246,12 @@ defmodule Storyteller.CampaignBackupTest do
 
     imported_campaign = Campaigns.get_campaign!(imported.id)
     assert imported_campaign.title == campaign.title
+    assert imported_campaign.player_character_name == "Mira Vale"
+    assert imported_campaign.player_character == campaign.player_character
+
+    imported_player = Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "player")
+    assert imported_player.name == "Mira Vale"
+    assert imported_player.visible_facts["description"] == campaign.player_character
 
     assert Enum.map(imported_campaign.sessions, &{&1.title, &1.status}) |> MapSet.new() ==
              MapSet.new([{"Session 1", :completed}, {"The sealed cellar", :active}])
@@ -430,7 +443,7 @@ defmodule Storyteller.CampaignBackupTest do
            }
 
     legacy_document = %{
-      document
+      %{document | "campaign" => Map.delete(document["campaign"], "player_character_name")}
       | "turns" => Enum.map(document["turns"], &Map.delete(&1, "intent")),
         "characters" => Enum.map(document["characters"], &Map.delete(&1, "voice_guidance"))
     }
@@ -440,6 +453,12 @@ defmodule Storyteller.CampaignBackupTest do
 
     assert Repo.get_by!(Character, campaign_id: legacy_import.id, speaker_id: "npc:keeper").voice_guidance ==
              %{}
+
+    legacy_player = Repo.get_by!(Character, campaign_id: legacy_import.id, speaker_id: "player")
+    legacy_campaign = Campaigns.get_campaign!(legacy_import.id)
+    assert legacy_campaign.player_character_name == legacy_player.name
+    assert legacy_campaign.player_character == campaign.player_character
+    assert legacy_player.visible_facts["description"] == campaign.player_character
   end
 
   test "imports atomically and an enclosing rollback removes the new campaign and all children" do

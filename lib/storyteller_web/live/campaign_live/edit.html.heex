@@ -47,11 +47,18 @@
       ]}
     />
     <.input
+      field={@form[:player_character_name]}
+      label={gettext("Character name")}
+      maxlength="300"
+      required
+    />
+    <.input
       field={@form[:player_character]}
       type="textarea"
-      label={gettext("Player character details")}
+      label={gettext("Character description")}
       rows="3"
       maxlength="300"
+      required
     />
     <p class="-mt-4 text-sm text-stone-500">
       {gettext("These edits guide future turns and do not rewrite saved story entries.")}

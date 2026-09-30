@@ -7,6 +7,40 @@ defmodule Storyteller.CampaignAuthoringTest do
   alias Storyteller.Play
   alias Storyteller.Play.Character
 
+  test "player name headlines the roster while the full profile details reach the GM" do
+    campaign =
+      campaign_fixture(%{
+        player_character_name: "Tamsin Quill",
+        player_character: "A retired sky-cartographer who marks storms before they arrive."
+      })
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+
+    assert player.name == "Tamsin Quill"
+
+    assert player.visible_facts["description"] ==
+             "A retired sky-cartographer who marks storms before they arrive."
+
+    [session] = campaign.sessions
+
+    assert {:ok, turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "distinct-player-identity-context",
+               "Ask what Tamsin knows about the weather."
+             )
+
+    assert {:ok, context} = Play.model_context(turn.id)
+    prompt_player = Enum.find(context.characters, &(&1.speaker_id == "player"))
+
+    assert prompt_player.name == "Tamsin Quill"
+
+    assert prompt_player.visible_facts["description"] ==
+             "A retired sky-cartographer who marks storms before they arrive."
+  end
+
   test "GM character voice guidance persists separately from public character facts" do
     campaign =
       campaign_fixture(%{
@@ -110,7 +144,8 @@ defmodule Storyteller.CampaignAuthoringTest do
                "setting" => "A fictional island harbor",
                "tone" => "Warm and quietly suspenseful",
                "narration_language" => "French",
-               "player_character" => "Ilya, a patient harbor courier",
+               "player_character_name" => "Ilya",
+               "player_character" => "A patient harbor courier who knows every island path.",
                "gm_character_setup" => %{
                  "keeper-elin" => %{
                    "visible_facts_text" =>
@@ -132,7 +167,10 @@ defmodule Storyteller.CampaignAuthoringTest do
     assert updated_campaign.title == "The Beacon at Low Tide"
     assert updated_campaign.premise == "A new signal arrives from the outer reef."
     assert updated_campaign.narration_language == "French"
-    assert updated_campaign.player_character == "Ilya, a patient harbor courier"
+    assert updated_campaign.player_character_name == "Ilya"
+
+    assert updated_campaign.player_character ==
+             "A patient harbor courier who knows every island path."
 
     assert [saved_session_id] =
              Enum.map(Campaigns.get_campaign!(campaign.id).sessions, & &1.id)
@@ -161,8 +199,10 @@ defmodule Storyteller.CampaignAuthoringTest do
     assert updated_character.voice_guidance["mannerisms"] == "Touches the brass key at her belt."
 
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
-    assert player.name == "Ilya, a patient harbor courier"
-    assert player.visible_facts["description"] == "Ilya, a patient harbor courier"
+    assert player.name == "Ilya"
+
+    assert player.visible_facts["description"] ==
+             "A patient harbor courier who knows every island path."
 
     assert {:ok, future_turn} =
              Play.submit_turn(
@@ -177,6 +217,11 @@ defmodule Storyteller.CampaignAuthoringTest do
     player_context = Enum.find(future_context.characters, &(&1.speaker_id == "player"))
 
     assert keeper_context.voice_guidance == updated_character.voice_guidance
+    assert player_context.name == "Ilya"
+
+    assert player_context.visible_facts["description"] ==
+             "A patient harbor courier who knows every island path."
+
     refute Map.has_key?(player_context, :voice_guidance)
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
@@ -186,7 +231,11 @@ defmodule Storyteller.CampaignAuthoringTest do
     assert projected_keeper.visible_facts["description"] ==
              "Maintains the lighthouse and studies the reef lights."
 
-    assert projected_player.visible_facts["description"] == "Ilya, a patient harbor courier"
+    assert projected_player.name == "Ilya"
+
+    assert projected_player.visible_facts["description"] ==
+             "A patient harbor courier who knows every island path."
+
     refute Jason.encode!(projection) =~ "second signal beneath the lower lens"
     refute Jason.encode!(projection) =~ "Gentle island lilt"
   end

@@ -74,7 +74,16 @@
         <h3 class="text-sm font-semibold uppercase tracking-wide text-stone-500">
           {gettext("Player character")}
         </h3>
-        <p class="mt-2 text-stone-800">{@campaign.player_character}</p>
+        <dl class="mt-3 space-y-3">
+          <div>
+            <dt class="text-sm font-medium text-stone-500">{gettext("Character name")}</dt>
+            <dd class="mt-1 text-stone-800">{@campaign.player_character_name}</dd>
+          </div>
+          <div>
+            <dt class="text-sm font-medium text-stone-500">{gettext("Character description")}</dt>
+            <dd class="mt-1 whitespace-pre-wrap text-stone-800">{@campaign.player_character}</dd>
+          </div>
+        </dl>
       </div>
     </article>
 

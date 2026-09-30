@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Separate player identity and soften AI-limit recovery
+
+- Campaign creation and editing now collect the player's character name separately from the description. Review and campaign detail show both; campaign cards and the session header use the name alone. The full description remains part of the character profile and GM context. An additive migration conservatively backfills names only where a legacy value clearly begins with a short name followed by a comma; ambiguous text stays intact as the description.
+- A ChatGPT account usage limit now reads as a temporary GM pause within the play screen. The notice says the GM cannot answer while account usage is unavailable, links to Usage settings, and explains that resuming does not send a turn. The saved player action and any D20 result remain on the same turn, with an explicit retry after the player resumes requests. The copy treats this as a service limit rather than fictional “energy”; it does not imply a reset time or fall back to paid API calls. English, Spanish, and French copy is covered.
+- **Checks:** full WSL suite **228 tests, 0 failures**; JavaScript tests **13/13**; format check, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. Tests use fake providers and `storyteller_test`; no live model call was made.
+
 ## 2026-09-30 — Fold voice cues into character setup and extend MVP goals
 
 - The campaign editor now groups GM-only quirks, accent/dialect, cadence, vocabulary, and mannerisms inside each character's own setup card, alongside their visible facts and GM-only notes. The initial campaign form already follows this per-character layout.

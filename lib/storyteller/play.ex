@@ -336,7 +336,7 @@ defmodule Storyteller.Play do
         player = %{
           campaign_id: campaign.id,
           speaker_id: "player",
-          name: campaign.player_character,
+          name: campaign.player_character_name,
           role: :player,
           visible_facts: without_character_location_facts(player_facts),
           gm_private_facts: %{},
@@ -368,6 +368,8 @@ defmodule Storyteller.Play do
   def public_projection(campaign_id) do
     with %State{} = state <- Repo.get_by(State, campaign_id: campaign_id),
          {:ok, panel_projection} <- Panels.public_projection(campaign_id) do
+      campaign = Repo.get!(Campaign, campaign_id)
+
       campaign_places =
         Repo.all(
           from place in Place,
@@ -400,7 +402,11 @@ defmodule Storyteller.Play do
 
           %{
             speaker_id: character.speaker_id,
-            name: character.name,
+            name:
+              if(character.speaker_id == "player",
+                do: campaign.player_character_name,
+                else: character.name
+              ),
             role: character.role,
             visible_facts: without_character_location_facts(character.visible_facts),
             visible_activity: character.visible_activity,
@@ -3752,7 +3758,11 @@ defmodule Storyteller.Play do
         Enum.map(characters, fn character ->
           %{
             speaker_id: character.speaker_id,
-            name: character.name,
+            name:
+              if(character.speaker_id == "player",
+                do: campaign.player_character_name,
+                else: character.name
+              ),
             role: character.role,
             visible_facts: without_character_location_facts(character.visible_facts),
             gm_private_facts: without_character_location_facts(character.gm_private_facts),

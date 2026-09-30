@@ -12,12 +12,19 @@ defmodule StorytellerWeb.CampaignLiveTest do
     conn: conn
   } do
     first =
-      campaign_fixture(%{title: "Lantern Coast", premise: "A ferry light vanishes in a storm."})
+      campaign_fixture(%{
+        title: "Lantern Coast",
+        premise: "A ferry light vanishes in a storm.",
+        player_character_name: "Sera Vale",
+        player_character: "A ferry keeper who reads storm clouds."
+      })
 
     second =
       campaign_fixture(%{
         title: "Copper Archive",
-        premise: "A map is missing from the city collection."
+        premise: "A map is missing from the city collection.",
+        player_character_name: "Niko Reed",
+        player_character: "An archivist with a perfect memory."
       })
 
     {:ok, _view, html} = live(conn, ~p"/")
@@ -32,8 +39,11 @@ defmodule StorytellerWeb.CampaignLiveTest do
       html |> Floki.parse_document!() |> Floki.find("#campaign-#{second.id}") |> Floki.text()
 
     assert first_card =~ "A ferry light vanishes in a storm."
+    assert first_card =~ "Character: Sera Vale"
+    refute first_card =~ "A ferry keeper who reads storm clouds."
     refute first_card =~ "A map is missing from the city collection."
     assert second_card =~ "A map is missing from the city collection."
+    assert second_card =~ "Character: Niko Reed"
     refute second_card =~ "A ferry light vanishes in a storm."
 
     first_session = hd(first.sessions)
@@ -58,19 +68,30 @@ defmodule StorytellerWeb.CampaignLiveTest do
       setting: "A fictional coastal city",
       tone: "Patient and hopeful",
       narration_language: "French",
-      player_character: "Noa Marin, a lighthouse keeper"
+      player_character_name: "Noa Marin",
+      player_character: "A lighthouse keeper who listens for bells in fog."
     }
 
     review_html = view |> form("#campaign-form", campaign: attrs) |> render_submit()
     assert review_html =~ "Review your campaign"
     assert review_html =~ "The Blue Lantern"
     assert review_html =~ "Noa Marin"
+    assert review_html =~ "Character description"
+    assert review_html =~ "A lighthouse keeper who listens for bells in fog."
     assert Campaigns.list_campaigns() == []
 
     view |> element("button[phx-click=create]") |> render_click()
     campaign = hd(Campaigns.list_campaigns())
     assert campaign.title == "The Blue Lantern"
+    assert campaign.player_character_name == "Noa Marin"
+    assert campaign.player_character == "A lighthouse keeper who listens for bells in fog."
     assert [%{title: "Session 1", status: :active}] = campaign.sessions
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    assert player.name == "Noa Marin"
+    assert player.visible_facts["description"] == campaign.player_character
+
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
   end
 
@@ -128,7 +149,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
       setting: "A quiet coastal town",
       tone: "Grounded and mysterious",
       narration_language: "English",
-      player_character: "Ilya, a patient courier",
+      player_character_name: "Ilya",
+      player_character: "A patient courier",
       gm_characters: %{
         "0" => %{name: "Captain Ren"},
         "1" => %{name: "Captain Ren"},
@@ -172,7 +194,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
       setting: "Asterfall Island",
       tone: "Quiet wonder",
       narration_language: "English",
-      player_character: "Mira Vale",
+      player_character_name: "Mira Vale",
+      player_character: "A careful apprentice astronomer.",
       inventory: %{
         "0" => %{
           name: "Healing potion",
@@ -218,7 +241,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
       setting: "A coastal orchard",
       tone: "Grounded and reflective",
       narration_language: "English",
-      player_character: "Mira Vale",
+      player_character_name: "Mira Vale",
+      player_character: "An orchard keeper with a gentle patience.",
       player_character_details: %{
         "0" => %{label: "Health", value: "Recovering well"},
         "1" => %{label: "Responsibilities", value: "Cares for the northern rows"}
@@ -263,7 +287,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
       setting: "An invented mountain pass",
       tone: "Curious and restrained",
       narration_language: "English",
-      player_character: "Ilya, a patient courier",
+      player_character_name: "Ilya",
+      player_character: "A patient courier",
       starting_location: "The east relay station",
       starting_date: "The last day of autumn",
       world_time: "Near midnight",
@@ -318,11 +343,20 @@ defmodule StorytellerWeb.CampaignLiveTest do
   end
 
   test "campaign detail resumes history and starts a later session", %{conn: conn} do
-    campaign = campaign_fixture()
+    campaign =
+      campaign_fixture(%{
+        player_character_name: "Rin Ashford",
+        player_character: "A careful guide who carries a hand-drawn map."
+      })
+
     [first_session] = campaign.sessions
 
     {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}")
     assert html =~ first_session.title
+    assert html =~ "Character name"
+    assert html =~ "Rin Ashford"
+    assert html =~ "Character description"
+    assert html =~ "A careful guide who carries a hand-drawn map."
 
     assert html =~
              "Starting another session completes the active session. Its full story stays saved."
@@ -382,7 +416,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
     {:ok, _view, html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
     assert html =~ campaign.title
     assert html =~ session.title
-    assert html =~ campaign.player_character
+    assert html =~ campaign.player_character_name
     assert html =~ "Campaign story"
     assert html =~ "What do you do or say?"
   end

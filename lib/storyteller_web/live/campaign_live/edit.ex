@@ -3,7 +3,9 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   alias Storyteller.Campaigns
 
-  @editable_fields ~w(title premise setting tone narration_language player_character)
+  @editable_fields ~w(
+    title premise setting tone narration_language player_character_name player_character
+  )
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do

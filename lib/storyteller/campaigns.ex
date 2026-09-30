@@ -39,7 +39,7 @@ defmodule Storyteller.Campaigns do
   end
 
   def change_campaign(%Campaign{} = campaign, attrs \\ %{}) do
-    Campaign.changeset(campaign, attrs)
+    Campaign.changeset(campaign, legacy_player_name_attrs(campaign, attrs))
   end
 
   def list_gm_characters(campaign_id) do
@@ -63,7 +63,8 @@ defmodule Storyteller.Campaigns do
         Multi.new()
         |> Multi.update(:campaign, changeset)
         |> Multi.run(:player_character, fn repo, %{campaign: updated_campaign} ->
-          if Map.has_key?(changeset.changes, :player_character) do
+          if Map.has_key?(changeset.changes, :player_character_name) or
+               Map.has_key?(changeset.changes, :player_character) do
             case repo.get_by(Character,
                    campaign_id: campaign_id,
                    speaker_id: "player",
@@ -73,19 +74,24 @@ defmodule Storyteller.Campaigns do
                 {:error, :invalid_player_character}
 
               player ->
-                visible_facts =
-                  Map.put(
-                    player.visible_facts || %{},
-                    "description",
-                    updated_campaign.player_character
+                character_attrs =
+                  %{}
+                  |> maybe_put(
+                    :name,
+                    Map.has_key?(changeset.changes, :player_character_name),
+                    updated_campaign.player_character_name
+                  )
+                  |> maybe_put(
+                    :visible_facts,
+                    Map.has_key?(changeset.changes, :player_character),
+                    Map.put(
+                      player.visible_facts || %{},
+                      "description",
+                      updated_campaign.player_character
+                    )
                   )
 
-                repo.update(
-                  Character.changeset(player, %{
-                    name: updated_campaign.player_character,
-                    visible_facts: visible_facts
-                  })
-                )
+                repo.update(Character.changeset(player, character_attrs))
             end
           else
             {:ok, nil}
@@ -301,62 +307,91 @@ defmodule Storyteller.Campaigns do
   end
 
   defp campaign_attrs(attrs) do
-    Map.take(
-      attrs,
-      [
-        :title,
-        :premise,
-        :setting,
-        :tone,
-        :narration_language,
-        :player_character,
-        :status,
-        :starting_location,
-        :starting_date,
-        :world_time,
-        :weather
-      ]
-    )
-    |> Map.merge(
-      Enum.reduce(
+    attrs =
+      Map.take(
+        attrs,
         [
-          "title",
-          "premise",
-          "setting",
-          "tone",
-          "narration_language",
-          "player_character",
-          "status",
-          "starting_location",
-          "starting_date",
-          "world_time",
-          "weather"
-        ],
-        %{},
-        fn key, acc ->
-          if Map.has_key?(attrs, key),
-            do: Map.put(acc, String.to_existing_atom(key), Map.get(attrs, key)),
-            else: acc
-        end
+          :title,
+          :premise,
+          :setting,
+          :tone,
+          :narration_language,
+          :player_character_name,
+          :player_character,
+          :status,
+          :starting_location,
+          :starting_date,
+          :world_time,
+          :weather
+        ]
       )
-    )
+      |> Map.merge(
+        Enum.reduce(
+          [
+            "title",
+            "premise",
+            "setting",
+            "tone",
+            "narration_language",
+            "player_character_name",
+            "player_character",
+            "status",
+            "starting_location",
+            "starting_date",
+            "world_time",
+            "weather"
+          ],
+          %{},
+          fn key, acc ->
+            if Map.has_key?(attrs, key),
+              do: Map.put(acc, String.to_existing_atom(key), Map.get(attrs, key)),
+              else: acc
+          end
+        )
+      )
+
+    legacy_player_name_attrs(%Campaign{}, attrs)
   end
 
   defp authoring_campaign_attrs(attrs) do
-    Enum.reduce(
-      [:title, :premise, :setting, :tone, :narration_language, :player_character],
-      %{},
-      fn key, acc ->
-        string_key = Atom.to_string(key)
+    attrs =
+      Enum.reduce(
+        [
+          :title,
+          :premise,
+          :setting,
+          :tone,
+          :narration_language,
+          :player_character_name,
+          :player_character
+        ],
+        %{},
+        fn key, acc ->
+          string_key = Atom.to_string(key)
 
-        cond do
-          Map.has_key?(attrs, key) -> Map.put(acc, key, Map.get(attrs, key))
-          Map.has_key?(attrs, string_key) -> Map.put(acc, key, Map.get(attrs, string_key))
-          true -> acc
+          cond do
+            Map.has_key?(attrs, key) -> Map.put(acc, key, Map.get(attrs, key))
+            Map.has_key?(attrs, string_key) -> Map.put(acc, key, Map.get(attrs, string_key))
+            true -> acc
+          end
         end
-      end
-    )
+      )
+
+    legacy_player_name_attrs(%Campaign{}, attrs)
   end
+
+  defp legacy_player_name_attrs(%Campaign{player_character_name: nil}, attrs) do
+    if has_attr?(attrs, :player_character) and not has_attr?(attrs, :player_character_name) do
+      Map.put(attrs, :player_character_name, attr(attrs, :player_character))
+    else
+      attrs
+    end
+  end
+
+  defp legacy_player_name_attrs(_campaign, attrs), do: attrs
+
+  defp maybe_put(map, _key, false, _value), do: map
+  defp maybe_put(map, key, true, value), do: Map.put(map, key, value)
 
   defp normalize_character_voice_updates(campaign_id, attrs) do
     supplied = attr(attrs, :character_voice_guidance, %{})
