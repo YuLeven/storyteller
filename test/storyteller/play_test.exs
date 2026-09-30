@@ -439,6 +439,28 @@ defmodule Storyteller.PlayTest do
             }
           ]
         }
+      },
+      {
+        "gm-canonical-location-alias",
+        %{
+          "character_updates" => [
+            %{
+              "speaker_id" => "npc:lyra",
+              "visible_facts" => %{"current_place_id" => "somewhere-else"}
+            }
+          ]
+        }
+      },
+      {
+        "gm-private-canonical-location-alias",
+        %{
+          "character_updates" => [
+            %{
+              "speaker_id" => "npc:lyra",
+              "gm_private_facts" => %{"current_location" => "The hidden cistern"}
+            }
+          ]
+        }
       }
     ]
 
@@ -1238,11 +1260,20 @@ defmodule Storyteller.PlayTest do
                ]
              })
 
+    lyra_record = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(
+      Character.changeset(lyra_record, %{
+        visible_facts: %{"role" => "cellar keeper", "location" => "North cellar"}
+      })
+    )
+
     assert {:ok, initial} = Play.public_projection(campaign.id)
     player = Enum.find(initial.characters, &(&1.speaker_id == "player"))
     lyra = Enum.find(initial.characters, &(&1.speaker_id == "npc:lyra"))
     assert player.current_place.name == "Vineyard gate"
     assert lyra.current_place.name == "North cellar"
+    assert lyra.visible_facts == %{"role" => "cellar keeper"}
     assert Enum.map(initial.places, & &1.name) |> Enum.sort() == ["North cellar", "Vineyard gate"]
 
     location_changes = [
@@ -1291,6 +1322,14 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "location", "A stale location snapshot")
+      })
+    )
+
     observed_context = Agent.start_link(fn -> nil end) |> elem(1)
 
     context_provider = fn request ->
@@ -1305,16 +1344,18 @@ defmodule Storyteller.PlayTest do
              )
 
     context = Agent.get(observed_context, & &1)
+    assert context["world"]["public"]["location"] == "Old press room"
     assert Enum.any?(context["places"]["gm_private"], &(&1["place_id"] == "sealed-vault"))
     context_lyra = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:lyra"))
     assert context_lyra["current_place"]["place_id"] == "sealed-vault"
+    assert context_lyra["visible_facts"]["role"] == "cellar keeper"
+    refute Map.has_key?(context_lyra["visible_facts"], "location")
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
     projected_player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
-    projected_lyra = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
     assert projected_player.current_place.name == "Old press room"
     assert projection.world["location"] == "Old press room"
-    assert projected_lyra.current_place == nil
+    refute Enum.any?(projection.characters, &(&1.speaker_id == "npc:lyra"))
     assert Enum.all?(projection.places, &(&1.place_id != "sealed-vault"))
 
     assert {:ok, public_events} = Play.public_timeline(campaign.id)
@@ -1524,18 +1565,31 @@ defmodule Storyteller.PlayTest do
                provider:
                  ordinary_provider(%{
                    "character_creations" => [creation],
-                   "dialogue" => [],
-                   "activities" => [],
+                   "dialogue" => [
+                     %{
+                       "speaker_id" => "npc:elira",
+                       "text" => "I am hiding the silver key in the flooded passage."
+                     }
+                   ],
+                   "activities" => [
+                     %{
+                       "speaker_id" => "npc:elira",
+                       "text" => "Elira watches the hidden passage."
+                     }
+                   ],
                    "location_changes" => location_changes,
-                   "character_updates" => []
+                   "character_updates" => [
+                     %{
+                       "speaker_id" => "npc:elira",
+                       "visible_facts" => %{"met_at" => "Flooded Passage"}
+                     }
+                   ]
                  }),
                model: "test-model"
              )
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
-    elira = Enum.find(projection.characters, &(&1.speaker_id == "npc:elira"))
-    assert elira.visible_facts == creation["visible_facts"]
-    assert elira.current_place == nil
+    refute Enum.any?(projection.characters, &(&1.speaker_id == "npc:elira"))
     refute Enum.any?(projection.places, &(&1.place_id == "flooded-passage"))
 
     assert {:ok, public_events} = Play.public_timeline(campaign.id)
@@ -1544,6 +1598,9 @@ defmodule Storyteller.PlayTest do
     refute public_json =~ "flooded-passage"
     refute public_json =~ "Flooded Passage"
     refute public_json =~ "silver key"
+    refute public_json =~ "Elira Moss"
+    refute public_json =~ "I am hiding"
+    refute public_json =~ "watches the hidden passage"
 
     assert {:ok, next_session} = Campaigns.start_session(campaign)
     captured_context = Agent.start_link(fn -> nil end) |> elem(1)
@@ -1571,10 +1628,26 @@ defmodule Storyteller.PlayTest do
 
     context = Agent.get(captured_context, & &1)
     context_elira = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:elira"))
-    assert context_elira["visible_facts"] == creation["visible_facts"]
+
+    assert context_elira["visible_facts"] == %{
+             "trade" => "herbalist",
+             "met_at" => "Flooded Passage"
+           }
+
     assert context_elira["gm_private_facts"] == creation["gm_private_facts"]
     assert context_elira["current_place"]["place_id"] == "flooded-passage"
+    assert context_elira["visible_activity"] == nil
     assert Enum.any?(context["places"]["gm_private"], &(&1["place_id"] == "flooded-passage"))
+
+    assert Enum.any?(context["history"], fn event ->
+             event["visibility"] == "gm_private" and event["event_type"] == "npc_dialogue" and
+               event["payload"]["text"] == "I am hiding the silver key in the flooded passage."
+           end)
+
+    assert Enum.any?(context["history"], fn event ->
+             event["visibility"] == "gm_private" and event["event_type"] == "character_activity" and
+               event["payload"]["text"] == "Elira watches the hidden passage."
+           end)
   end
 
   test "moving a character without new activity clears their stale public activity across sessions" do
@@ -1653,9 +1726,7 @@ defmodule Storyteller.PlayTest do
              )
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
-    lyra = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
-    assert lyra.current_place == nil
-    assert lyra.visible_activity == nil
+    refute Enum.any?(projection.characters, &(&1.speaker_id == "npc:lyra"))
     refute Jason.encode!(projection) =~ "Hidden Cistern"
 
     assert {:ok, next_session} = Campaigns.start_session(campaign)
@@ -3211,7 +3282,7 @@ defmodule Storyteller.PlayTest do
     assert Play.public_projection(campaign.id)
            |> elem(1)
            |> Map.fetch!(:world)
-           |> Map.fetch!("location") == nil
+           |> Map.get("location") == nil
 
     assert {:ok, []} = Play.public_timeline(campaign.id)
 
@@ -3268,7 +3339,7 @@ defmodule Storyteller.PlayTest do
     assert Play.public_projection(campaign.id)
            |> elem(1)
            |> Map.fetch!(:world)
-           |> Map.fetch!("location") == nil
+           |> Map.get("location") == nil
 
     assert {:ok, []} = Play.public_timeline(campaign.id)
 

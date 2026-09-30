@@ -38,14 +38,19 @@ The chosen product path is:
 
 The selected OAuth route has no separate per-token API charge; it consumes the owner's existing ChatGPT Plus allowance. The current listed Plus subscription is $20/month. The owner already has that plan, so Storyteller's estimated additional model charge on this route is $0/month while requests remain eligible and within plan limits. The Plus allowance is shared with other apps and work in the account, so price is predictable but available play capacity is not guaranteed. Local hosting avoids a hosting bill for the MVP if it runs on the owner's existing computer; domain, remote hosting, and any infrastructure the owner later chooses are excluded.
 
-For comparison only, the conventional API-key route would add token charges to Plus. These planning estimates use GPT-6 Sol standard rates ($2 per million input tokens and $10 per million output tokens), 30 play days per month, one GM call per reply, and no cache discount:
+For comparison only, a conventional API-key route would add token charges to Plus. GPT-6 Luna standard rates are $0.10 per million uncached input tokens, $0.01 per million cached input tokens, and $0.50 per million output tokens for requests with up to 272K input tokens. The estimates below use uncached input, 30 play days per month, and the game's actual call pattern: one call for an ordinary player action, plus a second call only when the GM requests a player D20 and must resolve its result. The D20 roll and proposal validation are local and do not use the model.
 
-| Daily play scenario | Assumed tokens per GM reply (input / output) | Added API estimate per month | Total including existing Plus |
-| --- | ---: | ---: | ---: |
-| Short: 5 GM replies/day | 12,000 / 1,500 | $5.85 | $25.85 |
-| Long: 20 GM replies/day | 25,000 / 2,000 | $42.00 | $62.00 |
+Each request sends the fixed GM policy (about 3,000 tokens) plus campaign context: canonical world and character state, public and GM-private summaries, continuity records, and up to 40 recent event records. The history window is bounded rather than the whole transcript. Prompt sizes below are budgeting assumptions, not measured provider usage; real size varies with campaign content. The roll column assumes 15% of actions need a second call, an illustrative rate rather than a measured one:
 
-Token volumes are assumptions for budgeting, not measured usage. Longer conversation context, extra model calls, or different model choice can raise the API estimate; prompt caching can reduce it. The OAuth route can instead pause when Plus limits are reached, without purchasing credits.
+| Daily player actions | Assumed tokens per call (input / output) | API/month: one call per action | API/month: 15% roll follow-ups | Total incl. existing Plus at 15% rolls |
+| --- | ---: | ---: | ---: | ---: |
+| Short: 5/day | 12,000 / 1,500 | $0.29 | $0.34 | $20.34 |
+| Regular: 25/day | 25,000 / 2,000 | $2.63 | $3.02 | $23.02 |
+| Dense campaign: 25/day | 50,000 / 3,000 | $4.88 | $5.61 | $25.61 |
+
+The selected ChatGPT-plan OAuth route still adds $0 in API charges and uses the existing $20/month Plus plan allowance, shared with other ChatGPT apps. Its cash price is therefore the existing subscription, while the API figures above are only a metered-billing comparison. Prompt caching could lower API input costs when the request prefix qualifies; unusually large histories, repeated roll follow-ups, or retries could raise them. OAuth requests can instead pause at the account's plan limits, without purchasing API credits.
+
+The input-size, roll-follow-up, cache, and post-MVP measurement assumptions are documented separately in [Inference cost investigation](docs/INFERENCE_COST_INVESTIGATION_2026-09.md). The GPT-6 Luna API rates are a low-cost comparison example, not a claim that its play quality matches another model or the ChatGPT-plan route.
 
 ## Preserve the vineyard game and its GM rules
 
@@ -184,7 +189,7 @@ Milestones 2–6 describe the shared domain goals and selected standalone UI. On
 - [ChatGPT pricing](https://learn.chatgpt.com/docs/pricing) for the current Plus subscription reference and usage-limit guidance.
 - [ChatGPT plan usage for open-source and locally hosted apps](https://developers.openai.com/siwc/token-sharing-open-source), [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference), and [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) for the local OAuth candidate.
 - [OAuth registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions), [token reference](https://developers.openai.com/siwc/token-sharing-open-source/token-reference), and [errors and recovery](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery) for credentials, renewal, usage limits, and sign-out.
-- [GPT-6 Sol pricing](https://developers.openai.com/api/docs/models/gpt-6-sol) for the API-key comparison estimate. Prices and plan terms should be rechecked before implementation and before making future cost promises.
+- [GPT-6 Luna pricing](https://developers.openai.com/api/docs/models/gpt-6-luna) for the API-key comparison estimate. Prices and plan terms should be rechecked before implementation and before making future cost promises.
 - [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and [conversation state](https://developers.openai.com/api/docs/guides/conversation-state) for the GM adapter.
 - [Phoenix LiveView guide](https://phoenix.hexdocs.pm/live_view.html), [LiveView testing](https://phoenix-live-view.hexdocs.pm/1.2.11/Phoenix.LiveViewTest.html), and [Gettext](https://gettext.hexdocs.pm/) for the server-rendered interface, behavioural tests, and localization.
 - [Initial product benchmark and design principles](docs/PRODUCT_BENCHMARK_2026-09.md) for the comparison set, sourced feature observations, product implications, and interaction-design guidance.

@@ -67,6 +67,21 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ premise
   end
 
+  test "an incomplete textarea change event does not take down the live play screen", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    render_change(view, "change-input", %{
+      "_target" => ["turn", "input"],
+      "turn" => %{"idempotency_key" => Ecto.UUID.generate()}
+    })
+
+    assert has_element?(view, "#turn-input")
+  end
+
   test "campaign board shows durable public memory and omits GM-private continuity details", %{
     conn: conn
   } do
@@ -782,8 +797,27 @@ defmodule StorytellerWeb.SessionLiveTest do
       view |> element(player_button) |> render_click()
       assert render(view) =~ "I listen at the door.\n#{sentence}"
 
+      first_draft = "I listen at the door.\n#{sentence}"
+
+      assert_push_event(view, "action-composer:update", %{
+        draft: ^first_draft
+      })
+
+      assert has_element?(
+               view,
+               "#turn-input[phx-hook='ActionComposer']"
+             )
+
       view |> element(party_button) |> render_click()
       assert render(view) =~ "I listen at the door.\n#{sentence}\n#{party_sentence}"
+
+      combined_draft = "I listen at the door.\n#{sentence}\n#{party_sentence}"
+
+      assert_push_event(view, "action-composer:update", %{
+        draft: ^combined_draft
+      })
+
+      assert has_element?(view, "#turn-input[phx-hook='ActionComposer']")
 
       edited_draft = "I listen at the door.\n#{sentence}\n#{party_sentence} I change my mind."
 

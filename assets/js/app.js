@@ -23,12 +23,13 @@ import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import {StoryTimeline} from "./story_timeline.mjs"
 import {PanelPulse} from "./panel_pulse.mjs"
+import {ActionComposer} from "./action_composer.mjs"
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {StoryTimeline, PanelPulse}
+  hooks: {StoryTimeline, PanelPulse, ActionComposer}
 })
 
 // Show progress bar on live navigation and form submits

@@ -461,6 +461,7 @@
               rows="3"
               maxlength="20000"
               phx-debounce="blur"
+              phx-hook="ActionComposer"
               placeholder={gettext("Describe your character's action or words…")}
               disabled={
                 @plan_usage_paused? ||

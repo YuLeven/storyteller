@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-09-30 — Protect hidden character state and make inventory shortcuts reliable
+
+- Canonical character places now determine presence and location. Legacy location aliases are removed from character facts and world prompts, and the GM cannot write location through character facts.
+- Characters at GM-private places are omitted from the player's scene projection. Their introductions, dialogue, activity, and fact-update events stay out of the public timeline and their hidden activity is cleared; later GM context retains the private event history. Public world location follows the player's canonical public place rather than stale snapshot text.
+- Inventory “Use in your action” buttons now send the server-composed sentence directly to the composer hook. The editable draft is preserved when another action is added; enabled inputs receive focus at the end, while a disabled input can still display the suggestion without attempting focus.
+- An incomplete LiveView textarea change payload is ignored safely. This prevents the composer from crashing when the browser reports a change without an input value.
+- Browser QA on **QA Playtest · The Amber Orchard** confirmed “Use Amber apples in your action” populated the composer. ChatGPT-plan requests were already paused, so the textarea was disabled and did not take focus. The page was reloaded afterward to clear this QA-only draft; no turn was submitted, campaign records were not modified, and the account-wide pause remains unchanged.
+- Refreshed `docs/PRODUCT_BENCHMARK_2026-09.md` with the current vendor-stated baseline, sourced opportunities, and explicit desk-research limits. Hands-on competitor task comparison remains open.
+- Refreshed the optional API-billing comparison using current GPT-6 Luna rates and the app's one-call/roll-follow-up flow. `docs/INFERENCE_COST_INVESTIGATION_2026-09.md` records the token assumptions, unmeasured usage gap, and cost-optimization ideas to defer until the MVP works; no model, prompt, request, or billing behavior changed.
+- **Checks:** Full WSL suite **197 tests, 0 failures**; focused SessionLive suite **28 tests, 0 failures** after tightening push-event assertions; action composer, story timeline, and panel pulse JavaScript tests **10/10**. Formatting, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass.
+- **Privacy limit:** Structured event and projection filtering cannot guarantee that free-form public GM narration will never paraphrase a hidden secret. Review this through scenario testing as the campaign experience grows.
+
 ## 2026-09-30 — Keep turn replies readable and the desktop board in place
 
 - A newly saved player action now appears in the campaign story immediately while the GM resolves it, survives reconnect/reload, and disappears as a preview when its canonical event arrives. This keeps the player's own message visible during slow responses without duplicating it.

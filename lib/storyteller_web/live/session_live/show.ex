@@ -65,6 +65,8 @@ defmodule StorytellerWeb.SessionLive.Show do
     {:noreply, assign(socket, draft: input, input_error?: false)}
   end
 
+  def handle_event("change-input", _params, socket), do: {:noreply, socket}
+
   def handle_event("use-in-action", %{"item_id" => item_id}, socket) when is_binary(item_id) do
     item = player_action_item(socket.assigns.projection, item_id)
     latest = Play.public_current_turn(socket.assigns.session.campaign_id)
@@ -73,11 +75,10 @@ defmodule StorytellerWeb.SessionLive.Show do
       sentence =
         item_action_sentence(item["name"], socket.assigns.session.campaign.narration_language)
 
-      {:noreply,
-       assign(socket,
-         draft: append_action_sentence(socket.assigns.draft, sentence),
-         input_error?: false
-       )}
+      next_draft = append_action_sentence(socket.assigns.draft, sentence)
+
+      socket = assign(socket, draft: next_draft, input_error?: false)
+      {:noreply, push_event(socket, "action-composer:update", %{draft: next_draft})}
     else
       # Unknown, hidden, or non-player-owned item IDs deliberately have the same result.
       {:noreply, socket}
@@ -475,10 +476,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       <button
         :if={@item["owner_id"] in ["player", "party"] and @playable}
         type="button"
-        phx-click={
-          JS.push("use-in-action", value: %{item_id: @item["id"]})
-          |> JS.focus(to: "#turn-input")
-        }
+        phx-click={JS.push("use-in-action", value: %{item_id: @item["id"]})}
         aria-label={gettext("Use %{item} in your action", item: @item["name"])}
         disabled={@turn_blocked}
         class="mt-1 inline-flex min-h-8 items-center rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
