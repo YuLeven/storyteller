@@ -83,16 +83,16 @@
 .tabletop-shell [class~="bg-amber-50/60"],
 .tabletop-shell [class~="bg-amber-50/70"] { background-color: #30291d !important; }
 .tabletop-shell [class~="bg-amber-100"] { background-color: #3b3020 !important; }
-.tabletop-shell [class~="bg-amber-700"] { background-color: #b18343 !important; }
-.tabletop-shell [class~="bg-amber-800"] { background-color: #a87637 !important; }
-.tabletop-shell [class~="bg-amber-900"] { background-color: #8d622f !important; }
+.tabletop-shell [class~="bg-amber-700"] { background-color: #8d622f !important; }
+.tabletop-shell [class~="bg-amber-800"] { background-color: #955f1d !important; }
+.tabletop-shell [class~="bg-amber-900"] { background-color: #80591f !important; }
 .tabletop-shell [class~="border-amber-200"] { border-color: #78603a !important; }
 .tabletop-shell [class~="text-amber-800"],
 .tabletop-shell [class~="text-amber-900"],
 .tabletop-shell [class~="text-amber-950"] { color: #e7bd76 !important; }
 .tabletop-shell [class~="text-amber-700"] { color: #d9aa60 !important; }
 .tabletop-shell [class~="hover:bg-amber-800"]:hover,
-.tabletop-shell [class~="hover:bg-amber-900"]:hover { background-color: #c08e4b !important; }
+.tabletop-shell [class~="hover:bg-amber-900"]:hover { background-color: #9a6723 !important; }
 .tabletop-shell [class~="hover:text-amber-950"]:hover,
 .tabletop-shell [class~="hover:text-amber-800"]:hover { color: #f2cc87 !important; }
 

@@ -14,7 +14,8 @@
 ## 2026-09-30 — Preserve dark card contrast on narrow screens
 
 - Added dark palette mappings for translucent amber and white utility backgrounds used by campaign commitments, current-place cards, and nested people/objective rows.
-- **Checked:** read-only 370px viewport review confirmed those card surfaces remain dark and readable. This was a visual spot check; keyboard, screen-reader, and full contrast verification remain open.
+- Darkened amber action colors so cream button labels meet the 4.5:1 contrast target in normal and hover states.
+- **Checked:** read-only 370px viewport review confirmed those card surfaces remain dark and readable. The sampled Send action measures 5.13:1 at rest and 4.65:1 on hover. This was a targeted spot check; full contrast and assistive-technology reviews remain open.
 
 ## 2026-09-30 — Keep multi-step player travel canonical
 
