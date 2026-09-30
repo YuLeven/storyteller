@@ -49,6 +49,8 @@ defmodule Storyteller.Campaigns do
     if campaign_changeset.valid? do
       with {:ok, characters} <-
              normalize_setup_characters(attr(attrs, :gm_characters, attr(attrs, :characters, []))),
+           {:ok, player_visible_facts} <-
+             normalize_player_character_details(attr(attrs, :player_character_details, [])),
            {:ok, panel_fields} <-
              normalize_panel_fields(attr(attrs, :panel_fields, attr(attrs, :panels, []))),
            {:ok, inventory} <-
@@ -64,6 +66,7 @@ defmodule Storyteller.Campaigns do
            campaign: Ecto.Changeset.apply_changes(campaign_changeset),
            public_state: public_state,
            characters: characters,
+           player_visible_facts: player_visible_facts,
            panel_fields: panel_fields,
            inventory: inventory,
            raw_attrs: attrs
@@ -88,7 +91,8 @@ defmodule Storyteller.Campaigns do
           public_state: setup.public_state,
           characters: setup.characters,
           inventory: setup.inventory,
-          player_visible_facts: %{"description" => campaign.player_character}
+          player_visible_facts:
+            Map.put(setup.player_visible_facts, "description", campaign.player_character)
         })
       end)
       |> Multi.run(:panel_fields, fn repo, %{campaign: campaign} ->
@@ -331,6 +335,58 @@ defmodule Storyteller.Campaigns do
   end
 
   defp normalize_setup_characters(_), do: {:error, {:setup, "GM characters must be a list."}}
+
+  defp normalize_player_character_details(rows) when is_list(rows) or is_map(rows) do
+    rows = indexed_rows(rows)
+
+    cond do
+      length(rows) > 50 ->
+        {:error, {:setup, "Add no more than 50 player character details."}}
+
+      true ->
+        rows = Enum.reject(rows, fn {_index, attrs} -> blank_row?(attrs) end)
+
+        Enum.reduce_while(rows, {:ok, {%{}, MapSet.new()}}, fn {_index, attrs},
+                                                               {:ok, {facts, labels}} ->
+          label = attrs |> attr(:label, "") |> trim_string()
+          value = attrs |> attr(:value, "") |> trim_string()
+          normalized_label = String.downcase(label)
+
+          cond do
+            not is_map(attrs) ->
+              {:halt, {:error, {:setup, "Player character detail rows must be objects."}}}
+
+            label == "" or String.length(label) > 80 ->
+              {:halt,
+               {:error,
+                {:setup, "Every player character detail needs a label up to 80 characters."}}}
+
+            normalized_label == "description" ->
+              {:halt,
+               {:error,
+                {:setup, "The label 'description' is reserved for the character summary."}}}
+
+            MapSet.member?(labels, normalized_label) ->
+              {:halt, {:error, {:setup, "Player character detail labels must be unique."}}}
+
+            value == "" or String.length(value) > 500 ->
+              {:halt,
+               {:error,
+                {:setup, "Every player character detail needs a value up to 500 characters."}}}
+
+            true ->
+              {:cont, {:ok, {Map.put(facts, label, value), MapSet.put(labels, normalized_label)}}}
+          end
+        end)
+        |> case do
+          {:ok, {facts, _labels}} -> {:ok, facts}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp normalize_player_character_details(_rows),
+    do: {:error, {:setup, "Player character details must be a list."}}
 
   defp normalize_panel_fields(rows) when is_list(rows) or is_map(rows) do
     rows

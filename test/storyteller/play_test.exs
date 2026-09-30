@@ -845,6 +845,211 @@ defmodule Storyteller.PlayTest do
            ) == 1
   end
 
+  test "property updates keep nested fields, audit by visibility, and persist into the next session" do
+    {campaign, session} = play_campaign("The Quiet Observatory")
+
+    public_item = %{
+      "id" => "brass-focus",
+      "name" => "Brass focus",
+      "quantity" => 1,
+      "unit" => nil,
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{
+        "magic" => %{"charges" => 4, "school" => "abjuration"},
+        "maker" => "Mira Vale"
+      }
+    }
+
+    private_item = %{
+      "id" => "sealed-wand",
+      "name" => "Sealed wand",
+      "quantity" => 1,
+      "owner_id" => "npc:lyra",
+      "visibility" => "gm_private",
+      "properties" => %{"secret" => %{"charges" => 7, "source" => "the hidden vault"}}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", [public_item]),
+        gm_private_state: Map.put(state.gm_private_state, "inventory", [private_item])
+      })
+    )
+
+    public_update = %{
+      "type" => "update",
+      "item_id" => "brass-focus",
+      "properties" => %{"magic" => %{"charges" => 3, "condition" => "worn"}},
+      "reason" => "The focus loses a charge when the ward is restored."
+    }
+
+    private_update = %{
+      "type" => "update",
+      "item_id" => "sealed-wand",
+      "properties" => %{"secret" => %{"charges" => 6}},
+      "reason" => "Lyra privately seals one charge away."
+    }
+
+    first_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      context = decode_request(request)
+      Agent.update(first_context, fn _ -> context end)
+
+      {:ok,
+       Jason.encode!(ordinary_proposal(%{"inventory_changes" => [public_update, private_update]}))}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "update-item-properties",
+               "Restore the observatory ward.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    initial_context = Agent.get(first_context, & &1)
+
+    assert hd(initial_context["inventory"]["player_visible"])["properties"] ==
+             public_item["properties"]
+
+    assert hd(initial_context["inventory"]["gm_private"])["properties"] ==
+             private_item["properties"]
+
+    expected_public_properties = %{
+      "magic" => %{"charges" => 3, "school" => "abjuration", "condition" => "worn"},
+      "maker" => "Mira Vale"
+    }
+
+    expected_private_properties = %{
+      "secret" => %{"charges" => 6, "source" => "the hidden vault"}
+    }
+
+    assert {:ok, %{inventory: [updated_public_item]} = projection} =
+             Play.public_projection(campaign.id)
+
+    assert updated_public_item["id"] == public_item["id"]
+    assert updated_public_item["properties"] == expected_public_properties
+    refute Jason.encode!(projection) =~ "sealed-wand"
+
+    {:ok, public_events} = Play.public_timeline(campaign.id)
+
+    [public_inventory_event] =
+      Enum.filter(public_events, &Map.has_key?(&1.payload, "inventory_changes"))
+
+    [public_change] = public_inventory_event.payload["inventory_changes"]
+    assert public_change["type"] == "update"
+    assert public_change["item_id"] == "brass-focus"
+    refute Map.has_key?(public_change, "reason")
+    refute Jason.encode!(public_change) =~ "sealed-wand"
+    refute Jason.encode!(public_change) =~ "hidden vault"
+
+    inventory_audit_events =
+      Repo.all(Event)
+      |> Enum.filter(fn event ->
+        event.campaign_id == campaign.id and Map.has_key?(event.payload, "inventory_changes")
+      end)
+
+    [public_audit_event] = Enum.filter(inventory_audit_events, &(&1.visibility == :public))
+    assert public_audit_event.payload == public_inventory_event.payload
+
+    [private_inventory_event] =
+      Enum.filter(inventory_audit_events, &(&1.visibility == :gm_private))
+
+    [private_change] = private_inventory_event.payload["inventory_changes"]
+    assert private_inventory_event.visibility == :gm_private
+    assert private_change["item_id"] == "sealed-wand"
+    assert private_change["reason"] == private_update["reason"]
+    assert private_change["properties"] == private_update["properties"]
+    refute Enum.any?(public_events, &(Jason.encode!(&1.payload) =~ "Lyra privately seals"))
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    next_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    resumed_provider = fn request ->
+      Agent.update(next_context, fn _ -> decode_request(request) end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "read-updated-properties",
+               "Check the focus before we continue.",
+               provider: resumed_provider,
+               model: "test-model"
+             )
+
+    resumed_context = Agent.get(next_context, & &1)
+
+    assert hd(resumed_context["inventory"]["player_visible"])["properties"] ==
+             expected_public_properties
+
+    assert hd(resumed_context["inventory"]["gm_private"])["properties"] ==
+             expected_private_properties
+  end
+
+  test "a later invalid inventory operation rolls back a property update" do
+    {campaign, session} = play_campaign("The Quiet Observatory")
+
+    item = %{
+      "id" => "warding-charm",
+      "name" => "Warding charm",
+      "quantity" => 1,
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{"charges" => 4, "ward" => %{"strength" => "faint"}}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "inventory", [item])})
+    )
+
+    update = %{
+      "type" => "update",
+      "item_id" => "warding-charm",
+      "properties" => %{"charges" => 1, "ward" => %{"strength" => "strong"}},
+      "reason" => "The charm absorbs the final spark."
+    }
+
+    invalid_later_update = %{
+      "type" => "update",
+      "item_id" => "missing-item",
+      "properties" => %{"charges" => 1},
+      "reason" => "An unknown item cannot be updated."
+    }
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "property-update-rollback",
+               "I repair the charm.",
+               provider:
+                 ordinary_provider(%{
+                   "inventory_changes" => [update, invalid_later_update]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, %{inventory: [^item]}} = Play.public_projection(campaign.id)
+    {:ok, public_events} = Play.public_timeline(campaign.id)
+    refute Enum.any?(public_events, &Map.has_key?(&1.payload, "inventory_changes"))
+
+    refute Repo.all(Event)
+           |> Enum.any?(fn event ->
+             event.campaign_id == campaign.id and Map.has_key?(event.payload, "inventory_changes")
+           end)
+  end
+
   test "GM panel changes are typed, atomic, and private values stay out of public events" do
     {campaign, session} = play_campaign("The Glass Observatory")
 

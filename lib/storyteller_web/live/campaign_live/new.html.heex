@@ -54,6 +54,74 @@
         label={gettext("Player character")}
         placeholder={gettext("Name and a short description")}
       />
+
+      <section class="space-y-4 border-t border-stone-100 pt-6">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-stone-950">
+              {gettext("Player character details")}
+            </h2>
+            <p class="mt-1 text-sm text-stone-600">
+              {gettext(
+                "Add optional public facts such as health, skills, or responsibilities. These are descriptive details, not game-system stats."
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="add-player-detail"
+            class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+          >{gettext("Add character detail")}</button>
+        </div>
+        <div
+          :if={@player_detail_rows == []}
+          class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
+        >
+          {gettext("No extra character details added.")}
+        </div>
+        <div
+          :for={{index, row} <- @player_detail_rows}
+          id={"player-detail-#{index}"}
+          class="grid gap-4 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-end"
+        >
+          <label
+            for={"player-detail-label-#{index}"}
+            class="block text-sm font-medium text-stone-700"
+          >
+            {gettext("Detail label")}
+            <input
+              id={"player-detail-label-#{index}"}
+              name={"campaign[player_character_details][#{index}][label]"}
+              value={row_value(row, "label")}
+              placeholder={gettext("Health, skills, or role")}
+              maxlength="80"
+              autocomplete="off"
+              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+            />
+          </label>
+          <label
+            for={"player-detail-value-#{index}"}
+            class="block text-sm font-medium text-stone-700"
+          >
+            {gettext("Detail value")}
+            <input
+              id={"player-detail-value-#{index}"}
+              name={"campaign[player_character_details][#{index}][value]"}
+              value={row_value(row, "value")}
+              placeholder={gettext("A short player-visible fact")}
+              maxlength="500"
+              autocomplete="off"
+              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+            />
+          </label>
+          <button
+            type="button"
+            phx-click="remove-player-detail"
+            phx-value-index={index}
+            class="text-left text-sm font-medium text-rose-700 hover:text-rose-900 sm:pb-2"
+          >{gettext("Remove")}</button>
+        </div>
+      </section>
       <.input
         field={@form[:narration_language]}
         type="select"
@@ -478,6 +546,19 @@
       <div class="grid gap-1 py-4 sm:grid-cols-[12rem_1fr]">
         <dt class="text-sm font-medium text-stone-500">{gettext("Player character")}</dt><dd class="text-stone-800">
           {@draft.campaign.player_character}
+        </dd>
+      </div>
+      <div
+        :if={map_size(@draft.player_visible_facts) > 0}
+        class="grid gap-1 py-4 sm:grid-cols-[12rem_1fr]"
+      >
+        <dt class="text-sm font-medium text-stone-500">{gettext("Player character details")}</dt>
+        <dd>
+          <ul class="space-y-1 text-sm text-stone-800">
+            <li :for={{label, value} <- Enum.sort(@draft.player_visible_facts)}>
+              <span class="font-medium">{label}:</span> {value}
+            </li>
+          </ul>
         </dd>
       </div>
       <div class="grid gap-1 py-4 sm:grid-cols-[12rem_1fr]">

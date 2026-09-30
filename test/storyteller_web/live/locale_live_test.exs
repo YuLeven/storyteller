@@ -69,6 +69,25 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert Settings.ui_locale() == "es"
   end
 
+  test "player character detail setup labels are translated", %{conn: conn} do
+    assert {:ok, _preference} = Settings.set_ui_locale("es")
+    {:ok, spanish_view, _html} = live(conn, ~p"/campaigns/new")
+
+    spanish_html =
+      spanish_view |> element("button[phx-click=add-player-detail]") |> render_click()
+
+    assert spanish_html =~ "Detalles del personaje del jugador"
+    assert spanish_html =~ "Añadir detalle del personaje"
+    assert spanish_html =~ "Salud, habilidades o función"
+
+    assert {:ok, _preference} = Settings.set_ui_locale("fr")
+    {:ok, french_view, _html} = live(conn, ~p"/campaigns/new")
+    french_html = french_view |> element("button[phx-click=add-player-detail]") |> render_click()
+    assert french_html =~ "Détails du personnage joueur"
+    assert french_html =~ "Ajouter un détail du personnage"
+    assert french_html =~ "Santé, compétences ou rôle"
+  end
+
   test "inventory board labels are translated while campaign items remain unchanged", %{
     conn: conn
   } do

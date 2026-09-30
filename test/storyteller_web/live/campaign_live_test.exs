@@ -117,6 +117,52 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert play_html =~ "A restorative tonic in green glass."
   end
 
+  test "optional player details can be reviewed and appear on the player board", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+    view |> element("button[phx-click=add-player-detail]") |> render_click()
+    view |> element("button[phx-click=add-player-detail]") |> render_click()
+
+    assert has_element?(view, "input[name='campaign[player_character_details][0][label]']")
+    assert has_element?(view, "input[name='campaign[player_character_details][0][value]']")
+    assert has_element?(view, "input[name='campaign[player_character_details][1][label]']")
+    assert has_element?(view, "input[name='campaign[player_character_details][1][value]']")
+
+    attrs = %{
+      title: "The Quiet Orchard",
+      premise: "A final harvest is approaching.",
+      setting: "A coastal orchard",
+      tone: "Grounded and reflective",
+      narration_language: "English",
+      player_character: "Mira Vale",
+      player_character_details: %{
+        "0" => %{label: "Health", value: "Recovering well"},
+        "1" => %{label: "Responsibilities", value: "Cares for the northern rows"}
+      }
+    }
+
+    review_html = view |> form("#campaign-form", campaign: attrs) |> render_submit()
+    assert review_html =~ "Review your campaign"
+    assert review_html =~ "Player character details"
+    assert review_html =~ "Health"
+    assert review_html =~ "Recovering well"
+    assert review_html =~ "Responsibilities"
+    assert review_html =~ "Cares for the northern rows"
+    assert Campaigns.list_campaigns() == []
+
+    view |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    session = hd(campaign.sessions)
+
+    {:ok, _play_view, play_html} =
+      live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert play_html =~ "Known details"
+    assert play_html =~ "Health"
+    assert play_html =~ "Recovering well"
+    assert play_html =~ "Responsibilities"
+    assert play_html =~ "Cares for the northern rows"
+  end
+
   test "campaign setup accepts nested character and panel rows and only displays public panel values",
        %{
          conn: conn

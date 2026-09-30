@@ -73,7 +73,12 @@ defmodule Storyteller.Play do
   the item's properties and visibility. Never create or duplicate quantity
   through a transfer. Keep stable item IDs unchanged. Use configured panel
   fields for fungible campaign balances. Each operation needs a concise reason
-  grounded in the action or established fiction. Preserve the campaign's narration
+  grounded in the action or established fiction. Use update only to revise an
+  existing item's flexible properties, such as charges or condition. Its
+  properties object is a patch: nested maps merge recursively and unrelated
+  existing keys remain. Never use update to change an item's ID, name, quantity,
+  unit, category, description, owner, or visibility; use add, transfer, or consume
+  for their supported lifecycle changes. Preserve the campaign's narration
   language and tone. Also return memory_update with public_summary and
   gm_private_summary. Keep each concise and update it with durable facts,
   relationships, commitments, and work in progress from this response. Preserve
@@ -111,7 +116,9 @@ defmodule Storyteller.Play do
   {type: "transfer", item_id: id, owner_id: speaker_id_or_party, reason: text},
   or {type: "transfer", item_id: id, quantity: integer, new_item_id: id,
   owner_id: speaker_id_or_party, reason: text} for a partial stack transfer,
-  or {type: "consume", item_id: id, quantity: integer, reason: text}),
+  {type: "consume", item_id: id, quantity: integer, reason: text}, or
+  {type: "update", item_id: id, properties: object, reason: text} to patch
+  flexible properties without changing other item fields),
   objective_changes (an ordered array of create/update operations described
   above), and roll_request (null or {test, difficulty?, target?}).
   Change only fields listed in the supplied panel definitions, preserve their

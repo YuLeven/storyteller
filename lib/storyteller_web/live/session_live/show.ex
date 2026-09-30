@@ -345,6 +345,66 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp display_value(value), do: Jason.encode!(value)
 
+  defp inventory_property_rows(properties) when is_map(properties) do
+    properties
+    |> Enum.sort_by(fn {key, _value} -> inventory_property_key(key) end)
+    |> Enum.flat_map(fn {key, value} ->
+      flatten_inventory_property([inventory_property_key(key)], value)
+    end)
+  end
+
+  defp inventory_property_rows(_properties), do: []
+
+  defp flatten_inventory_property(path, properties)
+       when is_map(properties) and map_size(properties) > 0 do
+    properties
+    |> Enum.sort_by(fn {key, _value} -> inventory_property_key(key) end)
+    |> Enum.flat_map(fn {key, value} ->
+      flatten_inventory_property(path ++ [inventory_property_key(key)], value)
+    end)
+  end
+
+  defp flatten_inventory_property(path, value),
+    do: [{Enum.join(path, " / "), compact_inventory_property_value(value)}]
+
+  defp inventory_property_key(key) when is_binary(key) do
+    key
+    |> String.replace(~r/[_-]+/u, " ")
+    |> String.trim()
+    |> String.capitalize()
+  end
+
+  defp inventory_property_key(key) when is_atom(key),
+    do: key |> Atom.to_string() |> inventory_property_key()
+
+  defp inventory_property_key(key), do: inspect(key)
+
+  defp compact_inventory_property_value(value) when is_binary(value), do: value
+
+  defp compact_inventory_property_value(value) when is_integer(value),
+    do: Integer.to_string(value)
+
+  defp compact_inventory_property_value(value) when is_float(value), do: Float.to_string(value)
+  defp compact_inventory_property_value(true), do: "true"
+  defp compact_inventory_property_value(false), do: "false"
+  defp compact_inventory_property_value(nil), do: "null"
+
+  defp compact_inventory_property_value(value) when is_list(value) do
+    "[" <> Enum.map_join(value, ", ", &compact_inventory_collection_value/1) <> "]"
+  end
+
+  defp compact_inventory_property_value(value) when is_map(value) do
+    "{" <>
+      (value
+       |> Enum.sort_by(fn {key, _value} -> inventory_property_key(key) end)
+       |> Enum.map_join(", ", fn {key, nested_value} ->
+         "#{inventory_property_key(key)}: #{compact_inventory_collection_value(nested_value)}"
+       end)) <> "}"
+  end
+
+  defp compact_inventory_collection_value(value) when is_binary(value), do: Jason.encode!(value)
+  defp compact_inventory_collection_value(value), do: compact_inventory_property_value(value)
+
   defp earlier_session_start?(timeline, index, current_session_id) do
     event = Enum.at(timeline, index)
 
@@ -506,6 +566,13 @@ defmodule StorytellerWeb.SessionLive.Show do
       key -> display_value(Map.get(world, key))
     end
   end
+
+  defp player_world_location(%{current_place: %{name: name}}, _world)
+       when is_binary(name) and name != "",
+       do: name
+
+  defp player_world_location(_player_character, world),
+    do: world_display(world, ["location", "current_location"])
 
   defp world_label(key) do
     case to_string(key) do

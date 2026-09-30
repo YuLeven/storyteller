@@ -14,7 +14,7 @@ msgstr "%{character} : informations connues"
 msgid "%{date} at %{time} UTC"
 msgstr "le %{date} à %{time} UTC"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:460
+#: lib/storyteller_web/live/campaign_live/new.html.heex:528
 #, elixir-autogen, elixir-format
 msgid "A first session will be created with this campaign."
 msgstr "Une première session sera créée pour cette campagne."
@@ -60,17 +60,17 @@ msgstr "Les actions et les dialogues sont ajoutés à l’historique sauvegardé
 msgid "Active"
 msgstr "Active"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:234
+#: lib/storyteller_web/live/campaign_live/new.html.heex:302
 #, elixir-autogen, elixir-format
 msgid "Add character"
 msgstr "Ajouter un personnage"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:225
+#: lib/storyteller_web/live/campaign_live/new.html.heex:293
 #, elixir-autogen, elixir-format
 msgid "Add characters the GM can speak for. Speaker IDs stay stable in the campaign history."
 msgstr "Ajoutez des personnages que le maître du jeu peut incarner. Leur identifiant reste stable dans l’historique de la campagne."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:314
+#: lib/storyteller_web/live/campaign_live/new.html.heex:382
 #, elixir-autogen, elixir-format
 msgid "Add panel field"
 msgstr "Ajouter un champ au panneau"
@@ -111,7 +111,7 @@ msgstr "Campagne archivée. Ses sessions sont sauvegardées."
 msgid "Campaign archived. Its sessions remain saved."
 msgstr "Campagne archivée. Ses sessions restent sauvegardées."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:134
+#: lib/storyteller_web/live/campaign_live/new.ex:158
 #, elixir-autogen, elixir-format
 msgid "Campaign created and its first session is ready to resume."
 msgstr "Campagne créée. Sa première session peut maintenant être reprise."
@@ -122,8 +122,8 @@ msgstr "Campagne créée. Sa première session peut maintenant être reprise."
 msgid "Campaign details"
 msgstr "Détails de la campagne"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:303
-#: lib/storyteller_web/live/campaign_live/new.html.heex:504
+#: lib/storyteller_web/live/campaign_live/new.html.heex:371
+#: lib/storyteller_web/live/campaign_live/new.html.heex:585
 #: lib/storyteller_web/live/campaign_live/show.html.heex:82
 #, elixir-autogen, elixir-format
 msgid "Campaign panels"
@@ -135,8 +135,8 @@ msgstr "Panneaux de campagne"
 msgid "Campaign restored."
 msgstr "Campagne restaurée."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:242
-#: lib/storyteller_web/live/campaign_live/new.ex:247
+#: lib/storyteller_web/live/campaign_live/new.ex:294
+#: lib/storyteller_web/live/campaign_live/new.ex:299
 #, elixir-autogen, elixir-format
 msgid "Campaign setup could not be validated. Review the fields and try again."
 msgstr "La configuration de la campagne n’a pas pu être validée. Vérifiez les champs et réessayez."
@@ -164,17 +164,17 @@ msgstr "Valeurs de la campagne"
 msgid "Campaigns"
 msgstr "Campagnes"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:446
+#: lib/storyteller_web/live/campaign_live/new.html.heex:514
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr "Annuler"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:274
+#: lib/storyteller_web/live/campaign_live/new.html.heex:342
 #, elixir-autogen, elixir-format
 msgid "Captain Ren"
 msgstr "Capitaine Ren"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:269
+#: lib/storyteller_web/live/campaign_live/new.html.heex:337
 #, elixir-autogen, elixir-format
 msgid "Character name"
 msgstr "Nom du personnage"
@@ -225,17 +225,17 @@ msgstr "La connexion à ChatGPT a été annulée. Votre connexion actuelle est i
 msgid "Choose English, Spanish, or French."
 msgstr "Choisissez l’anglais, l’espagnol ou le français."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:376
+#: lib/storyteller_web/live/campaign_live/new.html.heex:444
 #, elixir-autogen, elixir-format
 msgid "Choose a type"
 msgstr "Choisissez un type"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:416
+#: lib/storyteller_web/live/campaign_live/new.html.heex:484
 #, elixir-autogen, elixir-format
 msgid "Choose visibility"
 msgstr "Choisissez la visibilité"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:98
+#: lib/storyteller_web/live/campaign_live/new.html.heex:166
 #, elixir-autogen, elixir-format
 msgid "Clear skies with a cold wind"
 msgstr "Ciel dégagé avec un vent froid"
@@ -292,7 +292,7 @@ msgstr "Créer une campagne"
 msgid "Create a campaign to save its setting, characters, and sessions."
 msgstr "Créez une campagne pour enregistrer son univers, ses personnages et ses sessions."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:534
+#: lib/storyteller_web/live/campaign_live/new.html.heex:615
 #, elixir-autogen, elixir-format
 msgid "Create campaign"
 msgstr "Créer la campagne"
@@ -317,14 +317,14 @@ msgstr "Résultat du D20 :"
 msgid "D20 roll"
 msgstr "Lancer de D20"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:259
-#: lib/storyteller_web/live/campaign_live/new.html.heex:390
+#: lib/storyteller_web/live/campaign_live/new.ex:311
+#: lib/storyteller_web/live/campaign_live/new.html.heex:458
 #: lib/storyteller_web/live/session_live/show.ex:512
 #, elixir-autogen, elixir-format
 msgid "Date"
 msgstr "Date"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:305
+#: lib/storyteller_web/live/campaign_live/new.html.heex:373
 #, elixir-autogen, elixir-format
 msgid "Define tracked values with a type, unit, visibility, and starting value. Values are stored as data; formulas are not supported."
 msgstr "Définissez les valeurs suivies avec leur type, unité, visibilité et valeur initiale. Elles sont enregistrées comme données ; les formules ne sont pas prises en charge."
@@ -359,17 +359,17 @@ msgstr "Chaque campagne conserve sa propre histoire et ses sessions dans votre a
 msgid "Earlier session"
 msgstr "Session précédente"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:533
+#: lib/storyteller_web/live/campaign_live/new.html.heex:614
 #, elixir-autogen, elixir-format
 msgid "Edit setup"
 msgstr "Modifier la configuration"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:62
+#: lib/storyteller_web/live/campaign_live/new.html.heex:130
 #, elixir-autogen, elixir-format
 msgid "English"
 msgstr "Anglais"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:431
+#: lib/storyteller_web/live/campaign_live/new.html.heex:499
 #, elixir-autogen, elixir-format
 msgid "Enter a starting value"
 msgstr "Saisissez une valeur initiale"
@@ -384,7 +384,7 @@ msgstr "Saisissez une action ou quelque chose à dire avant l’envoi."
 msgid "Error!"
 msgstr "Erreur !"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:360
+#: lib/storyteller_web/live/campaign_live/new.html.heex:428
 #, elixir-autogen, elixir-format
 msgid "Field label"
 msgstr "Libellé du champ"
@@ -394,29 +394,29 @@ msgstr "Libellé du champ"
 msgid "Finish the current turn before sending another action."
 msgstr "Terminez le tour en cours avant d’envoyer une autre action."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:64
+#: lib/storyteller_web/live/campaign_live/new.html.heex:132
 #, elixir-autogen, elixir-format
 msgid "French"
 msgstr "Français"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:248
+#: lib/storyteller_web/live/campaign_live/new.html.heex:316
 #, elixir-autogen, elixir-format
 msgid "GM character"
 msgstr "Personnage du maître du jeu"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:421
-#: lib/storyteller_web/live/campaign_live/new.html.heex:510
+#: lib/storyteller_web/live/campaign_live/new.html.heex:489
+#: lib/storyteller_web/live/campaign_live/new.html.heex:591
 #, elixir-autogen, elixir-format
 msgid "GM only"
 msgstr "Maître du jeu uniquement"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:222
-#: lib/storyteller_web/live/campaign_live/new.html.heex:495
+#: lib/storyteller_web/live/campaign_live/new.html.heex:290
+#: lib/storyteller_web/live/campaign_live/new.html.heex:576
 #, elixir-autogen, elixir-format
 msgid "GM-controlled characters"
 msgstr "Personnages contrôlés par le maître du jeu"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:289
+#: lib/storyteller_web/live/campaign_live/new.html.heex:357
 #, elixir-autogen, elixir-format
 msgid "GM-only notes"
 msgstr "Notes réservées au maître du jeu"
@@ -431,7 +431,7 @@ msgstr "Maître du jeu"
 msgid "Hang in there while we get back on track"
 msgstr "Patientez pendant que nous rétablissons la situation"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:365
+#: lib/storyteller_web/live/campaign_live/new.html.heex:433
 #, elixir-autogen, elixir-format
 msgid "Healing potions"
 msgstr "Potions de soin"
@@ -447,13 +447,13 @@ msgstr "En cours"
 msgid "In the story"
 msgstr "Dans l’histoire"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:86
+#: lib/storyteller_web/live/campaign_live/new.html.heex:154
 #: lib/storyteller_web/live/session_live/show.html.heex:48
 #, elixir-autogen, elixir-format
 msgid "In-world date"
 msgstr "Date dans le monde"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:426
+#: lib/storyteller_web/live/campaign_live/new.html.heex:494
 #, elixir-autogen, elixir-format
 msgid "Initial value"
 msgstr "Valeur initiale"
@@ -478,7 +478,7 @@ msgstr "Erreur interne du serveur"
 msgid "Known details"
 msgstr "Informations connues"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:92
+#: lib/storyteller_web/live/campaign_live/new.html.heex:160
 #, elixir-autogen, elixir-format
 msgid "Late evening, just after moonrise"
 msgstr "En fin de soirée, juste après le lever de la lune"
@@ -499,8 +499,8 @@ msgstr "Les identifiants locaux ont été effacés, mais ChatGPT n’a pas confi
 msgid "Location"
 msgstr "Lieu"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:256
-#: lib/storyteller_web/live/campaign_live/new.html.heex:381
+#: lib/storyteller_web/live/campaign_live/new.ex:308
+#: lib/storyteller_web/live/campaign_live/new.html.heex:449
 #, elixir-autogen, elixir-format
 msgid "Money"
 msgstr "Monnaie"
@@ -516,8 +516,8 @@ msgstr "Nom et brève description"
 msgid "Narration in %{language}"
 msgstr "Narration en %{language}"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:60
-#: lib/storyteller_web/live/campaign_live/new.html.heex:484
+#: lib/storyteller_web/live/campaign_live/new.html.heex:128
+#: lib/storyteller_web/live/campaign_live/new.html.heex:565
 #, elixir-autogen, elixir-format
 msgid "Narration language"
 msgstr "Langue de narration"
@@ -542,7 +542,7 @@ msgstr "Nouvel univers"
 msgid "No"
 msgstr "Non"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:240
+#: lib/storyteller_web/live/campaign_live/new.html.heex:308
 #, elixir-autogen, elixir-format
 msgid "No GM characters added yet."
 msgstr "Aucun personnage du maître du jeu n’a encore été ajouté."
@@ -557,7 +557,7 @@ msgstr "Aucune connexion active au forfait ChatGPT."
 msgid "No available model could resolve this turn."
 msgstr "Aucun modèle disponible n’a pu résoudre ce tour."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:320
+#: lib/storyteller_web/live/campaign_live/new.html.heex:388
 #, elixir-autogen, elixir-format
 msgid "No custom panel fields added yet."
 msgstr "Aucun champ personnalisé n’a encore été ajouté au panneau."
@@ -578,37 +578,37 @@ msgstr "Introuvable"
 msgid "Not recorded"
 msgstr "Non enregistré"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:264
-#: lib/storyteller_web/live/campaign_live/new.ex:271
+#: lib/storyteller_web/live/campaign_live/new.ex:316
+#: lib/storyteller_web/live/campaign_live/new.ex:323
 #: lib/storyteller_web/live/campaign_live/show.ex:85
 #, elixir-autogen, elixir-format
 msgid "Not set"
 msgstr "Non défini"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:328
+#: lib/storyteller_web/live/campaign_live/new.html.heex:396
 #, elixir-autogen, elixir-format
 msgid "Panel field"
 msgstr "Champ du panneau"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:338
+#: lib/storyteller_web/live/campaign_live/new.html.heex:406
 #, elixir-autogen, elixir-format
 msgid "Panel name"
 msgstr "Nom du panneau"
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:54
-#: lib/storyteller_web/live/campaign_live/new.html.heex:479
+#: lib/storyteller_web/live/campaign_live/new.html.heex:547
 #: lib/storyteller_web/live/campaign_live/show.html.heex:45
 #, elixir-autogen, elixir-format
 msgid "Player character"
 msgstr "Personnage joueur"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:418
-#: lib/storyteller_web/live/campaign_live/new.html.heex:509
+#: lib/storyteller_web/live/campaign_live/new.html.heex:486
+#: lib/storyteller_web/live/campaign_live/new.html.heex:590
 #, elixir-autogen, elixir-format
 msgid "Player-visible"
 msgstr "Visible par le joueur"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:280
+#: lib/storyteller_web/live/campaign_live/new.html.heex:348
 #, elixir-autogen, elixir-format
 msgid "Player-visible facts"
 msgstr "Informations visibles par le joueur"
@@ -618,7 +618,7 @@ msgstr "Informations visibles par le joueur"
 msgid "Playing as %{character}"
 msgstr "Vous jouez %{character}"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:469
+#: lib/storyteller_web/live/campaign_live/new.html.heex:537
 #, elixir-autogen, elixir-format
 msgid "Premise"
 msgstr "Synopsis"
@@ -628,9 +628,9 @@ msgstr "Synopsis"
 msgid "Preview eligibility and usage"
 msgstr "Éligibilité et utilisation de l’aperçu"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:255
-#: lib/storyteller_web/live/campaign_live/new.html.heex:158
-#: lib/storyteller_web/live/campaign_live/new.html.heex:378
+#: lib/storyteller_web/live/campaign_live/new.ex:307
+#: lib/storyteller_web/live/campaign_live/new.html.heex:226
+#: lib/storyteller_web/live/campaign_live/new.html.heex:446
 #, elixir-autogen, elixir-format
 msgid "Quantity"
 msgstr "Quantité"
@@ -645,9 +645,10 @@ msgstr "Reconnecter le compte"
 msgid "Reconnecting to the saved turn…"
 msgstr "Reconnexion au tour enregistré…"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:136
-#: lib/storyteller_web/live/campaign_live/new.html.heex:254
-#: lib/storyteller_web/live/campaign_live/new.html.heex:334
+#: lib/storyteller_web/live/campaign_live/new.html.heex:122
+#: lib/storyteller_web/live/campaign_live/new.html.heex:204
+#: lib/storyteller_web/live/campaign_live/new.html.heex:322
+#: lib/storyteller_web/live/campaign_live/new.html.heex:402
 #, elixir-autogen, elixir-format
 msgid "Remove"
 msgstr "Supprimer"
@@ -693,7 +694,7 @@ msgstr "Réessayer ce tour"
 msgid "Retrying…"
 msgstr "Nouvelle tentative…"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:447
+#: lib/storyteller_web/live/campaign_live/new.html.heex:515
 #, elixir-autogen, elixir-format
 msgid "Review campaign setup"
 msgstr "Vérifier la configuration de la campagne"
@@ -708,7 +709,7 @@ msgstr "Consulter la session"
 msgid "Review the current"
 msgstr "Consultez les"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:458
+#: lib/storyteller_web/live/campaign_live/new.html.heex:526
 #, elixir-autogen, elixir-format
 msgid "Review your campaign"
 msgstr "Vérifiez votre campagne"
@@ -768,7 +769,7 @@ msgstr "Titre de la session"
 msgid "Sessions"
 msgstr "Sessions"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:75
+#: lib/storyteller_web/live/campaign_live/new.html.heex:143
 #, elixir-autogen, elixir-format
 msgid "Set the public location, time, and weather for the opening scene."
 msgstr "Définissez le lieu, l’heure et la météo visibles de la scène d’ouverture."
@@ -788,7 +789,7 @@ msgstr "Configurez votre campagne"
 msgid "Setting"
 msgstr "Univers"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:474
+#: lib/storyteller_web/live/campaign_live/new.html.heex:542
 #, elixir-autogen, elixir-format
 msgid "Setting and tone"
 msgstr "Univers et ton"
@@ -808,17 +809,17 @@ msgstr "Quelqu’un à proximité"
 msgid "Something went wrong!"
 msgstr "Une erreur s’est produite !"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:63
+#: lib/storyteller_web/live/campaign_live/new.html.heex:131
 #, elixir-autogen, elixir-format
 msgid "Spanish"
 msgstr "Espagnol"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:348
+#: lib/storyteller_web/live/campaign_live/new.html.heex:416
 #, elixir-autogen, elixir-format
 msgid "Stable field key"
 msgstr "Clé de champ stable"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:258
+#: lib/storyteller_web/live/campaign_live/new.html.heex:326
 #, elixir-autogen, elixir-format
 msgid "Stable speaker ID"
 msgstr "Identifiant stable du locuteur"
@@ -833,24 +834,24 @@ msgstr "Commencez une nouvelle session de jeu. Les sessions précédentes resten
 msgid "Start new session"
 msgstr "Commencer une nouvelle session"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:81
+#: lib/storyteller_web/live/campaign_live/new.html.heex:149
 #, elixir-autogen, elixir-format
 msgid "Starting location"
 msgstr "Lieu de départ"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:73
-#: lib/storyteller_web/live/campaign_live/new.html.heex:489
+#: lib/storyteller_web/live/campaign_live/new.html.heex:141
+#: lib/storyteller_web/live/campaign_live/new.html.heex:570
 #, elixir-autogen, elixir-format
 msgid "Starting world"
 msgstr "État initial du monde"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:200
+#: lib/storyteller_web/live/campaign_live/new.ex:224
 #, elixir-autogen, elixir-format
 msgid "Starting world details must be valid data and under 100 KB."
 msgstr "Les informations initiales du monde doivent être valides et peser moins de 100 Ko."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:258
-#: lib/storyteller_web/live/campaign_live/new.html.heex:387
+#: lib/storyteller_web/live/campaign_live/new.ex:310
+#: lib/storyteller_web/live/campaign_live/new.html.heex:455
 #, elixir-autogen, elixir-format
 msgid "Status"
 msgstr "Statut"
@@ -871,7 +872,7 @@ msgstr "Storyteller utilise l’API Responses publique avec l’autorisation de 
 msgid "Success!"
 msgstr "Succès !"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:343
+#: lib/storyteller_web/live/campaign_live/new.html.heex:411
 #, elixir-autogen, elixir-format
 msgid "Supplies"
 msgstr "Provisions"
@@ -886,8 +887,8 @@ msgstr "Cible :"
 msgid "Tell the game master what your character does or says to start the story."
 msgstr "Dites au maître du jeu ce que fait ou dit votre personnage pour commencer l’histoire."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:257
-#: lib/storyteller_web/live/campaign_live/new.html.heex:384
+#: lib/storyteller_web/live/campaign_live/new.ex:309
+#: lib/storyteller_web/live/campaign_live/new.html.heex:452
 #, elixir-autogen, elixir-format
 msgid "Text"
 msgstr "Texte"
@@ -909,7 +910,7 @@ msgstr "Cette session est introuvable dans cette campagne."
 msgid "That turn cannot be retried from this session."
 msgstr "Ce tour ne peut pas être réessayé depuis cette session."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:87
+#: lib/storyteller_web/live/campaign_live/new.html.heex:155
 #, elixir-autogen, elixir-format
 msgid "The 14th day of the thaw"
 msgstr "Le 14e jour du dégel"
@@ -925,8 +926,8 @@ msgstr "Les cartographes de Hollowmere"
 msgid "The campaign could not be archived."
 msgstr "La campagne n’a pas pu être archivée."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:143
-#: lib/storyteller_web/live/campaign_live/new.ex:155
+#: lib/storyteller_web/live/campaign_live/new.ex:167
+#: lib/storyteller_web/live/campaign_live/new.ex:179
 #, elixir-autogen, elixir-format
 msgid "The campaign could not be created. Please review the setup and try again."
 msgstr "La campagne n’a pas pu être créée. Vérifiez sa configuration et réessayez."
@@ -992,7 +993,7 @@ msgstr "Le maître du jeu attend. Cliquez uniquement lorsque vous êtes prêt à
 msgid "The game master took too long to answer. Your turn is saved."
 msgstr "Le maître du jeu a mis trop de temps à répondre. Votre tour est enregistré."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:82
+#: lib/storyteller_web/live/campaign_live/new.html.heex:150
 #, elixir-autogen, elixir-format
 msgid "The old observatory terrace"
 msgstr "La terrasse de l’ancien observatoire"
@@ -1047,7 +1048,7 @@ msgstr "Ce compte ChatGPT n’a pas autorisé l’utilisation du forfait. Votre 
 msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. If a limit blocks a request, Storyteller pauses play and keeps the turn available to retry."
 msgstr "Cette connexion utilise votre forfait ChatGPT ; elle n’utilise ni clé API ni crédits API. Les limites d’utilisation sont partagées avec les autres applications ChatGPT. Si une limite bloque une requête, Storyteller met le jeu en pause et conserve le tour pour que vous puissiez réessayer."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:68
+#: lib/storyteller_web/live/campaign_live/new.html.heex:136
 #, elixir-autogen, elixir-format
 msgid "This controls GM narration. Your interface language can be changed separately."
 msgstr "Cette option définit la langue de narration du maître du jeu. Vous pouvez choisir séparément la langue de l’interface."
@@ -1084,12 +1085,12 @@ msgstr "Réfléchi, aventureux et réaliste"
 msgid "Time"
 msgstr "Heure"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:91
+#: lib/storyteller_web/live/campaign_live/new.html.heex:159
 #, elixir-autogen, elixir-format
 msgid "Time of day"
 msgstr "Moment de la journée"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:464
+#: lib/storyteller_web/live/campaign_live/new.html.heex:532
 #, elixir-autogen, elixir-format
 msgid "Title"
 msgstr "Titre"
@@ -1104,17 +1105,17 @@ msgstr "Ton"
 msgid "Tracked resources"
 msgstr "Ressources suivies"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:397
+#: lib/storyteller_web/live/campaign_live/new.html.heex:465
 #, elixir-autogen, elixir-format
 msgid "Unit"
 msgstr "Unité"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:370
+#: lib/storyteller_web/live/campaign_live/new.html.heex:438
 #, elixir-autogen, elixir-format
 msgid "Value type"
 msgstr "Type de valeur"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:410
+#: lib/storyteller_web/live/campaign_live/new.html.heex:478
 #, elixir-autogen, elixir-format
 msgid "Visibility"
 msgstr "Visibilité"
@@ -1124,7 +1125,7 @@ msgstr "Visibilité"
 msgid "We can't find the internet"
 msgstr "Impossible de trouver la connexion Internet"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:97
+#: lib/storyteller_web/live/campaign_live/new.html.heex:165
 #: lib/storyteller_web/live/session_live/show.ex:515
 #: lib/storyteller_web/live/session_live/show.html.heex:70
 #, elixir-autogen, elixir-format
@@ -1209,7 +1210,7 @@ msgstr "et confirmez que votre application est éligible avant de la connecter."
 msgid "close"
 msgstr "fermer"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:402
+#: lib/storyteller_web/live/campaign_live/new.html.heex:470
 #, elixir-autogen, elixir-format
 msgid "coins, days, or kg"
 msgstr "pièces, jours ou kg"
@@ -1252,17 +1253,17 @@ msgstr "Gérer l’utilisation"
 msgid "Using ChatGPT plan"
 msgstr "Utilisation du forfait ChatGPT"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:107
+#: lib/storyteller_web/live/campaign_live/new.html.heex:175
 #, elixir-autogen, elixir-format
 msgid "Add items the player starts with. They are public and belong to the player; you can change ownership during play."
 msgstr "Ajoutez les objets que le joueur possède au début. Ils sont publics et lui appartiennent ; vous pouvez en changer le propriétaire pendant la partie."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:204
+#: lib/storyteller_web/live/campaign_live/new.ex:228
 #, elixir-autogen, elixir-format
 msgid "Add no more than 200 starting items."
 msgstr "Ajoutez au maximum 200 objets de départ."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:116
+#: lib/storyteller_web/live/campaign_live/new.html.heex:184
 #, elixir-autogen, elixir-format
 msgid "Add starting item"
 msgstr "Ajouter un objet de départ"
@@ -1282,17 +1283,17 @@ msgstr "Transporté par %{name}"
 msgid "Carried items, supplies, and keepsakes known to the party."
 msgstr "Objets, provisions et souvenirs que vous transportez et que le groupe connaît."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:191
+#: lib/storyteller_web/live/campaign_live/new.html.heex:259
 #, elixir-autogen, elixir-format
 msgid "Category (optional)"
 msgstr "Catégorie (facultatif)"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:206
+#: lib/storyteller_web/live/campaign_live/new.html.heex:274
 #, elixir-autogen, elixir-format
 msgid "Description (optional)"
 msgstr "Description (facultative)"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:148
+#: lib/storyteller_web/live/campaign_live/new.html.heex:216
 #, elixir-autogen, elixir-format
 msgid "Healing potion"
 msgstr "Potion de soin"
@@ -1313,12 +1314,12 @@ msgstr "Inventaire mis à jour"
 msgid "Item details"
 msgstr "Détails de l’objet"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:143
+#: lib/storyteller_web/live/campaign_live/new.html.heex:211
 #, elixir-autogen, elixir-format
 msgid "Item name"
 msgstr "Nom de l’objet"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:122
+#: lib/storyteller_web/live/campaign_live/new.html.heex:190
 #, elixir-autogen, elixir-format
 msgid "No starting items added yet."
 msgstr "Aucun objet de départ ajouté pour l’instant."
@@ -1328,58 +1329,58 @@ msgstr "Aucun objet de départ ajouté pour l’instant."
 msgid "Nothing is being carried yet."
 msgstr "Vous ne transportez encore rien."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:196
+#: lib/storyteller_web/live/campaign_live/new.html.heex:264
 #, elixir-autogen, elixir-format
 msgid "Potion, tool, or keepsake"
 msgstr "Potion, outil ou souvenir"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:105
-#: lib/storyteller_web/live/campaign_live/new.html.heex:516
+#: lib/storyteller_web/live/campaign_live/new.html.heex:173
+#: lib/storyteller_web/live/campaign_live/new.html.heex:597
 #, elixir-autogen, elixir-format
 msgid "Starting inventory"
 msgstr "Inventaire de départ"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:208
+#: lib/storyteller_web/live/campaign_live/new.ex:232
 #, elixir-autogen, elixir-format
 msgid "Starting inventory contains an invalid item. Check the item names and quantities."
 msgstr "L’inventaire de départ contient un objet invalide. Vérifiez les noms et les quantités."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:212
+#: lib/storyteller_web/live/campaign_live/new.ex:236
 #, elixir-autogen, elixir-format
 msgid "Starting inventory must be a list."
 msgstr "L’inventaire de départ doit être une liste."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:130
+#: lib/storyteller_web/live/campaign_live/new.html.heex:198
 #, elixir-autogen, elixir-format
 msgid "Starting item"
 msgstr "Objet de départ"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:229
+#: lib/storyteller_web/live/campaign_live/new.ex:281
 #, elixir-autogen, elixir-format
 msgid "Starting item %{number} has an invalid category (up to 100 characters)."
 msgstr "L’objet de départ %{number} a une catégorie invalide (100 caractères maximum)."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:234
+#: lib/storyteller_web/live/campaign_live/new.ex:286
 #, elixir-autogen, elixir-format
 msgid "Starting item %{number} has an invalid description (up to 2,000 characters)."
 msgstr "L’objet de départ %{number} a une description invalide (2 000 caractères maximum)."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:224
+#: lib/storyteller_web/live/campaign_live/new.ex:276
 #, elixir-autogen, elixir-format
 msgid "Starting item %{number} has an invalid unit (up to 80 characters)."
 msgstr "L’objet de départ %{number} a une unité invalide (80 caractères maximum)."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:239
+#: lib/storyteller_web/live/campaign_live/new.ex:291
 #, elixir-autogen, elixir-format
 msgid "Starting item %{number} must be an object."
 msgstr "L’objet de départ %{number} doit être un objet."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:218
+#: lib/storyteller_web/live/campaign_live/new.ex:270
 #, elixir-autogen, elixir-format
 msgid "Starting item %{number} needs a name up to 160 characters."
 msgstr "L’objet de départ %{number} doit avoir un nom de 160 caractères maximum."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:221
+#: lib/storyteller_web/live/campaign_live/new.ex:273
 #, elixir-autogen, elixir-format
 msgid "Starting item %{number} needs a positive whole-number quantity."
 msgstr "L’objet de départ %{number} doit avoir une quantité entière positive."
@@ -1394,7 +1395,7 @@ msgstr "Conservé avec le groupe"
 msgid "Transferred %{quantity} %{item} to %{owner}"
 msgstr "Transfert de %{quantity} %{item} vers %{owner}"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:177
+#: lib/storyteller_web/live/campaign_live/new.html.heex:245
 #, elixir-autogen, elixir-format
 msgid "Unit (optional)"
 msgstr "Unité (facultatif)"
@@ -1404,7 +1405,7 @@ msgstr "Unité (facultatif)"
 msgid "Used %{quantity} %{item}"
 msgstr "Utilisation de %{quantity} %{item}"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:182
+#: lib/storyteller_web/live/campaign_live/new.html.heex:250
 #, elixir-autogen, elixir-format
 msgid "bottles, coins, or doses"
 msgstr "bouteilles, pièces ou doses"
@@ -1535,3 +1536,79 @@ msgstr "Utiliser %{item} dans votre action"
 #, elixir-autogen, elixir-format
 msgid "Use in action"
 msgstr "Utiliser dans l’action"
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:111
+#, elixir-autogen, elixir-format
+msgid "A short player-visible fact"
+msgstr "Un fait bref visible du joueur"
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:74
+#, elixir-autogen, elixir-format
+msgid "Add character detail"
+msgstr "Ajouter un détail du personnage"
+
+#: lib/storyteller_web/live/campaign_live/new.ex:248
+#, elixir-autogen, elixir-format
+msgid "Add no more than 50 player character details."
+msgstr "Ajoutez au maximum 50 détails du personnage joueur."
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:65
+#, elixir-autogen, elixir-format
+msgid "Add optional public facts such as health, skills, or responsibilities. These are descriptive details, not game-system stats."
+msgstr "Ajoutez des faits publics facultatifs comme la santé, les compétences ou les responsabilités. Ce sont des descriptions, pas des caractéristiques imposées par un système de jeu."
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:91
+#, elixir-autogen, elixir-format
+msgid "Detail label"
+msgstr "Libellé du détail"
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:106
+#, elixir-autogen, elixir-format
+msgid "Detail value"
+msgstr "Valeur du détail"
+
+#: lib/storyteller_web/live/campaign_live/new.ex:252
+#, elixir-autogen, elixir-format
+msgid "Every player character detail needs a label up to 80 characters."
+msgstr "Chaque détail du personnage doit avoir un libellé de 80 caractères maximum."
+
+#: lib/storyteller_web/live/campaign_live/new.ex:256
+#, elixir-autogen, elixir-format
+msgid "Every player character detail needs a value up to 500 characters."
+msgstr "Chaque détail du personnage doit avoir une valeur de 500 caractères maximum."
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:96
+#, elixir-autogen, elixir-format
+msgid "Health, skills, or role"
+msgstr "Santé, compétences ou rôle"
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:80
+#, elixir-autogen, elixir-format
+msgid "No extra character details added."
+msgstr "Aucun détail supplémentaire n’a été ajouté."
+
+#: lib/storyteller_web/live/campaign_live/new.ex:260
+#, elixir-autogen, elixir-format
+msgid "Player character detail labels must be unique."
+msgstr "Les libellés des détails du personnage doivent être uniques."
+
+#: lib/storyteller_web/live/campaign_live/new.ex:244
+#, elixir-autogen, elixir-format
+msgid "Player character detail rows must be objects."
+msgstr "Chaque ligne de détail du personnage doit être un objet."
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:62
+#: lib/storyteller_web/live/campaign_live/new.html.heex:555
+#, elixir-autogen, elixir-format
+msgid "Player character details"
+msgstr "Détails du personnage joueur"
+
+#: lib/storyteller_web/live/campaign_live/new.ex:240
+#, elixir-autogen, elixir-format
+msgid "Player character details must be a list."
+msgstr "Les détails du personnage joueur doivent être une liste."
+
+#: lib/storyteller_web/live/campaign_live/new.ex:264
+#, elixir-autogen, elixir-format
+msgid "The label 'description' is reserved for the character summary."
+msgstr "Le libellé « description » est réservé au résumé du personnage."

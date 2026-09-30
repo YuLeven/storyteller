@@ -43,7 +43,9 @@ defmodule StorytellerWeb.SessionLiveTest do
   test "submitting an action updates the public world, NPC activity, and attributed timeline", %{
     conn: conn
   } do
-    campaign = campaign_fixture(%{title: "The Amber Road"})
+    campaign =
+      campaign_fixture(%{title: "The Amber Road", starting_location: "Observatory grounds"})
+
     [session] = campaign.sessions
 
     {:ok, _state} =
@@ -122,6 +124,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ "Rhea checks the gate latch."
     assert html =~ "The western road"
     assert has_element?(view, "#current-place", "The western road")
+    assert has_element?(view, "#world-location", "The western road")
     assert has_element?(view, "#current-place", "Rhea Vale")
     assert html =~ "09:20"
     assert html =~ "A light rain begins"
@@ -133,6 +136,18 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert rhea.visible_activity == "Rhea checks the gate latch."
     assert rhea.visible_facts["trust"] == "She trusts your judgment."
     assert projection.world["location"] == "The western road"
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "location", "A stale world location")
+      })
+    )
+
+    {:ok, reloaded_view, reloaded_html} = live(conn, session_path(campaign, session))
+    assert has_element?(reloaded_view, "#world-location", "The western road")
+    refute reloaded_html =~ "A stale world location"
   end
 
   test "a connected ChatGPT plan is clear beside the composer and links to usage settings", %{
@@ -241,6 +256,51 @@ defmodule StorytellerWeb.SessionLiveTest do
       assert render(view) == before_forged_click
       assert is_nil(Play.public_current_turn(campaign.id))
     end
+  end
+
+  test "inventory details humanize keys and compact nested player-authored properties", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    seed_action_items(campaign.id, %{
+      "remaining_charges" => 2,
+      "attunement" => "Once per dawn",
+      "crafting_data" => %{
+        "maker_name" => "Mira Vale",
+        "ingredients" => ["Moon leaf", "RED MOSS"],
+        "engraving" => %{"text" => "<star>"}
+      }
+    })
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+    details = "#inventory-item-player-sunstone details"
+    html = render(view)
+
+    assert has_element?(view, details <> " summary", "Item details")
+    assert html =~ "Remaining charges"
+    assert html =~ "Once per dawn"
+    assert html =~ "Crafting data / Maker name"
+    assert html =~ "Mira Vale"
+    assert html =~ "Crafting data / Ingredients"
+
+    assert html =~ "[&quot;Moon leaf&quot;, &quot;RED MOSS&quot;]" or
+             html =~ "[\"Moon leaf\", \"RED MOSS\"]"
+
+    assert html =~ "Engraving / Text"
+    assert html =~ "&lt;star&gt;"
+    refute html =~ "<star>"
+    refute has_element?(view, details <> " pre")
+
+    summary =
+      html
+      |> Floki.parse_document!()
+      |> Floki.find(details <> " summary")
+      |> hd()
+
+    summary_classes = summary |> Floki.attribute("class") |> hd() |> String.split()
+    assert "focus-visible:ring-2" in summary_classes
   end
 
   test "D20 is only generated after the validated roll request is clicked", %{conn: conn} do
@@ -414,7 +474,7 @@ defmodule StorytellerWeb.SessionLiveTest do
   defp session_path(campaign, session),
     do: ~p"/campaigns/#{campaign.id}/sessions/#{session.id}"
 
-  defp seed_action_items(campaign_id) do
+  defp seed_action_items(campaign_id, player_properties \\ %{}) do
     state = Repo.get_by!(State, campaign_id: campaign_id)
 
     public_inventory = [
@@ -424,7 +484,7 @@ defmodule StorytellerWeb.SessionLiveTest do
         "quantity" => 1,
         "owner_id" => "player",
         "visibility" => "public",
-        "properties" => %{}
+        "properties" => player_properties
       },
       %{
         "id" => "party-lantern",

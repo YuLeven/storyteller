@@ -16,6 +16,7 @@ defmodule StorytellerWeb.CampaignLive.New do
        draft: nil,
        setup_error: nil,
        character_rows: [],
+       player_detail_rows: [],
        panel_rows: [],
        inventory_rows: []
      )}
@@ -31,6 +32,7 @@ defmodule StorytellerWeb.CampaignLive.New do
        draft: nil,
        setup_error: nil,
        character_rows: rows(attrs, "gm_characters"),
+       player_detail_rows: rows(attrs, "player_character_details"),
        panel_rows: rows(attrs, "panel_fields"),
        inventory_rows: rows(attrs, "inventory")
      )}
@@ -42,6 +44,7 @@ defmodule StorytellerWeb.CampaignLive.New do
 
     row_assigns = [
       character_rows: rows(attrs, "gm_characters"),
+      player_detail_rows: rows(attrs, "player_character_details"),
       panel_rows: rows(attrs, "panel_fields"),
       inventory_rows: rows(attrs, "inventory")
     ]
@@ -55,6 +58,7 @@ defmodule StorytellerWeb.CampaignLive.New do
            reviewed: true,
            setup_error: nil,
            character_rows: row_assigns[:character_rows],
+           player_detail_rows: row_assigns[:player_detail_rows],
            panel_rows: row_assigns[:panel_rows],
            inventory_rows: row_assigns[:inventory_rows]
          )}
@@ -67,6 +71,7 @@ defmodule StorytellerWeb.CampaignLive.New do
            draft: nil,
            setup_error: nil,
            character_rows: row_assigns[:character_rows],
+           player_detail_rows: row_assigns[:player_detail_rows],
            panel_rows: row_assigns[:panel_rows],
            inventory_rows: row_assigns[:inventory_rows]
          )}
@@ -79,6 +84,7 @@ defmodule StorytellerWeb.CampaignLive.New do
            draft: nil,
            setup_error: setup_error_message(message),
            character_rows: row_assigns[:character_rows],
+           player_detail_rows: row_assigns[:player_detail_rows],
            panel_rows: row_assigns[:panel_rows],
            inventory_rows: row_assigns[:inventory_rows]
          )}
@@ -99,6 +105,24 @@ defmodule StorytellerWeb.CampaignLive.New do
   @impl true
   def handle_event("remove-character", %{"index" => index}, socket) do
     {:noreply, assign(socket, character_rows: remove_row(socket.assigns.character_rows, index))}
+  end
+
+  @impl true
+  def handle_event("add-player-detail", _params, socket) do
+    index = next_index(socket.assigns.player_detail_rows)
+
+    {:noreply,
+     assign(socket,
+       player_detail_rows: socket.assigns.player_detail_rows ++ [{index, %{}}]
+     )}
+  end
+
+  @impl true
+  def handle_event("remove-player-detail", %{"index" => index}, socket) do
+    {:noreply,
+     assign(socket,
+       player_detail_rows: remove_row(socket.assigns.player_detail_rows, index)
+     )}
   end
 
   @impl true
@@ -210,6 +234,34 @@ defmodule StorytellerWeb.CampaignLive.New do
 
   defp setup_error_message("Starting inventory must be a list.") do
     gettext("Starting inventory must be a list.")
+  end
+
+  defp setup_error_message("Player character details must be a list.") do
+    gettext("Player character details must be a list.")
+  end
+
+  defp setup_error_message("Player character detail rows must be objects.") do
+    gettext("Player character detail rows must be objects.")
+  end
+
+  defp setup_error_message("Add no more than 50 player character details.") do
+    gettext("Add no more than 50 player character details.")
+  end
+
+  defp setup_error_message("Every player character detail needs a label up to 80 characters.") do
+    gettext("Every player character detail needs a label up to 80 characters.")
+  end
+
+  defp setup_error_message("Every player character detail needs a value up to 500 characters.") do
+    gettext("Every player character detail needs a value up to 500 characters.")
+  end
+
+  defp setup_error_message("Player character detail labels must be unique.") do
+    gettext("Player character detail labels must be unique.")
+  end
+
+  defp setup_error_message("The label 'description' is reserved for the character summary.") do
+    gettext("The label 'description' is reserved for the character summary.")
   end
 
   defp setup_error_message("Starting item " <> details) do

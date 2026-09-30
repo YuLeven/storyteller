@@ -176,6 +176,67 @@ defmodule Storyteller.CampaignsTest do
     refute inspect(panel) =~ "abandoned relay"
   end
 
+  test "campaign setup persists flexible player details to the public board and GM context" do
+    attrs =
+      valid_campaign_attrs()
+      |> Map.put(:player_character_details, [
+        %{label: "Health", value: "Recovering from a long winter."},
+        %{label: "Skills", value: "Grafting and careful record keeping."},
+        %{label: "Responsibilities", value: "Tends the north vineyard rows."}
+      ])
+
+    assert {:ok, campaign} = Campaigns.create_campaign(attrs)
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+
+    assert player.visible_facts == %{
+             "description" => campaign.player_character,
+             "Health" => "Recovering from a long winter.",
+             "Skills" => "Grafting and careful record keeping.",
+             "Responsibilities" => "Tends the north vineyard rows."
+           }
+
+    session = hd(campaign.sessions)
+
+    assert {:ok, turn} =
+             Play.submit_turn(campaign.id, session.id, "player-details-context", "Look around.")
+
+    assert {:ok, context} = Play.model_context(turn.id)
+    prompt_player = Enum.find(context.characters, &(&1.speaker_id == "player"))
+
+    assert prompt_player.visible_facts == player.visible_facts
+  end
+
+  test "campaign setup bounds player details and requires nonempty labels and values" do
+    for details <- [
+          Enum.map(1..51, fn index -> %{label: "Detail #{index}", value: "Known"} end),
+          [%{label: "", value: "Known"}],
+          [%{label: String.duplicate("x", 81), value: "Known"}],
+          [%{label: "Health", value: ""}],
+          [%{label: "Health", value: String.duplicate("x", 501)}],
+          [%{label: "Description", value: "Conflicting summary"}]
+        ] do
+      attrs = Map.put(valid_campaign_attrs(), :player_character_details, details)
+
+      assert {:error, {:setup, _message}} = Campaigns.create_campaign(attrs)
+      assert Campaigns.list_campaigns() == []
+    end
+  end
+
+  test "player character detail labels are unique without regard to case" do
+    attrs =
+      valid_campaign_attrs()
+      |> Map.put(:player_character_details, [
+        %{label: "Health", value: "Well rested."},
+        %{label: "health", value: "A second conflicting value."}
+      ])
+
+    assert {:error, {:setup, "Player character detail labels must be unique."}} =
+             Campaigns.create_campaign(attrs)
+
+    assert Campaigns.list_campaigns() == []
+  end
+
   test "campaign setup persists normalized player-owned public starting inventory" do
     attrs =
       valid_campaign_attrs()

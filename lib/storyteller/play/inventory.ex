@@ -7,8 +7,11 @@ defmodule Storyteller.Play.Inventory do
   "item_id" => id, "owner_id" => owner, "reason" => reason}`. A partial transfer
   includes `"quantity"` and a fresh `"new_item_id"`. Consume part of a stack with
   `%{"type" => "consume", "item_id" => id, "quantity" => n,
-  "reason" => reason}`. Validation is all-or-nothing: callers should only apply the
-  returned normalized operations after the entire proposal succeeds.
+  "reason" => reason}`. Update flexible item properties with `%{"type" => "update",
+  "item_id" => id, "properties" => patch, "reason" => reason}`; nested maps merge
+  recursively so unrelated property keys are retained. Validation is all-or-nothing:
+  callers should only apply the returned normalized operations after the entire
+  proposal succeeds.
   """
 
   @max_items 200
@@ -142,6 +145,7 @@ defmodule Storyteller.Play.Inventory do
       "add" -> normalize_add(change, owners)
       "transfer" -> normalize_transfer(change, inventory, owners)
       "consume" -> normalize_consume(change, inventory)
+      "update" -> normalize_update(change, inventory)
       _ -> {:error, :invalid_operation}
     end
   end
@@ -237,6 +241,33 @@ defmodule Storyteller.Play.Inventory do
     end
   end
 
+  defp normalize_update(change, inventory) do
+    with :ok <- only_keys(change, ~w(type item_id properties reason)),
+         {:ok, reason} <- reason(change),
+         {:ok, id} <- required_id(change, "item_id"),
+         {:ok, patch} <- required_properties(change),
+         {:ok, item} <- find_item(inventory, id),
+         {:ok, _merged_properties} <-
+           normalize_properties(deep_merge_maps(item["properties"] || %{}, patch)) do
+      {:ok,
+       %{
+         "type" => "update",
+         "item_id" => id,
+         "item_name" => item["name"],
+         "properties" => patch,
+         "reason" => reason,
+         "visibility" => item["visibility"]
+       }}
+    end
+  end
+
+  defp required_properties(map) do
+    case get(map, "properties") do
+      properties when is_map(properties) -> normalize_properties(properties)
+      _ -> {:error, :invalid_properties}
+    end
+  end
+
   defp normalize_item(item, owners) when is_map(item) do
     with :ok <- only_keys(item, @item_keys),
          {:ok, id} <- required_id(item, "id"),
@@ -318,6 +349,14 @@ defmodule Storyteller.Play.Inventory do
   end
 
   defp validate_json_value(_value, _depth, _nodes), do: :error
+
+  defp deep_merge_maps(existing, patch) do
+    Map.merge(existing, patch, fn _key, existing_value, patch_value ->
+      if is_map(existing_value) and is_map(patch_value),
+        do: deep_merge_maps(existing_value, patch_value),
+        else: patch_value
+    end)
+  end
 
   defp required_id(map, key) do
     case get(map, key) do
@@ -478,6 +517,30 @@ defmodule Storyteller.Play.Inventory do
     end
   end
 
+  defp apply_checked(inventory, %{"type" => "update", "item_id" => id, "properties" => patch})
+       when is_binary(id) and is_map(patch) do
+    case Enum.find(inventory, &(&1["id"] == id)) do
+      nil ->
+        {:error, :item_not_found}
+
+      item ->
+        merged_properties = deep_merge_maps(item["properties"] || %{}, patch)
+
+        case normalize_properties(merged_properties) do
+          {:ok, properties} ->
+            {:ok,
+             Enum.map(inventory, fn current ->
+               if current["id"] == id,
+                 do: Map.put(current, "properties", properties),
+                 else: current
+             end)}
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
+  end
+
   defp apply_change(%{"type" => "add", "item" => item} = change, inventory) when is_map(item) do
     apply_validated_change(change, inventory)
   end
@@ -495,6 +558,14 @@ defmodule Storyteller.Play.Inventory do
          inventory
        )
        when is_binary(id) and is_integer(quantity) and quantity > 0 do
+    apply_validated_change(change, inventory)
+  end
+
+  defp apply_change(
+         %{"type" => "update", "item_id" => id, "properties" => properties} = change,
+         inventory
+       )
+       when is_binary(id) and is_map(properties) do
     apply_validated_change(change, inventory)
   end
 

@@ -1,5 +1,26 @@
 # Feature log
 
+## 2026-09-30 — Flexible player character details in campaign setup
+
+- Campaign setup accepts up to 50 optional player-visible label/value details, with bounded labels and values and case-insensitive duplicate-label rejection. These flexible facts are stored alongside the existing player-character description; no RPG-specific fields or migration were added.
+- The setup review shows the selected details before creating the campaign. The existing player character projection feeds them into the player board and GM context. Setup copy and validation messages are translated in Spanish and French.
+- **Checked:** focused Campaigns and CampaignLive setup suites pass (24 tests, 0 failures), including setup-to-facts-to-board/context persistence and invalid, oversized, and duplicate rows. The focused Campaigns, CampaignLive, and LocaleLive run passes (30 tests, 0 failures), including Spanish and French row labels/placeholders. Format check, warnings-as-errors compile, asset build, and diff check pass in WSL.
+
+## 2026-09-30 — Readable item details and canonical location
+
+- The inventory disclosure now renders generic properties as escaped key/value rows, with humanized nested paths and compact map/list values. It retains a native keyboard-accessible disclosure.
+- The play-board location rail now prefers the player's canonical current place over a stale world-location string.
+- **Checked:** the session LiveView suite passes (7 tests, 0 failures), including nested properties, escaped values, and a regression test for a stale location string. Full `mix test` passes (132 tests, 0 failures); formatting, warnings-as-errors compilation, asset build, and `git diff --check` pass in WSL.
+
+## 2026-09-30 — Safe item property updates
+
+- Added a GM-proposed `update` operation limited to an existing item's flexible `properties` map. Nested objects merge recursively, preserving unrelated keys and enforcing the same JSON depth and node limits on the merged result.
+- Updates preserve stable item identity and all other canonical item fields. They validate sequentially with add, transfer, and consume operations; any later invalid operation rejects the full proposal before inventory changes or audit events commit.
+- Audit visibility follows the item: public updates appear in public history without the GM's reason, while private update details and reasons stay in GM-private history. Canonical model context carries the updated properties into later turns and sessions.
+- Updated the GM policy and operation schema with the properties-only rule.
+- The player board displays changed properties in its readable item-details disclosure.
+- **Checked:** focused inventory domain and Play behavior suites pass (44 tests, 0 failures). Focused formatting, warnings-as-errors compilation, `mix assets.build`, and `git diff --check` pass in WSL.
+
 ## 2026-09-30 — Inventory actions from the play board
 
 - Added a localized action button to public player- and party-owned inventory items. It appends a short item-use sentence in the campaign narration language, preserves the current composer draft, and focuses the textarea for review and editing.

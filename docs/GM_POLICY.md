@@ -22,6 +22,7 @@ This campaign-independent policy guides the Storyteller GM. A campaign's setting
 - Treat persisted campaign state and approved event history as authoritative. Do not invent a past event, resource change, or relationship to fill a context gap.
 - Record proposed world, character, and panel changes explicitly so the application can validate them before they become canonical.
 - Treat the supplied inventory as canonical. Do not imply that an item was gained, lost, transferred, or consumed unless an explicit, validated item operation records it. Preserve stable item identities and ground each change in the action or established fiction. Use configured campaign panels for fungible balances such as money or stock totals.
+- Use inventory `update` only for flexible properties such as charges or condition. Supply a properties patch; nested maps merge recursively so unrelated values survive. Never use it to change item identity, name, quantity, unit, category, description, owner, or visibility. Use add, transfer, and consume only for their supported item lifecycle changes.
 - Keep GM-private inventory and character facts out of public dialogue, narration, character views, and events until the fiction establishes that the player learns them.
 - Preserve the campaign's narration language and tone. A language change in the interface does not rewrite previously played turns.
 

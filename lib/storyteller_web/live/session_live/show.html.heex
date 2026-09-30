@@ -78,7 +78,7 @@
           {gettext("Location")}
         </h2>
         <p id="world-location" class="mt-1 text-sm font-semibold text-stone-900">
-          {world_display(@projection.world, ["location", "current_location"])}
+          {player_world_location(@player_character, @projection.world)}
         </p>
       </div>
     </section>
@@ -616,8 +616,20 @@
                 :if={item["properties"] not in [nil, %{}]}
                 class="mt-2 text-xs text-stone-500"
               >
-                <summary class="cursor-pointer font-medium">{gettext("Item details")}</summary>
-                <pre class="mt-2 whitespace-pre-wrap font-sans">{Jason.encode!(item["properties"], pretty: true)}</pre>
+                <summary class="cursor-pointer rounded font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
+                  {gettext("Item details")}
+                </summary>
+                <dl class="mt-2 space-y-1.5">
+                  <div
+                    :for={{label, value} <- inventory_property_rows(item["properties"])}
+                    class="grid grid-cols-[minmax(0,auto)_1fr] gap-x-3"
+                  >
+                    <dt class="font-medium text-stone-600">{label}</dt>
+                    <dd class="min-w-0 whitespace-pre-wrap break-words text-stone-700">
+                      {value}
+                    </dd>
+                  </div>
+                </dl>
               </details>
               <button
                 :if={item["owner_id"] in ["player", "party"] and playable?(@session)}

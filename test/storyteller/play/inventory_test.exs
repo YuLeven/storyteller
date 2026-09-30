@@ -101,6 +101,132 @@ defmodule Storyteller.Play.InventoryTest do
                Inventory.apply_changes([item()], normalized)
     end
 
+    test "updates flexible properties by deep merge while keeping the stable item fields" do
+      before =
+        item(%{
+          "properties" => %{
+            "weapon" => %{
+              "charges" => 3,
+              "school" => "evocation",
+              "notes" => %{"maker" => "Mira"}
+            },
+            "attuned" => true
+          }
+        })
+
+      changes = [
+        %{
+          "type" => "update",
+          "item_id" => "healing-herbs",
+          "properties" => %{
+            "weapon" => %{"charges" => 2, "notes" => %{"condition" => "cracked"}}
+          },
+          "reason" => "The ward dims after the key is used."
+        },
+        %{
+          "type" => "update",
+          "item_id" => "healing-herbs",
+          "properties" => %{"weapon" => %{"notes" => %{"maker" => "Vale"}}},
+          "reason" => "The keeper identifies the maker."
+        }
+      ]
+
+      assert {:ok, [first, second]} = Inventory.validate_changes(changes, [before], @owners)
+      assert first["visibility"] == "public"
+      assert first["item_id"] == before["id"]
+
+      assert first["properties"] == %{
+               "weapon" => %{"charges" => 2, "notes" => %{"condition" => "cracked"}}
+             }
+
+      assert [updated] = Inventory.apply_changes([before], [first, second])
+      assert updated["id"] == before["id"]
+      assert updated["name"] == before["name"]
+      assert updated["quantity"] == before["quantity"]
+      assert updated["unit"] == before["unit"]
+      assert updated["owner_id"] == before["owner_id"]
+      assert updated["visibility"] == before["visibility"]
+
+      assert updated["properties"] == %{
+               "weapon" => %{
+                 "charges" => 2,
+                 "school" => "evocation",
+                 "notes" => %{"maker" => "Vale", "condition" => "cracked"}
+               },
+               "attuned" => true
+             }
+    end
+
+    test "rejects immutable fields, invalid property maps, and unknown update IDs" do
+      update = %{
+        "type" => "update",
+        "item_id" => "healing-herbs",
+        "properties" => %{"charges" => 2},
+        "reason" => "Reduce the remaining charges."
+      }
+
+      for field <- ~w(id name quantity unit category description owner_id visibility) do
+        assert {:error, :unknown_key} =
+                 Inventory.validate_changes(
+                   [Map.put(update, field, "tampered")],
+                   [item()],
+                   @owners
+                 )
+      end
+
+      assert {:error, :invalid_properties} =
+               Inventory.validate_changes(
+                 [Map.put(update, "properties", [%{"charges" => 2}])],
+                 [item()],
+                 @owners
+               )
+
+      assert {:error, :invalid_properties} =
+               Inventory.validate_changes(
+                 [Map.put(update, "properties", deeply_nested_property(9))],
+                 [item()],
+                 @owners
+               )
+
+      too_many_properties = Map.new(1..255, fn index -> {"property_#{index}", index} end)
+
+      assert {:error, :invalid_properties} =
+               Inventory.validate_changes(
+                 [Map.put(update, "properties", too_many_properties)],
+                 [item(%{"properties" => %{"existing" => true}})],
+                 @owners
+               )
+
+      assert {:error, :item_not_found} =
+               Inventory.validate_changes(
+                 [Map.put(update, "item_id", "missing")],
+                 [item()],
+                 @owners
+               )
+    end
+
+    test "rejects the entire update list when a later operation fails" do
+      before = [item()]
+
+      changes = [
+        %{
+          "type" => "update",
+          "item_id" => "healing-herbs",
+          "properties" => %{"healing" => %{"points" => 4}},
+          "reason" => "A blessing strengthens the herbs."
+        },
+        %{
+          "type" => "update",
+          "item_id" => "missing-item",
+          "properties" => %{"charges" => 1},
+          "reason" => "This item does not exist."
+        }
+      ]
+
+      assert {:error, :item_not_found} = Inventory.validate_changes(changes, before, @owners)
+      assert before == [item()]
+    end
+
     test "partially transfers a stack into a new stack with copied fields" do
       change = %{
         "type" => "transfer",
@@ -413,5 +539,11 @@ defmodule Storyteller.Play.InventoryTest do
       item(%{"id" => "poison", "name" => "Unmarked poison", "visibility" => "gm_private"})
 
     assert Inventory.public_projection([public_item, private_item]) == [public_item]
+  end
+
+  defp deeply_nested_property(depth) do
+    Enum.reduce(1..depth, %{"charges" => 2}, fn index, nested ->
+      %{"level_#{index}" => nested}
+    end)
   end
 end
