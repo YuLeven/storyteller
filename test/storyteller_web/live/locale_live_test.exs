@@ -77,6 +77,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
       spanish_view |> element("button[phx-click=add-player-detail]") |> render_click()
 
     assert spanish_html =~ "Detalles del personaje del jugador"
+    assert spanish_html =~ "Opcional"
     assert spanish_html =~ "Añadir detalle del personaje"
     assert spanish_html =~ "Salud, habilidades o función"
 
@@ -84,6 +85,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     {:ok, french_view, _html} = live(conn, ~p"/campaigns/new")
     french_html = french_view |> element("button[phx-click=add-player-detail]") |> render_click()
     assert french_html =~ "Détails du personnage joueur"
+    assert french_html =~ "Facultatif"
     assert french_html =~ "Ajouter un détail du personnage"
     assert french_html =~ "Santé, compétences ou rôle"
   end

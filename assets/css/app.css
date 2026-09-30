@@ -61,6 +61,8 @@
 .tabletop-shell [class~="bg-stone-50"] { background-color: #171f19 !important; }
 .tabletop-shell [class~="bg-stone-100"] { background-color: #252e26 !important; }
 .tabletop-shell [class~="bg-stone-200"] { background-color: #303a31 !important; }
+.tabletop-shell [class~="hover:bg-stone-50"]:hover { background-color: #252e26 !important; }
+.tabletop-shell [class~="hover:bg-stone-100"]:hover { background-color: #303a31 !important; }
 .tabletop-shell [class~="bg-stone-900"] { background-color: #b48648 !important; }
 
 .tabletop-shell [class~="text-stone-950"],
@@ -72,6 +74,12 @@
 .tabletop-shell [class~="text-stone-400"] { color: #929b8d !important; }
 .tabletop-shell [class~="text-stone-300"] { color: #c4c8b9 !important; }
 .tabletop-shell [class~="text-white"] { color: #fffaf0 !important; }
+.tabletop-shell [class~="text-zinc-950"],
+.tabletop-shell [class~="text-zinc-900"],
+.tabletop-shell [class~="text-zinc-800"] { color: #f2ead8 !important; }
+.tabletop-shell [class~="text-zinc-700"] { color: #ded7c6 !important; }
+.tabletop-shell [class~="text-zinc-600"] { color: #c0c0ad !important; }
+.tabletop-shell [class~="text-zinc-500"] { color: #a5ad9e !important; }
 
 .tabletop-shell [class~="border-stone-100"],
 .tabletop-shell [class~="border-stone-200"] { border-color: #384438 !important; }

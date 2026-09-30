@@ -1705,3 +1705,11 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Starting another session completes the active session. Its full story stays saved."
 msgstr ""
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:66
+#: lib/storyteller_web/live/campaign_live/new.html.heex:187
+#: lib/storyteller_web/live/campaign_live/new.html.heex:314
+#: lib/storyteller_web/live/campaign_live/new.html.heex:405
+#, elixir-autogen, elixir-format
+msgid "Optional"
+msgstr ""

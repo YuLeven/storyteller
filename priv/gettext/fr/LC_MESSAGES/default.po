@@ -1698,3 +1698,11 @@ msgstr "Commencer une autre session"
 #, elixir-autogen, elixir-format
 msgid "Starting another session completes the active session. Its full story stays saved."
 msgstr "Commencer une autre session termine la session active. Toute son histoire reste enregistrée."
+
+#: lib/storyteller_web/live/campaign_live/new.html.heex:66
+#: lib/storyteller_web/live/campaign_live/new.html.heex:187
+#: lib/storyteller_web/live/campaign_live/new.html.heex:314
+#: lib/storyteller_web/live/campaign_live/new.html.heex:405
+#, elixir-autogen, elixir-format
+msgid "Optional"
+msgstr "Facultatif"

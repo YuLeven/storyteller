@@ -1,5 +1,15 @@
 # Feature log
 
+## 2026-09-30 — Keep campaign setup focused
+
+- Collapsed the four optional setup groups when empty and labeled each “Optional” in the summary. Adding a player fact, starting item, GM character, or campaign-panel field opens its section immediately, keeping the main setup path compact while preserving a clear path to flexible campaign configuration.
+- **Checked:** LiveView behavior confirms the sections start collapsed, open when populated, and close again when the last row is removed. English, Spanish, and French labels are covered; mobile browser review confirms the 370px layout is scannable. Full suite, format, warnings-as-errors compilation, and asset build passed in WSL.
+
+## 2026-09-30 — Restore contrast for shared form labels
+
+- Mapped the shared zinc text utilities to the tabletop palette and tuned stone-colored hover states for dark surfaces. Form labels, helper text, reusable table headings, and secondary action buttons now keep readable contrast across rest, hover, and focus states.
+- **Checked:** campaign setup screenshot at 370px confirmed visible labels and helper text; interactive review verified the add-detail button keeps a dark background and readable label on hover. Page and viewport width remained aligned. WSL asset build passed.
+
 ## 2026-09-30 — Keep the campaign premise close during play
 
 - Added a native collapsed disclosure near the session header so the player can reopen the campaign's premise without leaving the active session. The premise remains user-authored and is not added to each timeline entry.

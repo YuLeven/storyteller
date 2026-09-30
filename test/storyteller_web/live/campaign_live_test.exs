@@ -74,6 +74,42 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
   end
 
+  test "optional setup sections stay collapsed until they contain rows", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/campaigns/new")
+
+    section_ids = [
+      "player-character-details",
+      "starting-inventory",
+      "gm-characters",
+      "campaign-panels"
+    ]
+
+    for section_id <- section_ids do
+      assert has_element?(view, "details##{section_id}")
+      refute has_element?(view, "details##{section_id}[open]")
+    end
+
+    assert html =~ "Optional"
+
+    view |> element("button[phx-click=add-player-detail]") |> render_click()
+    view |> element("button[phx-click=add-starting-item]") |> render_click()
+    view |> element("button[phx-click=add-character]") |> render_click()
+    view |> element("button[phx-click=add-panel-field]") |> render_click()
+
+    for section_id <- section_ids do
+      assert has_element?(view, "details##{section_id}[open]")
+    end
+
+    view |> element("button[phx-click=remove-player-detail]") |> render_click()
+    view |> element("button[phx-click=remove-starting-item]") |> render_click()
+    view |> element("button[phx-click=remove-character]") |> render_click()
+    view |> element("button[phx-click=remove-panel-field]") |> render_click()
+
+    for section_id <- section_ids do
+      refute has_element?(view, "details##{section_id}[open]")
+    end
+  end
+
   test "starting inventory is editable in setup, reviewed, and visible on the play board", %{
     conn: conn
   } do

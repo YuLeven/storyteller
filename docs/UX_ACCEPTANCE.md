@@ -11,6 +11,7 @@ This brief defines observable acceptance for the locally hosted, single-player S
 ## Create campaign
 
 - A guided flow collects the campaign title, story premise, setting, tone, narration language, player character details, optional GM-controlled characters, starting location/date/weather, and any campaign-specific mechanics. It makes required versus optional inputs clear without inventing rules or requiring unsupported character fields.
+- Optional player facts, starting inventory, GM characters, and campaign panels are explicitly labeled optional. They begin collapsed when empty, then open when a row is added so the main setup path stays easy to scan without hiding configured content.
 - The player can review the assembled setup before creating the campaign. Editing or returning between steps preserves entered content; validation identifies the affected field and explains how to fix it.
 - Successful creation opens the new campaign in a ready-to-play state. The chosen narration language is stored separately from the interface locale.
 - Exact wizard step order, field-by-field validation, and which setup fields are required remain design choices unless specified by product decisions.

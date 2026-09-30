@@ -55,12 +55,21 @@
         placeholder={gettext("Name and a short description")}
       />
 
-      <section class="space-y-4 border-t border-stone-100 pt-6">
+      <details
+        id="player-character-details"
+        open={@player_detail_rows != []}
+        class="space-y-4 border-t border-stone-100 pt-6"
+      >
+        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+          <h2 class="inline">
+            {gettext("Player character details")}
+            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+              "Optional"
+            )}</span>
+          </h2>
+        </summary>
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 class="text-lg font-semibold text-stone-950">
-              {gettext("Player character details")}
-            </h2>
             <p class="mt-1 text-sm text-stone-600">
               {gettext(
                 "Add optional public facts such as health, skills, or responsibilities. These are descriptive details, not game-system stats."
@@ -121,7 +130,7 @@
             class="text-left text-sm font-medium text-rose-700 hover:text-rose-900 sm:pb-2"
           >{gettext("Remove")}</button>
         </div>
-      </section>
+      </details>
       <.input
         field={@form[:narration_language]}
         type="select"
@@ -167,10 +176,21 @@
         />
       </div>
 
-      <div class="space-y-4 border-t border-stone-100 pt-6">
+      <details
+        id="starting-inventory"
+        open={@inventory_rows != []}
+        class="space-y-4 border-t border-stone-100 pt-6"
+      >
+        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+          <h2 class="inline">
+            {gettext("Starting inventory")}
+            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+              "Optional"
+            )}</span>
+          </h2>
+        </summary>
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 class="text-lg font-semibold text-stone-950">{gettext("Starting inventory")}</h2>
             <p class="mt-1 text-sm text-stone-600">
               {gettext(
                 "Add items the player starts with. They are public and belong to the player; you can change ownership during play."
@@ -281,14 +301,23 @@
             >{row_value(row, "description")}</textarea>
           </label>
         </div>
-      </div>
+      </details>
 
-      <div class="space-y-4 border-t border-stone-100 pt-6">
+      <details
+        id="gm-characters"
+        open={@character_rows != []}
+        class="space-y-4 border-t border-stone-100 pt-6"
+      >
+        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+          <h2 class="inline">
+            {gettext("GM-controlled characters")}
+            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+              "Optional"
+            )}</span>
+          </h2>
+        </summary>
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 class="text-lg font-semibold text-stone-950">
-              {gettext("GM-controlled characters")}
-            </h2>
             <p class="mt-1 text-sm text-stone-600">
               {gettext(
                 "Add characters the GM can speak for. Speaker IDs stay stable in the campaign history."
@@ -363,12 +392,23 @@
             >{row_value(row, "private_notes")}</textarea>
           </label>
         </div>
-      </div>
+      </details>
 
-      <div class="space-y-4 border-t border-stone-100 pt-6">
+      <details
+        id="campaign-panels"
+        open={@panel_rows != []}
+        class="space-y-4 border-t border-stone-100 pt-6"
+      >
+        <summary class="cursor-pointer text-lg font-semibold text-stone-950 marker:text-amber-800">
+          <h2 class="inline">
+            {gettext("Campaign panels")}
+            <span class="ml-1 inline-flex whitespace-nowrap rounded-full border border-stone-500 px-2 py-0.5 align-middle text-xs font-medium text-stone-500">{gettext(
+              "Optional"
+            )}</span>
+          </h2>
+        </summary>
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 class="text-lg font-semibold text-stone-950">{gettext("Campaign panels")}</h2>
             <p class="mt-1 text-sm text-stone-600">
               {gettext(
                 "Define tracked values with a type, unit, visibility, and starting value. Values are stored as data; formulas are not supported."
@@ -502,7 +542,7 @@
             </label>
           </div>
         </div>
-      </div>
+      </details>
 
       <p :if={@setup_error} class="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">
         {@setup_error}
