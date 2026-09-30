@@ -1,4 +1,6 @@
 defmodule Storyteller.GM.OpenAI do
+  require Logger
+
   @moduledoc """
   Calls the public Responses API with the selected ChatGPT-plan OAuth account.
 
@@ -13,6 +15,7 @@ defmodule Storyteller.GM.OpenAI do
   @models_url "https://api.openai.com/v1/models"
   @responses_url "https://api.openai.com/v1/responses"
   @max_error_body_bytes 65_536
+  @max_output_text_bytes 100_000
 
   @doc "Lists displayable models for the currently connected ChatGPT account."
   def models(opts \\ []) do
@@ -27,22 +30,30 @@ defmodule Storyteller.GM.OpenAI do
 
   @doc false
   def stream_response(request, opts) when is_map(request) do
-    with {:ok, access_token} <- OAuth.access_token(opts),
-         {:ok, models} <- fetch_models(access_token, opts),
-         {:ok, model} <- select_model(request, models),
-         {:ok, body} <- request_body(request, model),
-         {:ok, response} <- post_response(access_token, body, opts),
-         :ok <- require_http_success(response),
-         {:ok, text} <- completed_response(response_body(response)) do
+    with {:ok, access_token} <- log_stage_error(:oauth, OAuth.access_token(opts)),
+         {:ok, models} <- log_stage_error(:model_catalog, fetch_models(access_token, opts)),
+         {:ok, model} <- log_stage_error(:model_selection, select_model(request, models)),
+         {:ok, body} <- log_stage_error(:request_validation, request_body(request, model)),
+         {:ok, response} <-
+           log_stage_error(:responses_request, post_response(access_token, body, opts)),
+         :ok <- require_http_success(response, :responses),
+         {:ok, text} <- completed_response(response) do
       {:ok, %{text: text}}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
       _ -> {:error, :provider_error}
     end
   rescue
-    _ -> {:error, :provider_error}
+    error ->
+      Logger.warning(
+        "ChatGPT plan inference failed phase=adapter_exception exception=#{inspect(error.__struct__)}"
+      )
+
+      {:error, :provider_error}
   catch
-    _, _ -> {:error, :provider_error}
+    kind, _reason ->
+      Logger.warning("ChatGPT plan inference failed phase=adapter_throw kind=#{kind}")
+      {:error, :provider_error}
   end
 
   def stream_response(_request, _opts), do: {:error, :invalid_response}
@@ -57,7 +68,7 @@ defmodule Storyteller.GM.OpenAI do
            http
          ) do
       {:ok, response} ->
-        with :ok <- require_http_success(response),
+        with :ok <- require_http_success(response, :model_catalog),
              {:ok, body} <- HTTP.decode_json(response_body(response)),
              %{"models" => entries} when is_list(entries) <- body do
           models =
@@ -143,34 +154,82 @@ defmodule Storyteller.GM.OpenAI do
     )
   end
 
-  defp require_http_success(response) do
-    case response_status(response) do
-      200 -> :ok
-      401 -> {:error, :reauth_required}
-      403 -> status_error(response, :provider_error)
-      404 -> {:error, :model_unavailable}
-      429 -> {:error, http_error_code(response_body(response))}
-      status when status in [400, 503] -> status_error(response, :provider_error)
-      status when is_integer(status) and status >= 500 -> {:error, :provider_error}
-      status when is_integer(status) -> {:error, http_error_code(response_body(response))}
-      _ -> {:error, :provider_error}
+  defp require_http_success(response, phase) do
+    status = response_status(response)
+
+    if status == 200 do
+      :ok
+    else
+      details = http_error_details(response_body(response))
+      log_provider_failure(phase, status, details, request_id(response))
+      {:error, error_for_status(status, details.reason)}
     end
   end
 
-  defp status_error(response, fallback) do
-    case http_error_code(response_body(response)) do
-      :provider_error -> {:error, fallback}
-      code -> {:error, code}
-    end
-  end
+  defp error_for_status(401, _reason), do: :reauth_required
+  defp error_for_status(403, :provider_error), do: :provider_error
+  defp error_for_status(404, _reason), do: :model_unavailable
+  defp error_for_status(429, reason), do: reason
+  defp error_for_status(status, reason) when status in [400, 503], do: reason
 
-  defp completed_response(body) do
-    case consume_sse(body) do
-      {:completed, text} -> {:ok, text}
-      {:failed, reason} -> {:error, reason}
-      {:incomplete, :response_incomplete} -> {:error, :stream_incomplete}
-      {:incomplete, :malformed} -> {:error, :invalid_response}
-      :missing_completion -> {:error, :stream_incomplete}
+  defp error_for_status(status, _reason) when is_integer(status) and status >= 500,
+    do: :provider_error
+
+  defp error_for_status(_status, reason), do: reason
+
+  defp completed_response(response) do
+    case consume_sse(response_body(response)) do
+      {:completed, text} ->
+        {:ok, text}
+
+      {:failed, details} ->
+        log_provider_failure(
+          :response_stream,
+          response_status(response),
+          details,
+          request_id(response)
+        )
+
+        {:error, details.reason}
+
+      {:incomplete, :response_incomplete} ->
+        details = stream_diagnostic(:response_incomplete)
+
+        log_provider_failure(
+          :response_stream,
+          response_status(response),
+          details,
+          request_id(response)
+        )
+
+        {:error, :stream_incomplete}
+
+      {:incomplete, diagnostic} ->
+        details = stream_diagnostic(diagnostic)
+
+        log_provider_failure(
+          :response_stream,
+          response_status(response),
+          details,
+          request_id(response)
+        )
+
+        failure =
+          if diagnostic == :response_incomplete, do: :stream_incomplete, else: :invalid_response
+
+        {:error, failure}
+
+      :missing_completion ->
+        details = stream_diagnostic(:missing_completion)
+
+        log_provider_failure(
+          :response_stream,
+          response_status(response),
+          details,
+          request_id(response)
+        )
+
+        {:error, :stream_incomplete}
     end
   end
 
@@ -181,7 +240,7 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   defp consume_chunks(chunks) do
-    initial = {:ok, "", :waiting}
+    initial = {:ok, "", {:waiting, [], 0}}
 
     result =
       Enum.reduce_while(chunks, initial, fn
@@ -194,7 +253,7 @@ defmodule Storyteller.GM.OpenAI do
           end
 
         _, _state ->
-          {:halt, {:incomplete, :malformed}}
+          {:halt, {:incomplete, :non_binary_chunk}}
       end)
 
     case result do
@@ -217,9 +276,9 @@ defmodule Storyteller.GM.OpenAI do
         terminal
     end
   rescue
-    _ -> {:incomplete, :malformed}
+    error -> {:incomplete, {:stream_read_exception, error.__struct__}}
   catch
-    _, _ -> {:incomplete, :malformed}
+    kind, _reason -> {:incomplete, {:stream_read_throw, kind}}
   end
 
   defp split_frames(buffer) do
@@ -235,7 +294,7 @@ defmodule Storyteller.GM.OpenAI do
   defp process_frames(frames, buffer, status) do
     Enum.reduce_while(frames, {:ok, buffer, status}, fn frame, {:ok, rest, current} ->
       case process_frame(frame, current) do
-        :waiting -> {:cont, {:ok, rest, :waiting}}
+        {:waiting, _deltas, _size} = waiting -> {:cont, {:ok, rest, waiting}}
         terminal -> {:halt, {:halt, terminal}}
       end
     end)
@@ -245,20 +304,38 @@ defmodule Storyteller.GM.OpenAI do
   defp process_frame(_frame, {:failed, _} = failed), do: failed
   defp process_frame(_frame, {:incomplete, _} = incomplete), do: incomplete
 
+  defp process_frame(frame, {:waiting, deltas, size}) do
+    {event, data} = parse_frame(frame)
+
+    case data do
+      nil ->
+        {:waiting, deltas, size}
+
+      "[DONE]" ->
+        {:waiting, deltas, size}
+
+      encoded ->
+        case Jason.decode(encoded) do
+          {:ok, payload} when is_map(payload) -> process_event(event, payload, deltas, size)
+          _ -> {:incomplete, :invalid_sse_json}
+        end
+    end
+  end
+
   defp process_frame(frame, _status) do
     {event, data} = parse_frame(frame)
 
     case data do
       nil ->
-        :waiting
+        {:waiting, [], 0}
 
       "[DONE]" ->
-        :waiting
+        {:waiting, [], 0}
 
       encoded ->
         case Jason.decode(encoded) do
-          {:ok, payload} when is_map(payload) -> process_event(event, payload)
-          _ -> {:incomplete, :malformed}
+          {:ok, payload} when is_map(payload) -> process_event(event, payload, [], 0)
+          _ -> {:incomplete, :invalid_sse_json}
         end
     end
   end
@@ -289,28 +366,44 @@ defmodule Storyteller.GM.OpenAI do
     {event, data}
   end
 
-  defp process_event(event, payload) do
+  defp process_event(event, payload, deltas, size) do
     case payload["type"] || event do
       "response.completed" ->
         case output_text(payload["response"]) do
           {:ok, text} -> {:completed, text}
-          _ -> {:incomplete, :malformed}
+          _ when size > 0 -> {:completed, deltas |> Enum.reverse() |> IO.iodata_to_binary()}
+          _ -> {:incomplete, :completed_without_text}
         end
+
+      "response.output_text.delta" ->
+        append_output_delta(deltas, size, payload["delta"])
 
       "response.failed" ->
         {:failed,
-         error_code((payload["response"] && payload["response"]["error"]) || payload["error"])}
+         response_error_details(
+           (payload["response"] && payload["response"]["error"]) || payload["error"]
+         )}
 
       "response.incomplete" ->
         {:incomplete, :response_incomplete}
 
       "error" ->
-        {:failed, error_code(payload["error"] || payload)}
+        {:failed, response_error_details(payload["error"] || payload)}
 
       _ ->
-        :waiting
+        {:waiting, deltas, size}
     end
   end
+
+  defp append_output_delta(deltas, size, delta) when is_binary(delta) do
+    if size + byte_size(delta) <= @max_output_text_bytes do
+      {:waiting, [delta | deltas], size + byte_size(delta)}
+    else
+      {:incomplete, :output_too_large}
+    end
+  end
+
+  defp append_output_delta(deltas, size, _delta), do: {:waiting, deltas, size}
 
   defp output_text(%{"output" => output}) when is_list(output) do
     texts =
@@ -332,17 +425,111 @@ defmodule Storyteller.GM.OpenAI do
 
   defp output_text(_), do: {:error, :missing_output}
 
-  defp error_code(%{"code" => code}) when is_binary(code), do: map_error_code(code)
-  defp error_code(%{code: code}) when is_binary(code), do: map_error_code(code)
-  defp error_code(_), do: :provider_error
-
-  defp http_error_code(body) do
+  defp http_error_details(body) do
     case decode_error_body(body) do
-      {:ok, %{"error" => error}} -> error_code(error)
-      {:ok, %{"code" => code}} when is_binary(code) -> map_error_code(code)
-      _ -> :provider_error
+      {:ok, %{"error" => error}} when is_map(error) ->
+        diagnostic_details(error, :error)
+
+      {:ok, %{"code" => code} = details} when is_binary(code) ->
+        diagnostic_details(details, :code)
+
+      {:ok, %{"detail" => _detail}} ->
+        empty_diagnostic(:detail)
+
+      {:ok, _body} ->
+        empty_diagnostic(:json)
+
+      {:error, _reason} ->
+        empty_diagnostic(:invalid_json)
     end
   end
+
+  defp response_error_details(error) when is_map(error),
+    do: diagnostic_details(error, :stream_error)
+
+  defp response_error_details(_error), do: empty_diagnostic(:stream_error)
+
+  defp diagnostic_details(details, shape) do
+    code = field(details, :code)
+    param = field(details, :param)
+
+    %{
+      reason: if(is_binary(code), do: map_error_code(code), else: :provider_error),
+      code: safe_diagnostic_value(code),
+      param: safe_diagnostic_value(param),
+      shape: shape
+    }
+  end
+
+  defp empty_diagnostic(shape),
+    do: %{reason: :provider_error, code: nil, param: nil, shape: shape}
+
+  defp stream_diagnostic({shape, exception}) when is_atom(shape) and is_atom(exception),
+    do: empty_diagnostic("#{shape}_#{inspect(exception)}")
+
+  defp stream_diagnostic(shape) when is_atom(shape), do: empty_diagnostic(shape)
+  defp stream_diagnostic(_shape), do: empty_diagnostic(:invalid_stream)
+
+  defp log_provider_failure(phase, status, details, request_id) do
+    Logger.warning(
+      "ChatGPT plan inference failed phase=#{phase} status=#{format_status(status)} " <>
+        "shape=#{details.shape} code=#{details.code || "none"} " <>
+        "param=#{details.param || "none"} request_id=#{request_id || "none"}"
+    )
+  end
+
+  defp log_stage_error(phase, {:error, reason} = result) do
+    Logger.warning(
+      "ChatGPT plan inference failed phase=#{phase} reason=#{diagnostic_reason(reason)}"
+    )
+
+    result
+  end
+
+  defp log_stage_error(_phase, result), do: result
+
+  defp diagnostic_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp diagnostic_reason(_reason), do: "unknown"
+
+  defp format_status(status) when is_integer(status), do: Integer.to_string(status)
+  defp format_status(_status), do: "unknown"
+
+  defp safe_diagnostic_value(value) when is_binary(value) do
+    value
+    |> String.replace(~r/[^A-Za-z0-9_.\/:\-]/, "_")
+    |> String.slice(0, 128)
+  end
+
+  defp safe_diagnostic_value(_value), do: nil
+
+  defp request_id(response) do
+    headers = response_headers(response)
+
+    (header_value(headers, "x-request-id") || header_value(headers, "x-openai-request-id"))
+    |> case do
+      [value | _] -> safe_diagnostic_value(value)
+      value when is_binary(value) -> safe_diagnostic_value(value)
+      _ -> nil
+    end
+  end
+
+  defp response_headers(%{headers: headers}), do: headers
+  defp response_headers(%{"headers" => headers}), do: headers
+  defp response_headers(_response), do: nil
+
+  defp header_value(headers, name) when is_map(headers) do
+    Map.get(headers, name)
+  end
+
+  defp header_value(headers, name) when is_list(headers) do
+    Enum.find_value(headers, fn
+      {key, value} when is_binary(key) -> if String.downcase(key) == name, do: value
+      {key, value} when is_atom(key) -> if Atom.to_string(key) == name, do: value
+      _ -> nil
+    end)
+  end
+
+  defp header_value(_headers, _name), do: nil
 
   defp decode_error_body(body) when is_binary(body), do: HTTP.decode_json(body)
   defp decode_error_body(%_{} = body), do: decode_streamed_error_body(body)

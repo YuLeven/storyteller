@@ -19,6 +19,16 @@ The repository's supported toolchain is Elixir 1.18 with Erlang/OTP 25 or newer.
 
 JOSE is pinned to 1.11.10 in `mix.exs` for the current OTP 25 toolchain. JOSE 1.11.11 and 1.11.12 fail to compile here because their Erlang sources refer to the undefined `dynamic()` type. Recheck compatibility before changing or widening this pin.
 
+## Test the GM with a ChatGPT plan
+
+Connect a personal ChatGPT account from the local `/auth/connect` page. Storyteller uses the account's OAuth session to list supported models and stream GM responses through the Responses endpoint. This local integration does not use an API key or API billing; no usage reset is consumed by the application.
+
+The account's ChatGPT usage allowance is shared with other ChatGPT apps and can temporarily reject requests. When that happens, check ChatGPT Usage settings, resume requests in Storyteller if the account-wide pause is shown, then explicitly retry the saved turn. A retry continues the same durable turn and any already-recorded D20 result.
+
+Use the separate fictional **The Amber Orchard** campaign for live testing. The current QA session is `/campaigns/34/sessions/35`; do not use the Vineyard campaign as test data.
+
+Public story events retain the campaign date/time that applied when they were recorded. A player's action can show the time before the GM advances the scene; the GM response shows the resulting time. Older events created before this metadata existed have no time label rather than a misleading UTC timestamp.
+
 ## Persistent data and tests
 
 The development database is PostgreSQL, stored by the WSL cluster under `/var/lib/postgresql/16/main`. Stopping WSL or PostgreSQL stops the service but does not remove this database. Start the PostgreSQL service again before starting Storyteller.

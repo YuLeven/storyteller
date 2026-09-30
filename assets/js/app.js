@@ -22,10 +22,33 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 
+const StoryTimeline = {
+  mounted() {
+    this.followLatest = true
+    this.onScroll = () => {
+      this.followLatest = this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight < 96
+    }
+    this.el.addEventListener("scroll", this.onScroll, {passive: true})
+    this.scrollLatest()
+  },
+  updated() {
+    if (this.followLatest) this.scrollLatest()
+  },
+  destroyed() {
+    this.el.removeEventListener("scroll", this.onScroll)
+  },
+  scrollLatest() {
+    requestAnimationFrame(() => {
+      this.el.scrollTop = this.el.scrollHeight
+    })
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
-  params: {_csrf_token: csrfToken}
+  params: {_csrf_token: csrfToken},
+  hooks: {StoryTimeline}
 })
 
 // Show progress bar on live navigation and form submits

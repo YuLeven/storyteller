@@ -87,7 +87,9 @@ defmodule StorytellerWeb.SessionLiveTest do
           "character-inventory"
         ] do
       assert has_element?(view, "#session-sections a[href='##{target}']")
-      assert has_element?(view, "##{target}[tabindex='-1']")
+
+      tabindex = if target == "story-timeline", do: "0", else: "-1"
+      assert has_element?(view, "##{target}[tabindex='#{tabindex}']")
     end
 
     assert has_element?(view, "#session-sections a[href='#current-place']", "The scene")
@@ -230,7 +232,9 @@ defmodule StorytellerWeb.SessionLiveTest do
           "campaign-fields"
         ] do
       assert has_element?(view, "#session-sections a[href='##{target}']")
-      assert has_element?(view, "##{target}[tabindex='-1']")
+
+      tabindex = if target == "story-timeline", do: "0", else: "-1"
+      assert has_element?(view, "##{target}[tabindex='#{tabindex}']")
     end
   end
 
@@ -247,6 +251,19 @@ defmodule StorytellerWeb.SessionLiveTest do
         public_state: %{"date" => "Day 3, June 10", "time" => "09:15", "weather" => "Cloudy"},
         characters: [%{speaker_id: "rhea", name: "Rhea Vale"}]
       })
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          Map.merge(state.public_state, %{
+            "date" => "Day 3, June 10",
+            "time" => "09:15",
+            "weather" => "Cloudy"
+          })
+      })
+    )
 
     test_pid = self()
 
@@ -324,6 +341,32 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ "A light rain begins"
     assert html =~ "Day 3, June 10"
     refute html =~ "This stays private"
+    refute html =~ "UTC"
+
+    player_action = Repo.get_by!(Event, campaign_id: campaign.id, event_type: :player_action)
+    gm_narration = Repo.get_by!(Event, campaign_id: campaign.id, event_type: :gm_narration)
+    private_change = Repo.get_by!(Event, campaign_id: campaign.id, visibility: :gm_private)
+
+    assert player_action.game_time == %{"date" => "Day 3, June 10", "time" => "09:15"}
+    assert gm_narration.game_time == %{"date" => "Day 3, June 10", "time" => "09:20"}
+    assert private_change.game_time == nil
+    assert has_element?(view, "#event-#{player_action.sequence}", "Day 3, June 10 · 09:15")
+    assert has_element?(view, "#event-#{gm_narration.sequence}", "Day 3, June 10 · 09:20")
+
+    for {locale, label} <- [{"es", "Hora del juego"}, {"fr", "Heure du jeu"}] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, localized_view, localized_html} = live(conn, session_path(campaign, session))
+
+      assert has_element?(
+               localized_view,
+               "#event-#{gm_narration.sequence}",
+               label
+             )
+
+      refute localized_html =~ "UTC"
+    end
+
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
 
     {:ok, projection} = Play.public_projection(campaign.id)
     rhea = Enum.find(projection.characters, &(&1.speaker_id == "rhea"))
@@ -342,6 +385,20 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, reloaded_view, reloaded_html} = live(conn, session_path(campaign, session))
     assert has_element?(reloaded_view, "#world-location", "The western road")
     refute reloaded_html =~ "A stale world location"
+  end
+
+  test "campaign story is a keyboard-scrollable independent timeline", %{conn: conn} do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    {:ok, _view, html} = live(conn, session_path(campaign, session))
+
+    timeline = Floki.parse_document!(html) |> Floki.find("#story-timeline") |> hd()
+    assert Floki.attribute(timeline, "tabindex") == ["0"]
+    assert Floki.attribute(timeline, "phx-hook") == ["StoryTimeline"]
+    assert html =~ "lg:sticky"
+    assert html =~ "lg:overflow-y-auto"
   end
 
   test "legacy time aliases appear once and agree across the player board", %{conn: conn} do

@@ -24,6 +24,7 @@ defmodule Storyteller.Play.Event do
     field :visibility, Ecto.Enum, values: [:public, :gm_private], default: :public
     field :speaker_id, :string
     field :payload, :map, default: %{}
+    field :game_time, :map
 
     belongs_to :campaign, Campaign
     belongs_to :session, Session
@@ -42,7 +43,8 @@ defmodule Storyteller.Play.Event do
       :event_type,
       :visibility,
       :speaker_id,
-      :payload
+      :payload,
+      :game_time
     ])
     |> validate_required([
       :campaign_id,

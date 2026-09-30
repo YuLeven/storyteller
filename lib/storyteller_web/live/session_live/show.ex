@@ -303,12 +303,10 @@ defmodule StorytellerWeb.SessionLive.Show do
               :state_change -> state_change_label(@event, @characters_by_id)
             end}
           </h3>
-          <time class="text-[11px] text-stone-400">
-            {gettext("%{date} at %{time} UTC",
-              date: Calendar.strftime(@event.inserted_at, "%Y-%m-%d"),
-              time: Calendar.strftime(@event.inserted_at, "%H:%M")
-            )}
-          </time>
+          <p :if={game_time_label(@event.game_time)} class="text-[11px] text-stone-400">
+            <span class="sr-only">{gettext("Game time")}: </span>
+            {game_time_label(@event.game_time)}
+          </p>
         </div>
 
         <p
@@ -1119,4 +1117,16 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp reconnect_needed?(code),
     do: code in ["reauth_required", "account_ineligible", "model_unavailable"]
+
+  defp game_time_label(game_time) when is_map(game_time) do
+    [Map.get(game_time, "date"), Map.get(game_time, "time")]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.map(&display_value/1)
+    |> case do
+      [] -> nil
+      values -> Enum.join(values, " · ")
+    end
+  end
+
+  defp game_time_label(_game_time), do: nil
 end

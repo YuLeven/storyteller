@@ -1,5 +1,6 @@
 defmodule Storyteller.GM.OpenAITest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
 
   alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.GM.OpenAI
@@ -103,6 +104,27 @@ defmodule Storyteller.GM.OpenAITest do
              )
   end
 
+  test "uses streamed output text when the terminal response omits its output array", context do
+    stream =
+      "event: response.output_text.delta\ndata: " <>
+        Jason.encode!(%{"type" => "response.output_text.delta", "delta" => "The answer"}) <>
+        "\n\nevent: response.completed\ndata: " <>
+        Jason.encode!(%{
+          "type" => "response.completed",
+          "response" => %{"status" => "completed", "output" => []}
+        }) <>
+        "\n\n"
+
+    http = provider_http(self(), stream)
+
+    assert {:ok, %{text: "The answer"}} =
+             OpenAI.stream_response(
+               %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+               store: context.store,
+               http: http
+             )
+  end
+
   test "maps account plan sharing errors from response.failed", context do
     failure =
       "event: response.failed\ndata: " <>
@@ -149,6 +171,98 @@ defmodule Storyteller.GM.OpenAITest do
       assert_receive {:models_request, _}
       assert_receive {:responses_request, _}
     end)
+  end
+
+  test "logs safe HTTP diagnostics without logging campaign input", context do
+    request_id = "req_fixture_123"
+
+    http = fn method, url, _options ->
+      cond do
+        method == :get and url == "https://api.openai.com/v1/models" ->
+          %{status: 200, body: Jason.encode!(model_catalog())}
+
+        method == :post and url == "https://api.openai.com/v1/responses" ->
+          %{
+            status: 429,
+            headers: %{"x-request-id" => [request_id]},
+            body:
+              Jason.encode!(%{
+                "error" => %{
+                  "code" => "subscription_sharing_usage_limit_exceeded",
+                  "param" => "model"
+                }
+              })
+          }
+
+        true ->
+          {:error, :unexpected_request}
+      end
+    end
+
+    log =
+      capture_log(fn ->
+        assert {:error, :usage_limit} =
+                 OpenAI.stream_response(
+                   %{
+                     instructions: "Private campaign context that must not be logged.",
+                     input: [%{role: "user", content: "Private player action."}]
+                   },
+                   store: context.store,
+                   http: http
+                 )
+      end)
+
+    assert log =~ "phase=responses status=429 shape=error"
+    assert log =~ "code=subscription_sharing_usage_limit_exceeded param=model"
+    assert log =~ "request_id=req_fixture_123"
+    refute log =~ "Private campaign context"
+    refute log =~ "Private player action"
+    refute log =~ "fixture-access-token"
+  end
+
+  test "logs safe response-stream error details", context do
+    request_id = "req_stream_456"
+
+    failure =
+      "event: response.failed\ndata: " <>
+        Jason.encode!(%{
+          "type" => "response.failed",
+          "response" => %{
+            "error" => %{"code" => "subscription_sharing_usage_limit_exceeded"}
+          }
+        }) <>
+        "\n\n"
+
+    test_pid = self()
+
+    http = fn method, url, options ->
+      cond do
+        method == :get and url == "https://api.openai.com/v1/models" ->
+          %{status: 200, body: Jason.encode!(model_catalog())}
+
+        method == :post and url == "https://api.openai.com/v1/responses" ->
+          send(test_pid, {:responses_request, options})
+          %{status: 200, headers: %{"x-request-id" => [request_id]}, body: split_stream(failure)}
+
+        true ->
+          {:error, :unexpected_request}
+      end
+    end
+
+    log =
+      capture_log(fn ->
+        assert {:error, :usage_limit} =
+                 OpenAI.stream_response(
+                   %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+                   store: context.store,
+                   http: http
+                 )
+      end)
+
+    assert_receive {:responses_request, _options}
+    assert log =~ "phase=response_stream status=200 shape=stream_error"
+    assert log =~ "code=subscription_sharing_usage_limit_exceeded"
+    assert log =~ "request_id=req_stream_456"
   end
 
   test "keeps generic 403 errors distinct from an ineligible account", context do

@@ -9,6 +9,31 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Play
   alias Storyteller.Play.{Character, Event, Objective, Roll, State, Turn}
 
+  test "loads a module provider before checking its callback" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    provider = Storyteller.PlayTest.LazyModuleProvider
+
+    on_exit(fn -> :persistent_term.erase({provider, :called}) end)
+
+    :code.purge(provider)
+    :code.delete(provider)
+    refute function_exported?(provider, :stream_response, 1)
+
+    turn =
+      Play.submit_turn(
+        campaign.id,
+        session.id,
+        "lazy-module-provider",
+        "I listen to the night wind.",
+        provider: provider
+      )
+
+    assert :persistent_term.get({provider, :called}, false)
+    assert {:ok, %{status: :completed}} = turn
+
+    assert function_exported?(provider, :stream_response, 1)
+  end
+
   test "legacy world time aliases collapse consistently in the next GM context and persisted state" do
     {campaign, session} = play_campaign("The Glass Observatory")
 

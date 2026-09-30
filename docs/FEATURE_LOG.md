@@ -1,10 +1,24 @@
 # Feature log
 
+## 2026-09-30 — Keep story reading in place and show the game clock
+
+- Made the story panel its own keyboard-scrollable region with a bounded height and contained overscroll. It opens at the newest post, follows new messages only while the player is already at the bottom, and preserves an upward reading position while earlier history is loaded. The scenario rail stays sticky and scrollable on wide screens.
+- Story events now store a public in-world date/time snapshot. A player's action uses the clock before resolution; the GM narration and its response use the resulting clock. Hidden events receive no public clock snapshot. Message labels now show the campaign date and time without a real-world UTC suffix.
+- Older events did not store an in-world clock, so their misleading UTC labels are removed and no fictional times are inferred. Migration `20260930000800_add_game_time_to_play_events` adds nullable event metadata for new turns.
+- **Checked:** the date/time LiveView scenario verifies a player action at 09:15 and a GM reply at 09:20, private-event exclusion, and Spanish/French labels. Browser review confirmed PageUp scrolled the story panel while the page and sticky scenario rail stayed in place. Full suite: **180 tests, 0 failures**; formatting, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass in WSL.
+
+## 2026-09-30 — Resolve the local GPT gameplay blocker
+
+- Fixed two causes that prevented the locally connected ChatGPT plan from resolving a game turn: Responses streaming emits `response.output_text.delta` before its terminal event, which the adapter was not collecting; and a fresh Phoenix process checked the provider callback before loading its module. The adapter now accumulates bounded streamed text, and gameplay loads the provider before checking its callback.
+- Provider diagnostics now record the failing stage, safe error code/parameter, HTTP status, and request ID while omitting player actions, campaign context, and credentials.
+- **Live check:** after the ChatGPT-plan connection returned an available model catalog, a Responses stream returned text and the saved Amber Orchard QA action completed through the local game flow. The LiveView showed GM narration and Inés's dialogue; the canonical inventory and world facts remained intact. This used the separate fictional QA campaign at `/campaigns/34/sessions/35`; the Vineyard campaign was not opened or changed. No API key, API billing, or optional usage reset was used.
+- **Checked:** focused Play and OpenAI provider suites pass (**51 tests, 0 failures**). Full-suite and release checks are recorded in the checkpoint after completion.
+
 ## 2026-09-30 — Complete ChatGPT connection and check live inference
 
 - The local Connect page now reports ChatGPT plan usage connected after the account owner completed OAuth consent. An authenticated `/v1/models` request returned five models for the selected account.
-- A minimal live `/v1/responses` smoke request was blocked with the recognized usage-limit error. It returned no model output, and no live GM turn has completed yet. Plus usage is shared with other ChatGPT apps; no reset time is inferred. Check ChatGPT Usage settings before retrying.
-- The separate Amber Orchard QA session still holds its saved, unresolved test action. This does not involve the Vineyard campaign. Retry it after usage is available and verify one complete response before calling live gameplay ready.
+- The first minimal `/v1/responses` smoke attempt was blocked with the recognized usage-limit error. A later smoke request and complete QA turn are verified in the entry above. Plus usage is shared with other ChatGPT apps; no reset time is inferred. Check ChatGPT Usage settings if another usage limit occurs.
+- At this earlier checkpoint, the separate Amber Orchard QA session still held its saved, unresolved test action. It was later resolved without involving the Vineyard campaign.
 
 ## 2026-09-30 — Restore the ChatGPT connection redirect
 

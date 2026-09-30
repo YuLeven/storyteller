@@ -9,6 +9,7 @@ defmodule Storyteller.Play do
   """
 
   import Ecto.Query, warn: false
+  require Logger
 
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
@@ -402,6 +403,7 @@ defmodule Storyteller.Play do
           event_type: event.event_type,
           speaker_id: event.speaker_id,
           payload: event.payload,
+          game_time: event.game_time,
           inserted_at: event.inserted_at
         }
       end)
@@ -585,10 +587,15 @@ defmodule Storyteller.Play do
         fail_turn(turn.id, attempt_token, normalized)
     end
   rescue
-    _error ->
+    error ->
+      Logger.warning(
+        "ChatGPT plan inference failed phase=turn_resolution exception=#{inspect(error.__struct__)}"
+      )
+
       fail_turn(turn.id, attempt_token, :provider_error)
   catch
-    _kind, _reason ->
+    kind, _reason ->
+      Logger.warning("ChatGPT plan inference failed phase=turn_resolution_throw kind=#{kind}")
       fail_turn(turn.id, attempt_token, :provider_error)
   end
 
@@ -879,18 +886,34 @@ defmodule Storyteller.Play do
   end
 
   defp append_proposal_events(state, turn, proposal, include_action?) do
+    canonical_public_state = canonical_public_world(state.public_state, turn.campaign_id)
+
+    resolution_public_state =
+      canonical_public_state
+      |> deep_merge(proposal.public_changes)
+      |> canonical_public_world()
+
+    action_state = %{state | public_state: canonical_public_state}
+    resolution_state = %{state | public_state: resolution_public_state}
     sequence = state.event_sequence
 
     sequence =
       if include_action? do
-        append_event!(state, turn, :player_action, :public, "player", %{text: turn.player_input})
+        append_event!(
+          action_state,
+          turn,
+          :player_action,
+          :public,
+          "player",
+          %{text: turn.player_input}
+        )
       else
         sequence
       end
 
     sequence =
       append_event!(
-        %{state | event_sequence: sequence},
+        %{resolution_state | event_sequence: sequence},
         turn,
         :gm_narration,
         :public,
@@ -899,12 +922,17 @@ defmodule Storyteller.Play do
       )
 
     sequence =
-      append_character_creation_events(state, turn, proposal.character_creations, sequence)
+      append_character_creation_events(
+        resolution_state,
+        turn,
+        proposal.character_creations,
+        sequence
+      )
 
     sequence =
       Enum.reduce(proposal.dialogue, sequence, fn line, current ->
         append_event!(
-          %{state | event_sequence: current},
+          %{resolution_state | event_sequence: current},
           turn,
           :npc_dialogue,
           :public,
@@ -918,7 +946,7 @@ defmodule Storyteller.Play do
         set_visible_activity!(turn.campaign_id, activity.speaker_id, activity.text)
 
         append_event!(
-          %{state | event_sequence: current},
+          %{resolution_state | event_sequence: current},
           turn,
           :character_activity,
           :public,
@@ -927,12 +955,12 @@ defmodule Storyteller.Play do
         )
       end)
 
-    sequence = append_state_change_events!(state, turn, proposal, sequence)
+    sequence = append_state_change_events!(resolution_state, turn, proposal, sequence)
 
     sequence =
       if proposal.roll_request do
         append_event!(
-          %{state | event_sequence: sequence},
+          %{resolution_state | event_sequence: sequence},
           turn,
           :roll_request,
           :public,
@@ -1234,7 +1262,7 @@ defmodule Storyteller.Play do
     append_event!(state, turn, type, visibility, speaker_id, payload, sequence)
   end
 
-  defp append_event!(_state, turn, type, visibility, speaker_id, payload, sequence) do
+  defp append_event!(state, turn, type, visibility, speaker_id, payload, sequence) do
     attrs = %{
       campaign_id: turn.campaign_id,
       session_id: turn.session_id,
@@ -1243,7 +1271,8 @@ defmodule Storyteller.Play do
       event_type: type,
       visibility: visibility,
       speaker_id: speaker_id,
-      payload: payload
+      payload: payload,
+      game_time: if(visibility == :public, do: public_game_time(state.public_state))
     }
 
     case Repo.insert(Event.changeset(%Event{}, attrs)) do
@@ -1263,7 +1292,14 @@ defmodule Storyteller.Play do
       event_type: type,
       visibility: visibility,
       speaker_id: speaker_id,
-      payload: payload
+      payload: payload,
+      game_time:
+        if(visibility == :public,
+          do:
+            state.public_state
+            |> canonical_public_world(turn.campaign_id)
+            |> public_game_time()
+        )
     }
 
     case Repo.insert(Event.changeset(%Event{}, attrs)) do
@@ -1278,6 +1314,18 @@ defmodule Storyteller.Play do
         {:error, changeset}
     end
   end
+
+  defp public_game_time(public_state) when is_map(public_state) do
+    game_time =
+      public_state
+      |> Map.take(["date", "time"])
+      |> Enum.reject(fn {_field, value} -> is_nil(value) or value == "" end)
+      |> Map.new()
+
+    if map_size(game_time) == 0, do: nil, else: game_time
+  end
+
+  defp public_game_time(_public_state), do: nil
 
   defp apply_character_creations!(_campaign_id, []), do: :ok
 
@@ -2399,7 +2447,7 @@ defmodule Storyteller.Play do
   end
 
   defp call_provider(provider, request) when is_atom(provider) do
-    if function_exported?(provider, :stream_response, 1) do
+    if Code.ensure_loaded?(provider) and function_exported?(provider, :stream_response, 1) do
       normalize_provider_return(provider.stream_response(request))
     else
       {:error, :provider_error}

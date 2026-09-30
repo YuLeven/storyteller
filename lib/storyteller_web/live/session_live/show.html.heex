@@ -315,10 +315,11 @@
           </div>
           <div
             id="story-timeline"
-            tabindex="-1"
+            tabindex="0"
+            phx-hook="StoryTimeline"
             role="region"
             aria-label={gettext("Campaign story")}
-            class="scroll-mt-20"
+            class="scroll-mt-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400"
           >
             <button
               :if={@timeline_has_earlier?}
@@ -445,7 +446,7 @@
         </section>
       </main>
 
-      <aside class="space-y-5">
+      <aside class="space-y-5 self-start lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:overscroll-y-contain">
         <section
           :if={@projection.panels != []}
           id="campaign-fields"

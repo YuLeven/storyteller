@@ -306,6 +306,10 @@
 }
 .play-page #story-timeline {
   min-height: 12rem;
+  max-height: min(58vh, 32rem);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   border-top: 1px solid #5a4a32;
   background:
     radial-gradient(ellipse at 53% 0, rgb(177 137 72 / 6%), transparent 65%),
@@ -359,6 +363,12 @@
   border-top: 0.45rem solid transparent;
   border-bottom: 0.45rem solid transparent;
   border-left: 0.6rem solid #3a2f20;
+}
+
+@media (min-width: 640px) {
+  .play-page #story-timeline {
+    max-height: min(70vh, 46rem);
+  }
 }
 
 /* A lone campaign gets a deliberate, centered home on the wide library page. */
