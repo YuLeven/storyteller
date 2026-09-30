@@ -17,6 +17,14 @@
     <h2 class="text-lg font-semibold text-stone-900">{gettext("Connection status")}</h2>
     <%= if @status.connected? do %>
       <p class="mt-3 text-emerald-800">{gettext("ChatGPT plan usage is connected.")}</p>
+      <p
+        :if={@status.plan_usage_paused?}
+        class="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950"
+      >
+        {gettext(
+          "Plan requests are paused across all sessions. Check Usage settings, then resume from a session when you believe requests are available."
+        )}
+      </p>
       <%= if @status.account_email do %>
         <p class="mt-1 text-sm text-stone-600">
           {gettext("Account:")} <span class="font-medium">{@status.account_email}</span>
@@ -54,6 +62,11 @@
           {gettext("Continue with ChatGPT")}
         </button>
       </.form>
+      <p class="mt-3 max-w-xl text-sm leading-6 text-stone-600">
+        {gettext(
+          "After reviewing access in ChatGPT, you’ll return here. If the preview accepts this app and account, start testing in Amber Orchard."
+        )}
+      </p>
     <% end %>
   </section>
 
@@ -67,7 +80,7 @@
     </p>
     <p class="mt-2">
       {gettext(
-        "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. If a limit blocks a turn, Storyteller preserves it so you can retry after the limit resets."
+        "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. When ChatGPT reports a plan usage limit, Storyteller pauses game-master requests across all sessions. Check ChatGPT Usage settings, then resume from a session when you believe requests are available and retry the saved turn."
       )}
     </p>
     <p class="mt-2">

@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-09-30 — Restore the ChatGPT connection redirect
+
+- Fixed the default HTTP path that prevented OAuth provider discovery. In Elixir `nil` is an atom, so the default adapter guard called `nil.request/1` instead of Req; nil now selects Req before the generic module clause. A network-free Req.Test regression test covers the default branch.
+- The OAuth loopback callback now follows the production listener's `PORT`, and the validator accepts configured loopback ports while preserving the fixed callback path. Authorization and code exchange continue to use the same exact URI.
+- Provider-issued dynamic client IDs are persisted in the protected local store before code exchange. A failed exchange, `invalid_grant`, or declined direct-plan scope retains the ID for a later sign-in; older credential files derive their registration from existing credentials.
+- **Checked:** Focused Connect-controller, HTTP, OAuth, and TokenStore suites pass (**27 tests, 0 failures**). A real metadata lookup and CSRF-protected POST to the local Connect form returned a 302 to `auth.openai.com` with the expected authorization fields. Tests cover the translated handoff guidance, retry after exchange failure, `invalid_grant`, and declined scope, restart persistence, legacy credentials, and active-account binding. The provider consent page was not opened; no account consent, token exchange, or live inference was performed.
+
+## 2026-09-30 — Pause plan requests account-wide after a usage limit
+
+- Only the recognized provider usage-limit error latches a pause in the protected TokenStore file. It persists across app restarts and blocks new GM requests across campaigns and sessions; generic provider errors do not latch it. A clear or account disconnect removes the pause, and existing credentials remain compatible with the new optional state field.
+- The pause banner links to ChatGPT Usage settings and offers an explicit “Resume requests” action. Resume only clears the pause; it does not call the provider. A saved failed turn remains available for a separate manual retry, including its accepted D20 result. A limited retry latches the pause again. No API-key or API-credit fallback was added, and the UI does not assume a reset time.
+- **Checked:** Focused TokenStore and SessionLive suites: **29 tests, 0 failures**; WSL warnings-as-errors compile and gettext extraction freshness check pass. Fake-provider tests cover a generic failure, cross-session blocking, resume without a provider request, re-latching, file restart, legacy-file compatibility, and after-roll recovery. All test database behavior uses `storyteller_test`.
+
 ## 2026-09-30 — Announce turn status without rereading panels
 
 - Added one always-mounted polite, atomic status region for turn progress, roll requests, recorded after-roll results, recoverable failures/retries, and completion transitions. Conditional status panels no longer each define their own live region; the story timeline keeps its additions-only announcement behavior. A completed turn is announced only when this LiveView connection observes the turn leave the open state, so reconnecting does not announce old history as new.

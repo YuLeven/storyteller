@@ -59,6 +59,107 @@ defmodule Storyteller.Auth.TokenStoreTest do
              TokenStore.start_link(path: context.path, name: context.name)
   end
 
+  test "the plan usage pause persists across a store restart and can be explicitly resumed",
+       context do
+    server = start_store(context)
+    refute TokenStore.plan_usage_paused?(server)
+
+    assert :ok = TokenStore.pause_plan_usage(server)
+    assert TokenStore.plan_usage_paused?(server)
+    assert Jason.decode!(File.read!(context.path))["plan_usage_paused"]
+
+    assert :ok = stop_supervised(context.name)
+    restarted = start_store(context)
+    assert TokenStore.plan_usage_paused?(restarted)
+
+    assert :ok = TokenStore.resume_plan_usage(restarted)
+    refute TokenStore.plan_usage_paused?(restarted)
+    assert :ok = stop_supervised(context.name)
+
+    resumed = start_store(context)
+    refute TokenStore.plan_usage_paused?(resumed)
+  end
+
+  test "a credential file without the pause field remains compatible", context do
+    _server = start_store(context)
+    assert :ok = stop_supervised(context.name)
+
+    legacy_data =
+      context.path
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.delete("plan_usage_paused")
+
+    assert :ok = File.write(context.path, Jason.encode!(legacy_data))
+
+    restarted = start_store(context)
+    refute TokenStore.plan_usage_paused?(restarted)
+  end
+
+  test "an issued client ID without credentials survives a store restart", context do
+    server = start_store(context)
+    issued_client_id = "fixture-issued-client"
+
+    assert :ok = TokenStore.remember_client_id(issued_client_id, server)
+    assert TokenStore.credentials(server) == nil
+
+    assert TokenStore.registration(server) == %{
+             client_id: issued_client_id,
+             subject: nil,
+             email: nil,
+             host_id: TokenStore.host_id(server)
+           }
+
+    persisted = Jason.decode!(File.read!(context.path))
+
+    assert persisted["registration"] == %{
+             "client_id" => issued_client_id,
+             "subject" => nil,
+             "email" => nil
+           }
+
+    assert :ok = stop_supervised(context.name)
+    restarted = start_store(context)
+
+    assert TokenStore.registration(restarted).client_id == issued_client_id
+    assert TokenStore.credentials(restarted) == nil
+  end
+
+  test "a legacy credential file without registration derives it from credentials", context do
+    server = start_store(context)
+    credentials = credentials_for(server)
+    assert :ok = TokenStore.put_credentials(credentials, server)
+    assert :ok = stop_supervised(context.name)
+
+    legacy_data =
+      context.path
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.delete("registration")
+
+    assert :ok = File.write(context.path, Jason.encode!(legacy_data))
+    restarted = start_store(context)
+
+    assert TokenStore.registration(restarted) == %{
+             client_id: credentials.client_id,
+             subject: credentials.subject,
+             email: credentials.email,
+             host_id: credentials.host_id
+           }
+  end
+
+  test "remembering a different client ID cannot replace an active account", context do
+    server = start_store(context)
+    credentials = credentials_for(server)
+    assert :ok = TokenStore.put_credentials(credentials, server)
+
+    assert {:error, :client_id_mismatch} =
+             TokenStore.remember_client_id("another-client", server)
+
+    assert TokenStore.credentials(server) == credentials
+    assert TokenStore.registration(server).client_id == credentials.client_id
+  end
+
   test "a rotated refresh token survives a store restart without exposing credential inspection",
        context do
     server = start_store(context)
@@ -104,6 +205,7 @@ defmodule Storyteller.Auth.TokenStoreTest do
     server = start_store(context)
     credentials = credentials_for(server)
     assert :ok = TokenStore.put_credentials(credentials, server)
+    assert :ok = TokenStore.pause_plan_usage(server)
 
     assert {:error, :revocation_unconfirmed} =
              TokenStore.sign_out(fn _credentials -> {:error, :offline} end, server)
@@ -114,6 +216,7 @@ defmodule Storyteller.Auth.TokenStoreTest do
     assert signed_out.refresh_token == nil
     assert signed_out.expires_at == nil
     assert signed_out.scopes == []
+    refute TokenStore.plan_usage_paused?(server)
 
     assert %{
              client_id: "fixture-issued-client",
@@ -126,6 +229,7 @@ defmodule Storyteller.Auth.TokenStoreTest do
 
     restarted = start_store(context)
     assert TokenStore.registration(restarted).client_id == "fixture-issued-client"
+    refute TokenStore.plan_usage_paused?(restarted)
 
     persisted_json = File.read!(context.path)
     refute persisted_json =~ "fixture-id-token"

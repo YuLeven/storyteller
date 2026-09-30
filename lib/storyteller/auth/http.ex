@@ -14,8 +14,8 @@ defmodule Storyteller.Auth.HTTP do
 
     case http do
       fun when is_function(fun, 3) -> safely_call(fun, method, url, options)
-      module when is_atom(module) -> safely_call_module(module, method, url, options)
       nil -> req_request(options)
+      module when is_atom(module) -> safely_call_module(module, method, url, options)
       _ -> {:error, :invalid_http_adapter}
     end
   end

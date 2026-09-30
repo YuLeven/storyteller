@@ -86,6 +86,86 @@ defmodule Storyteller.Auth.OAuthTest do
     assert {:error, :invalid_callback_uri} = OAuth.start_authorization(opts)
   end
 
+  test "authorization accepts the configured loopback port and preserves the exact URI",
+       context do
+    opts = [
+      store: context.store,
+      oidc: FakeOIDC,
+      callback_uri: "http://127.0.0.1:4312/auth/callback"
+    ]
+
+    assert {:ok, authorization_url} = OAuth.start_authorization(opts)
+    assert query_params(authorization_url)["redirect_uri"] == opts[:callback_uri]
+  end
+
+  test "a newly issued client ID survives exchange failure and is reused on retry", context do
+    issued_client_id = "fixture-issued-client"
+
+    failing_http = fn :post, url, _options ->
+      if url == FakeOIDC.token_endpoint(),
+        do: {:error, :timeout},
+        else: {:error, :unexpected_request}
+    end
+
+    opts = [store: context.store, http: failing_http, oidc: FakeOIDC]
+    assert {:ok, authorization_url} = OAuth.start_authorization(opts)
+    query = query_params(authorization_url)
+
+    assert {:error, :identity_provider_unavailable} =
+             OAuth.callback(
+               %{
+                 "state" => query["state"],
+                 "code" => "fixture-authorization-code",
+                 "client_id" => issued_client_id
+               },
+               opts
+             )
+
+    assert TokenStore.credentials(context.store) == nil
+
+    assert TokenStore.registration(context.store) == %{
+             client_id: issued_client_id,
+             subject: nil,
+             email: nil,
+             host_id: TokenStore.host_id(context.store)
+           }
+
+    assert {:ok, retry_url} = OAuth.start_authorization(opts)
+    retry_query = query_params(retry_url)
+    assert retry_query["client_id"] == issued_client_id
+    refute Map.has_key?(retry_query, "agent_name_hint")
+  end
+
+  test "a newly issued client ID survives invalid_grant and is reused on retry", context do
+    issued_client_id = "fixture-issued-client"
+
+    invalid_grant_http = fn :post, url, _options ->
+      if url == FakeOIDC.token_endpoint(),
+        do: %{status: 400, body: Jason.encode!(%{"error" => "invalid_grant"})},
+        else: {:error, :unexpected_request}
+    end
+
+    opts = [store: context.store, http: invalid_grant_http, oidc: FakeOIDC]
+    assert {:ok, authorization_url} = OAuth.start_authorization(opts)
+    query = query_params(authorization_url)
+
+    assert {:error, :authorization_failed} =
+             OAuth.callback(
+               %{
+                 "state" => query["state"],
+                 "code" => "fixture-authorization-code",
+                 "client_id" => issued_client_id
+               },
+               opts
+             )
+
+    assert TokenStore.credentials(context.store) == nil
+    assert TokenStore.registration(context.store).client_id == issued_client_id
+
+    assert {:ok, retry_url} = OAuth.start_authorization(opts)
+    assert query_params(retry_url)["client_id"] == issued_client_id
+  end
+
   test "a failed reauthorization for another account leaves the active account intact", context do
     original =
       credentials_for(context.store, subject: "active-subject", email: "active@example.invalid")
@@ -157,6 +237,31 @@ defmodule Storyteller.Auth.OAuthTest do
              )
 
     assert TokenStore.credentials(context.store) == original
+  end
+
+  test "a first registration keeps its issued client ID when plan usage was declined", context do
+    issued_client_id = "fixture-issued-client"
+    response = Map.put(token_response(), "scopes", ["openid", "profile", "offline_access"])
+    opts = [store: context.store, http: token_http(self(), response), oidc: FakeOIDC]
+
+    assert {:ok, authorization_url} = OAuth.start_authorization(opts)
+    query = query_params(authorization_url)
+
+    assert {:error, :account_ineligible} =
+             OAuth.callback(
+               %{
+                 "state" => query["state"],
+                 "code" => "fixture-authorization-code",
+                 "client_id" => issued_client_id
+               },
+               opts
+             )
+
+    assert TokenStore.credentials(context.store) == nil
+    assert TokenStore.registration(context.store).client_id == issued_client_id
+
+    assert {:ok, retry_url} = OAuth.start_authorization(opts)
+    assert query_params(retry_url)["client_id"] == issued_client_id
   end
 
   test "refresh rotates both tokens and a transient refresh failure preserves the active account",

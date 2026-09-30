@@ -49,8 +49,9 @@ defmodule Storyteller.Auth.OAuth do
     with state when is_binary(state) and state != "" <- params["state"],
          {:ok, attempt} <- TokenStore.consume_attempt(state, store),
          :ok <- callback_error(params),
-         code when is_binary(code) and code != "" <- params["code"],
          {:ok, client_id} <- callback_client_id(params, attempt),
+         :ok <- TokenStore.remember_client_id(client_id, store),
+         code when is_binary(code) and code != "" <- params["code"],
          {:ok, token_response} <-
            exchange_code(metadata(oidc, http), code, client_id, attempt, http),
          {:ok, credentials} <-
@@ -81,12 +82,19 @@ defmodule Storyteller.Auth.OAuth do
     %{
       connected?: connected?,
       plan_usage_enabled?: connected?,
+      plan_usage_paused?: TokenStore.plan_usage_paused?(store(opts)),
       account_email: (credentials && credentials.email) || (registration && registration.email),
       registered?: not is_nil(registration)
     }
   rescue
     _ ->
-      %{connected?: false, plan_usage_enabled?: false, account_email: nil, registered?: false}
+      %{
+        connected?: false,
+        plan_usage_enabled?: false,
+        plan_usage_paused?: true,
+        account_email: nil,
+        registered?: false
+      }
   end
 
   @doc "Returns an access token, refreshing and persisting its rotation serially."
@@ -449,12 +457,13 @@ defmodule Storyteller.Auth.OAuth do
       %URI{
         scheme: "http",
         host: "127.0.0.1",
-        port: 4000,
+        port: port,
         path: "/auth/callback",
         userinfo: nil,
         query: nil,
         fragment: nil
-      } ->
+      }
+      when is_integer(port) and port in 1..65_535 ->
         :ok
 
       _ ->

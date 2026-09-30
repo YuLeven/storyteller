@@ -26,6 +26,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             page_title: session.title,
             session: session,
             plan_usage_enabled?: OAuth.status().plan_usage_enabled?,
+            plan_usage_paused?: Play.plan_usage_paused?(token_store: plan_usage_store()),
             draft: "",
             input_error?: false,
             submission_key: Ecto.UUID.generate(),
@@ -85,6 +86,28 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   def handle_event("use-in-action", _params, socket), do: {:noreply, socket}
 
+  def handle_event("resume-plan-usage", _params, socket) do
+    case Play.resume_plan_usage(token_store: plan_usage_store()) do
+      :ok ->
+        {:noreply,
+         socket
+         |> refresh_game()
+         |> put_flash(
+           :info,
+           gettext("Plan requests are resumed. Retry a saved turn when you are ready.")
+         )}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> refresh_game()
+         |> put_flash(
+           :error,
+           gettext("The account-wide pause could not be cleared. Please try again.")
+         )}
+    end
+  end
+
   @impl true
   def handle_event("load-earlier-story", _params, socket) do
     case List.first(socket.assigns.timeline) do
@@ -120,6 +143,17 @@ defmodule StorytellerWeb.SessionLive.Show do
     latest = Play.public_current_turn(socket.assigns.session.campaign_id)
 
     cond do
+      Play.plan_usage_paused?(token_store: plan_usage_store()) ->
+        {:noreply,
+         socket
+         |> refresh_game()
+         |> put_flash(
+           :error,
+           gettext(
+             "ChatGPT plan requests are paused. Check Usage and resume before starting a turn."
+           )
+         )}
+
       not playable?(socket.assigns.session) ->
         {:noreply,
          put_flash(socket, :error, gettext("This session is available for review only."))}
@@ -139,19 +173,32 @@ defmodule StorytellerWeb.SessionLive.Show do
   def handle_event("retry-turn", %{"turn_id" => turn_id}, socket) do
     latest = Play.public_current_turn(socket.assigns.session.campaign_id)
 
-    if same_turn?(latest, turn_id) and latest.status == :failed and
-         latest.session_id == socket.assigns.session.id and retryable?(latest) do
-      socket =
-        socket
-        |> start_resolution(latest.id)
-        |> maybe_schedule_poll()
+    cond do
+      Play.plan_usage_paused?(token_store: plan_usage_store()) ->
+        {:noreply,
+         socket
+         |> refresh_game()
+         |> put_flash(
+           :error,
+           gettext(
+             "ChatGPT plan requests are paused. Check Usage and resume before retrying this turn."
+           )
+         )}
 
-      {:noreply, socket}
-    else
-      {:noreply,
-       socket
-       |> refresh_game()
-       |> put_flash(:error, gettext("That turn cannot be retried from this session."))}
+      same_turn?(latest, turn_id) and latest.status == :failed and
+        latest.session_id == socket.assigns.session.id and retryable?(latest) ->
+        socket =
+          socket
+          |> start_resolution(latest.id)
+          |> maybe_schedule_poll()
+
+        {:noreply, socket}
+
+      true ->
+        {:noreply,
+         socket
+         |> refresh_game()
+         |> put_flash(:error, gettext("That turn cannot be retried from this session."))}
     end
   end
 
@@ -165,7 +212,11 @@ defmodule StorytellerWeb.SessionLive.Show do
       roll_source =
         Application.get_env(:storyteller, :d20_roll_source, fn -> :rand.uniform(20) end)
 
-      case Play.click_player_d20(latest.id, roll_source: roll_source) do
+      case Play.click_player_d20(
+             latest.id,
+             roll_source: roll_source,
+             token_store: plan_usage_store()
+           ) do
         {:ok, _result} ->
           socket = refresh_game(socket)
           socket = maybe_start_resolution(socket, socket.assigns.current_turn)
@@ -358,7 +409,8 @@ defmodule StorytellerWeb.SessionLive.Show do
            socket.assigns.session.campaign_id,
            socket.assigns.session.id,
            key,
-           input
+           input,
+           token_store: plan_usage_store()
          ) do
       {:ok, _turn} ->
         socket =
@@ -371,6 +423,28 @@ defmodule StorytellerWeb.SessionLive.Show do
 
       {:error, :invalid_player_input} ->
         {:noreply, assign(socket, draft: input, input_error?: true)}
+
+      {:error, :plan_usage_paused} ->
+        {:noreply,
+         socket
+         |> assign(draft: input)
+         |> refresh_game()
+         |> put_flash(
+           :error,
+           gettext(
+             "ChatGPT plan requests are paused. Check Usage and resume before starting a turn."
+           )
+         )}
+
+      {:error, :plan_usage_state_unavailable} ->
+        {:noreply,
+         socket
+         |> assign(draft: input)
+         |> refresh_game()
+         |> put_flash(
+           :error,
+           gettext("The ChatGPT plan pause could not be checked. Please try again.")
+         )}
 
       {:error, :turn_already_open} ->
         {:noreply,
@@ -419,6 +493,7 @@ defmodule StorytellerWeb.SessionLive.Show do
           characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
           timeline: timeline,
           current_situation: latest_public_narration(timeline),
+          plan_usage_paused?: Play.plan_usage_paused?(token_store: plan_usage_store()),
           timeline_has_earlier?: timeline_has_earlier?,
           current_turn: current_turn,
           current_turn_roll: current_turn_roll,
@@ -526,7 +601,8 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp maybe_start_resolution(socket, turn) do
-    if not is_nil(turn) and turn.session_id == socket.assigns.session.id and
+    if not socket.assigns.plan_usage_paused? and not is_nil(turn) and
+         turn.session_id == socket.assigns.session.id and
          turn.status in @turn_in_progress and playable?(socket.assigns.session) do
       start_resolution(socket, turn.id)
     else
@@ -542,7 +618,12 @@ defmodule StorytellerWeb.SessionLive.Show do
       provider = Application.get_env(:storyteller, :gm_provider, Storyteller.GM.OpenAI)
 
       case Task.start(fn ->
-             _ = Play.retry_turn(turn_id, provider: provider)
+             _ =
+               Play.retry_turn(turn_id,
+                 provider: provider,
+                 token_store: plan_usage_store()
+               )
+
              send(owner, {:turn_resolution_finished, turn_id})
            end) do
         {:ok, _pid} ->
@@ -595,6 +676,10 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp same_turn?(_turn, _turn_id), do: false
 
   defp retryable?(turn), do: turn.failure_code not in ["session_closed", "campaign_archived"]
+
+  defp plan_usage_store do
+    Application.get_env(:storyteller, :plan_usage_token_store, Storyteller.Auth.TokenStore)
+  end
 
   defp announce_turn_status(socket, previous_turn, current_turn, current_turn_roll) do
     cond do
@@ -1017,7 +1102,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp failure_message("usage_limit"),
     do:
       gettext(
-        "The ChatGPT plan has reached its current usage limit. Wait for it to reset, then retry this saved turn."
+        "ChatGPT reported a plan usage limit, so requests are paused in every session. Check Usage settings, resume when you believe requests are available, then retry this saved turn."
       )
 
   defp failure_message("usage_unavailable"),

@@ -23,14 +23,24 @@ defmodule Storyteller.Auth.TokenStore do
     path = Keyword.fetch!(opts, :path)
 
     case read_state(path) do
-      {:ok, host_id, credentials} ->
-        {:ok, %{path: path, host_id: host_id, credentials: credentials, attempts: %{}}}
+      {:ok, host_id, credentials, registration, plan_usage_paused?} ->
+        {:ok,
+         %{
+           path: path,
+           host_id: host_id,
+           credentials: credentials,
+           registration: registration,
+           plan_usage_paused?: plan_usage_paused?,
+           attempts: %{}
+         }}
 
       :missing ->
         state = %{
           path: path,
           host_id: "urn:uuid:" <> Ecto.UUID.generate(),
           credentials: nil,
+          registration: nil,
+          plan_usage_paused?: false,
           attempts: %{}
         }
 
@@ -47,6 +57,10 @@ defmodule Storyteller.Auth.TokenStore do
   def host_id(server \\ __MODULE__), do: GenServer.call(server, :host_id)
   def credentials(server \\ __MODULE__), do: GenServer.call(server, :credentials)
   def registration(server \\ __MODULE__), do: GenServer.call(server, :registration)
+  def plan_usage_paused?(server \\ __MODULE__), do: GenServer.call(server, :plan_usage_paused?)
+
+  def pause_plan_usage(server \\ __MODULE__), do: GenServer.call(server, :pause_plan_usage)
+  def resume_plan_usage(server \\ __MODULE__), do: GenServer.call(server, :resume_plan_usage)
 
   def remember_attempt(attempt, server \\ __MODULE__) when is_map(attempt) do
     GenServer.call(server, {:remember_attempt, attempt})
@@ -60,6 +74,11 @@ defmodule Storyteller.Auth.TokenStore do
     GenServer.call(server, {:put_credentials, credentials})
   end
 
+  def remember_client_id(client_id, server \\ __MODULE__)
+      when is_binary(client_id) and client_id != "" do
+    GenServer.call(server, {:remember_client_id, client_id})
+  end
+
   def access_token(refresh_fun, server \\ __MODULE__) when is_function(refresh_fun, 1) do
     GenServer.call(server, {:access_token, refresh_fun}, 60_000)
   end
@@ -71,21 +90,70 @@ defmodule Storyteller.Auth.TokenStore do
   @impl true
   def handle_call(:host_id, _from, state), do: {:reply, state.host_id, state}
 
+  def handle_call(:plan_usage_paused?, _from, state),
+    do: {:reply, state.plan_usage_paused?, state}
+
+  def handle_call(:pause_plan_usage, _from, %{plan_usage_paused?: true} = state),
+    do: {:reply, :ok, state}
+
+  def handle_call(:pause_plan_usage, _from, state) do
+    updated = %{state | plan_usage_paused?: true}
+
+    case persist(updated) do
+      :ok -> {:reply, :ok, updated}
+      {:error, _} -> {:reply, {:error, :credential_store_unavailable}, updated}
+    end
+  end
+
+  def handle_call(:resume_plan_usage, _from, %{plan_usage_paused?: false} = state),
+    do: {:reply, :ok, state}
+
+  def handle_call(:resume_plan_usage, _from, state) do
+    updated = %{state | plan_usage_paused?: false}
+
+    case persist(updated) do
+      :ok -> {:reply, :ok, updated}
+      {:error, _} -> {:reply, {:error, :credential_store_unavailable}, state}
+    end
+  end
+
   def handle_call(:credentials, _from, state) do
     {:reply, state.credentials, expire_attempts(state)}
   end
 
   def handle_call(:registration, _from, state) do
-    registration =
-      case state.credentials do
-        %Credentials{} = credentials ->
-          Map.take(credentials, [:client_id, :subject, :email, :host_id])
+    {:reply, state.registration, expire_attempts(state)}
+  end
 
-        nil ->
-          nil
-      end
+  def handle_call({:remember_client_id, client_id}, _from, state) do
+    cond do
+      match?(%Credentials{client_id: ^client_id}, state.credentials) ->
+        {:reply, :ok, state}
 
-    {:reply, registration, expire_attempts(state)}
+      not is_nil(state.credentials) ->
+        {:reply, {:error, :client_id_mismatch}, state}
+
+      match?(%{client_id: ^client_id}, state.registration) ->
+        {:reply, :ok, state}
+
+      not is_nil(state.registration) ->
+        {:reply, {:error, :client_id_mismatch}, state}
+
+      true ->
+        registration = %{
+          client_id: client_id,
+          subject: nil,
+          email: nil,
+          host_id: state.host_id
+        }
+
+        updated = %{state | registration: registration}
+
+        case persist(updated) do
+          :ok -> {:reply, :ok, updated}
+          {:error, _} -> {:reply, {:error, :credential_store_unavailable}, state}
+        end
+    end
   end
 
   def handle_call({:remember_attempt, attempt}, _from, state) do
@@ -114,6 +182,9 @@ defmodule Storyteller.Auth.TokenStore do
         {:reply, {:error, :host_mismatch}, state}
 
       not same_registration?(state.credentials, credentials) ->
+        {:reply, {:error, :account_mismatch}, state}
+
+      not same_registration?(state.registration, credentials) ->
         {:reply, {:error, :account_mismatch}, state}
 
       true ->
@@ -149,7 +220,7 @@ defmodule Storyteller.Auth.TokenStore do
     remote_result = if credentials, do: safely_revoke(revoke_fun, credentials), else: :ok
     sanitized = if credentials, do: Credentials.clear_tokens(credentials), else: nil
 
-    state = %{state | credentials: sanitized, attempts: %{}}
+    state = %{state | credentials: sanitized, plan_usage_paused?: false, attempts: %{}}
 
     case persist(state) do
       :ok ->
@@ -208,7 +279,11 @@ defmodule Storyteller.Auth.TokenStore do
   end
 
   defp persist_credentials(credentials, state) do
-    updated = %{state | credentials: credentials}
+    updated = %{
+      state
+      | credentials: credentials,
+        registration: registration_from_credentials(credentials)
+    }
 
     case persist(updated) do
       :ok -> {:reply, :ok, updated}
@@ -257,8 +332,10 @@ defmodule Storyteller.Auth.TokenStore do
              {:ok, %{"version" => @schema_version, "host_id" => host_id} = data} <-
                Jason.decode(content),
              true <- valid_host_id?(host_id),
-             {:ok, credentials} <- read_credentials(data["credentials"], host_id) do
-          {:ok, host_id, credentials}
+             {:ok, credentials} <- read_credentials(data["credentials"], host_id),
+             {:ok, registration} <- read_registration(data, credentials, host_id),
+             {:ok, plan_usage_paused?} <- read_plan_usage_paused(data) do
+          {:ok, host_id, credentials, registration, plan_usage_paused?}
         else
           _ -> {:error, :invalid_credential_file}
         end
@@ -289,6 +366,69 @@ defmodule Storyteller.Auth.TokenStore do
 
   defp read_credentials(_, _host_id), do: {:error, :invalid_credential_record}
 
+  # Version-1 stores created before the registration field can derive it from
+  # their credential record. A pending first registration may contain only the
+  # issued client ID until identity and plan scopes have been verified.
+  defp read_registration(data, credentials, host_id) do
+    case Map.fetch(data, "registration") do
+      :error ->
+        {:ok, registration_from_credentials(credentials)}
+
+      {:ok, nil} ->
+        {:ok, registration_from_credentials(credentials)}
+
+      {:ok, registration} when is_map(registration) ->
+        with client_id when is_binary(client_id) and client_id != "" <- registration["client_id"],
+             true <- optional_binary?(registration["subject"]),
+             true <- optional_binary?(registration["email"]) do
+          parsed = %{
+            client_id: client_id,
+            subject: registration["subject"],
+            email: registration["email"],
+            host_id: host_id
+          }
+
+          if registration_matches_credentials?(parsed, credentials),
+            do: {:ok, parsed},
+            else: {:error, :invalid_registration}
+        else
+          _ -> {:error, :invalid_registration}
+        end
+
+      _ ->
+        {:error, :invalid_registration}
+    end
+  end
+
+  defp registration_from_credentials(nil), do: nil
+
+  defp registration_from_credentials(%Credentials{} = credentials) do
+    Map.take(credentials, [:client_id, :subject, :email, :host_id])
+  end
+
+  defp registration_matches_credentials?(_registration, nil), do: true
+
+  defp registration_matches_credentials?(registration, %Credentials{} = credentials) do
+    registration.client_id == credentials.client_id and
+      registration.subject == credentials.subject and
+      registration.email == credentials.email and
+      registration.host_id == credentials.host_id
+  end
+
+  defp optional_binary?(nil), do: true
+  defp optional_binary?(value), do: is_binary(value)
+
+  # Existing version-1 credential files predate the shared plan pause. Treat a
+  # missing field as false so those files remain readable without migration.
+  defp read_plan_usage_paused(%{"plan_usage_paused" => value}) when is_boolean(value),
+    do: {:ok, value}
+
+  defp read_plan_usage_paused(%{} = data) do
+    if Map.has_key?(data, "plan_usage_paused"),
+      do: {:error, :invalid_plan_usage_pause},
+      else: {:ok, false}
+  end
+
   defp persist(state) do
     directory = Path.dirname(state.path)
     temporary_path = state.path <> "." <> Ecto.UUID.generate() <> ".tmp"
@@ -296,6 +436,15 @@ defmodule Storyteller.Auth.TokenStore do
     data = %{
       "version" => @schema_version,
       "host_id" => state.host_id,
+      "plan_usage_paused" => state.plan_usage_paused?,
+      "registration" =>
+        case state.registration do
+          %{client_id: client_id, subject: subject, email: email} ->
+            %{"client_id" => client_id, "subject" => subject, "email" => email}
+
+          nil ->
+            nil
+        end,
       "credentials" =>
         case state.credentials do
           %Credentials{} = credentials -> Credentials.persisted_fields(credentials)
@@ -358,4 +507,10 @@ defmodule Storyteller.Auth.TokenStore do
   defp same_registration?(%Credentials{} = current, %Credentials{} = replacement) do
     current.client_id == replacement.client_id and current.subject == replacement.subject
   end
+
+  defp same_registration?(%{client_id: client_id, subject: subject}, %Credentials{} = replacement) do
+    client_id == replacement.client_id and (is_nil(subject) or subject == replacement.subject)
+  end
+
+  defp same_registration?(_registration, _credentials), do: false
 end

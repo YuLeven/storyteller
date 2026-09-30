@@ -11,6 +11,7 @@ defmodule Storyteller.Play do
   import Ecto.Query, warn: false
 
   alias Storyteller.Campaigns.{Campaign, Session}
+  alias Storyteller.Auth.TokenStore
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play.{Character, Event, LocationChanges, Objective, Place, Roll, State, Turn}
@@ -442,6 +443,31 @@ defmodule Storyteller.Play do
 
   def get_turn!(turn_id), do: Repo.get!(Turn, turn_id)
 
+  @doc "Returns whether the account-wide ChatGPT plan pause is active."
+  def plan_usage_paused?(opts \\ []) do
+    case plan_usage_state(opts) do
+      {:ok, paused?} -> paused?
+      {:error, _reason} -> true
+    end
+  end
+
+  @doc "Clears the plan pause after reconciling saved work; it never contacts the GM."
+  def resume_plan_usage(opts \\ []) do
+    case plan_usage_state(opts) do
+      {:ok, true} ->
+        with {:ok, _count} <- pause_outstanding_turns(),
+             :ok <- safely_resume_plan_usage(token_store(opts)) do
+          :ok
+        end
+
+      {:ok, false} ->
+        :ok
+
+      {:error, _reason} ->
+        {:error, :plan_usage_state_unavailable}
+    end
+  end
+
   @doc "Returns a turn's accepted player-click roll, if one exists."
   def get_player_roll(turn_id), do: Repo.get_by(Roll, turn_id: turn_id, kind: :player_click)
 
@@ -452,7 +478,8 @@ defmodule Storyteller.Play do
   its public timeline event.
   """
   def submit_turn(campaign_id, session_id, idempotency_key, player_input, opts \\ []) do
-    with {:ok, key, input} <- validate_submission(idempotency_key, player_input),
+    with :ok <- ensure_plan_usage_allowed(opts),
+         {:ok, key, input} <- validate_submission(idempotency_key, player_input),
          {:ok, turn, created?} <- create_or_get_turn(campaign_id, session_id, key, input) do
       if created? and provider(opts) do
         resolve_turn(turn.id, opts)
@@ -473,7 +500,8 @@ defmodule Storyteller.Play do
   def click_player_d20(turn_id, opts \\ []) do
     roll_source = Keyword.get(opts, :roll_source, fn -> :rand.uniform(20) end)
 
-    with {:ok, turn, roll} <- persist_player_roll(turn_id, roll_source) do
+    with :ok <- ensure_plan_usage_allowed(opts),
+         {:ok, turn, roll} <- persist_player_roll(turn_id, roll_source) do
       turn =
         if provider(opts) do
           case resolve_turn(turn.id, opts) do
@@ -497,27 +525,36 @@ defmodule Storyteller.Play do
   end
 
   defp resolve_turn(turn_id, opts) do
-    case claim_turn(turn_id) do
-      {:ok, {:claimed, turn, attempt_token}} ->
-        resolve_claimed_turn(turn, attempt_token, opts)
+    case ensure_plan_usage_allowed(opts) do
+      :ok ->
+        case claim_turn(turn_id) do
+          {:ok, {:claimed, turn, attempt_token}} ->
+            resolve_claimed_turn(turn, attempt_token, opts)
 
-      {:ok, {:done, turn}} ->
-        {:ok, turn}
+          {:ok, {:done, turn}} ->
+            {:ok, turn}
 
-      {:ok, {:closed, turn}} ->
-        {:ok, turn}
+          {:ok, {:closed, turn}} ->
+            {:ok, turn}
 
-      {:ok, {:in_progress, turn}} ->
-        {:ok, turn}
+          {:ok, {:in_progress, turn}} ->
+            {:ok, turn}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
 
       {:error, reason} ->
+        if reason == :plan_usage_paused, do: pause_outstanding_turns()
         {:error, reason}
     end
   end
 
   defp resolve_claimed_turn(turn, attempt_token, opts) do
     with provider when not is_nil(provider) <- provider(opts),
+         :ok <- ensure_plan_usage_allowed(opts),
          {:ok, context} <- model_context(turn.id),
+         :ok <- ensure_plan_usage_allowed(opts),
          {:ok, response} <- call_provider(provider, provider_request(context, opts)),
          {:ok, proposal} <- decode_proposal(response),
          {:ok, validated} <- validate_proposal(proposal, turn) do
@@ -538,8 +575,14 @@ defmodule Storyteller.Play do
       nil ->
         fail_turn(turn.id, attempt_token, :model_unavailable)
 
+      {:error, :plan_usage_paused} ->
+        latch_plan_usage(opts)
+        fail_turn(turn.id, attempt_token, :usage_limit)
+
       {:error, code} ->
-        fail_turn(turn.id, attempt_token, normalize_failure_code(code))
+        normalized = normalize_failure_code(code)
+        if normalized == :usage_limit, do: latch_plan_usage(opts)
+        fail_turn(turn.id, attempt_token, normalized)
     end
   rescue
     _error ->
@@ -2736,6 +2779,69 @@ defmodule Storyteller.Play do
   end
 
   defp provider(opts), do: Keyword.get(opts, :provider)
+
+  defp token_store(opts), do: Keyword.get(opts, :token_store, TokenStore)
+
+  defp ensure_plan_usage_allowed(opts) do
+    case plan_usage_state(opts) do
+      {:ok, false} -> :ok
+      {:ok, true} -> {:error, :plan_usage_paused}
+      {:error, _reason} -> {:error, :plan_usage_state_unavailable}
+    end
+  end
+
+  defp plan_usage_state(opts) do
+    {:ok, TokenStore.plan_usage_paused?(token_store(opts))}
+  rescue
+    _ -> {:error, :plan_usage_state_unavailable}
+  catch
+    _, _ -> {:error, :plan_usage_state_unavailable}
+  end
+
+  defp latch_plan_usage(opts) do
+    _ = safely_pause_plan_usage(token_store(opts))
+    _ = pause_outstanding_turns()
+    :ok
+  end
+
+  # Turns already waiting for a provider call become failed, saved turns. This
+  # keeps reconnects and other sessions from starting them automatically after
+  # the player explicitly clears the account-wide pause.
+  defp pause_outstanding_turns do
+    count =
+      Repo.update_all(
+        from(turn in Turn, where: turn.status in [:pending, :resolving]),
+        set: [
+          status: :failed,
+          failure_code: "usage_limit",
+          resolution_started_at: nil,
+          updated_at: utc_now()
+        ]
+      )
+      |> elem(0)
+
+    {:ok, count}
+  rescue
+    _ -> {:error, :turn_pause_unavailable}
+  catch
+    _, _ -> {:error, :turn_pause_unavailable}
+  end
+
+  defp safely_pause_plan_usage(store) do
+    TokenStore.pause_plan_usage(store)
+  rescue
+    _ -> {:error, :plan_usage_state_unavailable}
+  catch
+    _, _ -> {:error, :plan_usage_state_unavailable}
+  end
+
+  defp safely_resume_plan_usage(store) do
+    TokenStore.resume_plan_usage(store)
+  rescue
+    _ -> {:error, :plan_usage_state_unavailable}
+  catch
+    _, _ -> {:error, :plan_usage_state_unavailable}
+  end
 
   defp proposal_has_state_changes?(proposal) do
     map_size(proposal.public_changes) > 0 or map_size(proposal.private_changes) > 0 or

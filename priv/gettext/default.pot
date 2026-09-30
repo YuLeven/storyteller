@@ -11,22 +11,22 @@
 msgid ""
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:677
+#: lib/storyteller_web/live/session_live/show.ex:894
 #, elixir-autogen, elixir-format
 msgid "%{character}: known details"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:253
+#: lib/storyteller_web/live/session_live/show.ex:307
 #, elixir-autogen, elixir-format
 msgid "%{date} at %{time} UTC"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:528
+#: lib/storyteller_web/live/campaign_live/new.html.heex:568
 #, elixir-autogen, elixir-format
 msgid "A first session will be created with this campaign."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:250
+#: lib/storyteller_web/live/session_live/show.html.heex:309
 #, elixir-autogen, elixir-format
 msgid "A new scene begins"
 msgstr ""
@@ -36,7 +36,7 @@ msgstr ""
 msgid "A remote archipelago after the long thaw"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:376
+#: lib/storyteller_web/live/session_live/show.ex:453
 #, elixir-autogen, elixir-format
 msgid "A turn is already waiting for resolution."
 msgstr ""
@@ -46,7 +46,7 @@ msgstr ""
 msgid "Account access"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:22
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:30
 #, elixir-autogen, elixir-format
 msgid "Account:"
 msgstr ""
@@ -56,7 +56,7 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:336
+#: lib/storyteller_web/live/session_live/show.html.heex:397
 #, elixir-autogen, elixir-format
 msgid "Actions and dialogue become part of your saved campaign history."
 msgstr ""
@@ -67,17 +67,17 @@ msgstr ""
 msgid "Active"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:302
+#: lib/storyteller_web/live/campaign_live/new.html.heex:331
 #, elixir-autogen, elixir-format
 msgid "Add character"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:293
+#: lib/storyteller_web/live/campaign_live/new.html.heex:322
 #, elixir-autogen, elixir-format
 msgid "Add characters the GM can speak for. Speaker IDs stay stable in the campaign history."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:382
+#: lib/storyteller_web/live/campaign_live/new.html.heex:422
 #, elixir-autogen, elixir-format
 msgid "Add panel field"
 msgstr ""
@@ -124,13 +124,13 @@ msgid "Campaign created and its first session is ready to resume."
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/index.html.heex:75
-#: lib/storyteller_web/live/session_live/show.html.heex:395
+#: lib/storyteller_web/live/session_live/show.html.heex:457
 #, elixir-autogen, elixir-format
 msgid "Campaign details"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:371
-#: lib/storyteller_web/live/campaign_live/new.html.heex:585
+#: lib/storyteller_web/live/campaign_live/new.html.heex:404
+#: lib/storyteller_web/live/campaign_live/new.html.heex:625
 #: lib/storyteller_web/live/campaign_live/show.html.heex:98
 #, elixir-autogen, elixir-format
 msgid "Campaign panels"
@@ -148,9 +148,9 @@ msgstr ""
 msgid "Campaign setup could not be validated. Review the fields and try again."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:108
-#: lib/storyteller_web/live/session_live/show.html.heex:237
-#: lib/storyteller_web/live/session_live/show.html.heex:261
+#: lib/storyteller_web/live/session_live/show.html.heex:151
+#: lib/storyteller_web/live/session_live/show.html.heex:296
+#: lib/storyteller_web/live/session_live/show.html.heex:320
 #, elixir-autogen, elixir-format
 msgid "Campaign story"
 msgstr ""
@@ -160,7 +160,7 @@ msgstr ""
 msgid "Campaign title"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:668
+#: lib/storyteller_web/live/session_live/show.ex:885
 #, elixir-autogen, elixir-format
 msgid "Campaign values"
 msgstr ""
@@ -173,17 +173,17 @@ msgstr ""
 msgid "Campaigns"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:514
+#: lib/storyteller_web/live/campaign_live/new.html.heex:554
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:342
+#: lib/storyteller_web/live/campaign_live/new.html.heex:371
 #, elixir-autogen, elixir-format
 msgid "Captain Ren"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:337
+#: lib/storyteller_web/live/campaign_live/new.html.heex:366
 #, elixir-autogen, elixir-format
 msgid "Character name"
 msgstr ""
@@ -193,7 +193,7 @@ msgstr ""
 msgid "Character:"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:618
+#: lib/storyteller_web/live/session_live/show.html.heex:697
 #, elixir-autogen, elixir-format
 msgid "Characters"
 msgstr ""
@@ -234,24 +234,24 @@ msgstr ""
 msgid "Choose English, Spanish, or French."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:444
+#: lib/storyteller_web/live/campaign_live/new.html.heex:484
 #, elixir-autogen, elixir-format
 msgid "Choose a type"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:484
+#: lib/storyteller_web/live/campaign_live/new.html.heex:524
 #, elixir-autogen, elixir-format
 msgid "Choose visibility"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:166
+#: lib/storyteller_web/live/campaign_live/new.html.heex:175
 #, elixir-autogen, elixir-format
 msgid "Clear skies with a cold wind"
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/show.html.heex:146
-#: lib/storyteller_web/live/session_live/show.ex:775
-#: lib/storyteller_web/live/session_live/show.ex:776
+#: lib/storyteller_web/live/session_live/show.ex:992
+#: lib/storyteller_web/live/session_live/show.ex:993
 #, elixir-autogen, elixir-format
 msgid "Completed"
 msgstr ""
@@ -281,7 +281,7 @@ msgstr ""
 msgid "Continue the story"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:54
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:62
 #, elixir-autogen, elixir-format
 msgid "Continue with ChatGPT"
 msgstr ""
@@ -301,7 +301,7 @@ msgstr ""
 msgid "Create a campaign to save its setting, characters, and sessions."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:615
+#: lib/storyteller_web/live/campaign_live/new.html.heex:655
 #, elixir-autogen, elixir-format
 msgid "Create campaign"
 msgstr ""
@@ -311,45 +311,47 @@ msgstr ""
 msgid "Created %{date}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:43
+#: lib/storyteller_web/live/session_live/show.html.heex:86
 #, elixir-autogen, elixir-format
 msgid "Current world details"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:293
+#: lib/storyteller_web/live/session_live/show.ex:347
+#: lib/storyteller_web/live/session_live/show.ex:752
+#: lib/storyteller_web/live/session_live/show.html.heex:219
 #, elixir-autogen, elixir-format
 msgid "D20 result:"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:248
+#: lib/storyteller_web/live/session_live/show.ex:302
 #, elixir-autogen, elixir-format
 msgid "D20 roll"
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.ex:311
-#: lib/storyteller_web/live/campaign_live/new.html.heex:458
-#: lib/storyteller_web/live/session_live/show.ex:867
+#: lib/storyteller_web/live/campaign_live/new.html.heex:498
+#: lib/storyteller_web/live/session_live/show.ex:1084
 #, elixir-autogen, elixir-format
 msgid "Date"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:373
+#: lib/storyteller_web/live/campaign_live/new.html.heex:413
 #, elixir-autogen, elixir-format
 msgid "Define tracked values with a type, unit, visibility, and starting value. Values are stored as data; formulas are not supported."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:328
+#: lib/storyteller_web/live/session_live/show.html.heex:387
 #, elixir-autogen, elixir-format
 msgid "Describe your character's action or words…"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:285
-#: lib/storyteller_web/live/session_live/show.html.heex:212
+#: lib/storyteller_web/live/session_live/show.ex:339
+#: lib/storyteller_web/live/session_live/show.html.heex:270
 #, elixir-autogen, elixir-format
 msgid "Difficulty:"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:38
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:46
 #, elixir-autogen, elixir-format
 msgid "Disconnect ChatGPT"
 msgstr ""
@@ -364,27 +366,27 @@ msgstr ""
 msgid "Each campaign keeps its own story and sessions in your local archive."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:225
+#: lib/storyteller_web/live/session_live/show.ex:279
 #, elixir-autogen, elixir-format
 msgid "Earlier session"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:614
+#: lib/storyteller_web/live/campaign_live/new.html.heex:654
 #, elixir-autogen, elixir-format
 msgid "Edit setup"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:130
+#: lib/storyteller_web/live/campaign_live/new.html.heex:139
 #, elixir-autogen, elixir-format
 msgid "English"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:499
+#: lib/storyteller_web/live/campaign_live/new.html.heex:539
 #, elixir-autogen, elixir-format
 msgid "Enter a starting value"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:373
+#: lib/storyteller_web/live/session_live/show.html.heex:435
 #, elixir-autogen, elixir-format
 msgid "Enter an action or something to say before sending."
 msgstr ""
@@ -394,44 +396,44 @@ msgstr ""
 msgid "Error!"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:428
+#: lib/storyteller_web/live/campaign_live/new.html.heex:468
 #, elixir-autogen, elixir-format
 msgid "Field label"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:128
+#: lib/storyteller_web/live/session_live/show.ex:165
 #, elixir-autogen, elixir-format
 msgid "Finish the current turn before sending another action."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:132
+#: lib/storyteller_web/live/campaign_live/new.html.heex:141
 #, elixir-autogen, elixir-format
 msgid "French"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:316
+#: lib/storyteller_web/live/campaign_live/new.html.heex:345
 #, elixir-autogen, elixir-format
 msgid "GM character"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:489
-#: lib/storyteller_web/live/campaign_live/new.html.heex:591
+#: lib/storyteller_web/live/campaign_live/new.html.heex:529
+#: lib/storyteller_web/live/campaign_live/new.html.heex:631
 #, elixir-autogen, elixir-format
 msgid "GM only"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:290
-#: lib/storyteller_web/live/campaign_live/new.html.heex:576
+#: lib/storyteller_web/live/campaign_live/new.html.heex:313
+#: lib/storyteller_web/live/campaign_live/new.html.heex:616
 #, elixir-autogen, elixir-format
 msgid "GM-controlled characters"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:357
+#: lib/storyteller_web/live/campaign_live/new.html.heex:386
 #, elixir-autogen, elixir-format
 msgid "GM-only notes"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:244
+#: lib/storyteller_web/live/session_live/show.ex:298
 #, elixir-autogen, elixir-format
 msgid "Game master"
 msgstr ""
@@ -441,7 +443,7 @@ msgstr ""
 msgid "Hang in there while we get back on track"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:433
+#: lib/storyteller_web/live/campaign_live/new.html.heex:473
 #, elixir-autogen, elixir-format
 msgid "Healing potions"
 msgstr ""
@@ -452,18 +454,18 @@ msgstr ""
 msgid "In progress"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:616
+#: lib/storyteller_web/live/session_live/show.html.heex:695
 #, elixir-autogen, elixir-format
 msgid "In the story"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:154
-#: lib/storyteller_web/live/session_live/show.html.heex:48
+#: lib/storyteller_web/live/campaign_live/new.html.heex:163
+#: lib/storyteller_web/live/session_live/show.html.heex:91
 #, elixir-autogen, elixir-format
 msgid "In-world date"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:494
+#: lib/storyteller_web/live/campaign_live/new.html.heex:534
 #, elixir-autogen, elixir-format
 msgid "Initial value"
 msgstr ""
@@ -483,12 +485,12 @@ msgstr ""
 msgid "Internal Server Error"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:638
+#: lib/storyteller_web/live/session_live/show.html.heex:717
 #, elixir-autogen, elixir-format
 msgid "Known details"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:160
+#: lib/storyteller_web/live/campaign_live/new.html.heex:169
 #, elixir-autogen, elixir-format
 msgid "Late evening, just after moonrise"
 msgstr ""
@@ -503,14 +505,14 @@ msgstr ""
 msgid "Local credentials were cleared, but ChatGPT did not confirm revocation. You can also disconnect Storyteller in ChatGPT Settings."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:871
-#: lib/storyteller_web/live/session_live/show.html.heex:78
+#: lib/storyteller_web/live/session_live/show.ex:1088
+#: lib/storyteller_web/live/session_live/show.html.heex:121
 #, elixir-autogen, elixir-format
 msgid "Location"
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.ex:308
-#: lib/storyteller_web/live/campaign_live/new.html.heex:449
+#: lib/storyteller_web/live/campaign_live/new.html.heex:489
 #, elixir-autogen, elixir-format
 msgid "Money"
 msgstr ""
@@ -526,8 +528,8 @@ msgstr ""
 msgid "Narration in %{language}"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:128
-#: lib/storyteller_web/live/campaign_live/new.html.heex:565
+#: lib/storyteller_web/live/campaign_live/new.html.heex:137
+#: lib/storyteller_web/live/campaign_live/new.html.heex:605
 #, elixir-autogen, elixir-format
 msgid "Narration language"
 msgstr ""
@@ -547,27 +549,27 @@ msgstr ""
 msgid "New world"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:588
+#: lib/storyteller_web/live/session_live/show.ex:805
 #, elixir-autogen, elixir-format
 msgid "No"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:308
+#: lib/storyteller_web/live/campaign_live/new.html.heex:337
 #, elixir-autogen, elixir-format
 msgid "No GM characters added yet."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:42
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:50
 #, elixir-autogen, elixir-format
 msgid "No active ChatGPT plan connection."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:892
+#: lib/storyteller_web/live/session_live/show.ex:1112
 #, elixir-autogen, elixir-format
 msgid "No available model could resolve this turn."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:388
+#: lib/storyteller_web/live/campaign_live/new.html.heex:428
 #, elixir-autogen, elixir-format
 msgid "No custom panel fields added yet."
 msgstr ""
@@ -582,9 +584,9 @@ msgstr ""
 msgid "Not Found"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:726
-#: lib/storyteller_web/live/session_live/show.ex:853
-#: lib/storyteller_web/live/session_live/show.html.heex:414
+#: lib/storyteller_web/live/session_live/show.ex:943
+#: lib/storyteller_web/live/session_live/show.ex:1070
+#: lib/storyteller_web/live/session_live/show.html.heex:476
 #, elixir-autogen, elixir-format
 msgid "Not recorded"
 msgstr ""
@@ -596,30 +598,30 @@ msgstr ""
 msgid "Not set"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:396
+#: lib/storyteller_web/live/campaign_live/new.html.heex:436
 #, elixir-autogen, elixir-format
 msgid "Panel field"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:406
+#: lib/storyteller_web/live/campaign_live/new.html.heex:446
 #, elixir-autogen, elixir-format
 msgid "Panel name"
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:54
-#: lib/storyteller_web/live/campaign_live/new.html.heex:547
+#: lib/storyteller_web/live/campaign_live/new.html.heex:587
 #: lib/storyteller_web/live/campaign_live/show.html.heex:45
 #, elixir-autogen, elixir-format
 msgid "Player character"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:486
-#: lib/storyteller_web/live/campaign_live/new.html.heex:590
+#: lib/storyteller_web/live/campaign_live/new.html.heex:526
+#: lib/storyteller_web/live/campaign_live/new.html.heex:630
 #, elixir-autogen, elixir-format
 msgid "Player-visible"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:348
+#: lib/storyteller_web/live/campaign_live/new.html.heex:377
 #, elixir-autogen, elixir-format
 msgid "Player-visible facts"
 msgstr ""
@@ -629,37 +631,38 @@ msgstr ""
 msgid "Playing as %{character}"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:537
+#: lib/storyteller_web/live/campaign_live/new.html.heex:577
 #, elixir-autogen, elixir-format
 msgid "Premise"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:61
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:74
 #, elixir-autogen, elixir-format
 msgid "Preview eligibility and usage"
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.ex:307
-#: lib/storyteller_web/live/campaign_live/new.html.heex:226
-#: lib/storyteller_web/live/campaign_live/new.html.heex:446
+#: lib/storyteller_web/live/campaign_live/new.html.heex:246
+#: lib/storyteller_web/live/campaign_live/new.html.heex:486
 #, elixir-autogen, elixir-format
 msgid "Quantity"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:189
+#: lib/storyteller_web/live/session_live/show.html.heex:248
 #, elixir-autogen, elixir-format
 msgid "Reconnect account"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:152
+#: lib/storyteller_web/live/session_live/show.ex:709
+#: lib/storyteller_web/live/session_live/show.html.heex:194
 #, elixir-autogen, elixir-format
 msgid "Reconnecting to the saved turn…"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:122
-#: lib/storyteller_web/live/campaign_live/new.html.heex:204
-#: lib/storyteller_web/live/campaign_live/new.html.heex:322
-#: lib/storyteller_web/live/campaign_live/new.html.heex:402
+#: lib/storyteller_web/live/campaign_live/new.html.heex:131
+#: lib/storyteller_web/live/campaign_live/new.html.heex:224
+#: lib/storyteller_web/live/campaign_live/new.html.heex:351
+#: lib/storyteller_web/live/campaign_live/new.html.heex:442
 #, elixir-autogen, elixir-format
 msgid "Remove"
 msgstr ""
@@ -695,17 +698,18 @@ msgstr ""
 msgid "Resume session"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:184
+#: lib/storyteller_web/live/session_live/show.html.heex:243
 #, elixir-autogen, elixir-format
 msgid "Retry this turn"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:183
+#: lib/storyteller_web/live/session_live/show.ex:734
+#: lib/storyteller_web/live/session_live/show.html.heex:242
 #, elixir-autogen, elixir-format
 msgid "Retrying…"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:515
+#: lib/storyteller_web/live/campaign_live/new.html.heex:555
 #, elixir-autogen, elixir-format
 msgid "Review campaign setup"
 msgstr ""
@@ -715,12 +719,12 @@ msgstr ""
 msgid "Review session"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:74
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:87
 #, elixir-autogen, elixir-format
 msgid "Review the current"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:526
+#: lib/storyteller_web/live/campaign_live/new.html.heex:566
 #, elixir-autogen, elixir-format
 msgid "Review your campaign"
 msgstr ""
@@ -730,12 +734,13 @@ msgstr ""
 msgid "Reviewing"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:231
+#: lib/storyteller_web/live/session_live/show.html.heex:290
 #, elixir-autogen, elixir-format
 msgid "Roll D20"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:247
+#: lib/storyteller_web/live/session_live/show.ex:301
+#: lib/storyteller_web/live/session_live/show.ex:721
 #, elixir-autogen, elixir-format
 msgid "Roll requested"
 msgstr ""
@@ -745,17 +750,17 @@ msgstr ""
 msgid "Save the story foundations now. You can return to this campaign and its sessions later."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:171
+#: lib/storyteller_web/live/session_live/show.html.heex:212
 #, elixir-autogen, elixir-format
 msgid "Saved action:"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:45
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:53
 #, elixir-autogen, elixir-format
 msgid "Saved registration for"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:346
+#: lib/storyteller_web/live/session_live/show.html.heex:408
 #, elixir-autogen, elixir-format
 msgid "Send turn"
 msgstr ""
@@ -780,7 +785,7 @@ msgstr ""
 msgid "Sessions"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:143
+#: lib/storyteller_web/live/campaign_live/new.html.heex:152
 #, elixir-autogen, elixir-format
 msgid "Set the public location, time, and weather for the opening scene."
 msgstr ""
@@ -800,17 +805,17 @@ msgstr ""
 msgid "Setting"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:542
+#: lib/storyteller_web/live/campaign_live/new.html.heex:582
 #, elixir-autogen, elixir-format
 msgid "Setting and tone"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:63
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:76
 #, elixir-autogen, elixir-format
 msgid "Sign in with ChatGPT plan usage is a preview for eligible open-source, locally hosted apps. Storyteller is released under the MIT license and is intended to run on this computer at %{address}."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:552
+#: lib/storyteller_web/live/session_live/show.ex:769
 #, elixir-autogen, elixir-format
 msgid "Someone nearby"
 msgstr ""
@@ -820,17 +825,17 @@ msgstr ""
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:131
+#: lib/storyteller_web/live/campaign_live/new.html.heex:140
 #, elixir-autogen, elixir-format
 msgid "Spanish"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:416
+#: lib/storyteller_web/live/campaign_live/new.html.heex:456
 #, elixir-autogen, elixir-format
 msgid "Stable field key"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:326
+#: lib/storyteller_web/live/campaign_live/new.html.heex:355
 #, elixir-autogen, elixir-format
 msgid "Stable speaker ID"
 msgstr ""
@@ -845,13 +850,13 @@ msgstr ""
 msgid "Start new session"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:149
+#: lib/storyteller_web/live/campaign_live/new.html.heex:158
 #, elixir-autogen, elixir-format
 msgid "Starting location"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:141
-#: lib/storyteller_web/live/campaign_live/new.html.heex:570
+#: lib/storyteller_web/live/campaign_live/new.html.heex:150
+#: lib/storyteller_web/live/campaign_live/new.html.heex:610
 #, elixir-autogen, elixir-format
 msgid "Starting world"
 msgstr ""
@@ -862,13 +867,14 @@ msgid "Starting world details must be valid data and under 100 KB."
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.ex:310
-#: lib/storyteller_web/live/campaign_live/new.html.heex:455
+#: lib/storyteller_web/live/campaign_live/new.html.heex:495
 #, elixir-autogen, elixir-format
 msgid "Status"
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:36
 #: lib/storyteller_web/live/campaign_live/show.html.heex:40
+#: lib/storyteller_web/live/session_live/show.html.heex:37
 #, elixir-autogen, elixir-format
 msgid "Story premise"
 msgstr ""
@@ -883,24 +889,24 @@ msgstr ""
 msgid "Success!"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:411
+#: lib/storyteller_web/live/campaign_live/new.html.heex:451
 #, elixir-autogen, elixir-format
 msgid "Supplies"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:288
-#: lib/storyteller_web/live/session_live/show.html.heex:218
+#: lib/storyteller_web/live/session_live/show.ex:342
+#: lib/storyteller_web/live/session_live/show.html.heex:276
 #, elixir-autogen, elixir-format
 msgid "Target:"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:252
+#: lib/storyteller_web/live/session_live/show.html.heex:311
 #, elixir-autogen, elixir-format
 msgid "Tell the game master what your character does or says to start the story."
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.ex:309
-#: lib/storyteller_web/live/campaign_live/new.html.heex:452
+#: lib/storyteller_web/live/campaign_live/new.html.heex:492
 #, elixir-autogen, elixir-format
 msgid "Text"
 msgstr ""
@@ -917,12 +923,12 @@ msgstr ""
 msgid "That session could not be found in this campaign."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:151
+#: lib/storyteller_web/live/session_live/show.ex:201
 #, elixir-autogen, elixir-format
 msgid "That turn cannot be retried from this session."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:155
+#: lib/storyteller_web/live/campaign_live/new.html.heex:164
 #, elixir-autogen, elixir-format
 msgid "The 14th day of the thaw"
 msgstr ""
@@ -950,93 +956,91 @@ msgstr ""
 msgid "The campaign could not be restored."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:54
+#: lib/storyteller_web/live/session_live/show.ex:58
 #, elixir-autogen, elixir-format
 msgid "The campaign's play state could not be loaded."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:420
+#: lib/storyteller_web/live/session_live/show.ex:508
 #, elixir-autogen, elixir-format
 msgid "The campaign's play state could not be refreshed."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:886
-#, elixir-autogen, elixir-format
-msgid "The connected account has reached its current usage limit."
-msgstr ""
-
-#: lib/storyteller_web/live/session_live/show.ex:883
+#: lib/storyteller_web/live/session_live/show.ex:1100
 #, elixir-autogen, elixir-format
 msgid "The connected account is not eligible to continue this turn."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:880
+#: lib/storyteller_web/live/session_live/show.ex:1097
 #, elixir-autogen, elixir-format
 msgid "The connected account needs you to reconnect before this turn can continue."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:889
+#: lib/storyteller_web/live/session_live/show.ex:1109
 #, elixir-autogen, elixir-format
 msgid "The connected account's usage could not be confirmed."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:898
+#: lib/storyteller_web/live/session_live/show.ex:1118
 #, elixir-autogen, elixir-format
 msgid "The game master could not resolve this turn. Your action is saved."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:143
+#: lib/storyteller_web/live/session_live/show.ex:745
+#: lib/storyteller_web/live/session_live/show.ex:747
+#: lib/storyteller_web/live/session_live/show.html.heex:185
 #, elixir-autogen, elixir-format
 msgid "The game master is responding"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:223
+#: lib/storyteller_web/live/session_live/show.ex:725
+#: lib/storyteller_web/live/session_live/show.html.heex:281
 #, elixir-autogen, elixir-format
 msgid "The game master is waiting. Click only when you are ready to roll the D20."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:895
+#: lib/storyteller_web/live/session_live/show.ex:1115
 #, elixir-autogen, elixir-format
 msgid "The game master took too long to answer. Your turn is saved."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:150
+#: lib/storyteller_web/live/campaign_live/new.html.heex:159
 #, elixir-autogen, elixir-format
 msgid "The old observatory terrace"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:175
+#: lib/storyteller_web/live/session_live/show.ex:229
 #, elixir-autogen, elixir-format
 msgid "The requested roll could not be recorded."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:102
-#: lib/storyteller_web/live/session_live/show.html.heex:471
+#: lib/storyteller_web/live/session_live/show.html.heex:145
+#: lib/storyteller_web/live/session_live/show.html.heex:533
 #, elixir-autogen, elixir-format
 msgid "The scene"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex
+#: lib/storyteller_web/live/session_live/show.html.heex:552
 #, elixir-autogen, elixir-format
 msgid "Current situation"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex
+#: lib/storyteller_web/live/session_live/show.html.heex:558
 #, elixir-autogen, elixir-format
 msgid "No current situation has been recorded yet."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:149
+#: lib/storyteller_web/live/session_live/show.html.heex:191
 #, elixir-autogen, elixir-format
 msgid "The scene is being updated. You can leave and return; this turn will remain here."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex
+#: lib/storyteller_web/live/session_live/show.html.heex:231
 #, elixir-autogen, elixir-format
 msgid "Your saved action is still unresolved. Retry continues this same turn."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex
+#: lib/storyteller_web/live/session_live/show.html.heex:227
 #, elixir-autogen, elixir-format
 msgid "Your D20 result is saved. Retry continues this same turn with that result."
 msgstr ""
@@ -1056,12 +1060,12 @@ msgstr ""
 msgid "The sign-in response was incomplete or expired. Please start again."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:239
+#: lib/storyteller_web/live/session_live/show.html.heex:298
 #, elixir-autogen, elixir-format
 msgid "The timeline continues across every session in this campaign."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:181
+#: lib/storyteller_web/live/session_live/show.ex:235
 #, elixir-autogen, elixir-format
 msgid "There is no validated D20 request to roll right now."
 msgstr ""
@@ -1071,32 +1075,28 @@ msgstr ""
 msgid "This ChatGPT account did not grant plan usage access. Your current connection is unchanged."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:69
-#, elixir-autogen, elixir-format
-msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. If a limit blocks a request, Storyteller pauses play and keeps the turn available to retry."
-msgstr ""
-
-#: lib/storyteller_web/live/campaign_live/new.html.heex:136
+#: lib/storyteller_web/live/campaign_live/new.html.heex:145
 #, elixir-autogen, elixir-format
 msgid "This controls GM narration. Your interface language can be changed separately."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:122
+#: lib/storyteller_web/live/session_live/show.ex:159
 #, elixir-autogen, elixir-format
 msgid "This session is available for review only."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:382
+#: lib/storyteller_web/live/session_live/show.html.heex:444
 #, elixir-autogen, elixir-format
 msgid "This session is read-only. Its story remains part of the campaign history."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:384
+#: lib/storyteller_web/live/session_live/show.ex:461
 #, elixir-autogen, elixir-format
 msgid "This submission changed while it was being sent. Please send it again."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:166
+#: lib/storyteller_web/live/session_live/show.ex:736
+#: lib/storyteller_web/live/session_live/show.html.heex:207
 #, elixir-autogen, elixir-format
 msgid "This turn needs attention"
 msgstr ""
@@ -1106,19 +1106,19 @@ msgstr ""
 msgid "Thoughtful, adventurous, and grounded"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:868
-#: lib/storyteller_web/live/session_live/show.ex:869
-#: lib/storyteller_web/live/session_live/show.html.heex:62
+#: lib/storyteller_web/live/session_live/show.ex:1085
+#: lib/storyteller_web/live/session_live/show.ex:1086
+#: lib/storyteller_web/live/session_live/show.html.heex:105
 #, elixir-autogen, elixir-format
 msgid "Time"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:159
+#: lib/storyteller_web/live/campaign_live/new.html.heex:168
 #, elixir-autogen, elixir-format
 msgid "Time of day"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:532
+#: lib/storyteller_web/live/campaign_live/new.html.heex:572
 #, elixir-autogen, elixir-format
 msgid "Title"
 msgstr ""
@@ -1128,23 +1128,23 @@ msgstr ""
 msgid "Tone"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:126
-#: lib/storyteller_web/live/session_live/show.html.heex:398
+#: lib/storyteller_web/live/session_live/show.html.heex:169
+#: lib/storyteller_web/live/session_live/show.html.heex:460
 #, elixir-autogen, elixir-format
 msgid "Tracked resources"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:465
+#: lib/storyteller_web/live/campaign_live/new.html.heex:505
 #, elixir-autogen, elixir-format
 msgid "Unit"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:438
+#: lib/storyteller_web/live/campaign_live/new.html.heex:478
 #, elixir-autogen, elixir-format
 msgid "Value type"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:478
+#: lib/storyteller_web/live/campaign_live/new.html.heex:518
 #, elixir-autogen, elixir-format
 msgid "Visibility"
 msgstr ""
@@ -1154,14 +1154,14 @@ msgstr ""
 msgid "We can't find the internet"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:165
-#: lib/storyteller_web/live/session_live/show.ex:870
-#: lib/storyteller_web/live/session_live/show.html.heex:70
+#: lib/storyteller_web/live/campaign_live/new.html.heex:174
+#: lib/storyteller_web/live/session_live/show.ex:1087
+#: lib/storyteller_web/live/session_live/show.html.heex:113
 #, elixir-autogen, elixir-format
 msgid "Weather"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:320
+#: lib/storyteller_web/live/session_live/show.html.heex:379
 #, elixir-autogen, elixir-format
 msgid "What do you do or say?"
 msgstr ""
@@ -1171,29 +1171,29 @@ msgstr ""
 msgid "What is happening at the start of the story?"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:674
+#: lib/storyteller_web/live/session_live/show.ex:891
 #, elixir-autogen, elixir-format
 msgid "World update"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:588
+#: lib/storyteller_web/live/session_live/show.ex:805
 #, elixir-autogen, elixir-format
 msgid "Yes"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:243
+#: lib/storyteller_web/live/session_live/show.ex:297
 #, elixir-autogen, elixir-format
 msgid "You"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:391
+#: lib/storyteller_web/live/session_live/show.ex:468
 #, elixir-autogen, elixir-format
 msgid "Your action could not be saved. Please try again."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:279
-#: lib/storyteller_web/live/session_live/show.html.heex:534
-#: lib/storyteller_web/live/session_live/show.html.heex:626
+#: lib/storyteller_web/live/session_live/show.ex:333
+#: lib/storyteller_web/live/session_live/show.html.heex:613
+#: lib/storyteller_web/live/session_live/show.html.heex:705
 #, elixir-autogen, elixir-format
 msgid "Your character"
 msgstr ""
@@ -1208,12 +1208,12 @@ msgstr ""
 msgid "Your next story starts here"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:203
+#: lib/storyteller_web/live/session_live/show.html.heex:261
 #, elixir-autogen, elixir-format
 msgid "Your roll"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:144
+#: lib/storyteller_web/live/session_live/show.html.heex:186
 #, elixir-autogen, elixir-format
 msgid "Your turn is saved"
 msgstr ""
@@ -1223,7 +1223,7 @@ msgstr ""
 msgid "Your worlds"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:81
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:94
 #, elixir-autogen, elixir-format
 msgid "and confirm your app is eligible before connecting."
 msgstr ""
@@ -1234,12 +1234,12 @@ msgstr ""
 msgid "close"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:470
+#: lib/storyteller_web/live/campaign_live/new.html.heex:510
 #, elixir-autogen, elixir-format
 msgid "coins, days, or kg"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:279
+#: lib/storyteller_web/live/session_live/show.ex:333
 #, elixir-autogen, elixir-format
 msgid "needs to roll"
 msgstr ""
@@ -1249,7 +1249,7 @@ msgstr ""
 msgid "optional"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:80
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:93
 #, elixir-autogen, elixir-format
 msgid "preview limitations"
 msgstr ""
@@ -1261,23 +1261,23 @@ msgid_plural "sessions"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:360
+#: lib/storyteller_web/live/session_live/show.html.heex:422
 #, elixir-autogen, elixir-format
 msgid "Connect ChatGPT to power the game master"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:31
-#: lib/storyteller_web/live/session_live/show.html.heex:369
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:39
+#: lib/storyteller_web/live/session_live/show.html.heex:431
 #, elixir-autogen, elixir-format
 msgid "Manage usage"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:353
+#: lib/storyteller_web/live/session_live/show.html.heex:415
 #, elixir-autogen, elixir-format
 msgid "Using ChatGPT plan"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:175
+#: lib/storyteller_web/live/campaign_live/new.html.heex:195
 #, elixir-autogen, elixir-format
 msgid "Add items the player starts with. They are public and belong to the player; you can change ownership during play."
 msgstr ""
@@ -1287,80 +1287,80 @@ msgstr ""
 msgid "Add no more than 200 starting items."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:184
+#: lib/storyteller_web/live/campaign_live/new.html.heex:204
 #, elixir-autogen, elixir-format
 msgid "Add starting item"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:813
+#: lib/storyteller_web/live/session_live/show.ex:1030
 #, elixir-autogen, elixir-format
 msgid "Added %{quantity} %{item}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:561
+#: lib/storyteller_web/live/session_live/show.html.heex:640
 #, elixir-autogen, elixir-format
 msgid "Carried by %{name}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:538
+#: lib/storyteller_web/live/session_live/show.html.heex:617
 #, elixir-autogen, elixir-format
 msgid "Carried items, supplies, and keepsakes known to the party."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:259
+#: lib/storyteller_web/live/campaign_live/new.html.heex:279
 #, elixir-autogen, elixir-format
 msgid "Category (optional)"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:274
+#: lib/storyteller_web/live/campaign_live/new.html.heex:294
 #, elixir-autogen, elixir-format
 msgid "Description (optional)"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:216
+#: lib/storyteller_web/live/campaign_live/new.html.heex:236
 #, elixir-autogen, elixir-format
 msgid "Healing potion"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:655
-#: lib/storyteller_web/live/session_live/show.html.heex:114
-#: lib/storyteller_web/live/session_live/show.html.heex:536
+#: lib/storyteller_web/live/session_live/show.ex:872
+#: lib/storyteller_web/live/session_live/show.html.heex:157
+#: lib/storyteller_web/live/session_live/show.html.heex:615
 #, elixir-autogen, elixir-format
 msgid "Inventory"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:840
+#: lib/storyteller_web/live/session_live/show.ex:1057
 #, elixir-autogen, elixir-format
 msgid "Inventory updated"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:579
+#: lib/storyteller_web/live/session_live/show.html.heex:658
 #, elixir-autogen, elixir-format
 msgid "Item details"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:211
+#: lib/storyteller_web/live/campaign_live/new.html.heex:231
 #, elixir-autogen, elixir-format
 msgid "Item name"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:190
+#: lib/storyteller_web/live/campaign_live/new.html.heex:210
 #, elixir-autogen, elixir-format
 msgid "No starting items added yet."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:610
+#: lib/storyteller_web/live/session_live/show.html.heex:689
 #, elixir-autogen, elixir-format
 msgid "Nothing is being carried yet."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:264
+#: lib/storyteller_web/live/campaign_live/new.html.heex:284
 #, elixir-autogen, elixir-format
 msgid "Potion, tool, or keepsake"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:173
-#: lib/storyteller_web/live/campaign_live/new.html.heex:597
+#: lib/storyteller_web/live/campaign_live/new.html.heex:186
+#: lib/storyteller_web/live/campaign_live/new.html.heex:637
 #, elixir-autogen, elixir-format
 msgid "Starting inventory"
 msgstr ""
@@ -1375,7 +1375,7 @@ msgstr ""
 msgid "Starting inventory must be a list."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:198
+#: lib/storyteller_web/live/campaign_live/new.html.heex:218
 #, elixir-autogen, elixir-format
 msgid "Starting item"
 msgstr ""
@@ -1410,160 +1410,160 @@ msgstr ""
 msgid "Starting item %{number} needs a positive whole-number quantity."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:566
+#: lib/storyteller_web/live/session_live/show.html.heex:645
 #, elixir-autogen, elixir-format
 msgid "Stored with the party"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:823
+#: lib/storyteller_web/live/session_live/show.ex:1040
 #, elixir-autogen, elixir-format
 msgid "Transferred %{quantity} %{item} to %{owner}"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:245
+#: lib/storyteller_web/live/campaign_live/new.html.heex:265
 #, elixir-autogen, elixir-format
 msgid "Unit (optional)"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:834
+#: lib/storyteller_web/live/session_live/show.ex:1051
 #, elixir-autogen, elixir-format
 msgid "Used %{quantity} %{item}"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:250
+#: lib/storyteller_web/live/campaign_live/new.html.heex:270
 #, elixir-autogen, elixir-format
 msgid "bottles, coins, or doses"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:845
+#: lib/storyteller_web/live/session_live/show.ex:1062
 #, elixir-autogen, elixir-format
 msgid "the party stash"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:807
+#: lib/storyteller_web/live/session_live/show.ex:1024
 #, elixir-autogen, elixir-format
 msgid "%{character} moved to %{place}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:810
+#: lib/storyteller_web/live/session_live/show.ex:1027
 #, elixir-autogen, elixir-format
 msgid "A location changed"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:800
+#: lib/storyteller_web/live/session_live/show.ex:1017
 #, elixir-autogen, elixir-format
 msgid "Discovered %{place}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:786
+#: lib/storyteller_web/live/session_live/show.ex:1003
 #, elixir-autogen, elixir-format
 msgid "Here"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:782
+#: lib/storyteller_web/live/session_live/show.ex:999
 #, elixir-autogen, elixir-format
 msgid "No known location"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:517
+#: lib/storyteller_web/live/session_live/show.html.heex:602
 #, elixir-autogen, elixir-format
 msgid "No one else is here right now."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:497
+#: lib/storyteller_web/live/session_live/show.html.heex:582
 #, elixir-autogen, elixir-format
 msgid "People here"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:658
+#: lib/storyteller_web/live/session_live/show.ex:875
 #, elixir-autogen, elixir-format
 msgid "Places and travel"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:524
+#: lib/storyteller_web/live/session_live/show.html.heex:545
 #, elixir-autogen, elixir-format
 msgid "Your current place has not been recorded yet."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:777
-#: lib/storyteller_web/live/session_live/show.ex:778
+#: lib/storyteller_web/live/session_live/show.ex:994
+#: lib/storyteller_web/live/session_live/show.ex:995
 #, elixir-autogen, elixir-format
 msgid "Abandoned"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:755
+#: lib/storyteller_web/live/session_live/show.ex:972
 #, elixir-autogen, elixir-format
 msgid "Added objective: %{title} (%{status})"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:428
+#: lib/storyteller_web/live/session_live/show.html.heex:490
 #, elixir-autogen, elixir-format
 msgid "Campaign commitments"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:768
+#: lib/storyteller_web/live/session_live/show.ex:985
 #, elixir-autogen, elixir-format
 msgid "Campaign objective updated"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:661
+#: lib/storyteller_web/live/session_live/show.ex:878
 #, elixir-autogen, elixir-format
 msgid "Campaign objectives"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:461
+#: lib/storyteller_web/live/session_live/show.html.heex:523
 #, elixir-autogen, elixir-format
 msgid "No campaign objectives have been recorded yet."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:120
-#: lib/storyteller_web/live/session_live/show.html.heex:430
+#: lib/storyteller_web/live/session_live/show.html.heex:163
+#: lib/storyteller_web/live/session_live/show.html.heex:492
 #, elixir-autogen, elixir-format
 msgid "Objectives"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:773
-#: lib/storyteller_web/live/session_live/show.ex:774
+#: lib/storyteller_web/live/session_live/show.ex:990
+#: lib/storyteller_web/live/session_live/show.ex:991
 #, elixir-autogen, elixir-format
 msgid "Open"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:432
+#: lib/storyteller_web/live/session_live/show.html.heex:494
 #, elixir-autogen, elixir-format
 msgid "Projects, quests, and leads that carry forward between sessions."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:779
+#: lib/storyteller_web/live/session_live/show.ex:996
 #, elixir-autogen, elixir-format
 msgid "Unknown status"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:762
+#: lib/storyteller_web/live/session_live/show.ex:979
 #, elixir-autogen, elixir-format
 msgid "Updated objective: %{title} (%{status})"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:574
+#: lib/storyteller_web/live/session_live/show.ex:791
 #, elixir-autogen, elixir-format
 msgid "I use %{item}."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:600
+#: lib/storyteller_web/live/session_live/show.html.heex:679
 #, elixir-autogen, elixir-format
 msgid "Use %{item} in your action"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:606
+#: lib/storyteller_web/live/session_live/show.html.heex:685
 #, elixir-autogen, elixir-format
 msgid "Use in action"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:111
+#: lib/storyteller_web/live/campaign_live/new.html.heex:120
 #, elixir-autogen, elixir-format
 msgid "A short player-visible fact"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:74
+#: lib/storyteller_web/live/campaign_live/new.html.heex:83
 #, elixir-autogen, elixir-format
 msgid "Add character detail"
 msgstr ""
@@ -1573,17 +1573,17 @@ msgstr ""
 msgid "Add no more than 50 player character details."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:65
+#: lib/storyteller_web/live/campaign_live/new.html.heex:74
 #, elixir-autogen, elixir-format
 msgid "Add optional public facts such as health, skills, or responsibilities. These are descriptive details, not game-system stats."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:91
+#: lib/storyteller_web/live/campaign_live/new.html.heex:100
 #, elixir-autogen, elixir-format
 msgid "Detail label"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:106
+#: lib/storyteller_web/live/campaign_live/new.html.heex:115
 #, elixir-autogen, elixir-format
 msgid "Detail value"
 msgstr ""
@@ -1598,12 +1598,12 @@ msgstr ""
 msgid "Every player character detail needs a value up to 500 characters."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:96
+#: lib/storyteller_web/live/campaign_live/new.html.heex:105
 #, elixir-autogen, elixir-format
 msgid "Health, skills, or role"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:80
+#: lib/storyteller_web/live/campaign_live/new.html.heex:89
 #, elixir-autogen, elixir-format
 msgid "No extra character details added."
 msgstr ""
@@ -1618,8 +1618,8 @@ msgstr ""
 msgid "Player character detail rows must be objects."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:62
-#: lib/storyteller_web/live/campaign_live/new.html.heex:555
+#: lib/storyteller_web/live/campaign_live/new.html.heex:65
+#: lib/storyteller_web/live/campaign_live/new.html.heex:595
 #, elixir-autogen, elixir-format
 msgid "Player character details"
 msgstr ""
@@ -1634,74 +1634,74 @@ msgstr ""
 msgid "The label 'description' is reserved for the character summary."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:671
+#: lib/storyteller_web/live/session_live/show.ex:888
 #, elixir-autogen, elixir-format
 msgid "Character details updated"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:300
-#: lib/storyteller_web/live/session_live/show.ex:320
+#: lib/storyteller_web/live/session_live/show.ex:354
+#: lib/storyteller_web/live/session_live/show.ex:374
 #, elixir-autogen, elixir-format
 msgid "Reason: %{reason}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:664
+#: lib/storyteller_web/live/session_live/show.ex:881
 #, elixir-autogen, elixir-format
 msgid "Character introduced"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:872
+#: lib/storyteller_web/live/session_live/show.ex:1089
 #, elixir-autogen, elixir-format
 msgid "Name"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:88
+#: lib/storyteller_web/live/session_live/show.html.heex:131
 #, elixir-autogen, elixir-format
 msgid "Session sections"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:705
+#: lib/storyteller_web/live/session_live/show.ex:922
 #, elixir-autogen, elixir-format
 msgid "%{label}: %{before} → %{after}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:722
+#: lib/storyteller_web/live/session_live/show.ex:939
 #, elixir-autogen, elixir-format
 msgid "Campaign value changed"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:715
+#: lib/storyteller_web/live/session_live/show.ex:932
 #, elixir-autogen, elixir-format
 msgid "Change: %{change}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:719
+#: lib/storyteller_web/live/session_live/show.ex:936
 #, elixir-autogen, elixir-format
 msgid "Change: set to %{value}"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:274
+#: lib/storyteller_web/live/session_live/show.html.heex:333
 #, elixir-autogen, elixir-format
 msgid "Earlier campaign story"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:106
+#: lib/storyteller_web/live/session_live/show.ex:132
 #, elixir-autogen, elixir-format
 msgid "Earlier story could not be loaded."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:270
+#: lib/storyteller_web/live/session_live/show.html.heex:329
 #, elixir-autogen, elixir-format
 msgid "Load earlier story"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:287
+#: lib/storyteller_web/live/session_live/show.html.heex:346
 #, elixir-autogen, elixir-format
 msgid "Recent campaign story"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:96
-#: lib/storyteller_web/live/session_live/show.html.heex:308
+#: lib/storyteller_web/live/session_live/show.html.heex:139
+#: lib/storyteller_web/live/session_live/show.html.heex:367
 #, elixir-autogen, elixir-format
 msgid "Your turn"
 msgstr ""
@@ -1734,22 +1734,73 @@ msgstr ""
 msgid "Optional"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:605
+#: lib/storyteller_web/live/session_live/show.ex:690
 #, elixir-autogen, elixir-format
 msgid "Your turn is complete."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:70
+#: lib/storyteller_web/live/session_live/show.html.heex:62
 #, elixir-autogen, elixir-format
-msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. If a limit blocks a turn, Storyteller preserves it so you can retry after the limit resets."
+msgid "ChatGPT plan requests are paused"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:1020
+#: lib/storyteller_web/live/session_live/show.ex:183
 #, elixir-autogen, elixir-format
-msgid "The ChatGPT plan has reached its current usage limit. Wait for it to reset, then retry this saved turn."
+msgid "ChatGPT plan requests are paused. Check Usage and resume before retrying this turn."
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.html.heex:218
+#: lib/storyteller_web/live/session_live/show.ex:152
+#: lib/storyteller_web/live/session_live/show.ex:434
 #, elixir-autogen, elixir-format
-msgid "Retry after usage resets"
+msgid "ChatGPT plan requests are paused. Check Usage and resume before starting a turn."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.html.heex:64
+#, elixir-autogen, elixir-format
+msgid "ChatGPT reported a plan usage limit, so Storyteller paused game-master requests in every session. Check your Usage settings, then resume when you believe requests are available again. Resuming only clears the pause; retry a saved turn separately."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.ex:1104
+#, elixir-autogen, elixir-format
+msgid "ChatGPT reported a plan usage limit, so requests are paused in every session. Check Usage settings, resume when you believe requests are available, then retry this saved turn."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.html.heex:74
+#, elixir-autogen, elixir-format
+msgid "Open ChatGPT Usage settings"
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:24
+#, elixir-autogen, elixir-format
+msgid "Plan requests are paused across all sessions. Check Usage settings, then resume from a session when you believe requests are available."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.ex:97
+#, elixir-autogen, elixir-format
+msgid "Plan requests are resumed. Retry a saved turn when you are ready."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.html.heex:79
+#, elixir-autogen, elixir-format
+msgid "Resume requests"
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.ex:446
+#, elixir-autogen, elixir-format
+msgid "The ChatGPT plan pause could not be checked. Please try again."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.ex:106
+#, elixir-autogen, elixir-format
+msgid "The account-wide pause could not be cleared. Please try again."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:82
+#, elixir-autogen, elixir-format
+msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. When ChatGPT reports a plan usage limit, Storyteller pauses game-master requests across all sessions. Check ChatGPT Usage settings, then resume from a session when you believe requests are available and retry the saved turn."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:66
+#, elixir-autogen, elixir-format
+msgid "After reviewing access in ChatGPT, you’ll return here. If the preview accepts this app and account, start testing in Amber Orchard."
 msgstr ""

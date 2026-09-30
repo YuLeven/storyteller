@@ -53,6 +53,33 @@
     {@turn_announcement}
   </p>
 
+  <section
+    :if={@plan_usage_paused?}
+    id="plan-usage-paused"
+    role="status"
+    class="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4"
+  >
+    <h2 class="font-semibold text-amber-950">{gettext("ChatGPT plan requests are paused")}</h2>
+    <p class="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
+      {gettext(
+        "ChatGPT reported a plan usage limit, so Storyteller paused game-master requests in every session. Check your Usage settings, then resume when you believe requests are available again. Resuming only clears the pause; retry a saved turn separately."
+      )}
+    </p>
+    <div class="mt-3 flex flex-wrap items-center gap-4">
+      <a
+        href="https://chatgpt.com/settings/usage"
+        target="_blank"
+        rel="noreferrer"
+        class="text-sm font-semibold text-amber-950 underline underline-offset-2"
+      >{gettext("Open ChatGPT Usage settings")}</a>
+      <button
+        type="button"
+        phx-click="resume-plan-usage"
+        class="rounded-lg bg-amber-900 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-950"
+      >{gettext("Resume requests")}</button>
+    </div>
+  </section>
+
   <div :if={@projection} class="space-y-6">
     <section
       id="campaign-panels"
@@ -205,7 +232,7 @@
           </p>
           <div class="mt-4 flex flex-wrap items-center gap-3">
             <button
-              :if={retryable?(@current_turn) && playable?(@session)}
+              :if={retryable?(@current_turn) && playable?(@session) && !@plan_usage_paused?}
               type="button"
               phx-click="retry-turn"
               phx-value-turn_id={@current_turn.id}
@@ -213,11 +240,7 @@
               class="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-900 disabled:cursor-wait disabled:opacity-60"
             >{if @worker_turn_id == @current_turn.id,
               do: gettext("Retrying…"),
-              else:
-                if(@current_turn.failure_code == "usage_limit",
-                  do: gettext("Retry after usage resets"),
-                  else: gettext("Retry this turn")
-                )}</button>
+              else: gettext("Retry this turn")}</button>
             <.link
               :if={reconnect_needed?(@current_turn.failure_code)}
               navigate="/auth/connect"
@@ -261,6 +284,7 @@
             type="button"
             phx-click="roll-d20"
             phx-value-turn_id={@current_turn.id}
+            disabled={@plan_usage_paused?}
             class="mt-4 inline-flex items-center gap-2 rounded-lg bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-900"
           >
             <span aria-hidden="true">⚄</span> {gettext("Roll D20")}
@@ -362,7 +386,9 @@
               phx-debounce="blur"
               placeholder={gettext("Describe your character's action or words…")}
               disabled={
-                @current_turn && @current_turn.status in [:pending, :resolving, :awaiting_roll]
+                @plan_usage_paused? ||
+                  (@current_turn &&
+                     @current_turn.status in [:pending, :resolving, :awaiting_roll])
               }
               class="mt-2 block w-full resize-y rounded-xl border-stone-300 bg-white shadow-sm placeholder:text-stone-400 focus:border-amber-700 focus:ring-amber-700 disabled:bg-stone-100"
             >{@draft}</textarea>
@@ -374,6 +400,7 @@
                 type="submit"
                 disabled={
                   !playable?(@session) ||
+                    @plan_usage_paused? ||
                     (@current_turn &&
                        @current_turn.status in [:pending, :resolving, :awaiting_roll])
                 }

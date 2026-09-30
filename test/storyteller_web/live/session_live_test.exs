@@ -29,12 +29,27 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     previous_roll_source = Application.get_env(:storyteller, :d20_roll_source, :not_configured)
 
+    previous_plan_usage_store =
+      Application.get_env(:storyteller, :plan_usage_token_store, :not_configured)
+
+    pause_store_directory =
+      Path.join(System.tmp_dir!(), "storyteller-live-pause-#{Ecto.UUID.generate()}")
+
+    pause_store =
+      start_supervised!(
+        {TokenStore, path: Path.join(pause_store_directory, "state.json"), name: nil}
+      )
+
+    Application.put_env(:storyteller, :plan_usage_token_store, pause_store)
+
     Application.put_env(:storyteller, :gm_provider, FakeProvider)
 
     on_exit(fn ->
       restore_env(:gm_provider, previous_provider)
       restore_env(:session_live_test_handler, previous_handler)
       restore_env(:d20_roll_source, previous_roll_source)
+      restore_env(:plan_usage_token_store, previous_plan_usage_store)
+      File.rm_rf(pause_store_directory)
     end)
 
     :ok
@@ -826,21 +841,27 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
   end
 
-  test "usage-limit recovery tells players to wait and retry the saved turn in their locale", %{
+  test "usage-limit recovery explains the shared pause and explicit resume in each locale", %{
     conn: conn
   } do
-    for {locale, guidance, retry_label} <- [
+    test_pid = self()
+
+    for {locale, guidance, resume_label, retry_label} <- [
           {"es",
-           "El plan de ChatGPT ha alcanzado su límite de uso actual. Espera a que se restablezca y vuelve a intentar este turno guardado.",
-           "Reintentar cuando se restablezca el uso"},
+           "ChatGPT informó de un límite de uso del plan, así que las solicitudes están pausadas en todas las sesiones. Revisa los ajustes de Uso, reanuda cuando creas que las solicitudes vuelven a estar disponibles y luego vuelve a intentar este turno guardado.",
+           "Reanudar solicitudes", "Reintentar este turno"},
           {"fr",
-           "Le forfait ChatGPT a atteint sa limite d’utilisation actuelle. Attendez qu’elle soit réinitialisée, puis réessayez ce tour sauvegardé.",
-           "Réessayer après le rétablissement de l’utilisation"}
+           "ChatGPT a signalé une limite d’utilisation du forfait ; les requêtes sont donc suspendues dans toutes les sessions. Consultez les paramètres d’utilisation, reprenez les requêtes lorsque vous pensez qu’elles sont de nouveau disponibles, puis réessayez ce tour sauvegardé.",
+           "Reprendre les requêtes", "Réessayer ce tour"}
         ] do
       campaign = campaign_fixture()
       [session] = campaign.sessions
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
-      set_handler(fn _request -> {:error, :usage_limit} end)
+
+      set_handler(fn _request ->
+        send(test_pid, :fake_usage_limit_call)
+        {:error, :usage_limit}
+      end)
 
       {:ok, view, _html} = live(conn, session_path(campaign, session))
 
@@ -849,12 +870,144 @@ defmodule StorytellerWeb.SessionLiveTest do
       |> render_submit()
 
       assert wait_until(fn -> has_element?(view, "#turn-error", guidance) end)
-      assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+      assert_receive :fake_usage_limit_call, 1_000
+
+      assert has_element?(
+               view,
+               "#plan-usage-paused button[phx-click='resume-plan-usage']",
+               resume_label
+             )
+
+      refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
       assert render(view) =~ "I check whether the road is open."
+
+      view
+      |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
+      |> render_click()
+
+      refute has_element?(view, "#plan-usage-paused")
+      assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+      refute_receive :fake_usage_limit_call, 50
     end
   end
 
-  test "after-roll failure shows the saved D20 result and retry reuses the same turn", %{
+  test "a plan limit blocks stale submissions in other sessions until a manual retry relatches it",
+       %{
+         conn: conn
+       } do
+    first_campaign = campaign_fixture(%{title: "First Plan-Limit Table"})
+    [first_session] = first_campaign.sessions
+    second_campaign = campaign_fixture(%{title: "Second Plan-Limit Table"})
+    [second_session] = second_campaign.sessions
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+    test_pid = self()
+
+    set_handler(fn _request ->
+      call_number = Agent.get_and_update(calls, fn count -> {count + 1, count + 1} end)
+      send(test_pid, {:fake_plan_request, call_number})
+      {:error, :usage_limit}
+    end)
+
+    {:ok, first_view, _html} = live(conn, session_path(first_campaign, first_session))
+    {:ok, second_view, _html} = live(conn, session_path(second_campaign, second_session))
+
+    first_view
+    |> form("#turn-composer", turn: %{input: "I inspect the old road."})
+    |> render_submit()
+
+    assert_receive {:fake_plan_request, 1}, 1_000
+    assert wait_until(fn -> has_element?(first_view, "#turn-error", "old road") end)
+    first_turn = Play.public_current_turn(first_campaign.id)
+    assert first_turn.failure_code == "usage_limit"
+    assert first_turn.player_input == "I inspect the old road."
+
+    assert {:error, :plan_usage_paused} =
+             Play.submit_turn(
+               second_campaign.id,
+               second_session.id,
+               "stale-api-submit",
+               "I should be blocked in the service too.",
+               token_store: Application.fetch_env!(:storyteller, :plan_usage_token_store),
+               provider: fn _request ->
+                 send(test_pid, :provider_called_while_paused)
+                 {:error, :provider_error}
+               end
+             )
+
+    assert {:error, :plan_usage_paused} =
+             Play.retry_turn(first_turn.id,
+               token_store: Application.fetch_env!(:storyteller, :plan_usage_token_store),
+               provider: fn _request ->
+                 send(test_pid, :provider_called_while_paused)
+                 {:error, :provider_error}
+               end
+             )
+
+    second_view
+    |> form("#turn-composer", turn: %{input: "I enter the second table."})
+    |> render_submit()
+
+    assert has_element?(second_view, "#plan-usage-paused")
+    assert is_nil(Play.public_current_turn(second_campaign.id))
+    refute_receive :provider_called_while_paused, 100
+    refute_receive {:fake_plan_request, 2}, 100
+
+    second_view
+    |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
+    |> render_click()
+
+    refute Play.plan_usage_paused?(
+             token_store: Application.fetch_env!(:storyteller, :plan_usage_token_store)
+           )
+
+    refute_receive {:fake_plan_request, 2}, 100
+
+    {:ok, resumed_view, _html} = live(conn, session_path(first_campaign, first_session))
+
+    assert has_element?(
+             resumed_view,
+             "#turn-error button[phx-click='retry-turn']",
+             "Retry this turn"
+           )
+
+    resumed_view
+    |> element("#turn-error button[phx-click='retry-turn']")
+    |> render_click()
+
+    assert_receive {:fake_plan_request, 2}, 1_000
+    assert wait_until(fn -> has_element?(resumed_view, "#plan-usage-paused") end)
+
+    assert Play.plan_usage_paused?(
+             token_store: Application.fetch_env!(:storyteller, :plan_usage_token_store)
+           )
+
+    relatched_turn = Play.public_current_turn(first_campaign.id)
+    assert relatched_turn.id == first_turn.id
+    assert relatched_turn.player_input == first_turn.player_input
+    assert relatched_turn.failure_code == "usage_limit"
+    refute_receive {:fake_plan_request, 3}, 100
+  end
+
+  test "a generic provider failure does not latch the account-wide plan pause", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    set_handler(fn _request -> {:error, :provider_error} end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    view
+    |> form("#turn-composer", turn: %{input: "I ask about the distant lighthouse."})
+    |> render_submit()
+
+    assert wait_until(fn -> has_element?(view, "#turn-error") end)
+    refute has_element?(view, "#plan-usage-paused")
+
+    refute Play.plan_usage_paused?(
+             token_store: Application.fetch_env!(:storyteller, :plan_usage_token_store)
+           )
+  end
+
+  test "a plan limit after a D20 keeps its result and requires explicit resume before retry", %{
     conn: conn
   } do
     campaign = campaign_fixture()
@@ -886,7 +1039,7 @@ defmodule StorytellerWeb.SessionLiveTest do
         attempt = Agent.get_and_update(after_roll_attempts, fn value -> {value, value + 1} end)
 
         if attempt == 0 do
-          {:error, :timeout}
+          {:error, :usage_limit}
         else
           receive do
             :continue_retry -> :ok
@@ -939,7 +1092,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(
              view,
              "#turn-announcement",
-             "The game master took too long to answer. Your turn is saved."
+             "ChatGPT reported a plan usage limit"
            )
 
     assert has_element?(
@@ -947,6 +1100,19 @@ defmodule StorytellerWeb.SessionLiveTest do
              "#turn-error",
              "Retry continues this same turn with that result."
            )
+
+    assert Play.plan_usage_paused?(
+             token_store: Application.fetch_env!(:storyteller, :plan_usage_token_store)
+           )
+
+    assert has_element?(view, "#plan-usage-paused")
+
+    view
+    |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
+    |> render_click()
+
+    refute has_element?(view, "#plan-usage-paused")
+    refute_receive {:fake_gm_call, _, "after_roll", 17}, 50
 
     view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
     assert_receive {:fake_gm_call, retry_provider, "after_roll", 17}, 1_000

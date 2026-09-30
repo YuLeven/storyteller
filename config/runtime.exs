@@ -50,6 +50,9 @@ if config_env() == :prod do
 
   port = String.to_integer(System.get_env("PORT") || "4000")
 
+  config :storyteller, Storyteller.Auth.OAuth,
+    callback_uri: "http://127.0.0.1:#{port}/auth/callback"
+
   config :storyteller, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :storyteller, StorytellerWeb.Endpoint,

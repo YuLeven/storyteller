@@ -2,6 +2,7 @@ defmodule StorytellerWeb.AuthControllerTest do
   use StorytellerWeb.ConnCase, async: false
 
   alias Storyteller.Auth.{Credentials, TokenStore}
+  alias Storyteller.Settings
   alias StorytellerWeb.{AuthController, Router}
 
   test "connection page states the local MIT and plan-usage prerequisites", %{conn: conn} do
@@ -13,10 +14,22 @@ defmodule StorytellerWeb.AuthControllerTest do
     assert html =~ "does not use an API key or API credits"
 
     assert html =~
-             "If a limit blocks a turn, Storyteller preserves it so you can retry after the limit resets."
+             "When ChatGPT reports a plan usage limit, Storyteller pauses game-master requests across all sessions. Check ChatGPT Usage settings, then resume from a session when you believe requests are available and retry the saved turn."
 
     refute html =~ "Storyteller pauses play"
     assert html =~ "Continue with ChatGPT"
+    assert html =~ "After reviewing access in ChatGPT, you’ll return here."
+    assert html =~ "start testing in Amber Orchard."
+  end
+
+  test "connection handoff guidance is translated for Spanish and French", %{conn: conn} do
+    for {locale, translation} <- [
+          {"es", "Después de revisar el acceso en ChatGPT, volverás aquí."},
+          {"fr", "Après avoir examiné l’accès dans ChatGPT, vous reviendrez ici."}
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      assert conn |> recycle() |> get("/auth/connect") |> html_response(200) =~ translation
+    end
   end
 
   test "connected account page links to ChatGPT usage settings", %{conn: conn} do
