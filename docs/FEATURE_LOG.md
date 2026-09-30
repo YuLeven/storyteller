@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-09-30 — Make active sessions easy to resume
+
+- Campaign details now offer a prominent direct link back to the active session. When starting another session will complete it, the page says so and explains that the full story remains saved.
+- **Checked:** CampaignLive behavior verifies the resume destination, completion warning, and “Start another session” label; starting it preserves the previous session as completed. Locale tests cover the new copy in English, Spanish, and French.
+
 ## 2026-09-30 — Keep mobile scene context in one place
 
 - The sticky scene shortcut now points to the current place card, which already contains its surroundings and the people present. Removed the duplicate world-state card that repeated date, time, weather, and location from the compact header.

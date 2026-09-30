@@ -136,6 +136,28 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "The Keeper"
   end
 
+  test "active session controls explain resume and completion in every UI locale", %{conn: conn} do
+    campaign = campaign_fixture()
+
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
+    {:ok, _view, english_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert english_html =~ "Resume current session"
+    assert english_html =~ "Start another session"
+    assert english_html =~ "Starting another session completes the active session."
+
+    assert {:ok, _preference} = Settings.set_ui_locale("es")
+    {:ok, _view, spanish_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert spanish_html =~ "Reanudar la sesión actual"
+    assert spanish_html =~ "Iniciar otra sesión"
+    assert spanish_html =~ "La historia completa permanece guardada."
+
+    assert {:ok, _preference} = Settings.set_ui_locale("fr")
+    {:ok, _view, french_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert french_html =~ "Reprendre la session actuelle"
+    assert french_html =~ "Commencer une autre session"
+    assert french_html =~ "Toute son histoire reste enregistrée."
+  end
+
   test "the objectives board localizes statuses and excludes GM-private objectives", %{
     conn: conn
   } do

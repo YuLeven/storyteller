@@ -14,6 +14,8 @@ defmodule StorytellerWeb.CampaignLive.Show do
          |> push_navigate(to: ~p"/")}
 
       campaign ->
+        active_session = Enum.find(campaign.sessions, &(&1.status == :active))
+
         panels =
           case Panels.public_projection(campaign.id) do
             {:ok, %{panels: panels}} -> panels
@@ -24,6 +26,7 @@ defmodule StorytellerWeb.CampaignLive.Show do
          assign(socket,
            page_title: campaign.title,
            campaign: campaign,
+           active_session: active_session,
            panels: panels,
            session_title: "",
            session_error?: false

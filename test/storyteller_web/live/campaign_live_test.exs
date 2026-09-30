@@ -240,6 +240,17 @@ defmodule StorytellerWeb.CampaignLiveTest do
     {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}")
     assert html =~ first_session.title
 
+    assert html =~
+             "Starting another session completes the active session. Its full story stays saved."
+
+    assert has_element?(
+             view,
+             "a[href='/campaigns/#{campaign.id}/sessions/#{first_session.id}']",
+             "Resume current session"
+           )
+
+    assert has_element?(view, "button", "Start another session")
+
     assert has_element?(
              view,
              "a[href='/campaigns/#{campaign.id}/sessions/#{first_session.id}']",

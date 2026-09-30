@@ -6,7 +6,7 @@ This brief defines observable acceptance for the locally hosted, single-player S
 
 - The library lists the player's campaigns and provides clear actions to create, open/resume, and archive one. Empty and loading states explain the next available action.
 - Each campaign shows enough identifying information to distinguish it from others and to choose the correct one. Opening or switching campaigns never mixes their characters, timeline, or world state.
-- A campaign exposes its sessions as resumable segments of one continuous campaign history. Starting or switching sessions preserves prior turns and canonical state. The exact session creation and archive presentation remain open choices (see below).
+- A campaign exposes its sessions as resumable segments of one continuous campaign history. Starting or switching sessions preserves prior turns and canonical state. Campaign details give direct access to the active session and explain when starting another will complete it.
 
 ## Create campaign
 
