@@ -15,7 +15,19 @@ defmodule Storyteller.Play do
   alias Storyteller.Auth.TokenStore
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
-  alias Storyteller.Play.{Character, Event, LocationChanges, Objective, Place, Roll, State, Turn}
+
+  alias Storyteller.Play.{
+    Character,
+    ContinuityEntry,
+    Event,
+    LocationChanges,
+    Objective,
+    Place,
+    Roll,
+    State,
+    Turn
+  }
+
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
@@ -30,6 +42,9 @@ defmodule Storyteller.Play do
   @max_provider_output_bytes 100_000
   @max_history_events 40
   @max_history_summary_chars 6_000
+  @max_active_continuity_entries 80
+  @max_total_continuity_entries 100
+  @max_continuity_entry_details_chars 500
 
   @gm_policy """
   You are the game master for this campaign. The campaign setting, narration
@@ -47,6 +62,13 @@ defmodule Storyteller.Play do
   motives, relationships, work, and speech; their visible activity may continue
   between player actions, while private intentions remain private until play
   reveals them.
+
+  Make each response one coherent, concise beat. Narrate the meaningful outcome
+  and scene change, then return control clearly. Include NPC dialogue or activity
+  only when it changes the moment, reveals meaningful character behavior, or
+  gives the player useful information. Skip filler and repetition of unchanged
+  behavior. Concision must not omit the required in-world date, established
+  consequences, or any canonical change that the turn requires.
 
   The supplied public and GM-private objectives are canonical commitments.
   Do not invent goals or imply that one is complete just because time passed,
@@ -127,6 +149,21 @@ defmodule Storyteller.Play do
   operation. Status is open, completed, or abandoned. Do not duplicate IDs or
   treat an unsupported completion as established.
 
+  Use continuity_changes only for durable facts, relationships, and
+  commitments that are not already represented by character facts, objectives,
+  inventory, places, or campaign panels. A create operation uses {type: "create",
+  entry: {entry_id, kind, title, details, visibility}, reason}; kind is fact,
+  relationship, or commitment, and new entries start active. An update uses
+  {type: "update", entry_id, title?, details?, status?, reason}; status is
+  active, resolved, or retracted. Use one operation per entry in a turn, stable
+  IDs, and a concise reason grounded in the action or established history.
+  Visibility and kind do not change after creation. Resolved or retracted entries
+  are final; never reopen or recreate a terminal entry under a new ID. Closed
+  entries remain in the supplied continuity history as closed facts. Never store
+  transient scene description or facts already held in a canonical ledger. Keep
+  GM-private entry content and reasons out of public narration, dialogue,
+  activities, and changes.
+
   You may update the player's character details only when the action establishes
   a durable public fact about them. Add or revise flexible visible_facts such as
   health, skills, or responsibilities, preserving unrelated facts. A player
@@ -160,7 +197,8 @@ defmodule Storyteller.Play do
   {type: "update", item_id: id, properties: object, reason: text} to patch
   flexible properties without changing other item fields),
   objective_changes (an ordered array of create/update operations described
-  above), and roll_request (null or {test, difficulty?, target?}).
+  above), continuity_changes (an array of continuity create/update operations
+  described above), and roll_request (null or {test, difficulty?, target?}).
   Change only fields listed in the supplied panel definitions, preserve their
   types and units, and do not reveal or write a GM-private field into public
   narration or changes. Use existing GM character speaker_id values or IDs
@@ -177,6 +215,7 @@ defmodule Storyteller.Play do
     :unsupported_capability,
     :account_ineligible,
     :reauth_required,
+    :authorization_configuration,
     :stream_incomplete,
     :timeout,
     :provider_error,
@@ -336,6 +375,7 @@ defmodule Storyteller.Play do
          places: places,
          inventory: Inventory.public_projection(Map.get(state.public_state, "inventory", [])),
          objectives: public_objectives(campaign_id),
+         continuity_entries: public_continuity_entries(campaign_id),
          characters: characters,
          panels: panel_projection.panels
        }}
@@ -379,18 +419,28 @@ defmodule Storyteller.Play do
         session_id -> from event in query, where: event.session_id == ^session_id
       end
 
-    query =
-      if is_integer(before_sequence) do
-        from event in query, where: event.sequence < ^before_sequence
-      else
-        query
-      end
+    current_public_continuity =
+      Repo.all(
+        from entry in ContinuityEntry,
+          where: entry.campaign_id == ^campaign_id and entry.visibility == :public,
+          select: {entry.entry_id, entry.status, entry.source_event_id}
+      )
+      |> Map.new(fn {entry_id, status, source_event_id} ->
+        {entry_id, %{status: Atom.to_string(status), source_event_id: source_event_id}}
+      end)
 
-    rows = Repo.all(from event in query, limit: ^(limit + 1))
-    has_earlier? = length(rows) > limit
+    {visible_rows, has_earlier?} =
+      collect_public_timeline_rows(
+        query,
+        current_public_continuity,
+        before_sequence,
+        limit + 1,
+        [],
+        500
+      )
 
     events =
-      rows
+      visible_rows
       |> Enum.take(limit)
       |> Enum.reverse()
       |> Enum.with_index(1)
@@ -410,6 +460,73 @@ defmodule Storyteller.Play do
 
     {:ok, %{events: events, has_earlier?: has_earlier?}}
   end
+
+  defp collect_public_timeline_rows(
+         query,
+         current_public_continuity,
+         cursor,
+         needed,
+         acc,
+         chunk_size
+       ) do
+    query =
+      if is_integer(cursor),
+        do: from(event in query, where: event.sequence < ^cursor),
+        else: query
+
+    rows = Repo.all(from event in query, limit: ^chunk_size)
+
+    visible_rows =
+      rows
+      |> Enum.map(&current_public_timeline_event(&1, current_public_continuity))
+      |> Enum.reject(&is_nil/1)
+
+    collected = acc ++ visible_rows
+
+    cond do
+      length(collected) >= needed ->
+        {Enum.take(collected, needed), true}
+
+      length(rows) < chunk_size ->
+        {collected, false}
+
+      true ->
+        next_cursor = List.last(rows).sequence
+
+        collect_public_timeline_rows(
+          from(event in query, where: event.sequence < ^next_cursor),
+          current_public_continuity,
+          nil,
+          needed,
+          collected,
+          chunk_size
+        )
+    end
+  end
+
+  defp current_public_timeline_event(
+         %Event{payload: %{"continuity_changes" => changes}} = event,
+         current_entries
+       )
+       when is_list(changes) do
+    latest_changes =
+      Enum.filter(changes, fn
+        %{"entry" => %{"entry_id" => entry_id, "status" => status}} ->
+          case Map.get(current_entries, entry_id) do
+            %{status: ^status, source_event_id: source_event_id} -> source_event_id == event.id
+            _ -> false
+          end
+
+        _ ->
+          false
+      end)
+
+    if latest_changes == [],
+      do: nil,
+      else: %{event | payload: Map.put(event.payload, "continuity_changes", latest_changes)}
+  end
+
+  defp current_public_timeline_event(event, _current_entries), do: event
 
   @doc "Returns the newest player-visible turn that still needs attention."
   def public_current_turn(campaign_id) do
@@ -843,9 +960,32 @@ defmodule Storyteller.Play do
       {sequence, _events} =
         append_proposal_events(state, turn, proposal, include_action?)
 
+      continuity_event_state = %{
+        state
+        | public_state:
+            state.public_state
+            |> canonical_public_world(turn.campaign_id)
+            |> deep_merge(proposal.public_changes)
+            |> canonical_public_world()
+      }
+
+      {sequence, continuity_source_events} =
+        append_continuity_change_events(
+          continuity_event_state,
+          turn,
+          proposal.continuity_changes,
+          sequence
+        )
+
       state_changes? = proposal_has_state_changes?(proposal)
 
       apply_objective_changes!(turn.campaign_id, proposal.objective_changes)
+
+      apply_continuity_changes!(
+        turn.campaign_id,
+        proposal.continuity_changes,
+        continuity_source_events
+      )
 
       updated_state =
         if state_changes? or proposal.memory_update do
@@ -1136,6 +1276,64 @@ defmodule Storyteller.Play do
       nil,
       %{objective_audit: Enum.map(changes, &private_objective_change/1)}
     )
+  end
+
+  defp append_continuity_change_events(_state, _turn, [], sequence),
+    do: {sequence, %{}}
+
+  defp append_continuity_change_events(state, turn, changes, sequence) do
+    grouped =
+      Enum.group_by(changes, fn change ->
+        if change.snapshot.visibility == :public,
+          do: :public,
+          else: :gm_private
+      end)
+
+    [:public, :gm_private]
+    |> Enum.reduce({sequence, %{}}, fn visibility, {current_sequence, source_events} ->
+      case Map.get(grouped, visibility, []) do
+        [] ->
+          {current_sequence, source_events}
+
+        visible_changes ->
+          event_changes =
+            Enum.map(visible_changes, &continuity_event_change(&1, visibility))
+
+          next_sequence =
+            append_event!(
+              %{state | event_sequence: current_sequence},
+              turn,
+              :state_change,
+              visibility,
+              nil,
+              %{continuity_changes: event_changes}
+            )
+
+          event = Repo.get_by!(Event, campaign_id: turn.campaign_id, sequence: next_sequence)
+
+          source_events =
+            Enum.reduce(visible_changes, source_events, fn change, acc ->
+              Map.put(acc, change.entry_id, event.id)
+            end)
+
+          {next_sequence, source_events}
+      end
+    end)
+  end
+
+  defp continuity_event_change(change, :public) do
+    %{
+      "type" => Atom.to_string(change.type),
+      "entry" => public_continuity_entry_values(change.snapshot)
+    }
+  end
+
+  defp continuity_event_change(change, :gm_private) do
+    %{
+      "type" => Atom.to_string(change.type),
+      "entry" => private_continuity_entry_values(change.snapshot),
+      "reason" => change.reason
+    }
   end
 
   defp public_objective_change(change) do
@@ -1505,6 +1703,39 @@ defmodule Storyteller.Play do
     end)
   end
 
+  defp apply_continuity_changes!(_campaign_id, [], _source_events), do: :ok
+
+  defp apply_continuity_changes!(campaign_id, changes, source_events) do
+    Enum.each(changes, fn change ->
+      source_event_id = Map.fetch!(source_events, change.entry_id)
+
+      case change.type do
+        :create ->
+          attrs =
+            change.attrs
+            |> Map.put(:campaign_id, campaign_id)
+            |> Map.put(:entry_id, change.entry_id)
+            |> Map.put(:introduced_by_event_id, source_event_id)
+            |> Map.put(:source_event_id, source_event_id)
+
+          insert_or_rollback!(ContinuityEntry.changeset(%ContinuityEntry{}, attrs))
+
+        :update ->
+          entry =
+            Repo.one!(
+              from candidate in ContinuityEntry,
+                where:
+                  candidate.campaign_id == ^campaign_id and
+                    candidate.entry_id == ^change.entry_id,
+                lock: "FOR UPDATE"
+            )
+
+          attrs = Map.put(change.attrs, :source_event_id, source_event_id)
+          update_or_rollback!(ContinuityEntry.changeset(entry, attrs))
+      end
+    end)
+  end
+
   defp set_visible_activity!(campaign_id, speaker_id, activity) do
     character = Repo.get_by!(Character, campaign_id: campaign_id, speaker_id: speaker_id)
 
@@ -1516,7 +1747,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes objective_changes roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes objective_changes continuity_changes roll_request)
 
     cond do
       not unique_normalized_keys?(proposal) -> {:error, :invalid_response}
@@ -1564,6 +1795,11 @@ defmodule Storyteller.Play do
              field(proposal, :objective_changes, []),
              turn.campaign_id
            ),
+         {:ok, continuity_changes} <-
+           validate_continuity_changes(
+             field(proposal, :continuity_changes, []),
+             turn.campaign_id
+           ),
          {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
@@ -1571,7 +1807,8 @@ defmodule Storyteller.Play do
            (map_size(public_changes) > 0 or map_size(private_changes) > 0 or
               panel_changes != [] or character_creations != [] or character_updates != [] or
               inventory_changes != [] or
-              location_changes != [] or objective_changes != []) do
+              location_changes != [] or objective_changes != [] or
+              continuity_changes != []) do
         {:error, :invalid_response}
       else
         {:ok,
@@ -1587,6 +1824,7 @@ defmodule Storyteller.Play do
            inventory_changes: inventory_changes,
            location_changes: location_changes,
            objective_changes: objective_changes,
+           continuity_changes: continuity_changes,
            memory_update: memory_update,
            roll_request: roll_request
          }}
@@ -1952,6 +2190,217 @@ defmodule Storyteller.Play do
         {:ok, Map.put(objectives, change.objective_id, snapshot), normalized}
     end
   end
+
+  defp validate_continuity_changes(changes, campaign_id)
+       when is_list(changes) and length(changes) <= 50 do
+    entries =
+      Repo.all(from entry in ContinuityEntry, where: entry.campaign_id == ^campaign_id)
+      |> Map.new(&{&1.entry_id, continuity_entry_snapshot(&1)})
+
+    Enum.reduce_while(changes, {:ok, {entries, [], MapSet.new()}}, fn raw_change,
+                                                                      {:ok, {current, acc, seen}} ->
+      with {:ok, change} <- normalize_continuity_change(raw_change),
+           false <- MapSet.member?(seen, change.entry_id),
+           {:ok, next, normalized} <- apply_continuity_change(current, change),
+           true <- active_continuity_count(next) <= @max_active_continuity_entries,
+           true <- map_size(next) <= @max_total_continuity_entries do
+        {:cont, {:ok, {next, acc ++ [normalized], MapSet.put(seen, change.entry_id)}}}
+      else
+        _ -> {:halt, {:error, :invalid_response}}
+      end
+    end)
+    |> case do
+      {:ok, {_entries, normalized, _seen}} -> {:ok, normalized}
+      {:error, _reason} -> {:error, :invalid_response}
+    end
+  end
+
+  defp validate_continuity_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+
+  defp normalize_continuity_change(change) when is_map(change) do
+    type = field(change, :type)
+    reason = field(change, :reason)
+    keys = Enum.map(Map.keys(change), &key_name/1)
+
+    cond do
+      not unique_normalized_keys?(change) ->
+        {:error, :invalid_response}
+
+      not valid_continuity_reason?(reason) ->
+        {:error, :invalid_response}
+
+      type == "create" and Enum.all?(keys, &(&1 in ["type", "entry", "reason"])) ->
+        normalize_continuity_create(field(change, :entry), reason)
+
+      type == "update" and
+          Enum.all?(keys, &(&1 in ["type", "entry_id", "title", "details", "status", "reason"])) ->
+        normalize_continuity_update(change, reason)
+
+      true ->
+        {:error, :invalid_response}
+    end
+  end
+
+  defp normalize_continuity_change(_change), do: {:error, :invalid_response}
+
+  defp normalize_continuity_create(entry, reason) when is_map(entry) do
+    keys = Enum.map(Map.keys(entry), &key_name/1)
+    entry_id = field(entry, :entry_id)
+    kind = normalize_continuity_kind(field(entry, :kind))
+    title = field(entry, :title)
+    details = field(entry, :details)
+    visibility = normalize_objective_visibility(field(entry, :visibility))
+
+    cond do
+      not unique_normalized_keys?(entry) ->
+        {:error, :invalid_response}
+
+      Enum.any?(keys, &(&1 not in ["entry_id", "kind", "title", "details", "visibility"])) ->
+        {:error, :invalid_response}
+
+      not valid_continuity_entry_id?(entry_id) ->
+        {:error, :invalid_response}
+
+      is_nil(kind) or not valid_continuity_title?(title) or
+        not valid_continuity_details?(details) or is_nil(visibility) ->
+        {:error, :invalid_response}
+
+      true ->
+        attrs = %{
+          kind: kind,
+          title: title,
+          details: details,
+          status: :active,
+          visibility: visibility
+        }
+
+        {:ok,
+         %{
+           type: :create,
+           entry_id: entry_id,
+           attrs: attrs,
+           reason: reason,
+           visibility: visibility
+         }}
+    end
+  end
+
+  defp normalize_continuity_create(_entry, _reason), do: {:error, :invalid_response}
+
+  defp normalize_continuity_update(change, reason) do
+    entry_id = field(change, :entry_id)
+    keys = Enum.map(Map.keys(change), &key_name/1)
+    updates_present? = Enum.any?(keys, &(&1 in ["title", "details", "status"]))
+
+    with true <- valid_continuity_entry_id?(entry_id) and updates_present?,
+         {:ok, attrs} <- continuity_update_attrs(change, keys) do
+      {:ok, %{type: :update, entry_id: entry_id, attrs: attrs, reason: reason}}
+    else
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp continuity_update_attrs(change, keys) do
+    attrs = %{}
+
+    with {:ok, attrs} <- maybe_continuity_title(change, keys, attrs),
+         {:ok, attrs} <- maybe_continuity_details(change, keys, attrs),
+         {:ok, attrs} <- maybe_continuity_status(change, keys, attrs) do
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_continuity_title(change, keys, attrs) do
+    if "title" in keys do
+      title = field(change, :title)
+
+      if valid_continuity_title?(title),
+        do: {:ok, Map.put(attrs, :title, title)},
+        else: {:error, :invalid_response}
+    else
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_continuity_details(change, keys, attrs) do
+    if "details" in keys do
+      details = field(change, :details)
+
+      if valid_continuity_details?(details),
+        do: {:ok, Map.put(attrs, :details, details)},
+        else: {:error, :invalid_response}
+    else
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_continuity_status(change, keys, attrs) do
+    if "status" in keys do
+      case normalize_continuity_status(field(change, :status)) do
+        nil -> {:error, :invalid_response}
+        status -> {:ok, Map.put(attrs, :status, status)}
+      end
+    else
+      {:ok, attrs}
+    end
+  end
+
+  defp apply_continuity_change(entries, %{type: :create} = change) do
+    if Map.has_key?(entries, change.entry_id) do
+      {:error, :duplicate_continuity_entry_id}
+    else
+      snapshot = Map.merge(change.attrs, %{entry_id: change.entry_id})
+      normalized = Map.put(change, :snapshot, snapshot)
+      {:ok, Map.put(entries, change.entry_id, snapshot), normalized}
+    end
+  end
+
+  defp apply_continuity_change(entries, %{type: :update} = change) do
+    case Map.fetch(entries, change.entry_id) do
+      :error ->
+        {:error, :unknown_continuity_entry}
+
+      {:ok, %{status: status}} when status != :active ->
+        {:error, :closed_continuity_entry}
+
+      {:ok, current} ->
+        snapshot = Map.merge(current, change.attrs)
+        normalized = Map.put(change, :snapshot, snapshot)
+        {:ok, Map.put(entries, change.entry_id, snapshot), normalized}
+    end
+  end
+
+  defp active_continuity_count(entries) do
+    Enum.count(entries, fn {_entry_id, entry} -> entry.status == :active end)
+  end
+
+  defp valid_continuity_entry_id?(entry_id) do
+    is_binary(entry_id) and byte_size(entry_id) <= 100 and
+      Regex.match?(~r/\A[a-zA-Z0-9:_-]+\z/, entry_id)
+  end
+
+  defp valid_continuity_title?(title) do
+    is_binary(title) and String.trim(title) != "" and String.length(title) <= 120
+  end
+
+  defp valid_continuity_details?(details) do
+    is_binary(details) and String.trim(details) != "" and
+      String.length(details) <= @max_continuity_entry_details_chars
+  end
+
+  defp valid_continuity_reason?(reason) do
+    is_binary(reason) and String.trim(reason) != "" and String.length(reason) <= 500
+  end
+
+  defp normalize_continuity_kind("fact"), do: :fact
+  defp normalize_continuity_kind("relationship"), do: :relationship
+  defp normalize_continuity_kind("commitment"), do: :commitment
+  defp normalize_continuity_kind(_kind), do: nil
+
+  defp normalize_continuity_status("active"), do: :active
+  defp normalize_continuity_status("resolved"), do: :resolved
+  defp normalize_continuity_status("retracted"), do: :retracted
+  defp normalize_continuity_status(_status), do: nil
 
   defp valid_objective_id?(id) do
     is_binary(id) and byte_size(id) <= 100 and Regex.match?(~r/\A[a-zA-Z0-9:_-]+\z/, id)
@@ -2544,6 +2993,7 @@ defmodule Storyteller.Play do
         public_summary: state.public_history_summary,
         gm_private_summary: state.gm_private_history_summary
       },
+      continuity: continuity_context(turn.campaign_id),
       characters:
         Enum.map(characters, fn character ->
           %{
@@ -2923,7 +3373,7 @@ defmodule Storyteller.Play do
       proposal.panel_changes != [] or proposal.character_creations != [] or
       proposal.character_updates != [] or
       proposal.inventory_changes != [] or proposal.location_changes != [] or
-      proposal.objective_changes != [] or
+      proposal.objective_changes != [] or proposal.continuity_changes != [] or
       proposal.activities != [] or proposal.memory_update != nil
   end
 
@@ -2934,6 +3384,74 @@ defmodule Storyteller.Play do
         order_by: [asc: objective.inserted_at, asc: objective.objective_id]
     )
     |> Enum.map(&objective_projection/1)
+  end
+
+  defp public_continuity_entries(campaign_id) do
+    Repo.all(
+      from entry in ContinuityEntry,
+        where:
+          entry.campaign_id == ^campaign_id and entry.visibility == :public and
+            entry.status == :active,
+        order_by: [asc: entry.inserted_at, asc: entry.entry_id]
+    )
+    |> Enum.map(&continuity_entry_projection/1)
+  end
+
+  defp continuity_context(campaign_id) do
+    entries =
+      Repo.all(
+        from entry in ContinuityEntry,
+          join: source in Event,
+          on: source.id == entry.source_event_id and source.campaign_id == entry.campaign_id,
+          where: entry.campaign_id == ^campaign_id,
+          order_by: [asc: entry.inserted_at, asc: entry.entry_id],
+          select: {entry, source.sequence}
+      )
+
+    Enum.reduce(entries, %{public: [], gm_private: []}, fn {entry, source_sequence}, acc ->
+      entry_context =
+        entry
+        |> continuity_entry_snapshot()
+        |> Map.update!(:kind, &Atom.to_string/1)
+        |> Map.update!(:status, &Atom.to_string/1)
+        |> Map.update!(:visibility, &Atom.to_string/1)
+        |> Map.put(:source_sequence, source_sequence)
+
+      Map.update!(acc, entry.visibility, &(&1 ++ [entry_context]))
+    end)
+  end
+
+  defp continuity_entry_projection(entry) do
+    Map.take(continuity_entry_snapshot(entry), [:entry_id, :kind, :title, :details])
+  end
+
+  defp continuity_entry_snapshot(entry) do
+    %{
+      entry_id: field(entry, :entry_id),
+      kind: field(entry, :kind),
+      title: field(entry, :title),
+      details: field(entry, :details),
+      status: field(entry, :status),
+      visibility: field(entry, :visibility)
+    }
+  end
+
+  defp public_continuity_entry_values(entry) do
+    %{
+      "entry_id" => field(entry, :entry_id),
+      "kind" => Atom.to_string(field(entry, :kind)),
+      "title" => field(entry, :title),
+      "details" => field(entry, :details),
+      "status" => Atom.to_string(field(entry, :status))
+    }
+  end
+
+  defp private_continuity_entry_values(entry) do
+    Map.put(
+      public_continuity_entry_values(entry),
+      "visibility",
+      Atom.to_string(field(entry, :visibility))
+    )
   end
 
   defp objective_context(campaign_id, visibility) do

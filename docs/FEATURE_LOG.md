@@ -1,5 +1,33 @@
 # Feature log
 
+## 2026-09-30 — Keep turn replies readable and the desktop board in place
+
+- A newly saved player action now appears in the campaign story immediately while the GM resolves it, survives reconnect/reload, and disappears as a preview when its canonical event arrives. This keeps the player's own message visible during slow responses without duplicating it.
+- New GM narration, NPC dialogue/activity, and world changes arrive one beat at a time at 520ms intervals with a brief entrance animation. A visible “Show all new messages” control catches the player up; reduced-motion preference reveals the response immediately, and existing history does not replay on mount. Assistive technology gets one concise live announcement per event.
+- Loading older campaign history preserves the reader's scroll anchor. The story region opens at the latest post and follows new events only when already at the bottom.
+- Roomy desktop play uses a fixed viewport board: the story timeline is the only active vertical scroller, while the composer and scenario rail stay in place. The rail keeps location, current situation, tracked resources, and two actionable inventory rows visible; full narration remains in history, with detailed scene, inventory, objective, memory, and roster content available in accessible disclosures. Smaller viewports retain document scrolling to keep controls reachable.
+- Added Spanish and French labels for the new player-facing disclosures and inventory “see more” control. Campaign-authored story and item names remain unchanged.
+- Live browser QA on the separate Amber Orchard campaign at 1396×1244 confirmed the document is fixed, the story has independent overflow, the 927px world rail fits without overflow, and the hidden reveal controls are not displayed. A 390×844 check confirmed the mobile layout remains reachable and scrolls normally. No turn was submitted.
+- Read-only local route benchmark: five GETs each for `/`, `/campaigns/34`, and `/campaigns/34/sessions/35`; all returned 200. Medians were 0.645s, 0.624s, and 0.665s. The local sample includes Windows-to-WSL forwarding and is not a production performance target.
+- **Checks:** Full WSL suite **196 tests, 0 failures**; warnings-as-errors compile, format, gettext freshness, asset build, and `git diff --check` pass. The standalone timeline tests pass **4/4**. The development schema reports all migrations up, including `20260930000900_create_play_continuity_entries`.
+- Scene image pacing remains an open integration: Plus OAuth does not generate images. When a local or user-provided image source is selected, image cards should share the same reveal queue; no paid API image usage was added.
+
+## 2026-09-30 — Product goal added: keep state changes out of the conversation
+
+- The next play-flow iteration must make the story feel like a tabletop exchange between player, GM, and characters. The product goal is one coherent GM beat, natural character introductions, and state changes reflected in their panels rather than system-style memory/inventory/location/resource bubbles.
+- Date and weather changes should be narrated in the scene while their world-bar indicators update as canonical state. Character facts should be available in the character panel without a “new character” notice or stats readout.
+- Changed panels should use restrained, accessible animation as feedback, with reduced-motion behavior. The audit trail remains durable for consistency and recovery but is not shown as chat.
+- **Status:** added to `IMPLEMENTATION_PLAN.md`, `docs/GM_POLICY.md`, and `docs/UX_ACCEPTANCE.md`; not yet implemented. Scene-image pacing remains dependent on a local or player-supplied image source.
+
+## 2026-09-30 — Persist campaign continuity beyond model summaries
+
+- Added a campaign-scoped continuity ledger for durable facts, relationships, and commitments that do not belong in the existing objective, inventory, place, character-fact, or campaign-panel ledgers. Entries have stable IDs, a kind, public or GM-private visibility, active/resolved/retracted status, and same-campaign source-event provenance for both their introduction and latest update.
+- GM-proposed creates and updates are bounded, reasoned, validated against the existing ledger, and committed in the accepted turn transaction. Kind and visibility are immutable; closed entries cannot be reopened or recreated under a previously used ID. Invalid batches leave the turn's canonical state and timeline unchanged. Each campaign retains at most 100 entries total and 80 active entries; entry details are limited to 500 characters so GM context stays bounded.
+- Active and terminal entries are included in later-session GM context with their visibility, status, and latest source event sequence. The public projection includes only active public entries. Public timeline pages show only the latest source event for a public entry, including a resolution or retraction with no reason; earlier snapshots are suppressed. GM-private entries and their event history stay off all player surfaces.
+- Tightened the GM writing policy to make each response one coherent, concise beat, use NPC dialogue/activity when it adds something to the moment, skip filler and repeated behavior, and return control clearly without omitting canonical changes or the in-world date.
+- **Prompt-quality observation:** manual review of the separate QA campaign noted repeated latch/awning descriptions. The writing guidance now directly addresses repetition; subsequent gameplay review should confirm it improves output without dropping relevant state changes.
+- **Behavioral coverage:** Play tests verify stable source-event provenance, cross-session context, survival beyond the 40-event window, public/private isolation, latest-event-only public timeline output including a reason-free terminal update, immutable visibility, same-ID recreation rejection, the record cap, and all-or-nothing rollback. The coordinated final suite and build checks are recorded in the latest checkpoint entry.
+
 ## 2026-09-30 — Keep story reading in place and show the game clock
 
 - Made the story panel its own keyboard-scrollable region with a bounded height and contained overscroll. It opens at the newest post, follows new messages only while the player is already at the bottom, and preserves an upward reading position while earlier history is loaded. The scenario rail stays sticky and scrollable on wide screens.

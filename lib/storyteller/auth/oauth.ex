@@ -13,6 +13,15 @@ defmodule Storyteller.Auth.OAuth do
   @resource "https://api.openai.com/v1"
   @scopes "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
   @max_access_token_seconds 86_400
+  @terminal_refresh_errors ~w(
+                              invalid_grant
+                              invalid_token
+                              invalid_refresh_token
+                              token_expired
+                              refresh_token_expired
+                              refresh_token_invalidated
+                              refresh_token_reused
+                            )
 
   @doc "Starts a browser authorization attempt and returns its complete URL."
   def start_authorization(opts \\ []) do
@@ -433,14 +442,20 @@ defmodule Storyteller.Auth.OAuth do
   defp token_endpoint_error(_, _body), do: :identity_provider_unavailable
 
   defp refresh_endpoint_error(status, body) when status in [400, 401, 403] do
-    case HTTP.decode_json(body) do
-      {:ok, %{"error" => error}} when error in ["invalid_grant", "invalid_token"] ->
-        {:error, {:terminal_refresh, :invalid_grant}}
+    error_code =
+      case HTTP.decode_json(body) do
+        {:ok, %{"error" => error}} when is_binary(error) -> error
+        _ -> nil
+      end
 
-      _ when status in [401, 403] ->
+    cond do
+      error_code in @terminal_refresh_errors ->
+        {:error, {:terminal_refresh, error_code}}
+
+      status in [401, 403] ->
         {:error, {:terminal_refresh, :unauthorized}}
 
-      _ ->
+      true ->
         {:error, :temporary_auth_error}
     end
   end

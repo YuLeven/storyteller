@@ -11,7 +11,7 @@ defmodule Storyteller.Auth.OAuthTest do
 
     store = start_supervised!({TokenStore, path: path, name: nil})
 
-    %{store: store}
+    %{store: store, path: path}
   end
 
   test "first sign-in uses the dynamic client, PKCE, state, nonce, and only persists verified plan scopes",
@@ -306,6 +306,91 @@ defmodule Storyteller.Auth.OAuthTest do
              OAuth.access_token(Keyword.put(opts, :http, failing_http))
 
     assert TokenStore.credentials(context.store) == expired
+  end
+
+  for error_code <- [
+        "invalid_grant",
+        "invalid_token",
+        "invalid_refresh_token",
+        "token_expired",
+        "refresh_token_expired",
+        "refresh_token_invalidated",
+        "refresh_token_reused"
+      ] do
+    test "#{error_code} refresh responses clear unusable tokens and preserve the registration",
+         context do
+      original =
+        credentials_for(context.store, expires_at: System.system_time(:second) - 1)
+
+      assert :ok = TokenStore.put_credentials(original, context.store)
+
+      refresh_http = fn :post, url, _options ->
+        if url == FakeOIDC.token_endpoint() do
+          %{status: 400, body: Jason.encode!(%{"error" => unquote(error_code)})}
+        else
+          {:error, :unexpected_request}
+        end
+      end
+
+      opts = [store: context.store, http: refresh_http, oidc: FakeOIDC]
+
+      assert {:error, :reauth_required} = OAuth.access_token(opts)
+
+      assert %Credentials{} = cleared = TokenStore.credentials(context.store)
+      assert cleared.client_id == original.client_id
+      assert cleared.subject == original.subject
+      assert cleared.email == original.email
+      assert cleared.host_id == original.host_id
+      assert cleared.id_token == nil
+      assert cleared.access_token == nil
+      assert cleared.refresh_token == nil
+      assert cleared.expires_at == nil
+      assert cleared.scopes == []
+      refute Credentials.plan_usage_enabled?(cleared)
+
+      assert TokenStore.registration(context.store) == %{
+               client_id: original.client_id,
+               subject: original.subject,
+               email: original.email,
+               host_id: original.host_id
+             }
+
+      persisted = Jason.decode!(File.read!(context.path))
+      assert persisted["registration"]["client_id"] == original.client_id
+      assert persisted["credentials"]["access_token"] == nil
+      assert persisted["credentials"]["refresh_token"] == nil
+      assert persisted["credentials"]["id_token"] == nil
+
+      assert :ok = stop_supervised(TokenStore)
+      assert {:ok, restarted} = TokenStore.start_link(path: context.path, name: nil)
+      assert TokenStore.credentials(restarted).access_token == nil
+      assert TokenStore.registration(restarted).client_id == original.client_id
+      refute OAuth.status(store: restarted).connected?
+      assert OAuth.status(store: restarted).registered?
+
+      assert {:ok, authorization_url} =
+               OAuth.start_authorization(store: restarted, oidc: FakeOIDC)
+
+      authorization = query_params(authorization_url)
+      assert authorization["client_id"] == original.client_id
+      assert authorization["login_hint"] == original.email
+      refute Map.has_key?(authorization, "agent_name_hint")
+    end
+  end
+
+  test "an undocumented bad-request refresh error preserves credentials for bounded recovery",
+       context do
+    original = credentials_for(context.store, expires_at: System.system_time(:second) - 1)
+    assert :ok = TokenStore.put_credentials(original, context.store)
+
+    refresh_http = fn _method, _url, _options ->
+      %{status: 400, body: Jason.encode!(%{"error" => "invalid_client"})}
+    end
+
+    assert {:error, :temporary_auth_error} =
+             OAuth.access_token(store: context.store, http: refresh_http, oidc: FakeOIDC)
+
+    assert TokenStore.credentials(context.store) == original
   end
 
   test "disconnect revokes the refresh token and clears local credentials", context do

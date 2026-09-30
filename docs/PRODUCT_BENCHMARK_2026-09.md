@@ -47,6 +47,36 @@ On 2026-09-30, five read-only `curl` GETs per route to the running WSL developme
 
 This is an initial developer-machine response baseline, not a production performance claim or acceptance threshold. The measurements include localhost forwarding between Windows and WSL. All requests were reads against the fictional QA campaign; no action or campaign state was changed. Profile the request path before attributing the latency or setting a budget.
 
+### Recheck at commit `7314a7a`
+
+A second five-request read-only sample against the same WSL server and fictional QA campaign returned HTTP 200 for all 15 requests:
+
+| Route | Median | Observed range |
+| --- | ---: | ---: |
+| Campaign library (`/`) | 0.585 s | 0.579–0.590 s |
+| Amber Orchard campaign detail (`/campaigns/34`) | 0.590 s | 0.567–0.595 s |
+| Amber Orchard play session (`/campaigns/34/sessions/35`) | 0.593 s | 0.586–0.602 s |
+
+This confirms the routes remained responsive in that local sample; it is not a production SLA or a performance comparison under concurrent load. It was taken before the next continuity and play-flow changes, so repeat after those changes for a comparable post-change baseline.
+
+### Recheck after continuity, turn-pacing, and board-layout changes (2026-09-30)
+
+Five read-only `fetch` GETs per route to the same WSL development server returned HTTP 200 for all 15 requests:
+
+| Route | Median | Observed range |
+| --- | ---: | ---: |
+| Campaign library (`/`) | 0.645 s | 0.625–0.658 s |
+| Amber Orchard campaign detail (`/campaigns/34`) | 0.624 s | 0.618–0.650 s |
+| Amber Orchard play session (`/campaigns/34/sessions/35`) | 0.665 s | 0.635–0.990 s |
+
+This is a small localhost sample including Windows-to-WSL forwarding, not a production target. It changed no campaign state and made no GM/provider calls. The previous and current medians are close enough to keep profiling as a future task rather than infer a meaningful performance regression.
+
+## ChatGPT-plan media constraint
+
+The official [Sign in with ChatGPT preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) page says image generation is unsupported in the ChatGPT-plan Responses flow, even though some general API model pages list image-generation tools. Storyteller therefore cannot promise live, per-turn scene illustrations through the existing Plus OAuth connection. Any generated illustrations need a separate supported local image-generation path or user-provided campaign art; do not silently add API billing or switch this project away from the Plus-only constraint. The text GM continues through the supported streamed Responses path.
+
+Once a no-additional-billing image source is chosen, scene art should be attached to the relevant story beat and revealed in the same paced sequence as its narration, with a skip-to-latest control and reduced-motion support. That media-card behavior is not implemented yet; the current turn queue handles text and state events only.
+
 ## Apple's interaction guidance applied to the web app
 
 Apple's [Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/) are product guidance, not a visual theme to copy. Apple says feedback should help people understand current status, available next actions, and the result of an action; its [feedback guidance](https://developer.apple.com/design/human-interface-guidelines/feedback) recommends placing routine status near the content it describes and reserving disruptive alerts for consequential problems.

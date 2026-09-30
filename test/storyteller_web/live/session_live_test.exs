@@ -67,6 +67,81 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ premise
   end
 
+  test "campaign board shows durable public memory and omits GM-private continuity details", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "The cellar door remains sealed for another day.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         character_updates: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         continuity_changes: [
+           %{
+             "type" => "create",
+             "entry" => %{
+               "entry_id" => "campaign-glasshouse-promise",
+               "kind" => "commitment",
+               "title" => "The glasshouse promise",
+               "details" => "You promised to repair the glasshouse roof before the first frost.",
+               "visibility" => "public"
+             },
+             "reason" => "The keeper asks the player to honor the promise."
+           },
+           %{
+             "type" => "create",
+             "entry" => %{
+               "entry_id" => "gm-hidden-passage",
+               "kind" => "fact",
+               "title" => "Hidden north passage",
+               "details" => "The north cellar wall conceals a passage.",
+               "visibility" => "gm_private"
+             },
+             "reason" => "Keep the discovery secret until the player finds the latch."
+           }
+         ],
+         roll_request: nil
+       }}
+    end)
+
+    assert {:ok, _turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "campaign-memory-board",
+               "I check the cellar.",
+               provider: FakeProvider
+             )
+
+    {:ok, view, html} = live(conn, session_path(campaign, session))
+
+    assert has_element?(view, "#campaign-memory", "The glasshouse promise")
+    assert has_element?(view, "#campaign-memory", "before the first frost")
+    assert has_element?(view, "#story-timeline", "Campaign memory")
+    assert has_element?(view, "#story-timeline", "You promised to repair the glasshouse roof")
+    refute has_element?(view, "#campaign-memory", "Hidden north passage")
+    refute render(view) =~ "north cellar wall conceals a passage"
+    refute has_element?(view, "#campaign-memory details[open]")
+
+    memory_list_classes =
+      html
+      |> Floki.parse_document!()
+      |> Floki.find("#campaign-memory ul")
+      |> hd()
+      |> Floki.attribute("class")
+      |> hd()
+
+    refute "overflow-y-auto" in String.split(memory_list_classes)
+  end
+
   test "narrow session navigation targets the scene, story, and character board",
        %{
          conn: conn
@@ -84,7 +159,8 @@ defmodule StorytellerWeb.SessionLiveTest do
           "turn-composer-card",
           "current-place",
           "story-timeline",
-          "character-inventory"
+          "character-inventory",
+          "campaign-memory"
         ] do
       assert has_element?(view, "#session-sections a[href='##{target}']")
 
@@ -93,6 +169,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
 
     assert has_element?(view, "#session-sections a[href='#current-place']", "The scene")
+    assert has_element?(view, "#session-sections a[href='#campaign-memory']", "Campaign memory")
     refute has_element?(view, "#session-sections a[href='#world-state']")
 
     refute has_element?(view, "#session-sections a[href='#campaign-objectives']")
@@ -392,13 +469,17 @@ defmodule StorytellerWeb.SessionLiveTest do
     session = hd(campaign.sessions)
     {:ok, _state} = Play.initialize_campaign(campaign)
 
-    {:ok, _view, html} = live(conn, session_path(campaign, session))
+    {:ok, view, html} = live(conn, session_path(campaign, session))
 
     timeline = Floki.parse_document!(html) |> Floki.find("#story-timeline") |> hd()
     assert Floki.attribute(timeline, "tabindex") == ["0"]
     assert Floki.attribute(timeline, "phx-hook") == ["StoryTimeline"]
+    assert has_element?(view, "#story-reveal-controls[hidden]")
+    assert has_element?(view, "#story-reveal-announcement[role='status'][aria-live='polite']")
     assert html =~ "lg:sticky"
     assert html =~ "lg:overflow-y-auto"
+    assert html =~ "lg:overscroll-y-auto"
+    refute html =~ "overscroll-y-contain"
   end
 
   test "legacy time aliases appear once and agree across the player board", %{conn: conn} do
@@ -756,6 +837,77 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert "focus-visible:ring-2" in summary_classes
   end
 
+  test "play sidebar keeps at-a-glance context and quick item actions visible", %{conn: conn} do
+    campaign = campaign_fixture(%{starting_location: "The Observatory"})
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    inventory =
+      Enum.map(1..5, fn index ->
+        %{
+          "id" => "ration-#{index}",
+          "name" => "Ration #{index}",
+          "category" => "Food",
+          "quantity" => index,
+          "owner_id" => "player",
+          "visibility" => "public",
+          "properties" => %{}
+        }
+      end)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", inventory)
+      })
+    )
+
+    {:ok, projection} = Play.public_projection(campaign.id)
+    expected_visible_items = Enum.take(projection.inventory, 2)
+    [first_additional_item | _] = Enum.drop(projection.inventory, 2)
+
+    {:ok, view, html} = live(conn, session_path(campaign, session))
+
+    refute has_element?(view, "#campaign-objectives[open]")
+    assert has_element?(view, "#campaign-objectives > summary [role='heading']", "Objectives")
+    assert has_element?(view, "#current-place #current-situation")
+    refute has_element?(view, "#scene-details[open]")
+    assert has_element?(view, "#scene-details summary", "Scene details and people")
+    refute has_element?(view, "#campaign-characters[open]")
+    assert has_element?(view, "#campaign-characters > summary [role='heading']", "Characters")
+
+    at_a_glance_ids =
+      html
+      |> Floki.parse_document!()
+      |> Floki.find("#inventory-at-a-glance > li")
+      |> Enum.flat_map(&Floki.attribute(&1, "id"))
+
+    expected_visible_ids =
+      Enum.map(expected_visible_items, fn item ->
+        "inventory-item-" <> Map.fetch!(item, "id")
+      end)
+
+    assert at_a_glance_ids == expected_visible_ids
+
+    first_visible_id = "inventory-item-" <> Map.fetch!(hd(expected_visible_items), "id")
+
+    assert has_element?(
+             view,
+             "#inventory-at-a-glance ##{first_visible_id} button[phx-click]",
+             "Use in action"
+           )
+
+    refute has_element?(view, "#inventory-additional[open]")
+    assert has_element?(view, "#inventory-additional summary", "See 3 more")
+
+    first_additional_id = "inventory-item-" <> Map.fetch!(first_additional_item, "id")
+
+    assert has_element?(
+             view,
+             "#inventory-additional-list ##{first_additional_id} button[phx-click]"
+           )
+  end
+
   test "D20 is only generated after the validated roll request is clicked", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
@@ -830,11 +982,17 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert_receive {:fake_gm_call, initial_provider, %{"phase" => "initial"}}, 1_000
     assert has_element?(view, "#turn-status")
     assert has_element?(view, "#turn-announcement", "The game master is responding")
+    assert has_element?(view, "#composer-turn-status", "The game master is responding")
+    assert has_element?(view, "#story-pending-action", "I cross the bridge carefully.")
+    assert has_element?(view, "#turn-input[disabled]")
+    refute has_element?(view, "#story-timeline #event-1")
     refute has_element?(view, "#turn-status[aria-live]")
     send(initial_provider, :continue_resolution)
     assert wait_until(fn -> has_element?(view, "#roll-panel", "Agility") end)
     refute has_element?(view, "#roll-panel[aria-live]")
     assert has_element?(view, "#turn-announcement", "Roll requested: Agility")
+    assert has_element?(view, "#composer-turn-status", "Roll requested: Agility")
+    refute has_element?(view, "#story-pending-action")
     assert has_element?(view, "#story-timeline", "Agility")
     assert has_element?(view, "#story-timeline", "Difficulty: Hard")
     assert has_element?(view, "#story-timeline", "Target: 14")
@@ -844,19 +1002,99 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert_receive :d20_source_used, 1_000
     assert_receive {:fake_gm_call, after_roll_provider, %{"phase" => "after_roll"}}, 1_000
     assert has_element?(view, "#turn-announcement", "The game master is responding")
+    assert has_element?(view, "#composer-turn-status", "The game master is responding")
     assert has_element?(view, "#turn-announcement", "D20 result: 17")
     send(after_roll_provider, :continue_resolution)
     assert wait_until(fn -> render(view) =~ "You steady your footing and reach the far side." end)
     assert has_element?(view, "#turn-announcement", "Your turn is complete.")
+    assert has_element?(view, "#composer-turn-status", "Your turn is complete.")
+    refute has_element?(view, "#story-pending-action")
 
     html = render(view)
     assert html =~ "D20 result: 17"
     assert html =~ "You steady your footing and reach the far side."
+    assert has_element?(view, "#event-1[data-event-type='player_action']")
+
+    action_occurrences =
+      html
+      |> Floki.parse_document!()
+      |> Floki.find("#story-timeline #event-1")
+      |> Enum.count(&(Floki.text(&1) =~ "I cross the bridge carefully."))
+
+    assert action_occurrences == 1
 
     {:ok, resumed, _html} = live(conn, session_path(campaign, session))
     assert has_element?(resumed, "#story-timeline", "Difficulty: Hard")
     assert has_element?(resumed, "#story-timeline", "Target: 14")
     refute has_element?(resumed, "#turn-announcement", "complete")
+  end
+
+  test "a pending action survives a fresh connection and is replaced by its canonical event", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+    action = "I carry the basket into the press house."
+
+    assert {:ok, turn} =
+             Play.submit_turn(campaign.id, session.id, Ecto.UUID.generate(), action,
+               provider: nil
+             )
+
+    assert turn.status == :pending
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    test_pid = self()
+
+    set_handler(fn _request ->
+      send(test_pid, {:provider_waiting, self()})
+
+      receive do
+        :continue -> :ok
+      after
+        5_000 -> flunk("pending turn was not released")
+      end
+
+      {:ok,
+       %{
+         narration: "The press house is quiet and ready for the apples.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         character_updates: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         roll_request: nil
+       }}
+    end)
+
+    # A fresh mount stands in for reload/reconnect. Before resolution finishes,
+    # the durable pending turn is the only source for its visible action.
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+    assert_receive {:provider_waiting, provider_pid}, 1_000
+    assert has_element?(view, "#story-pending-action", action)
+    assert has_element?(view, "#composer-turn-status")
+    refute has_element?(view, "#story-timeline [data-event-type='player_action']")
+
+    send(provider_pid, :continue)
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "The press house is quiet and ready")
+           end)
+
+    refute has_element?(view, "#story-pending-action")
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert [player_action] = Enum.filter(timeline, &(&1.event_type == :player_action))
+    assert has_element?(view, "#event-#{player_action.sequence}[data-event-type='player_action']")
+
+    action_occurrences =
+      render(view)
+      |> Floki.parse_document!()
+      |> Floki.find("#story-timeline [data-event-type='player_action']")
+      |> Enum.count(&(Floki.text(&1) =~ action))
+
+    assert action_occurrences == 1
   end
 
   test "completion announcements are localized and are not replayed on reconnect", %{conn: conn} do
@@ -891,6 +1129,7 @@ defmodule StorytellerWeb.SessionLiveTest do
       |> render_submit()
 
       assert wait_until(fn -> has_element?(view, "#turn-announcement", completion) end)
+      assert has_element?(view, "#composer-turn-status", completion)
 
       {:ok, resumed, _html} = live(conn, session_path(campaign, session))
       refute has_element?(resumed, "#turn-announcement", "completado")
@@ -973,7 +1212,17 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> render_submit()
 
     assert_receive {:fake_plan_request, 1}, 1_000
-    assert wait_until(fn -> has_element?(first_view, "#turn-error", "old road") end)
+
+    assert wait_until(fn ->
+             case Play.public_current_turn(first_campaign.id) do
+               %{failure_code: "usage_limit"} ->
+                 has_element?(first_view, "#story-pending-action", "old road")
+
+               _ ->
+                 false
+             end
+           end)
+
     first_turn = Play.public_current_turn(first_campaign.id)
     assert first_turn.failure_code == "usage_limit"
     assert first_turn.player_input == "I inspect the old road."
@@ -1239,12 +1488,13 @@ defmodule StorytellerWeb.SessionLiveTest do
              "Your saved action is still unresolved. Retry continues this same turn."
            )
 
+    assert has_element?(view, "#turn-error", "ChatGPT could not verify this account's permission")
     assert has_element?(view, "#turn-error a[href='/auth/connect']", "Reconnect account")
-    assert render(view) =~ "I light the old signal beacon."
+    assert has_element?(view, "#story-pending-action", "I light the old signal beacon.")
 
     {:ok, resumed, resumed_html} = live(conn, session_path(campaign, session))
-    assert resumed_html =~ "needs you to reconnect"
-    assert resumed_html =~ "I light the old signal beacon."
+    assert resumed_html =~ "Reconnect the account"
+    assert has_element?(resumed, "#story-pending-action", "I light the old signal beacon.")
     assert has_element?(resumed, "#turn-error a[href='/auth/connect']", "Reconnect account")
 
     resumed |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
@@ -1255,6 +1505,28 @@ defmodule StorytellerWeb.SessionLiveTest do
            end)
 
     assert render(resumed) =~ "The saved action now moves the story forward."
+  end
+
+  test "OAuth client configuration failure gives repair guidance without a reconnect action", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    set_handler(fn _request -> {:error, :authorization_configuration} end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    view
+    |> form("#turn-composer", turn: %{input: "I ask the keeper about the locked cellar."})
+    |> render_submit()
+
+    guidance =
+      "ChatGPT could not authorize Storyteller to use this account's plan. Check the selected account and workspace, then verify Storyteller's client and plan-usage grant configuration before retrying."
+
+    assert wait_until(fn -> has_element?(view, "#turn-error", guidance) end)
+    refute has_element?(view, "#turn-error a[href='/auth/connect']")
+    assert has_element?(view, "#turn-error button[phx-click='retry-turn']")
   end
 
   test "campaign story pages reach older events and keep them through live refreshes", %{

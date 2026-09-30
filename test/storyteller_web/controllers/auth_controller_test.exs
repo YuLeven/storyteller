@@ -55,6 +55,8 @@ defmodule StorytellerWeb.AuthControllerTest do
     assert html =~ "ChatGPT plan usage is connected."
     assert html =~ "https://chatgpt.com/settings/usage"
     assert html =~ "Manage usage"
+    assert html =~ "Reconnect ChatGPT"
+    assert html =~ "action=\"/auth/authorize\""
   end
 
   test "OAuth routes use the required loopback callback path and browser post endpoints" do

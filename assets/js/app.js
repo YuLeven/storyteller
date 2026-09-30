@@ -21,28 +21,7 @@ import "phoenix_html"
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
-
-const StoryTimeline = {
-  mounted() {
-    this.followLatest = true
-    this.onScroll = () => {
-      this.followLatest = this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight < 96
-    }
-    this.el.addEventListener("scroll", this.onScroll, {passive: true})
-    this.scrollLatest()
-  },
-  updated() {
-    if (this.followLatest) this.scrollLatest()
-  },
-  destroyed() {
-    this.el.removeEventListener("scroll", this.onScroll)
-  },
-  scrollLatest() {
-    requestAnimationFrame(() => {
-      this.el.scrollTop = this.el.scrollHeight
-    })
-  }
-}
+import {StoryTimeline} from "./story_timeline.mjs"
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {

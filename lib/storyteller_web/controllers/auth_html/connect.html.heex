@@ -38,6 +38,12 @@
           rel="noreferrer"
         >{gettext("Manage usage")}</a>
       </p>
+      <.form for={%{}} action={~p"/auth/authorize"} method="post" class="mt-5">
+        <button
+          type="submit"
+          class="rounded-lg bg-emerald-800 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800"
+        >{gettext("Reconnect ChatGPT")}</button>
+      </.form>
       <.form for={%{}} action={~p"/auth/disconnect"} method="post" class="mt-5">
         <button
           type="submit"

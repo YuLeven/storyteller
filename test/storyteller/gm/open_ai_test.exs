@@ -146,6 +146,36 @@ defmodule Storyteller.GM.OpenAITest do
              )
   end
 
+  test "maps documented authorization failures from response.failed to actionable recovery categories",
+       context do
+    Enum.each(
+      [
+        {"subscription_sharing_invalid_user", :reauth_required},
+        {"chatpass_v2_scope_not_authorized", :authorization_configuration},
+        {"chatpass_v2_invalid_authorization_context", :authorization_configuration}
+      ],
+      fn {error_code, expected_error} ->
+        failure =
+          "event: response.failed\ndata: " <>
+            Jason.encode!(%{
+              "type" => "response.failed",
+              "response" => %{"error" => %{"code" => error_code}}
+            }) <>
+            "\n\n"
+
+        assert {:error, ^expected_error} =
+                 OpenAI.stream_response(
+                   %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+                   store: context.store,
+                   http: provider_http(self(), failure)
+                 )
+
+        assert_receive {:models_request, _}
+        assert_receive {:responses_request, _}
+      end
+    )
+  end
+
   test "maps plan-sharing errors from asynchronous HTTP error bodies", context do
     error_cases = [
       {429, "subscription_sharing_usage_limit_exceeded", :usage_limit},

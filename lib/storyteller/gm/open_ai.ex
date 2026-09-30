@@ -580,6 +580,17 @@ defmodule Storyteller.GM.OpenAI do
        do: :account_ineligible
 
   defp map_error_code(code)
+       when code in ["subscription_sharing_invalid_user"],
+       do: :reauth_required
+
+  defp map_error_code(code)
+       when code in [
+              "chatpass_v2_scope_not_authorized",
+              "chatpass_v2_invalid_authorization_context"
+            ],
+       do: :authorization_configuration
+
+  defp map_error_code(code)
        when code in [
               "subscription_sharing_unsupported_capability",
               "subscription_sharing_route_not_supported"

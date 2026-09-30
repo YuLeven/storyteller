@@ -7,7 +7,7 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, Event, Objective, Roll, State, Turn}
+  alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Roll, State, Turn}
 
   test "loads a module provider before checking its callback" do
     {campaign, session} = play_campaign("The Glass Observatory")
@@ -533,6 +533,449 @@ defmodule Storyteller.PlayTest do
              public_events,
              &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:lyra")
            )
+  end
+
+  test "continuity entries persist with event provenance beyond the recent window and across sessions" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    first_provider = fn request ->
+      Agent.update(captured_context, fn _ -> decode_request(request) end)
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "continuity_changes" => [
+             %{
+               "type" => "create",
+               "entry" => %{
+                 "entry_id" => "lyra-promise",
+                 "kind" => "commitment",
+                 "title" => "Lyra's promise",
+                 "details" =>
+                   "Lyra promised to bring Mira the eastern star chart after the watch.",
+                 "visibility" => "public"
+               },
+               "reason" => "Lyra makes this promise in the scene."
+             },
+             %{
+               "type" => "create",
+               "entry" => %{
+                 "entry_id" => "lyra-trust",
+                 "kind" => "relationship",
+                 "title" => "Mira and Lyra",
+                 "details" => "Lyra trusts Mira with the observatory keys.",
+                 "visibility" => "public"
+               },
+               "reason" => "Lyra entrusts the keys to Mira."
+             },
+             %{
+               "type" => "create",
+               "entry" => %{
+                 "entry_id" => "altered-chart-secret",
+                 "kind" => "fact",
+                 "title" => "The chart was altered",
+                 "details" =>
+                   "The keeper secretly changed the eastern star chart before Mira arrived.",
+                 "visibility" => "gm_private"
+               },
+               "reason" => "The GM establishes a hidden cause for later play."
+             }
+           ]
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "continuity-seed",
+               "Lyra promises to bring me the chart.",
+               provider: first_provider
+             )
+
+    public_projection = Play.public_projection(campaign.id) |> elem(1)
+    public_entries = Map.new(public_projection.continuity_entries, &{&1.entry_id, &1})
+
+    assert Map.keys(public_entries) |> Enum.sort() == ["lyra-promise", "lyra-trust"]
+    refute Jason.encode!(public_projection) =~ "altered-chart-secret"
+    refute Jason.encode!(public_projection) =~ "The keeper secretly changed"
+
+    promise = Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "lyra-promise")
+    introduced_event = Repo.get!(Event, promise.introduced_by_event_id)
+    assert promise.source_event_id == introduced_event.id
+    assert introduced_event.visibility == :public
+    assert introduced_event.payload["continuity_changes"]
+    assert introduced_event.game_time == %{"time" => "First watch"}
+
+    {:ok, next_session} = Campaigns.start_session(campaign)
+
+    for index <- 1..20 do
+      provider = fn request ->
+        context = decode_request(request)
+        if index == 20, do: Agent.update(captured_context, fn _ -> context end)
+        {:ok, Jason.encode!(ordinary_proposal())}
+      end
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 next_session.id,
+                 "continuity-window-#{index}",
+                 "Continue the observatory work, beat #{index}.",
+                 provider: provider
+               )
+    end
+
+    context = Agent.get(captured_context, & &1)
+    public_context_entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+    private_context_entries = Map.new(context["continuity"]["gm_private"], &{&1["entry_id"], &1})
+
+    assert length(context["history"]) == 40
+    assert List.last(context["history"])["session_id"] == next_session.id
+    refute Enum.any?(context["history"], &(&1["payload"] |> Jason.encode!() =~ "Lyra's promise"))
+    assert public_context_entries["lyra-promise"]["source_sequence"] == introduced_event.sequence
+    assert public_context_entries["lyra-promise"]["details"] =~ "eastern star chart"
+    assert private_context_entries["altered-chart-secret"]["details"] =~ "secretly changed"
+    refute Jason.encode!(context["continuity"]["public"]) =~ "secretly changed"
+
+    trust_before =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "lyra-trust")
+
+    update_provider =
+      ordinary_provider(%{
+        "continuity_changes" => [
+          %{
+            "type" => "update",
+            "entry_id" => "lyra-promise",
+            "status" => "resolved",
+            "reason" => "Lyra delivered the chart to Mira."
+          },
+          %{
+            "type" => "update",
+            "entry_id" => "lyra-trust",
+            "details" => "Lyra trusts Mira with the observatory keys and the eastern chart.",
+            "reason" => "Lyra now shares the chart as well as the keys."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "resolve-continuity",
+               "Lyra gives me the chart.",
+               provider: update_provider
+             )
+
+    resolved = Repo.get!(ContinuityEntry, promise.id)
+    resolution_event = Repo.get!(Event, resolved.source_event_id)
+    assert resolved.status == :resolved
+    assert resolution_event.visibility == :public
+
+    assert Enum.any?(resolution_event.payload["continuity_changes"], fn change ->
+             change["entry"]["entry_id"] == "lyra-promise" and
+               change["entry"]["status"] == "resolved"
+           end)
+
+    refute Jason.encode!(resolution_event.payload) =~ "Lyra delivered the chart to Mira."
+    trust = Repo.get!(ContinuityEntry, trust_before.id)
+    assert trust.details =~ "eastern chart"
+    assert trust.introduced_by_event_id == trust_before.introduced_by_event_id
+    assert trust.source_event_id != trust_before.source_event_id
+
+    public_entries =
+      Play.public_projection(campaign.id) |> elem(1) |> Map.fetch!(:continuity_entries)
+
+    assert Enum.find(public_entries, &(&1.entry_id == "lyra-trust")).details =~ "eastern chart"
+
+    refute Enum.any?(
+             Play.public_projection(campaign.id) |> elem(1) |> Map.fetch!(:continuity_entries),
+             &(&1.entry_id == "lyra-promise")
+           )
+
+    {:ok, public_timeline} = Play.public_timeline(campaign.id)
+
+    promise_timeline_events =
+      for event <- public_timeline,
+          change <- event.payload["continuity_changes"] || [],
+          change["entry"]["entry_id"] == "lyra-promise",
+          do: {event, change}
+
+    assert length(promise_timeline_events) == 1
+    [{promise_timeline_event, promise_timeline_change}] = promise_timeline_events
+    assert promise_timeline_event.sequence == resolution_event.sequence
+    assert promise_timeline_change["type"] == "update"
+    assert promise_timeline_change["entry"]["status"] == "resolved"
+    assert promise_timeline_change["entry"]["title"] == "Lyra's promise"
+    refute Jason.encode!(promise_timeline_event.payload) =~ "Lyra delivered the chart to Mira."
+    refute Jason.encode!(public_timeline) =~ "The keeper secretly changed"
+
+    assert Jason.encode!(public_timeline) =~
+             "Lyra trusts Mira with the observatory keys and the eastern chart."
+
+    for index <- 1..20 do
+      provider = fn request ->
+        context = decode_request(request)
+        if index == 20, do: Agent.update(captured_context, fn _ -> context end)
+        {:ok, Jason.encode!(ordinary_proposal())}
+      end
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 next_session.id,
+                 "closed-continuity-window-#{index}",
+                 "Continue the observatory work after the promise is fulfilled, beat #{index}.",
+                 provider: provider
+               )
+    end
+
+    closed_context = Agent.get(captured_context, & &1)
+
+    closed_context_entries =
+      Map.new(closed_context["continuity"]["public"], &{&1["entry_id"], &1})
+
+    closed_promise = closed_context_entries["lyra-promise"]
+
+    assert length(closed_context["history"]) == 40
+    refute Enum.any?(closed_context["history"], &(&1["sequence"] == resolution_event.sequence))
+    assert closed_promise["kind"] == "commitment"
+    assert closed_promise["title"] == "Lyra's promise"
+    assert closed_promise["details"] =~ "eastern star chart"
+    assert closed_promise["status"] == "resolved"
+    assert closed_promise["visibility"] == "public"
+    assert closed_promise["source_sequence"] == resolution_event.sequence
+    refute Jason.encode!(closed_context["continuity"]["public"]) =~ "secretly changed"
+
+    before_recreation = Repo.get_by!(State, campaign_id: campaign.id)
+    timeline_before_recreation = Play.public_timeline(campaign.id)
+
+    recreation_provider = fn request ->
+      context = decode_request(request)
+      Agent.update(captured_context, fn _ -> context end)
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "continuity_changes" => [
+             %{
+               "type" => "create",
+               "entry" => %{
+                 "entry_id" => "lyra-promise",
+                 "kind" => "commitment",
+                 "title" => "Lyra's promise",
+                 "details" => "Lyra will bring Mira a chart again.",
+                 "visibility" => "public"
+               },
+               "reason" => "Recreate the resolved promise."
+             }
+           ]
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "recreate-resolved-continuity",
+               "Ask Lyra to renew her promise.",
+               provider: recreation_provider
+             )
+
+    attempted_context = Agent.get(captured_context, & &1)
+    attempted_entries = Map.new(attempted_context["continuity"]["public"], &{&1["entry_id"], &1})
+    assert attempted_entries["lyra-promise"]["status"] == "resolved"
+
+    assert Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "lyra-promise") ==
+             resolved
+
+    assert continuity_entry_count(campaign.id) == 3
+    assert Repo.get_by!(State, campaign_id: campaign.id).revision == before_recreation.revision
+    assert ^timeline_before_recreation = Play.public_timeline(campaign.id)
+  end
+
+  test "continuity ledger bounds total retained records and rejects overflow atomically" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "continuity-cap-seed",
+               "Lyra makes one durable promise.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "cap-active",
+                         "kind" => "commitment",
+                         "title" => "The active promise",
+                         "details" => "Lyra will bring Mira the chart.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "Lyra says she will bring the chart."
+                     }
+                   ]
+                 })
+             )
+
+    source_event =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "cap-active")
+      |> then(&Repo.get!(Event, &1.source_event_id))
+
+    for index <- 1..99 do
+      assert {:ok, _entry} =
+               %ContinuityEntry{}
+               |> ContinuityEntry.changeset(%{
+                 campaign_id: campaign.id,
+                 entry_id: "cap-closed-#{index}",
+                 kind: :fact,
+                 title: "Retained fact #{index}",
+                 details: "A bounded historical fact.",
+                 status: :resolved,
+                 visibility: :gm_private,
+                 introduced_by_event_id: source_event.id,
+                 source_event_id: source_event.id
+               })
+               |> Repo.insert()
+    end
+
+    assert continuity_entry_count(campaign.id) == 100
+    before = Repo.get_by!(State, campaign_id: campaign.id)
+    timeline_before = Play.public_timeline(campaign.id)
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "continuity-overflow",
+               "Establish another durable fact.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "cap-overflow",
+                         "kind" => "fact",
+                         "title" => "An overflow fact",
+                         "details" => "This one exceeds the retained ledger cap.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "A new fact would exceed the campaign ledger bound."
+                     }
+                   ]
+                 })
+             )
+
+    assert continuity_entry_count(campaign.id) == 100
+    assert Repo.get_by(ContinuityEntry, campaign_id: campaign.id, entry_id: "cap-overflow") == nil
+    assert Repo.get_by!(State, campaign_id: campaign.id).revision == before.revision
+    assert ^timeline_before = Play.public_timeline(campaign.id)
+  end
+
+  test "private continuity entries cannot be promoted by an update and invalid batches roll back" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "private-continuity-seed",
+               "The keeper hides the altered chart.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "private-chart-truth",
+                         "kind" => "fact",
+                         "title" => "The chart is false",
+                         "details" => "The keeper altered the chart before Mira arrived.",
+                         "visibility" => "gm_private"
+                       },
+                       "reason" => "The keeper's secret drives a later reveal."
+                     }
+                   ]
+                 })
+             )
+
+    entry =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "private-chart-truth")
+
+    before = Repo.get_by!(State, campaign_id: campaign.id)
+    {:ok, timeline_before} = Play.public_timeline(campaign.id)
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "attempt-private-promotion",
+               "Reveal what the keeper knows.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "update",
+                       "entry_id" => "private-chart-truth",
+                       "title" => "The chart is false",
+                       "status" => "resolved",
+                       "visibility" => "public",
+                       "reason" => "The player guessed the truth."
+                     }
+                   ]
+                 })
+             )
+
+    assert Repo.get!(ContinuityEntry, entry.id) == entry
+    assert Repo.get_by!(State, campaign_id: campaign.id).revision == before.revision
+    assert Play.public_projection(campaign.id) |> elem(1) |> Map.fetch!(:continuity_entries) == []
+    assert {:ok, ^timeline_before} = Play.public_timeline(campaign.id)
+    refute Jason.encode!(timeline_before) =~ "private-chart-truth"
+    refute Jason.encode!(timeline_before) =~ "The keeper altered the chart"
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "invalid-continuity-batch",
+               "Make a promise and revise it.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "uncommitted-promise",
+                         "kind" => "commitment",
+                         "title" => "An uncommitted promise",
+                         "details" => "This entry must not be partially saved.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "A valid first operation."
+                     },
+                     %{
+                       "type" => "update",
+                       "entry_id" => "missing-entry",
+                       "status" => "resolved",
+                       "reason" => "This later operation must fail the batch."
+                     }
+                   ]
+                 })
+             )
+
+    assert Repo.get_by(ContinuityEntry, campaign_id: campaign.id, entry_id: "uncommitted-promise") ==
+             nil
+
+    assert Play.public_projection(campaign.id) |> elem(1) |> Map.fetch!(:continuity_entries) == []
+    assert {:ok, ^timeline_before} = Play.public_timeline(campaign.id)
   end
 
   test "objectives use ordered stable changes and remain canonical across sessions" do
@@ -2933,6 +3376,14 @@ defmodule Storyteller.PlayTest do
     Repo.insert!(PanelField.changeset(%PanelField{}, Map.merge(defaults, attrs)))
   end
 
+  defp continuity_entry_count(campaign_id) do
+    Repo.aggregate(
+      from(entry in ContinuityEntry, where: entry.campaign_id == ^campaign_id),
+      :count,
+      :id
+    )
+  end
+
   defp complete_turn(campaign, session, key, action, provider) do
     assert {:ok, %{status: :completed}} =
              Play.submit_turn(campaign.id, session.id, key, action,
@@ -2964,6 +3415,7 @@ defmodule Storyteller.PlayTest do
           }
         ],
         "location_changes" => [],
+        "continuity_changes" => [],
         "roll_request" => nil
       },
       overrides
@@ -3000,6 +3452,7 @@ defmodule Storyteller.PlayTest do
       "private_changes" => %{},
       "panel_changes" => [],
       "character_updates" => [],
+      "continuity_changes" => [],
       "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
       "roll_request" => %{
         "test" => "Keep your balance on the ledge",

@@ -118,7 +118,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert {:ok, _preference} = Settings.set_ui_locale("es")
     {:ok, _view, spanish_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
     assert spanish_html =~ "Inventario"
-    assert spanish_html =~ "Objetos, provisiones y recuerdos"
+    assert spanish_html =~ "Tu personaje"
     assert spanish_html =~ "Poción de luz"
     assert spanish_html =~ "2 viales"
     assert spanish_html =~ "La escena"
@@ -129,7 +129,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert {:ok, _preference} = Settings.set_ui_locale("fr")
     {:ok, _view, french_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
     assert french_html =~ "Inventaire"
-    assert french_html =~ "Objets, provisions et souvenirs"
+    assert french_html =~ "Votre personnage"
     assert french_html =~ "Poción de luz"
     assert french_html =~ "2 viales"
     assert french_html =~ "La scène"

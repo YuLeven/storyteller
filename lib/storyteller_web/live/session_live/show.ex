@@ -270,6 +270,9 @@ defmodule StorytellerWeb.SessionLive.Show do
     ~H"""
     <li
       id={"event-#{@event.sequence}"}
+      data-event-sequence={@event.sequence}
+      data-event-type={@event.event_type}
+      data-turn-id={@event.turn_id}
       class="min-w-0"
     >
       <p
@@ -362,6 +365,25 @@ defmodule StorytellerWeb.SessionLive.Show do
           </div>
         </dl>
         <ul
+          :if={@event.event_type == :state_change && continuity_change_values(@event) != []}
+          class="mt-2 space-y-2 text-sm text-stone-700"
+        >
+          <li
+            :for={change <- continuity_change_values(@event)}
+            class="rounded-lg border border-violet-200/70 bg-violet-50/60 px-3 py-2"
+          >
+            <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h4 class="font-semibold text-stone-900">{change["entry"]["title"]}</h4>
+              <span class="text-xs font-medium text-violet-900">
+                {continuity_status_label(change)}
+              </span>
+            </div>
+            <p class="mt-1 whitespace-pre-wrap leading-6 text-stone-700">
+              {change["entry"]["details"]}
+            </p>
+          </li>
+        </ul>
+        <ul
           :if={@event.event_type == :state_change && panel_change_values(@event) != []}
           class="mt-2 space-y-2 text-sm text-stone-700"
         >
@@ -398,6 +420,68 @@ defmodule StorytellerWeb.SessionLive.Show do
           </li>
         </ul>
       </article>
+    </li>
+    """
+  end
+
+  attr :item, :map, required: true
+  attr :characters_by_id, :map, required: true
+  attr :playable, :boolean, required: true
+  attr :turn_blocked, :boolean, required: true
+
+  defp inventory_item(assigns) do
+    ~H"""
+    <li
+      id={"inventory-item-#{@item["id"]}"}
+      class="rounded-xl border border-stone-100 bg-stone-50 px-3 py-2"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <h3 class="truncate text-sm font-semibold text-stone-900">{@item["name"]}</h3>
+          <p :if={@item["category"]} class="truncate text-xs text-stone-500">
+            {@item["category"]}
+          </p>
+        </div>
+        <span class="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold text-stone-700">
+          {@item["quantity"]}{if @item["unit"], do: " " <> @item["unit"], else: ""}
+        </span>
+      </div>
+      <details :if={inventory_item_has_details?(@item)} class="mt-1 text-xs text-stone-500">
+        <summary class="cursor-pointer rounded font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
+          {gettext("Item details")}
+        </summary>
+        <div class="mt-2 space-y-1.5">
+          <p :if={@item["owner_id"] not in ["player", "party"]}>
+            {gettext("Carried by %{name}",
+              name: speaker_name(@characters_by_id, @item["owner_id"])
+            )}
+          </p>
+          <p :if={@item["owner_id"] == "party"}>{gettext("Stored with the party")}</p>
+          <p :if={@item["description"]} class="whitespace-pre-wrap text-sm leading-6 text-stone-700">
+            {@item["description"]}
+          </p>
+          <dl :if={@item["properties"] not in [nil, %{}]} class="space-y-1.5">
+            <div
+              :for={{label, value} <- inventory_property_rows(@item["properties"])}
+              class="grid grid-cols-[minmax(0,auto)_1fr] gap-x-3"
+            >
+              <dt class="font-medium text-stone-600">{label}</dt>
+              <dd class="min-w-0 whitespace-pre-wrap break-words text-stone-700">{value}</dd>
+            </div>
+          </dl>
+        </div>
+      </details>
+      <button
+        :if={@item["owner_id"] in ["player", "party"] and @playable}
+        type="button"
+        phx-click={
+          JS.push("use-in-action", value: %{item_id: @item["id"]})
+          |> JS.focus(to: "#turn-input")
+        }
+        aria-label={gettext("Use %{item} in your action", item: @item["name"])}
+        disabled={@turn_blocked}
+        class="mt-1 inline-flex min-h-8 items-center rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >{gettext("Use in action")}</button>
     </li>
     """
   end
@@ -761,6 +845,15 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp valid_roll_request?(_), do: false
 
+  defp pending_action_preview?(%{status: status, id: turn_id}, timeline)
+       when status in [:pending, :resolving, :awaiting_roll, :failed] do
+    not Enum.any?(timeline, fn event ->
+      event.turn_id == turn_id and event.event_type == :player_action
+    end)
+  end
+
+  defp pending_action_preview?(_current_turn, _timeline), do: false
+
   defp speaker_name(characters, speaker_id) do
     case Map.get(characters, speaker_id) do
       %{name: name} -> name
@@ -803,6 +896,11 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: if(value, do: gettext("Yes"), else: gettext("No"))
 
   defp display_value(value), do: Jason.encode!(value)
+
+  defp inventory_item_has_details?(item) do
+    item["description"] not in [nil, ""] or item["properties"] not in [nil, %{}] or
+      item["owner_id"] not in ["player", "party"]
+  end
 
   defp inventory_property_rows(properties) when is_map(properties) do
     properties
@@ -866,6 +964,9 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp state_change_label(event, characters) do
     cond do
+      is_list(Map.get(event.payload, "continuity_changes")) ->
+        gettext("Campaign memory")
+
       is_list(Map.get(event.payload, "inventory_changes")) ->
         gettext("Inventory")
 
@@ -910,6 +1011,23 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: facts
 
   defp state_change_values(_event), do: %{}
+
+  defp continuity_change_values(%{payload: %{"continuity_changes" => changes}})
+       when is_list(changes),
+       do: changes
+
+  defp continuity_change_values(_event), do: []
+
+  defp continuity_status_label(%{"entry" => %{"status" => "active"}}),
+    do: gettext("Remembered")
+
+  defp continuity_status_label(%{"entry" => %{"status" => "resolved"}}),
+    do: gettext("Resolved")
+
+  defp continuity_status_label(%{"entry" => %{"status" => "retracted"}}),
+    do: gettext("Retracted")
+
+  defp continuity_status_label(_change), do: gettext("Updated")
 
   defp panel_change_values(%{payload: %{"panel_changes" => changes}}) when is_list(changes),
     do: changes
@@ -1092,7 +1210,16 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp event_text(event), do: Map.get(event.payload, "text", "")
 
   defp failure_message("reauth_required"),
-    do: gettext("The connected account needs you to reconnect before this turn can continue.")
+    do:
+      gettext(
+        "ChatGPT could not verify this account's permission for Storyteller. Reconnect the account, confirm plan usage is enabled, then retry this turn."
+      )
+
+  defp failure_message("authorization_configuration"),
+    do:
+      gettext(
+        "ChatGPT could not authorize Storyteller to use this account's plan. Check the selected account and workspace, then verify Storyteller's client and plan-usage grant configuration before retrying."
+      )
 
   defp failure_message("account_ineligible"),
     do: gettext("The connected account is not eligible to continue this turn.")
