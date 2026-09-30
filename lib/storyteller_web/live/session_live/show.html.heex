@@ -310,6 +310,14 @@
                     {location_event_text(change, @characters_by_id)}
                   </li>
                 </ul>
+                <ul
+                  :if={event.event_type == :state_change && objective_change_values(event) != []}
+                  class="mt-2 space-y-1 text-sm text-stone-700"
+                >
+                  <li :for={change <- objective_change_values(event)}>
+                    {objective_event_text(change)}
+                  </li>
+                </ul>
               </article>
             </li>
           </ol>
@@ -427,6 +435,48 @@
               </div>
             </dl>
           </section>
+        </section>
+
+        <section
+          id="campaign-objectives"
+          class="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 shadow-sm"
+        >
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+            {gettext("Campaign commitments")}
+          </p>
+          <h2 class="mt-1 text-lg font-semibold text-stone-950">{gettext("Objectives")}</h2>
+          <p class="mt-1 text-sm leading-6 text-stone-600">
+            {gettext("Projects, quests, and leads that carry forward between sessions.")}
+          </p>
+          <div :if={@projection.objectives != []} class="mt-4 space-y-4">
+            <section
+              :for={status <- [:open, :completed, :abandoned]}
+              :if={objectives_for_status(@projection.objectives, status) != []}
+              class="border-t border-amber-200/70 pt-3 first:border-0 first:pt-0"
+            >
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                {objective_status_label(status)}
+              </h3>
+              <ul class="mt-2 space-y-2">
+                <li
+                  :for={objective <- objectives_for_status(@projection.objectives, status)}
+                  id={"objective-#{objective.objective_id}"}
+                  class="rounded-xl bg-white/80 px-3 py-3"
+                >
+                  <h4 class="font-semibold text-stone-900">{objective.title}</h4>
+                  <p
+                    :if={objective.details}
+                    class="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-700"
+                  >
+                    {objective.details}
+                  </p>
+                </li>
+              </ul>
+            </section>
+          </div>
+          <p :if={@projection.objectives == []} class="mt-3 text-sm leading-6 text-stone-500">
+            {gettext("No campaign objectives have been recorded yet.")}
+          </p>
         </section>
 
         <section

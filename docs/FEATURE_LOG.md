@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-09-30 — Campaign objectives and story commitments
+
+- Added an optional campaign-scoped objective ledger with stable IDs, open/completed/abandoned status, public or GM-private visibility, and no delete path. Objectives remain canonical when a new session starts.
+- GM context now includes the public and private objective lists, and policy discourages completing goals without established evidence. The provider can propose ordered, reasoned create/update operations; validation checks each operation against current and prior proposed state, rejects duplicate or unknown IDs, and applies valid batches atomically with the turn.
+- Objective audit events retain full snapshots and reasons in private history. Public projections and timeline events contain only public objective snapshots, while the play board groups public objectives by status and provides Spanish/French UI labels.
+- **Checked:** focused Play and locale LiveView suites pass (27 tests, 0 failures), and the full suite passes (120 tests, 0 failures). Behavioral tests cover ordered create/update snapshots, status progression across sessions, private context versus public projection/history, invalid ordering, duplicate IDs, and all-or-nothing rollback. `mix format --check-formatted`, `mix compile --warnings-as-errors`, and `mix assets.build` pass. Migration `20260930000700` was applied to the persistent development database through WSL `mix ecto.migrate`.
+
 ## 2026-09-30 — Partial inventory transfers and proposal recovery
 
 - Added quantity-aware transfers: a partial stack keeps its existing stable ID and remainder, while the moved quantity becomes a new stack with copied properties and visibility. Whole-stack transfer event shape remains compatible.

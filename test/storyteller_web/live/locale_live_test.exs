@@ -5,6 +5,8 @@ defmodule StorytellerWeb.LocaleLiveTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Settings
+  alias Storyteller.Play.Objective
+  alias Storyteller.Repo
 
   test "the locale selector persists its choice and redirects to a local page", %{conn: conn} do
     conn = get(conn, "/")
@@ -113,5 +115,55 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Personnes présentes"
     assert french_html =~ "Vineyard gate"
     assert french_html =~ "The Keeper"
+  end
+
+  test "the objectives board localizes statuses and excludes GM-private objectives", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture(%{title: "The Glass Observatory"})
+    session = hd(campaign.sessions)
+
+    for {id, title, status, visibility} <- [
+          {"repair-roof", "Repair the observatory roof", :open, :public},
+          {"chart-stars", "Chart the winter stars", :completed, :public},
+          {"close-cellar", "Close the unsafe cellar", :abandoned, :public},
+          {"hidden-witness", "Find the hidden witness", :open, :gm_private}
+        ] do
+      Repo.insert!(
+        Objective.changeset(%Objective{}, %{
+          campaign_id: campaign.id,
+          objective_id: id,
+          title: title,
+          status: status,
+          visibility: visibility
+        })
+      )
+    end
+
+    assert {:ok, _preference} = Settings.set_ui_locale("es")
+    {:ok, _view, spanish_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert spanish_html =~ "Compromisos de campaña"
+    assert spanish_html =~ "Objetivos"
+    assert spanish_html =~ "Abierto"
+    assert spanish_html =~ "Completada"
+    assert spanish_html =~ "Abandonado"
+    assert spanish_html =~ "Repair the observatory roof"
+    assert spanish_html =~ "Chart the winter stars"
+    assert spanish_html =~ "Close the unsafe cellar"
+    refute spanish_html =~ "Find the hidden witness"
+
+    assert {:ok, _preference} = Settings.set_ui_locale("fr")
+    {:ok, _view, french_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert french_html =~ "Engagements de campagne"
+    assert french_html =~ "Objectifs"
+    assert french_html =~ "En cours"
+    assert french_html =~ "Terminée"
+    assert french_html =~ "Abandonné"
+    assert french_html =~ "Repair the observatory roof"
+    assert french_html =~ "Chart the winter stars"
+    assert french_html =~ "Close the unsafe cellar"
+    refute french_html =~ "Find the hidden witness"
   end
 end

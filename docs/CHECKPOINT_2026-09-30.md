@@ -1,6 +1,6 @@
 # Implementation checkpoint — 2026-09-30
 
-Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, a player-controlled D20, bounded GM memory, configurable campaign panels, and initial inventory and location ledgers. This remains an active product iteration, not a final release. Vineyard campaign data has not been imported or used for tests; ExUnit runs against the separate `storyteller_test` database.
+Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, a player-controlled D20, bounded GM memory, configurable campaign panels, inventory and location ledgers, and optional campaign objectives. This remains an active product iteration, not a final release. Vineyard campaign data has not been imported or used for tests; ExUnit runs against the separate `storyteller_test` database.
 
 ## Implemented
 
@@ -10,12 +10,15 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 - The GM receives both visibility scopes for places and every character's current place. Place creation must precede movement; movement uses a known character and place, and the player cannot move to a GM-private place. Location changes commit with the turn. Generic world changes cannot overwrite the canonical location.
 - The play board shows the player's current place and surroundings, who is publicly present, tracked campaign resources, owned items, character details, and the campaign story. Public history and projections omit GM-private places and presence.
 - Campaign history and world state continue across sessions; a new session resumes the same inventory, places, and character positions.
-- Spanish and French catalogs include the inventory and location-board labels. Campaign-authored content remains in its selected narration language.
+- Optional campaign objectives persist under stable IDs with public or GM-private visibility and open/completed/abandoned status. The GM prompt receives both scopes and must ground completions in established events; ordered create/update operations are validated and committed atomically with audit history. The public board groups visible objectives by status, and private objective titles/details/status stay out of public projections and public audit events.
+- Spanish and French catalogs include the inventory, location, and objective-board labels. Campaign-authored content remains in its selected narration language.
 - Added an idempotent fictional QA seed, **The Amber Orchard**, with a starting place, NPC presence, flexible orchard stock panels, and a player-owned basket. It is separate from both the existing failed observatory QA turn and the vineyard campaign.
 
 ## Verification
 
-- `mix test`: **117 tests, 0 failures**; focused play and inventory behavior tests cover partial-stack conservation, stack limits, public audit events, atomic rejection, private-place isolation, and persistence into a later session.
+- Objectives migration `20260930000700_create_play_objectives` was applied to the persistent development database using WSL `mix ecto.migrate`; tests use the isolated `storyteller_test` database.
+- Focused Play and locale LiveView suites: **27 tests, 0 failures**. Objective scenarios cover ordered create then update snapshots, cross-session progression, public/private context and history, localized status groups, duplicate ID rejection, and invalid-batch rollback.
+- Full `mix test`: **120 tests, 0 failures**; coverage includes partial-stack conservation and limits, public audit events, atomic rejection, private-place isolation, cross-session continuity, and objective progression. `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix assets.build`, and `git diff --check` passed in WSL.
 - Locale LiveView tests pass for Spanish and French current-place labels, public presence, and inventory content.
 - `mix format`, `mix compile --warnings-as-errors`, and `mix assets.build` passed during this iteration; rerun the format check and `git diff --check` before committing.
 - `mix gettext.extract` and `mix gettext.merge priv/gettext` completed. Ten new location strings were translated in both Spanish and French.

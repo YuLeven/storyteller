@@ -12,7 +12,7 @@ defmodule Storyteller.Play do
 
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Panels
-  alias Storyteller.Play.{Character, Event, LocationChanges, Place, Roll, State, Turn}
+  alias Storyteller.Play.{Character, Event, LocationChanges, Objective, Place, Roll, State, Turn}
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
@@ -39,6 +39,13 @@ defmodule Storyteller.Play do
   motives, relationships, work, and speech; their visible activity may continue
   between player actions, while private intentions remain private until play
   reveals them.
+
+  The supplied public and GM-private objectives are canonical commitments.
+  Do not invent goals or imply that one is complete just because time passed,
+  it was mentioned, or partial progress occurred. Mark an objective completed
+  only when the narrated events establish that its stated goal was achieved;
+  abandon it only when the fiction establishes that it is no longer pursued.
+  Keep GM-private objectives and their details out of player-facing narration.
 
   Give actions plausible, proportionate consequences. Ordinary actions may
   simply work. Balance favorable and unfavorable outcomes according to the
@@ -82,6 +89,15 @@ defmodule Storyteller.Play do
   change the world location through public_changes; move the player to a
   canonical public place instead.
 
+  Update durable objectives only when the action or established history supports
+  the change. Return objective_changes in the order they should apply. A create
+  operation uses {type: "create", objective: {objective_id, title, details?,
+  visibility}, reason} and starts open. An update uses {type: "update",
+  objective_id, title?, details?, status?, visibility?, reason}. Use an existing
+  stable ID for updates, a fresh ID for creation, and a concise reason for every
+  operation. Status is open, completed, or abandoned. Do not duplicate IDs or
+  treat an unsupported completion as established.
+
   Return exactly one JSON object with these fields: narration (non-empty string),
   dialogue (array of {speaker_id, text}), activities (array of {speaker_id,
   text}), public_changes (object), private_changes (object), panel_changes
@@ -95,8 +111,9 @@ defmodule Storyteller.Play do
   {type: "transfer", item_id: id, owner_id: speaker_id_or_party, reason: text},
   or {type: "transfer", item_id: id, quantity: integer, new_item_id: id,
   owner_id: speaker_id_or_party, reason: text} for a partial stack transfer,
-  or {type: "consume", item_id: id, quantity: integer, reason: text}), and
-  roll_request (null or {test, difficulty?, target?}).
+  or {type: "consume", item_id: id, quantity: integer, reason: text}),
+  objective_changes (an ordered array of create/update operations described
+  above), and roll_request (null or {test, difficulty?, target?}).
   Change only fields listed in the supplied panel definitions, preserve their
   types and units, and do not reveal or write a GM-private field into public
   narration or changes. Use only existing GM character
@@ -267,6 +284,7 @@ defmodule Storyteller.Play do
          world: world,
          places: places,
          inventory: Inventory.public_projection(Map.get(state.public_state, "inventory", [])),
+         objectives: public_objectives(campaign_id),
          characters: characters,
          panels: panel_projection.panels
        }}
@@ -685,6 +703,8 @@ defmodule Storyteller.Play do
 
       state_changes? = proposal_has_state_changes?(proposal)
 
+      apply_objective_changes!(turn.campaign_id, proposal.objective_changes)
+
       updated_state =
         if state_changes? or proposal.memory_update do
           apply_proposed_state!(state, turn.campaign_id, proposal)
@@ -838,6 +858,8 @@ defmodule Storyteller.Play do
     sequence =
       append_location_change_event(state, turn, sequence, :gm_private, private_location_changes)
 
+    sequence = append_objective_change_events(state, turn, proposal.objective_changes, sequence)
+
     Enum.reduce(proposal.character_updates, sequence, fn update, current ->
       sequence =
         if map_size(update.visible_facts) > 0 do
@@ -866,6 +888,62 @@ defmodule Storyteller.Play do
         sequence
       end
     end)
+  end
+
+  defp append_objective_change_events(_state, _turn, [], sequence), do: sequence
+
+  defp append_objective_change_events(state, turn, changes, sequence) do
+    public_changes = Enum.filter(changes, &(&1.snapshot.visibility == :public))
+
+    sequence =
+      if public_changes == [] do
+        sequence
+      else
+        safe_changes = Enum.map(public_changes, &public_objective_change/1)
+
+        append_event!(
+          %{state | event_sequence: sequence},
+          turn,
+          :state_change,
+          :public,
+          nil,
+          %{objective_changes: safe_changes}
+        )
+      end
+
+    append_event!(
+      %{state | event_sequence: sequence},
+      turn,
+      :state_change,
+      :gm_private,
+      nil,
+      %{objective_audit: Enum.map(changes, &private_objective_change/1)}
+    )
+  end
+
+  defp public_objective_change(change) do
+    %{
+      "type" => Atom.to_string(change.type),
+      "objective" => objective_values(change.snapshot)
+    }
+  end
+
+  defp private_objective_change(change) do
+    %{
+      "type" => Atom.to_string(change.type),
+      "objective" => objective_values(change.snapshot),
+      "reason" => change.reason
+    }
+  end
+
+  defp objective_values(objective) do
+    %{
+      "objective_id" => objective.objective_id,
+      "title" => objective.title,
+      "details" => objective.details,
+      "status" => Atom.to_string(objective.status),
+      "visibility" => Atom.to_string(objective.visibility)
+    }
   end
 
   defp append_panel_change_event(_state, _turn, sequence, _visibility, []), do: sequence
@@ -1099,6 +1177,34 @@ defmodule Storyteller.Play do
     end)
   end
 
+  defp apply_objective_changes!(_campaign_id, []), do: :ok
+
+  defp apply_objective_changes!(campaign_id, changes) do
+    Enum.each(changes, fn change ->
+      case change.type do
+        :create ->
+          attrs =
+            change.attrs
+            |> Map.put(:campaign_id, campaign_id)
+            |> Map.put(:objective_id, change.objective_id)
+
+          insert_or_rollback!(Objective.changeset(%Objective{}, attrs))
+
+        :update ->
+          objective =
+            Repo.one!(
+              from candidate in Objective,
+                where:
+                  candidate.campaign_id == ^campaign_id and
+                    candidate.objective_id == ^change.objective_id,
+                lock: "FOR UPDATE"
+            )
+
+          update_or_rollback!(Objective.changeset(objective, change.attrs))
+      end
+    end)
+  end
+
   defp set_visible_activity!(campaign_id, speaker_id, activity) do
     character = Repo.get_by!(Character, campaign_id: campaign_id, speaker_id: speaker_id)
 
@@ -1110,9 +1216,10 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update inventory_changes location_changes roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update inventory_changes location_changes objective_changes roll_request)
 
     cond do
+      not unique_normalized_keys?(proposal) -> {:error, :invalid_response}
       map_size(proposal) > length(allowed) -> {:error, :invalid_response}
       Enum.any?(Map.keys(proposal), &(key_name(&1) not in allowed)) -> {:error, :invalid_response}
       true -> validate_proposal_fields(proposal, turn)
@@ -1138,13 +1245,18 @@ defmodule Storyteller.Play do
            ),
          {:ok, location_changes} <-
            validate_location_changes(field(proposal, :location_changes, []), turn.campaign_id),
+         {:ok, objective_changes} <-
+           validate_objective_changes(
+             field(proposal, :objective_changes, []),
+             turn.campaign_id
+           ),
          {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if roll_request &&
            (map_size(public_changes) > 0 or map_size(private_changes) > 0 or
               panel_changes != [] or character_updates != [] or inventory_changes != [] or
-              location_changes != []) do
+              location_changes != [] or objective_changes != []) do
         {:error, :invalid_response}
       else
         {:ok,
@@ -1158,6 +1270,7 @@ defmodule Storyteller.Play do
            character_updates: character_updates,
            inventory_changes: inventory_changes,
            location_changes: location_changes,
+           objective_changes: objective_changes,
            memory_update: memory_update,
            roll_request: roll_request
          }}
@@ -1228,6 +1341,227 @@ defmodule Storyteller.Play do
   end
 
   defp validate_location_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+
+  defp validate_objective_changes(changes, campaign_id)
+       when is_list(changes) and length(changes) <= 100 do
+    objectives =
+      Repo.all(from objective in Objective, where: objective.campaign_id == ^campaign_id)
+      |> Map.new(fn objective ->
+        {objective.objective_id,
+         %{
+           objective_id: objective.objective_id,
+           title: objective.title,
+           details: objective.details,
+           status: objective.status,
+           visibility: objective.visibility
+         }}
+      end)
+
+    Enum.reduce_while(changes, {:ok, {objectives, []}}, fn raw_change, {:ok, {current, acc}} ->
+      with {:ok, change} <- normalize_objective_change(raw_change),
+           {:ok, next, normalized} <- apply_objective_change(current, change) do
+        {:cont, {:ok, {next, acc ++ [normalized]}}}
+      else
+        _ -> {:halt, {:error, :invalid_response}}
+      end
+    end)
+    |> case do
+      {:ok, {_objectives, normalized}} -> {:ok, normalized}
+      {:error, _reason} -> {:error, :invalid_response}
+    end
+  end
+
+  defp validate_objective_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+
+  defp normalize_objective_change(change) when is_map(change) do
+    type = field(change, :type)
+    reason = field(change, :reason)
+    keys = Enum.map(Map.keys(change), &key_name/1)
+
+    cond do
+      not unique_normalized_keys?(change) ->
+        {:error, :invalid_response}
+
+      not is_binary(reason) or String.trim(reason) == "" or String.length(reason) > 500 ->
+        {:error, :invalid_response}
+
+      type == "create" and Enum.all?(keys, &(&1 in ["type", "objective", "reason"])) ->
+        normalize_objective_create(field(change, :objective), reason)
+
+      type == "update" and
+          Enum.all?(
+            keys,
+            &(&1 in ["type", "objective_id", "title", "details", "status", "visibility", "reason"])
+          ) ->
+        normalize_objective_update(change, reason)
+
+      true ->
+        {:error, :invalid_response}
+    end
+  end
+
+  defp normalize_objective_change(_change), do: {:error, :invalid_response}
+
+  defp normalize_objective_create(objective, reason) when is_map(objective) do
+    keys = Enum.map(Map.keys(objective), &key_name/1)
+    objective_id = field(objective, :objective_id)
+    title = field(objective, :title)
+    details = field(objective, :details)
+    visibility = normalize_objective_visibility(field(objective, :visibility))
+
+    cond do
+      not unique_normalized_keys?(objective) ->
+        {:error, :invalid_response}
+
+      Enum.any?(keys, &(&1 not in ["objective_id", "title", "details", "visibility"])) ->
+        {:error, :invalid_response}
+
+      not valid_objective_id?(objective_id) ->
+        {:error, :invalid_response}
+
+      not valid_objective_title?(title) ->
+        {:error, :invalid_response}
+
+      not valid_objective_details?(details) ->
+        {:error, :invalid_response}
+
+      is_nil(visibility) ->
+        {:error, :invalid_response}
+
+      true ->
+        {:ok,
+         %{
+           type: :create,
+           objective_id: objective_id,
+           attrs: %{title: title, details: details, status: :open, visibility: visibility},
+           reason: reason
+         }}
+    end
+  end
+
+  defp normalize_objective_create(_objective, _reason), do: {:error, :invalid_response}
+
+  defp normalize_objective_update(change, reason) do
+    objective_id = field(change, :objective_id)
+    keys = Enum.map(Map.keys(change), &key_name/1)
+    updates_present? = Enum.any?(keys, &(&1 in ["title", "details", "status", "visibility"]))
+
+    with true <- valid_objective_id?(objective_id) and updates_present?,
+         {:ok, attrs} <- objective_update_attrs(change, keys) do
+      {:ok, %{type: :update, objective_id: objective_id, attrs: attrs, reason: reason}}
+    else
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp objective_update_attrs(change, keys) do
+    attrs = %{}
+
+    with {:ok, attrs} <- maybe_objective_title(change, keys, attrs),
+         {:ok, attrs} <- maybe_objective_details(change, keys, attrs),
+         {:ok, attrs} <- maybe_objective_status(change, keys, attrs),
+         {:ok, attrs} <- maybe_objective_visibility(change, keys, attrs) do
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_objective_title(change, keys, attrs) do
+    if "title" in keys do
+      title = field(change, :title)
+
+      if valid_objective_title?(title),
+        do: {:ok, Map.put(attrs, :title, title)},
+        else: {:error, :invalid_response}
+    else
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_objective_details(change, keys, attrs) do
+    if "details" in keys do
+      details = field(change, :details)
+
+      if valid_objective_details?(details),
+        do: {:ok, Map.put(attrs, :details, details)},
+        else: {:error, :invalid_response}
+    else
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_objective_status(change, keys, attrs) do
+    if "status" in keys do
+      case normalize_objective_status(field(change, :status)) do
+        nil -> {:error, :invalid_response}
+        status -> {:ok, Map.put(attrs, :status, status)}
+      end
+    else
+      {:ok, attrs}
+    end
+  end
+
+  defp maybe_objective_visibility(change, keys, attrs) do
+    if "visibility" in keys do
+      case normalize_objective_visibility(field(change, :visibility)) do
+        nil -> {:error, :invalid_response}
+        visibility -> {:ok, Map.put(attrs, :visibility, visibility)}
+      end
+    else
+      {:ok, attrs}
+    end
+  end
+
+  defp apply_objective_change(objectives, %{type: :create} = change) do
+    if Map.has_key?(objectives, change.objective_id) do
+      {:error, :duplicate_objective_id}
+    else
+      snapshot =
+        Map.merge(change.attrs, %{objective_id: change.objective_id})
+
+      normalized = Map.put(change, :snapshot, snapshot)
+      {:ok, Map.put(objectives, change.objective_id, snapshot), normalized}
+    end
+  end
+
+  defp apply_objective_change(objectives, %{type: :update} = change) do
+    case Map.fetch(objectives, change.objective_id) do
+      :error ->
+        {:error, :unknown_objective}
+
+      {:ok, current} ->
+        snapshot = Map.merge(current, change.attrs)
+        normalized = Map.put(change, :snapshot, snapshot)
+        {:ok, Map.put(objectives, change.objective_id, snapshot), normalized}
+    end
+  end
+
+  defp valid_objective_id?(id) do
+    is_binary(id) and byte_size(id) <= 100 and Regex.match?(~r/\A[a-zA-Z0-9:_-]+\z/, id)
+  end
+
+  defp valid_objective_title?(title) do
+    is_binary(title) and String.trim(title) != "" and String.length(title) <= 160
+  end
+
+  defp valid_objective_details?(nil), do: true
+
+  defp valid_objective_details?(details) do
+    is_binary(details) and String.length(details) <= 2_000
+  end
+
+  defp normalize_objective_status("open"), do: :open
+  defp normalize_objective_status("completed"), do: :completed
+  defp normalize_objective_status("abandoned"), do: :abandoned
+  defp normalize_objective_status(_), do: nil
+
+  defp normalize_objective_visibility("public"), do: :public
+  defp normalize_objective_visibility("gm_private"), do: :gm_private
+  defp normalize_objective_visibility(_), do: nil
+
+  defp unique_normalized_keys?(map) when is_map(map) do
+    keys = Enum.map(Map.keys(map), &key_name/1)
+    length(keys) == length(Enum.uniq(keys))
+  end
 
   defp validate_lines(lines, campaign_id) when is_list(lines) and length(lines) <= 30 do
     characters = campaign_characters(campaign_id)
@@ -1493,6 +1827,10 @@ defmodule Storyteller.Play do
         public: Enum.filter(places, &(&1.visibility == :public)) |> Enum.map(&place_context/1),
         gm_private:
           Enum.filter(places, &(&1.visibility == :gm_private)) |> Enum.map(&place_context/1)
+      },
+      objectives: %{
+        public: objective_context(turn.campaign_id, :public),
+        gm_private: objective_context(turn.campaign_id, :gm_private)
       },
       memory: %{
         public_summary: state.public_history_summary,
@@ -1813,7 +2151,35 @@ defmodule Storyteller.Play do
     map_size(proposal.public_changes) > 0 or map_size(proposal.private_changes) > 0 or
       proposal.panel_changes != [] or proposal.character_updates != [] or
       proposal.inventory_changes != [] or proposal.location_changes != [] or
+      proposal.objective_changes != [] or
       proposal.activities != [] or proposal.memory_update != nil
+  end
+
+  defp public_objectives(campaign_id) do
+    Repo.all(
+      from objective in Objective,
+        where: objective.campaign_id == ^campaign_id and objective.visibility == :public,
+        order_by: [asc: objective.inserted_at, asc: objective.objective_id]
+    )
+    |> Enum.map(&objective_projection/1)
+  end
+
+  defp objective_context(campaign_id, visibility) do
+    Repo.all(
+      from objective in Objective,
+        where: objective.campaign_id == ^campaign_id and objective.visibility == ^visibility,
+        order_by: [asc: objective.inserted_at, asc: objective.objective_id]
+    )
+    |> Enum.map(&objective_projection/1)
+  end
+
+  defp objective_projection(objective) do
+    %{
+      objective_id: objective.objective_id,
+      title: objective.title,
+      details: objective.details,
+      status: objective.status
+    }
   end
 
   defp field(map, key, default \\ nil)

@@ -7,7 +7,7 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Event, Roll, State, Turn}
+  alias Storyteller.Play.{Event, Objective, Roll, State, Turn}
 
   test "GM memory is persisted by visibility and only recent events are sent back to the model" do
     {campaign, session} = play_campaign("The Glass Observatory")
@@ -162,6 +162,245 @@ defmodule Storyteller.PlayTest do
              public_events,
              &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:lyra")
            )
+  end
+
+  test "objectives use ordered stable changes and remain canonical across sessions" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    first_provider = fn request ->
+      context = decode_request(request)
+      Agent.update(captured_context, fn _ -> context end)
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "objective_changes" => [
+             %{
+               "type" => "create",
+               "objective" => %{
+                 "objective_id" => "repair-east-terrace",
+                 "title" => "Repair the east terrace",
+                 "details" => "Find suitable stone and rebuild the retaining wall.",
+                 "visibility" => "public"
+               },
+               "reason" => "The player agrees to restore the damaged terrace."
+             },
+             %{
+               "type" => "update",
+               "objective_id" => "repair-east-terrace",
+               "title" => "Restore the eastern terrace",
+               "reason" => "The established plan clarifies which terrace is meant."
+             },
+             %{
+               "type" => "create",
+               "objective" => %{
+                 "objective_id" => "altered-chart-truth",
+                 "title" => "Discover who altered the star chart",
+                 "details" => "The chart was secretly changed before the observatory closed.",
+                 "visibility" => "gm_private"
+               },
+               "reason" => "The keeper's private suspicion is not yet known to the player."
+             }
+           ]
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "objective-start",
+               "I will repair the terrace.",
+               provider: first_provider
+             )
+
+    {:ok, first_timeline} = Play.public_timeline(campaign.id)
+
+    first_objective_event =
+      Enum.find(first_timeline, &Map.has_key?(&1.payload, "objective_changes"))
+
+    assert Enum.map(
+             first_objective_event.payload["objective_changes"],
+             & &1["objective"]["title"]
+           ) ==
+             ["Repair the east terrace", "Restore the eastern terrace"]
+
+    refute Jason.encode!(first_timeline) =~ "altered-chart-truth"
+    refute Jason.encode!(first_timeline) =~ "Discover who altered the star chart"
+    refute Jason.encode!(first_timeline) =~ "The chart was secretly changed"
+
+    {:ok, public_projection} = Play.public_projection(campaign.id)
+
+    assert [
+             %{
+               objective_id: "repair-east-terrace",
+               title: "Restore the eastern terrace",
+               status: :open
+             }
+           ] =
+             public_projection.objectives
+
+    {:ok, next_session} = Campaigns.start_session(campaign)
+
+    second_provider = fn request ->
+      context = decode_request(request)
+      Agent.update(captured_context, fn _ -> context end)
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "objective_changes" => [
+             %{
+               "type" => "update",
+               "objective_id" => "repair-east-terrace",
+               "status" => "completed",
+               "reason" => "The terrace wall has been rebuilt and inspected."
+             },
+             %{
+               "type" => "create",
+               "objective" => %{
+                 "objective_id" => "map-the-old-cellar",
+                 "title" => "Map the old cellar",
+                 "visibility" => "public"
+               },
+               "reason" => "The player discovers an uncharted cellar entrance."
+             },
+             %{
+               "type" => "create",
+               "objective" => %{
+                 "objective_id" => "retire-the-false-lead",
+                 "title" => "Check the abandoned trail",
+                 "visibility" => "public"
+               },
+               "reason" => "The group decides the trail is no longer worth pursuing."
+             },
+             %{
+               "type" => "update",
+               "objective_id" => "retire-the-false-lead",
+               "status" => "abandoned",
+               "reason" => "The lead has been ruled out."
+             }
+           ]
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "objective-progress",
+               "The wall is finished; we should map the cellar instead.",
+               provider: second_provider
+             )
+
+    context = Agent.get(captured_context, & &1)
+
+    assert Enum.any?(context["objectives"]["public"], fn objective ->
+             objective["objective_id"] == "repair-east-terrace" and objective["status"] == "open"
+           end)
+
+    assert Enum.any?(context["objectives"]["gm_private"], fn objective ->
+             objective["objective_id"] == "altered-chart-truth" and
+               objective["title"] == "Discover who altered the star chart"
+           end)
+
+    assert Jason.encode!(context["history"]) =~ "The chart was secretly changed"
+
+    {:ok, public_projection} = Play.public_projection(campaign.id)
+
+    assert Enum.find(public_projection.objectives, &(&1.objective_id == "repair-east-terrace")).status ==
+             :completed
+
+    assert Enum.find(public_projection.objectives, &(&1.objective_id == "retire-the-false-lead")).status ==
+             :abandoned
+
+    assert Enum.find(public_projection.objectives, &(&1.objective_id == "map-the-old-cellar")).status ==
+             :open
+
+    {:ok, public_timeline} = Play.public_timeline(campaign.id)
+    refute Jason.encode!(public_projection) =~ "altered-chart-truth"
+    refute Jason.encode!(public_timeline) =~ "altered-chart-truth"
+    refute Jason.encode!(public_timeline) =~ "Discover who altered the star chart"
+  end
+
+  test "invalid ordered objective proposals fail without applying earlier operations" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "invalid-objective-sequence",
+               "Agree to a plan.",
+               provider:
+                 ordinary_provider(%{
+                   "public_changes" => %{"weather" => "Changed by a rejected proposal"},
+                   "objective_changes" => [
+                     %{
+                       "type" => "create",
+                       "objective" => %{
+                         "objective_id" => "new-plan",
+                         "title" => "Repair the west gate",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The player agrees to repair it."
+                     },
+                     %{
+                       "type" => "update",
+                       "objective_id" => "missing-plan",
+                       "status" => "completed",
+                       "reason" => "This ID does not exist."
+                     }
+                   ]
+                 })
+             )
+
+    assert Repo.all(from objective in Objective, where: objective.campaign_id == ^campaign.id) ==
+             []
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    assert {:ok, %{world: %{"weather" => "Clear"}, objectives: []}} =
+             Play.public_projection(campaign.id)
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "duplicate-objective-id",
+               "Repeat the same commitment.",
+               provider:
+                 ordinary_provider(%{
+                   "objective_changes" => [
+                     %{
+                       "type" => "create",
+                       "objective" => %{
+                         "objective_id" => "same-id",
+                         "title" => "First title",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The first commitment is established."
+                     },
+                     %{
+                       "type" => "create",
+                       "objective" => %{
+                         "objective_id" => "same-id",
+                         "title" => "Different title",
+                         "visibility" => "public"
+                       },
+                       "reason" => "A duplicate stable ID is invalid."
+                     }
+                   ]
+                 })
+             )
+
+    assert Repo.all(from objective in Objective, where: objective.campaign_id == ^campaign.id) ==
+             []
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
   test "places seed character presence, persist across turns, and keep private locations out of player views" do

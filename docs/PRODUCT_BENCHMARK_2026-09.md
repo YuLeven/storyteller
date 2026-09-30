@@ -26,15 +26,15 @@ Apple's [Human Interface Guidelines](https://developer.apple.com/design/human-in
 
 ## Storyteller baseline and remaining gaps
 
-The current application stores campaign-wide state and timeline events across sessions. The model receives campaign setup, bounded recent history and summaries, canonical public/private world state, inventories, places, character facts and locations, and typed panel definitions. The player board now displays current location and surroundings, visible people in that location, tracked campaign values, known owned items, NPC activity, and the chronological story. Inventory and location changes are validated operations; public projections omit GM-private records.
+The current application stores campaign-wide state and timeline events across sessions. The model receives campaign setup, bounded recent history and summaries, canonical public/private world state, inventories, places, character facts and locations, typed panel definitions, and public/private objectives. The player board displays current location and surroundings, visible people in that location, tracked campaign values, known owned items, NPC activity, public objectives grouped by status, and the chronological story. Inventory, location, and objective changes are validated operations; public projections omit GM-private records.
 
-The data model has meaningful safeguards, but it does not eliminate model mistakes. Remaining gaps include post-creation inventory editing, flexible player character attributes, durable objectives/quests, linked people and places, and richer map navigation. The current player board presents locations and known facts as structured text; it does not yet offer an interactive map. Behavioral tests should continue to check item conservation, resource arithmetic, private facts, NPC location, retry/reconnect paths, and cross-session continuity.
+The data model has meaningful safeguards, but it does not eliminate model mistakes. Remaining gaps include post-creation inventory editing, flexible player character attributes, linked people and places, and richer map navigation. Objectives are durable, but there is no broader journal or objective detail workflow yet. The current player board presents locations and known facts as structured text; it does not yet offer an interactive map. Behavioral tests should continue to check item conservation, resource arithmetic, private facts, NPC location, retry/reconnect paths, and cross-session continuity.
 
 ## Product direction
 
 1. Finish inventory operations with safe edits to condition/charges and player-facing post-creation management. Keep the now-implemented whole/partial transfer rules behaviorally covered.
-2. Add a useful player character sheet and a compact objective/commitments view, while keeping both optional for campaigns that do not need them.
-3. Keep place, presence, item, panel, and event state canonical. Give the GM relevant hidden context, validate proposed changes, and commit accepted deltas atomically.
+2. Add a useful player character sheet with details that fit the selected game, such as abilities, health, or vineyard responsibilities. Keep optional fields out of campaigns that do not need them.
+3. Keep place, presence, item, objective, panel, and event state canonical. Give the GM relevant hidden context, validate proposed changes, and commit accepted deltas atomically.
 4. Prioritize the current scene, clear status, accessible reading, and error recovery over decorative dashboards. Keep the browser light and LiveView-driven.
 5. Run cross-session behavioral scenarios for conservation, ownership, private context, location, progression, and durable restart/resume.
 6. Hands-on test representative tasks in Friends & Fables/Craft, Kanka, and LegendKeeper using only the separate fictional QA campaign. Record task steps and friction; do not change or use vineyard data for benchmarking.

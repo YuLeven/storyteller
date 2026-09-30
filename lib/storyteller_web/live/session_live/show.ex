@@ -311,6 +311,9 @@ defmodule StorytellerWeb.SessionLive.Show do
       is_list(Map.get(event.payload, "location_changes")) ->
         gettext("Places and travel")
 
+      is_list(Map.get(event.payload, "objective_changes")) ->
+        gettext("Campaign objectives")
+
       is_map(Map.get(event.payload, "panel_changes")) ->
         gettext("Campaign values")
 
@@ -344,6 +347,39 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: changes
 
   defp location_change_values(_event), do: []
+
+  defp objective_change_values(%{payload: %{"objective_changes" => changes}})
+       when is_list(changes),
+       do: changes
+
+  defp objective_change_values(_event), do: []
+
+  defp objective_event_text(%{"type" => "create", "objective" => objective}) do
+    gettext("Added objective: %{title} (%{status})",
+      title: objective["title"],
+      status: objective_status_label(objective["status"])
+    )
+  end
+
+  defp objective_event_text(%{"objective" => objective}) do
+    gettext("Updated objective: %{title} (%{status})",
+      title: objective["title"],
+      status: objective_status_label(objective["status"])
+    )
+  end
+
+  defp objective_event_text(_change), do: gettext("Campaign objective updated")
+
+  defp objectives_for_status(objectives, status),
+    do: Enum.filter(objectives, &(&1.status == status))
+
+  defp objective_status_label(:open), do: gettext("Open")
+  defp objective_status_label("open"), do: gettext("Open")
+  defp objective_status_label(:completed), do: gettext("Completed")
+  defp objective_status_label("completed"), do: gettext("Completed")
+  defp objective_status_label(:abandoned), do: gettext("Abandoned")
+  defp objective_status_label("abandoned"), do: gettext("Abandoned")
+  defp objective_status_label(_status), do: gettext("Unknown status")
 
   defp character_location_label(%{current_place: nil}, _player_character),
     do: gettext("No known location")
