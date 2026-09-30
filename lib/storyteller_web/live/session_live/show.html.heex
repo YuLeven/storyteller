@@ -340,6 +340,30 @@
                 class="inline-flex justify-center rounded-lg bg-amber-800 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
               >{gettext("Send turn")}</button>
             </div>
+            <div
+              id="chatgpt-plan-status"
+              class="mt-3 flex flex-col gap-1 border-t border-stone-200 pt-3 text-xs sm:flex-row sm:items-center sm:justify-between"
+            >
+              <p :if={@plan_usage_enabled?} class="font-medium text-emerald-900">
+                {gettext("Using ChatGPT plan")}
+              </p>
+              <.link
+                :if={!@plan_usage_enabled?}
+                navigate={~p"/auth/connect"}
+                class="font-medium text-amber-900 underline decoration-amber-800/50 underline-offset-2 hover:text-amber-700"
+              >
+                {gettext("Connect ChatGPT to power the game master")}
+              </.link>
+              <a
+                :if={@plan_usage_enabled?}
+                href="https://chatgpt.com/settings/usage"
+                target="_blank"
+                rel="noreferrer"
+                class="font-medium text-amber-900 underline decoration-amber-800/50 underline-offset-2 hover:text-amber-700"
+              >
+                {gettext("Manage usage")}
+              </a>
+            </div>
             <p :if={@input_error?} role="alert" class="mt-2 text-sm text-rose-700">
               {gettext("Enter an action or something to say before sending.")}
             </p>

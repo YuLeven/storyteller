@@ -1,6 +1,7 @@
 defmodule StorytellerWeb.SessionLive.Show do
   use StorytellerWeb, :live_view
 
+  alias Storyteller.Auth.OAuth
   alias Storyteller.Campaigns
   alias Storyteller.Play
 
@@ -22,6 +23,7 @@ defmodule StorytellerWeb.SessionLive.Show do
           assign(socket,
             page_title: session.title,
             session: session,
+            plan_usage_enabled?: OAuth.status().plan_usage_enabled?,
             draft: "",
             input_error?: false,
             submission_key: Ecto.UUID.generate(),

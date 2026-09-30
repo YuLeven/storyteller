@@ -14,6 +14,7 @@ defmodule StorytellerWeb.SessionLiveTest do
   import Ecto.Query
   import Storyteller.CampaignFixtures
 
+  alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.Play
   alias Storyteller.Play.{Event, Turn}
   alias Storyteller.Repo
@@ -78,6 +79,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     {:ok, view, _html} = live(conn, session_path(campaign, session))
     refute has_element?(view, "#roll-panel")
+    assert has_element?(view, "#chatgpt-plan-status a[href='/auth/connect']")
 
     view
     |> form("#turn-composer",
@@ -105,6 +107,41 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert rhea.visible_activity == "Rhea checks the gate latch."
     assert rhea.visible_facts["trust"] == "She trusts your judgment."
     assert projection.world["location"] == "The western road"
+  end
+
+  test "a connected ChatGPT plan is clear beside the composer and links to usage settings", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    credentials = %Credentials{
+      client_id: "test-client",
+      subject: "test-account",
+      email: "player@example.test",
+      host_id: TokenStore.host_id(),
+      access_token: "test-access-token",
+      refresh_token: "test-refresh-token",
+      expires_at: System.system_time(:second) + 3_600,
+      scopes: ["openid", "chatgpt.tokens.use.direct"]
+    }
+
+    assert :ok = TokenStore.put_credentials(credentials)
+
+    on_exit(fn ->
+      _ = TokenStore.sign_out(fn _credentials -> :ok end)
+    end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    assert has_element?(view, "#chatgpt-plan-status", "Using ChatGPT plan")
+
+    assert has_element?(
+             view,
+             "#chatgpt-plan-status a[href='https://chatgpt.com/settings/usage']",
+             "Manage usage"
+           )
   end
 
   test "D20 is only generated after the validated roll request is clicked", %{conn: conn} do

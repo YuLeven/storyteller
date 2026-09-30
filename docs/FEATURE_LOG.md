@@ -27,6 +27,12 @@
 - **Checked:** rebuilt assets and reviewed headless Edge screenshots of the library and fictional QA session at a 1440px capture width. Keyboard, narrow-screen, and screen-reader review are still outstanding.
 - Reviewed the local connection screen and found the port-4000 process was started before `TokenStore` was added to the supervision tree; `/auth/connect` raises in that stale process. The existing server was left running, and the checkpoint now calls for a restart before account-flow review.
 
+## 2026-09-29 — ChatGPT plan usage cues
+
+- Added a connection-state cue at the play composer: connected players see that the turn uses their ChatGPT plan and can open usage settings; disconnected players can open account setup.
+- Added the same usage-settings link to the connected account page and translated all new copy into Spanish and French.
+- **Checked:** focused account and session LiveView tests passed (9 tests, 0 failures), the full suite passed (82 tests, 0 failures), and formatting, warnings-as-errors compilation, and asset build passed. A local request to `/auth/connect` returns HTTP 200 under the restarted WSL Phoenix server. The owner has not completed OAuth consent or a live model call.
+
 ## 2026-09-29 — Versioned GM policy
 
 - Recorded the original vineyard chat's gameplay rules in `docs/GM_POLICY.md` without including its private plot or state: the GM advances time and weather, the player makes decisions and supplies rolls, and the in-world date remains visible.

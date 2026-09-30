@@ -12,14 +12,15 @@ Storyteller is an in-progress local Phoenix LiveView TTRPG site. This checkpoint
 - Persisted public and GM-private campaign summaries. The GM prompt maintains these separately, validates each at 6,000 characters, and sends only the newest 40 events alongside them, keeping long campaign context bounded while the full timeline remains stored.
 - Versioned, campaign-independent GM policy in `docs/GM_POLICY.md`, based on the original vineyard game's explicit play rules. No vineyard plot or state is in the public repository.
 - ChatGPT-plan OAuth and Responses adapter code using the locally hosted preview flow, protected server-side token storage, and a fake-testable HTTP boundary. Live account consent and a real Responses call have not occurred.
+- The play composer now shows whether ChatGPT plan usage is connected, links to usage settings when connected, and links to account setup otherwise. The connected account page also links to usage settings. English, Spanish, and French catalogs include these labels.
 
 ## Verification at the checkpoint
 
 - The earlier focused campaign run had one obsolete session-page copy assertion; it was updated. The session and campaign LiveView suite passed 11 tests, 0 failures.
-- The first OAuth/GM/controller focused run had 8 test-harness failures. Those fixtures were corrected. The latest integrated suite passes: **80 tests, 0 failures**.
-- `mix format`, `mix compile --warnings-as-errors`, and Gettext extraction/merge passed. Spanish and French each have translations for all 236 extracted UI strings; merge reported no missing messages.
+- The first OAuth/GM/controller focused run had 8 test-harness failures. Those fixtures were corrected. The latest full suite passes: **82 tests, 0 failures**; the focused session/account UI run passes 9 tests, 0 failures.
+- `mix format --check-formatted`, `mix compile --warnings-as-errors`, and `mix assets.build` passed. Gettext extraction found 239 UI strings, with Spanish and French translations for all current strings.
 - Additive migrations `20260929000400` (UI locale preference) and `20260929000500` (history summaries) were applied to the durable development database without resetting it. The full suite used the separate `storyteller_test` database.
-- A local HTTP smoke check returned `200 OK` and showed the locale selector and fictional QA campaign. Headless Edge screenshots of the campaign library and play screen were reviewed at a 1440px capture width. The dark forest, brass, and warm framed story-board styling improves contrast and makes the narrative scene more prominent; keyboard, narrow-screen, and screen-reader review remain outstanding. The existing local server on port `4000` was left running. It predates the current supervisor tree: `/auth/connect` raised because its `Storyteller.Auth.TokenStore` process is absent, even though the current source registers that child. Restart the server from WSL before reviewing the connection flow.
+- A local HTTP smoke check returned `200 OK` and showed the locale selector and fictional QA campaign. Headless Edge screenshots of the campaign library and play screen were reviewed at a 1440px capture width. The dark forest, brass, and warm framed story-board styling improves contrast and makes the narrative scene more prominent; keyboard, narrow-screen, and screen-reader review remain outstanding. The WSL server on port `4000` was restarted with the current supervisor tree and now serves `/auth/connect` successfully.
 - Live OAuth consent and a real Responses request have not occurred.
 
 ## Resume in this order
