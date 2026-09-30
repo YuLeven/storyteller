@@ -386,7 +386,7 @@ defmodule StorytellerWeb.SessionLiveTest do
            private_changes: %{},
            character_updates: [],
            memory_update: %{public_summary: "", gm_private_summary: ""},
-           roll_request: %{test: "Agility", difficulty: "Hard"}
+           roll_request: %{test: "Agility", difficulty: "Hard", target: 14}
          }}
       else
         {:ok,
@@ -419,6 +419,9 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert_receive {:fake_gm_call, %{"phase" => "initial"}}, 1_000
     assert wait_until(fn -> has_element?(view, "#roll-panel", "Agility") end)
+    assert has_element?(view, "#story-timeline", "Agility")
+    assert has_element?(view, "#story-timeline", "Difficulty: Hard")
+    assert has_element?(view, "#story-timeline", "Target: 14")
     refute_receive :d20_source_used, 100
 
     view |> element("#roll-panel button[phx-click='roll-d20']") |> render_click()
@@ -429,6 +432,10 @@ defmodule StorytellerWeb.SessionLiveTest do
     html = render(view)
     assert html =~ "D20 result: 17"
     assert html =~ "You steady your footing and reach the far side."
+
+    {:ok, resumed, _html} = live(conn, session_path(campaign, session))
+    assert has_element?(resumed, "#story-timeline", "Difficulty: Hard")
+    assert has_element?(resumed, "#story-timeline", "Target: 14")
   end
 
   test "failed turn and reconnect guidance survive a new LiveView connection", %{conn: conn} do

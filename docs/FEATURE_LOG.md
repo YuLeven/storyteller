@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-09-30 — Keep roll targets in the story timeline
+
+- Roll-request timeline entries now show the test plus any specified difficulty and target. Players can still see what a D20 result was judged against after resolution or reconnect.
+- **Checked:** the SessionLive behavior test checks the request details while awaiting a roll and after reopening the completed session. The display reuses the existing translated labels; no translation catalog or migration change was needed.
+
 ## 2026-09-30 — Refresh sourced product benchmark
 
 - Rechecked official Friends & Fables, Craft, Kanka, and LegendKeeper feature pages. The notes now describe the current advertised play and campaign-management features, distinguish those vendor claims from verified behavior, and avoid treating the products as interchangeable.

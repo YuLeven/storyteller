@@ -275,10 +275,21 @@
                 </p>
 
                 <p :if={event.event_type == :roll_request} class="leading-7 text-stone-800">
-                  {@projection.characters
-                  |> Enum.find(&(&1.role == :player))
-                  |> then(fn character -> character && character.name end) ||
-                    gettext("Your character")} {gettext("needs to roll")} <strong>{event.payload["test"]}</strong>.
+                  <span class="block">
+                    {@projection.characters
+                    |> Enum.find(&(&1.role == :player))
+                    |> then(fn character -> character && character.name end) ||
+                      gettext("Your character")} {gettext("needs to roll")} <strong>{event.payload["test"]}</strong>.
+                  </span>
+                  <span
+                    :if={event.payload["difficulty"]}
+                    class="mt-1 block text-sm text-stone-600"
+                  >
+                    {gettext("Difficulty:")} {event.payload["difficulty"]}
+                  </span>
+                  <span :if={event.payload["target"]} class="mt-1 block text-sm text-stone-600">
+                    {gettext("Target:")} {event.payload["target"]}
+                  </span>
                 </p>
 
                 <p :if={event.event_type == :player_roll} class="font-semibold text-violet-900">
