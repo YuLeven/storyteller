@@ -186,6 +186,13 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     {:ok, view, _html} = live(conn, session_path(campaign, session))
 
+    assert has_element?(
+             view,
+             "#story-timeline[aria-live='polite'][aria-relevant='additions'][aria-atomic='false']"
+           )
+
+    assert has_element?(view, "#empty-timeline")
+
     view
     |> form("#turn-composer", turn: %{input: "I rest through the afternoon."})
     |> render_submit()

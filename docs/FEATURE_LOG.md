@@ -7,7 +7,7 @@
 
 ## 2026-09-30 — Accessible story timeline updates
 
-- Marked the chronological story list as a polite, additions-only live region with non-atomic updates, so newly appended events can be announced without repeating existing history.
+- Kept the chronological story list mounted from the empty state and marked it as a polite, additions-only live region with non-atomic updates. The first and later appended events can be announced without repeating existing history.
 - **Checked:** SessionLive tests verify the live-region attributes on the rendered campaign timeline; the focused suite passes (8 tests, 0 failures). Manual assistive-technology review remains outstanding.
 
 ## 2026-09-30 — Genre-flexible resource trade scenario
