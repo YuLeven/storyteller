@@ -147,7 +147,7 @@ defmodule Storyteller.GM.OpenAI do
     case response_status(response) do
       200 -> :ok
       401 -> {:error, :reauth_required}
-      403 -> status_error(response, :account_ineligible)
+      403 -> status_error(response, :provider_error)
       404 -> {:error, :model_unavailable}
       429 -> {:error, http_error_code(response_body(response))}
       status when status in [400, 503] -> status_error(response, :provider_error)

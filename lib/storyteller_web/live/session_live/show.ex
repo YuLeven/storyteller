@@ -41,6 +41,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             timeline_has_earlier?: false,
             timeline_loaded_earlier?: false,
             game_error: nil,
+            turn_announcement: "",
             worker_turn_id: nil,
             poll_scheduled?: false
           )
@@ -408,18 +409,24 @@ defmodule StorytellerWeb.SessionLive.Show do
           else: has_earlier?
 
       current_turn = Play.public_current_turn(campaign_id)
+      previous_turn = socket.assigns.current_turn
+      current_turn_roll = player_roll_result(timeline, current_turn)
 
-      assign(socket,
-        projection: projection,
-        player_character: Enum.find(projection.characters, &(&1.speaker_id == "player")),
-        characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
-        timeline: timeline,
-        current_situation: latest_public_narration(timeline),
-        timeline_has_earlier?: timeline_has_earlier?,
-        current_turn: current_turn,
-        current_turn_roll: player_roll_result(timeline, current_turn),
-        game_error: nil
-      )
+      socket =
+        assign(socket,
+          projection: projection,
+          player_character: Enum.find(projection.characters, &(&1.speaker_id == "player")),
+          characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
+          timeline: timeline,
+          current_situation: latest_public_narration(timeline),
+          timeline_has_earlier?: timeline_has_earlier?,
+          current_turn: current_turn,
+          current_turn_roll: current_turn_roll,
+          game_error: nil
+        )
+
+      socket
+      |> announce_turn_status(previous_turn, current_turn, current_turn_roll)
       |> assign_timeline_regions(recent_events)
     else
       _ ->
@@ -538,8 +545,26 @@ defmodule StorytellerWeb.SessionLive.Show do
              _ = Play.retry_turn(turn_id, provider: provider)
              send(owner, {:turn_resolution_finished, turn_id})
            end) do
-        {:ok, _pid} -> assign(socket, worker_turn_id: turn_id)
-        {:error, _reason} -> socket
+        {:ok, _pid} ->
+          socket = assign(socket, worker_turn_id: turn_id)
+
+          if connected?(socket) and
+               same_turn?(socket.assigns.current_turn, to_string(turn_id)) do
+            assign(
+              socket,
+              turn_announcement:
+                turn_announcement(
+                  socket.assigns.current_turn,
+                  socket.assigns.current_turn_roll,
+                  turn_id
+                )
+            )
+          else
+            socket
+          end
+
+        {:error, _reason} ->
+          socket
       end
     end
   end
@@ -570,6 +595,76 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp same_turn?(_turn, _turn_id), do: false
 
   defp retryable?(turn), do: turn.failure_code not in ["session_closed", "campaign_archived"]
+
+  defp announce_turn_status(socket, previous_turn, current_turn, current_turn_roll) do
+    cond do
+      not connected?(socket) ->
+        socket
+
+      is_nil(current_turn) and not is_nil(previous_turn) ->
+        assign(socket, turn_announcement: gettext("Your turn is complete."))
+
+      is_nil(current_turn) ->
+        socket
+
+      true ->
+        assign(
+          socket,
+          turn_announcement:
+            turn_announcement(current_turn, current_turn_roll, socket.assigns.worker_turn_id)
+        )
+    end
+  end
+
+  defp turn_announcement(%{status: status} = turn, result, worker_turn_id)
+       when status in [:pending, :resolving] do
+    if worker_turn_id == turn.id do
+      responding_announcement(turn, result)
+    else
+      append_roll_result(gettext("Reconnecting to the saved turn…"), result)
+    end
+  end
+
+  defp turn_announcement(
+         %{status: :awaiting_roll, roll_request: request},
+         _result,
+         _worker_turn_id
+       ) do
+    if valid_roll_request?(request) do
+      test = request["test"] || request[:test]
+
+      gettext("Roll requested") <>
+        ": " <>
+        test <>
+        ". " <>
+        gettext("The game master is waiting. Click only when you are ready to roll the D20.")
+    else
+      ""
+    end
+  end
+
+  defp turn_announcement(%{status: :failed} = turn, result, worker_turn_id) do
+    prefix =
+      if worker_turn_id == turn.id do
+        gettext("Retrying…")
+      else
+        gettext("This turn needs attention") <> ". " <> failure_message(turn.failure_code)
+      end
+
+    append_roll_result(prefix, result)
+  end
+
+  defp turn_announcement(_turn, _result, _worker_turn_id), do: ""
+
+  defp responding_announcement(%{resolution_phase: :after_roll}, result) when not is_nil(result),
+    do: append_roll_result(gettext("The game master is responding"), result)
+
+  defp responding_announcement(_turn, _result), do: gettext("The game master is responding")
+
+  defp append_roll_result(message, nil), do: message
+
+  defp append_roll_result(message, result),
+    do: message <> " " <> gettext("D20 result:") <> " " <> to_string(result)
 
   defp valid_roll_request?(request) when is_map(request) do
     test = request["test"] || request[:test]
@@ -920,7 +1015,10 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: gettext("The connected account is not eligible to continue this turn.")
 
   defp failure_message("usage_limit"),
-    do: gettext("The connected account has reached its current usage limit.")
+    do:
+      gettext(
+        "The ChatGPT plan has reached its current usage limit. Wait for it to reset, then retry this saved turn."
+      )
 
   defp failure_message("usage_unavailable"),
     do: gettext("The connected account's usage could not be confirmed.")

@@ -691,9 +691,15 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     set_handler(fn request ->
       context = provider_context(request)
-      send(test_pid, {:fake_gm_call, context})
+      send(test_pid, {:fake_gm_call, self(), context})
 
       if context["phase"] == "initial" do
+        receive do
+          :continue_resolution -> :ok
+        after
+          5_000 -> flunk("initial resolution was not released")
+        end
+
         {:ok,
          %{
            narration: "The narrow bridge sways over the ravine.",
@@ -706,6 +712,12 @@ defmodule StorytellerWeb.SessionLiveTest do
            roll_request: %{test: "Agility", difficulty: "Hard", target: 14}
          }}
       else
+        receive do
+          :continue_resolution -> :ok
+        after
+          5_000 -> flunk("after-roll resolution was not released")
+        end
+
         {:ok,
          %{
            narration: "You steady your footing and reach the far side.",
@@ -726,6 +738,15 @@ defmodule StorytellerWeb.SessionLiveTest do
     end)
 
     {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    assert has_element?(
+             view,
+             "#turn-announcement[role='status'][aria-live='polite'][aria-atomic='true']"
+           )
+
+    refute has_element?(view, "#turn-status[aria-live]")
+    refute has_element?(view, "#turn-error[aria-live]")
+    refute has_element?(view, "#roll-panel[aria-live]")
     refute has_element?(view, "button[phx-click='roll-d20']")
 
     view
@@ -734,8 +755,14 @@ defmodule StorytellerWeb.SessionLiveTest do
     )
     |> render_submit()
 
-    assert_receive {:fake_gm_call, %{"phase" => "initial"}}, 1_000
+    assert_receive {:fake_gm_call, initial_provider, %{"phase" => "initial"}}, 1_000
+    assert has_element?(view, "#turn-status")
+    assert has_element?(view, "#turn-announcement", "The game master is responding")
+    refute has_element?(view, "#turn-status[aria-live]")
+    send(initial_provider, :continue_resolution)
     assert wait_until(fn -> has_element?(view, "#roll-panel", "Agility") end)
+    refute has_element?(view, "#roll-panel[aria-live]")
+    assert has_element?(view, "#turn-announcement", "Roll requested: Agility")
     assert has_element?(view, "#story-timeline", "Agility")
     assert has_element?(view, "#story-timeline", "Difficulty: Hard")
     assert has_element?(view, "#story-timeline", "Target: 14")
@@ -743,8 +770,12 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     view |> element("#roll-panel button[phx-click='roll-d20']") |> render_click()
     assert_receive :d20_source_used, 1_000
-    assert_receive {:fake_gm_call, %{"phase" => "after_roll"}}, 1_000
+    assert_receive {:fake_gm_call, after_roll_provider, %{"phase" => "after_roll"}}, 1_000
+    assert has_element?(view, "#turn-announcement", "The game master is responding")
+    assert has_element?(view, "#turn-announcement", "D20 result: 17")
+    send(after_roll_provider, :continue_resolution)
     assert wait_until(fn -> render(view) =~ "You steady your footing and reach the far side." end)
+    assert has_element?(view, "#turn-announcement", "Your turn is complete.")
 
     html = render(view)
     assert html =~ "D20 result: 17"
@@ -753,6 +784,74 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, resumed, _html} = live(conn, session_path(campaign, session))
     assert has_element?(resumed, "#story-timeline", "Difficulty: Hard")
     assert has_element?(resumed, "#story-timeline", "Target: 14")
+    refute has_element?(resumed, "#turn-announcement", "complete")
+  end
+
+  test "completion announcements are localized and are not replayed on reconnect", %{conn: conn} do
+    for {locale, completion} <- [
+          {"es", "Tu turno se ha completado."},
+          {"fr", "Votre tour est terminé."}
+        ] do
+      campaign = campaign_fixture()
+      [session] = campaign.sessions
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+
+      set_handler(fn _request ->
+        {:ok,
+         %{
+           narration: "The lanterns glow along the harbor wall.",
+           dialogue: [],
+           activities: [],
+           public_changes: %{},
+           private_changes: %{},
+           character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
+           roll_request: nil
+         }}
+      end)
+
+      {:ok, view, _html} = live(conn, session_path(campaign, session))
+      refute has_element?(view, "#turn-announcement", "completado")
+      refute has_element?(view, "#turn-announcement", "terminé")
+
+      view
+      |> form("#turn-composer", turn: %{input: "I light the harbor lanterns."})
+      |> render_submit()
+
+      assert wait_until(fn -> has_element?(view, "#turn-announcement", completion) end)
+
+      {:ok, resumed, _html} = live(conn, session_path(campaign, session))
+      refute has_element?(resumed, "#turn-announcement", "completado")
+      refute has_element?(resumed, "#turn-announcement", "terminé")
+    end
+  end
+
+  test "usage-limit recovery tells players to wait and retry the saved turn in their locale", %{
+    conn: conn
+  } do
+    for {locale, guidance, retry_label} <- [
+          {"es",
+           "El plan de ChatGPT ha alcanzado su límite de uso actual. Espera a que se restablezca y vuelve a intentar este turno guardado.",
+           "Reintentar cuando se restablezca el uso"},
+          {"fr",
+           "Le forfait ChatGPT a atteint sa limite d’utilisation actuelle. Attendez qu’elle soit réinitialisée, puis réessayez ce tour sauvegardé.",
+           "Réessayer après le rétablissement de l’utilisation"}
+        ] do
+      campaign = campaign_fixture()
+      [session] = campaign.sessions
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      set_handler(fn _request -> {:error, :usage_limit} end)
+
+      {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+      view
+      |> form("#turn-composer", turn: %{input: "I check whether the road is open."})
+      |> render_submit()
+
+      assert wait_until(fn -> has_element?(view, "#turn-error", guidance) end)
+      assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+      assert render(view) =~ "I check whether the road is open."
+    end
   end
 
   test "after-roll failure shows the saved D20 result and retry reuses the same turn", %{
@@ -768,7 +867,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       send(
         test_pid,
-        {:fake_gm_call, context["phase"], get_in(context, ["player_roll", "result"])}
+        {:fake_gm_call, self(), context["phase"], get_in(context, ["player_roll", "result"])}
       )
 
       if context["phase"] == "initial" do
@@ -789,6 +888,12 @@ defmodule StorytellerWeb.SessionLiveTest do
         if attempt == 0 do
           {:error, :timeout}
         else
+          receive do
+            :continue_retry -> :ok
+          after
+            5_000 -> flunk("retry resolution was not released")
+          end
+
           {:ok,
            %{
              narration: "You reach the upper gallery with the rope still in hand.",
@@ -815,17 +920,27 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> form("#turn-composer", turn: %{input: "I climb the rope to the gallery."})
     |> render_submit()
 
-    assert_receive {:fake_gm_call, "initial", nil}, 1_000
+    assert_receive {:fake_gm_call, _initial_provider, "initial", nil}, 1_000
     assert wait_until(fn -> has_element?(view, "#roll-panel", "Agility") end)
 
     view |> element("#roll-panel button[phx-click='roll-d20']") |> render_click()
     assert_receive :d20_source_used, 1_000
-    assert_receive {:fake_gm_call, "after_roll", 17}, 1_000
+    assert_receive {:fake_gm_call, _failed_provider, "after_roll", 17}, 1_000
 
     assert wait_until(fn ->
              has_element?(view, "#turn-error", "D20 result: 17") and
-               has_element?(view, "#turn-error", "Your D20 result is saved.")
+               has_element?(view, "#turn-error", "Your D20 result is saved.") and
+               has_element?(view, "#turn-announcement", "This turn needs attention") and
+               has_element?(view, "#turn-announcement", "D20 result: 17")
            end)
+
+    refute has_element?(view, "#turn-error[aria-live]")
+
+    assert has_element?(
+             view,
+             "#turn-announcement",
+             "The game master took too long to answer. Your turn is saved."
+           )
 
     assert has_element?(
              view,
@@ -834,7 +949,10 @@ defmodule StorytellerWeb.SessionLiveTest do
            )
 
     view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
-    assert_receive {:fake_gm_call, "after_roll", 17}, 1_000
+    assert_receive {:fake_gm_call, retry_provider, "after_roll", 17}, 1_000
+    assert has_element?(view, "#turn-announcement", "Retrying…")
+    assert has_element?(view, "#turn-announcement", "D20 result: 17")
+    send(retry_provider, :continue_retry)
 
     assert wait_until(fn ->
              has_element?(

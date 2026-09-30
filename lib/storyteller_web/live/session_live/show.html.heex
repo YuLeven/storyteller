@@ -49,6 +49,10 @@
     {@game_error}
   </p>
 
+  <p id="turn-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    {@turn_announcement}
+  </p>
+
   <div :if={@projection} class="space-y-6">
     <section
       id="campaign-panels"
@@ -146,7 +150,6 @@
           :if={@current_turn && @current_turn.status in [:pending, :resolving]}
           id="turn-status"
           class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4"
-          aria-live="polite"
         >
           <span class="mt-1 h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-amber-600"></span>
           <div>
@@ -173,7 +176,6 @@
           :if={@current_turn && @current_turn.status == :failed}
           id="turn-error"
           class="rounded-2xl border border-rose-200 bg-rose-50 p-5"
-          aria-live="polite"
         >
           <h2 class="font-semibold text-rose-950">{gettext("This turn needs attention")}</h2>
           <p class="mt-1 text-sm leading-6 text-rose-800">
@@ -211,7 +213,11 @@
               class="rounded-lg bg-rose-800 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-900 disabled:cursor-wait disabled:opacity-60"
             >{if @worker_turn_id == @current_turn.id,
               do: gettext("Retrying…"),
-              else: gettext("Retry this turn")}</button>
+              else:
+                if(@current_turn.failure_code == "usage_limit",
+                  do: gettext("Retry after usage resets"),
+                  else: gettext("Retry this turn")
+                )}</button>
             <.link
               :if={reconnect_needed?(@current_turn.failure_code)}
               navigate="/auth/connect"
@@ -227,7 +233,6 @@
           }
           id="roll-panel"
           class="rounded-2xl border border-violet-200 bg-violet-50 p-5"
-          aria-live="polite"
         >
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-violet-800">
             {gettext("Your roll")}

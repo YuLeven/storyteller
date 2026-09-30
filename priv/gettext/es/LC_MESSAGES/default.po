@@ -1726,3 +1726,23 @@ msgstr "Al iniciar otra sesión, la sesión activa se marca como completada. La 
 #, elixir-autogen, elixir-format
 msgid "Optional"
 msgstr "Opcional"
+
+#: lib/storyteller_web/live/session_live/show.ex:605
+#, elixir-autogen, elixir-format
+msgid "Your turn is complete."
+msgstr "Tu turno se ha completado."
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:70
+#, elixir-autogen, elixir-format
+msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. If a limit blocks a turn, Storyteller preserves it so you can retry after the limit resets."
+msgstr "Esta conexión usa el cupo de tu plan de ChatGPT; no usa una clave API ni créditos de API. Los límites de uso se comparten con otras aplicaciones de ChatGPT. Si un límite impide resolver un turno, Storyteller lo conserva para que puedas reintentarlo cuando se restablezca el límite."
+
+#: lib/storyteller_web/live/session_live/show.ex:1020
+#, elixir-autogen, elixir-format
+msgid "The ChatGPT plan has reached its current usage limit. Wait for it to reset, then retry this saved turn."
+msgstr "El plan de ChatGPT ha alcanzado su límite de uso actual. Espera a que se restablezca y vuelve a intentar este turno guardado."
+
+#: lib/storyteller_web/live/session_live/show.html.heex:218
+#, elixir-autogen, elixir-format
+msgid "Retry after usage resets"
+msgstr "Reintentar cuando se restablezca el uso"

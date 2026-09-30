@@ -11,6 +11,11 @@ defmodule StorytellerWeb.AuthControllerTest do
     assert html =~ "MIT license"
     assert html =~ "eligible open-source, locally hosted apps"
     assert html =~ "does not use an API key or API credits"
+
+    assert html =~
+             "If a limit blocks a turn, Storyteller preserves it so you can retry after the limit resets."
+
+    refute html =~ "Storyteller pauses play"
     assert html =~ "Continue with ChatGPT"
   end
 

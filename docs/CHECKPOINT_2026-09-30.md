@@ -6,9 +6,11 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 
 - The play board's current-place card leads with the player's location, then shows the latest public GM narration as the current situation, followed by the place details and people present. A localized empty state appears before the first public narration. Private context is never used to build this card.
 - Failed-turn recovery explains that retry continues the saved action. If the D20 was already rolled, the error panel displays the saved result and says retry will reuse it. The recovery path remains tied to the same turn.
+- One always-mounted polite status region announces pending/reconnecting work, GM responses, roll requests, recorded results, recoverable failures/retries, and completion only when the current LiveView connection observes the transition. Reopening completed history does not announce it as new. No automatic focus movement was added.
+- Generic OAuth-plan HTTP 403 errors no longer become “account ineligible”; that message is reserved for the explicit provider error code. Usage-limit recovery copy now says to wait for the allowance to reset, preserves the failed action/roll for retry, and is translated into Spanish and French.
 - Refreshed desk research compares current official product positioning for Friends & Fables/Craft, Kanka, and LegendKeeper. This is not hands-on product benchmarking: no competitor campaign was played, no competitor account was created, and no terms were accepted.
 - The separate Amber Orchard session was reviewed read-only at a 370px viewport. The new scene card fits the mobile layout and its dark surface keeps the narration readable. No turn was submitted and the original Vineyard browser tab was left untouched.
-- Verification after this iteration: **158 tests, 0 failures**; `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix assets.build`, and `git diff --check` passed in WSL.
+- Verification after this iteration: **161 tests, 0 failures**; `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix assets.build`, and `git diff --check` passed in WSL. The focused SessionLive suite passes **20 tests, 0 failures**.
 
 ## Implemented
 
@@ -76,12 +78,12 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 
 ## Next work
 
-1. Continue exercising the fictional **The Amber Orchard** QA campaign through session restart/resume and failed-turn recovery. Normal dialogue/activity, inventory and location changes, D20, and a cross-session produce-for-cash trade have already been covered with fake providers. A live GM turn still needs the owner to complete OAuth consent. Never reuse the vineyard campaign or its data for tests.
-2. Run the hands-on benchmark tasks in `docs/PRODUCT_BENCHMARK_2026-09.md` for Friends & Fables/Craft, Kanka, and LegendKeeper when campaign access is available. The current blocker is competitor accounts and terms; no accounts were created or terms accepted. Current notes are based on official pages, not interactive testing; no usability ranking is claimed.
-3. Continue keyboard traversal, screen-reader label, small-screen, and contrast reviews on the play board; the current mobile check is a focused spot check.
+1. Continue keyboard traversal and screen-reader review of the play board, especially focus while Send is unavailable and the new status announcements. The current manual checks cover a focused 370px layout spot-check; they do not establish WCAG conformance.
+2. Decide and implement account-wide handling after a ChatGPT usage-limit response. The current UI preserves and pauses the failed turn, but manual requests from another session can still reach the same shared plan allowance. Keep all usage on the plan route and do not add API billing or an API-key fallback.
+3. Run hands-on benchmark tasks in `docs/PRODUCT_BENCHMARK_2026-09.md` for Friends & Fables/Craft, Kanka, and LegendKeeper if public demos or suitable access are available. No competitor campaign has been played, account created, or terms accepted; current notes compare official pages only, so no usability ranking is claimed.
 4. Profile the local response baseline before making a performance change; separate Phoenix/database work from Windows-to-WSL localhost forwarding, then define a measured target.
-5. Recheck the ChatGPT-plan OAuth preview eligibility and run a live-provider smoke check only after the owner completes account consent. Do not add API billing or an API-key fallback.
-6. Review the complete vineyard history and request confirmation only for uncertain campaign facts before any import.
+5. Recheck the ChatGPT-plan OAuth preview eligibility and run a live-provider smoke check after the account owner completes OAuth consent in their browser. Local credential state alone does not establish preview eligibility or successful inference. Never fall back to API billing.
+6. Review the complete vineyard history and request confirmation only for uncertain campaign facts before any import. Never reuse the vineyard campaign or its data for QA.
 
 Direct player edits to canonical inventory are out of scope for the single-player MVP. The player describes an in-world change in the normal action composer and the GM returns validated item or panel deltas, preserving a reason and audit trail. Reconsider a correction request only if playtesting shows that this flow cannot reliably resolve data mistakes.
 

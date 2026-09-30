@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-09-30 — Announce turn status without rereading panels
+
+- Added one always-mounted polite, atomic status region for turn progress, roll requests, recorded after-roll results, recoverable failures/retries, and completion transitions. Conditional status panels no longer each define their own live region; the story timeline keeps its additions-only announcement behavior. A completed turn is announced only when this LiveView connection observes the turn leave the open state, so reconnecting does not announce old history as new.
+- **Checked:** Focused SessionLive suite: **19 tests, 0 failures**; WSL format check and `git diff --check` pass. Behavior covers pending/resolving, awaited roll, recorded result, failed/retry, localized completion, and no replay on reconnect. Keyboard focus retention when Send becomes unavailable remains a manual check; no automatic focus movement was added.
+
+## 2026-09-30 — Make plan-limit and admission recovery precise
+
+- Generic HTTP 403 admission/policy failures now remain provider errors; only the explicit plan-sharing ineligibility code is shown as an ineligible account. This avoids unnecessary reconnect guidance for unrelated 403 responses.
+- Usage-limit guidance tells the player to wait for the allowance to reset, keeps the same action and D20 result available, and labels the retry accordingly in English, Spanish, and French. The account page no longer claims a global play pause. Storyteller still has no API-key or API-credit fallback.
+- **Checked:** fake-provider coverage distinguishes generic 403 responses from explicit ineligibility. SessionLive behavior verifies localized usage-limit guidance and retry labels. Full WSL suite: **161 tests, 0 failures**; format check, warnings-as-errors compile, asset build, and `git diff --check` pass.
+- **Known limitation:** the allowance gate is per failed turn, not account-wide. A player can manually submit from another session while the provider reports the shared account limit; those requests still use the ChatGPT-plan route and never fall back to paid API billing. Review an account-wide pause once the provider's reset/recovery behavior is confirmed.
+
 ## 2026-09-30 — Put the current situation on the scene board
 
 - The current-place card now leads with the player's location and shows the latest public GM narration as the current situation, followed by place details and present characters. It updates on the next public narration and provides a localized empty state. The copy is sourced from public timeline events, so GM-private context stays out of the player board.

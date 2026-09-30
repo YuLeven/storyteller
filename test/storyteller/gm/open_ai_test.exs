@@ -130,6 +130,7 @@ defmodule Storyteller.GM.OpenAITest do
       {503, "subscription_sharing_usage_unavailable", :usage_unavailable},
       {503, "subscription_sharing_user_unavailable", :usage_unavailable},
       {403, "subscription_sharing_user_not_eligible", :account_ineligible},
+      {403, "policy_violation", :provider_error},
       {403, "subscription_sharing_route_not_supported", :unsupported_capability},
       {400, "subscription_sharing_unsupported_capability", :unsupported_capability}
     ]
@@ -148,6 +149,18 @@ defmodule Storyteller.GM.OpenAITest do
       assert_receive {:models_request, _}
       assert_receive {:responses_request, _}
     end)
+  end
+
+  test "keeps generic 403 errors distinct from an ineligible account", context do
+    body = Jason.encode!(%{"detail" => "This request is not permitted in this region."})
+    http = provider_http_error(self(), 403, async_body(split_stream(body)))
+
+    assert {:error, :provider_error} =
+             OpenAI.stream_response(
+               %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+               store: context.store,
+               http: http
+             )
   end
 
   test "maps response.incomplete separately from a broken stream", context do
