@@ -212,6 +212,9 @@
           <ol
             :if={@timeline != []}
             id="story-timeline"
+            aria-live="polite"
+            aria-relevant="additions"
+            aria-atomic="false"
             class="story-timeline space-y-4 px-4 py-5 sm:px-7"
           >
             <li

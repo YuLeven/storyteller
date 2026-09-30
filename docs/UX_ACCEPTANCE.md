@@ -47,6 +47,7 @@ This brief defines observable acceptance for the locally hosted, single-player S
 - English, Spanish, and French are available across campaign setup and play, including navigation, labels, validation and recovery messages, dates, numbers, dice labels, and campaign-panel chrome. The initial UI locale is English, and the global selector changes the persisted interface locale.
 - Changing the UI locale updates interface text and formatting without translating or rewriting stored turns. GM narration follows the campaign's narration language; user-authored names, story text, and custom field labels remain as entered. Untranslated custom content has a clear fallback.
 - All actions, including form navigation, campaign/session selection, turn submission, and the D20 click, are keyboard operable with a visible focus indicator. Focus moves predictably after navigation, validation errors, and turn updates.
+- New story entries are exposed through a polite, additions-only live region so assistive technology can announce appended events without rereading the full campaign timeline.
 - Text and controls remain readable at narrow viewport sizes and at increased text zoom. Status/progress, roll result, errors, and speaker identity are not conveyed by color alone; semantic labels are available to assistive technology. Check contrast, heading order, and announced dynamic updates in each locale.
 - The plan does not specify a formal WCAG conformance level or locale-specific defaults; confirm those product choices rather than claiming an unverified level.
 

@@ -194,6 +194,12 @@ defmodule StorytellerWeb.SessionLiveTest do
     html = render(view)
     assert html =~ "Character details updated"
     assert html =~ "Reason: The player rests through the afternoon."
+
+    assert has_element?(
+             view,
+             "#story-timeline[aria-live='polite'][aria-relevant='additions'][aria-atomic='false']"
+           )
+
     assert has_element?(view, "#story-timeline", "Health")
 
     {:ok, projection} = Play.public_projection(campaign.id)

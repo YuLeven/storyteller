@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-09-30 — Accessible story timeline updates
+
+- Marked the chronological story list as a polite, additions-only live region with non-atomic updates, so newly appended events can be announced without repeating existing history.
+- **Checked:** SessionLive tests verify the live-region attributes on the rendered campaign timeline; the focused suite passes (8 tests, 0 failures). Manual assistive-technology review remains outstanding.
+
 ## 2026-09-30 — Genre-flexible resource trade scenario
 
 - Added a fictional Amber Orchard behavior scenario where the GM consumes one basket of produce and increases a typed cash balance in the same turn. The next session's GM context and the public projection both retain the remaining stock and updated cash.
