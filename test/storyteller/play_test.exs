@@ -2342,6 +2342,85 @@ defmodule Storyteller.PlayTest do
     assert Enum.find(timeline, &(&1.event_type == :player_roll)).payload["result"] == 17
   end
 
+  test "retry after a D20 provider failure reuses the recorded roll without duplicating events" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    provider_calls = :atomics.new(1, [])
+    roll_source_calls = :atomics.new(1, [])
+    captured_contexts = Agent.start_link(fn -> [] end) |> elem(1)
+
+    provider = fn request ->
+      context = decode_request(request)
+      Agent.update(captured_contexts, &(&1 ++ [context]))
+
+      case :atomics.add_get(provider_calls, 1, 1) do
+        1 ->
+          {:ok, Jason.encode!(roll_proposal())}
+
+        2 ->
+          {:error, :timeout}
+
+        3 ->
+          {:ok,
+           Jason.encode!(ordinary_proposal(%{"public_changes" => %{"time" => "Second watch"}}))}
+      end
+    end
+
+    assert {:ok, waiting} =
+             Play.submit_turn(campaign.id, session.id, "climb-retry", "Climb the narrow ledge.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert waiting.status == :awaiting_roll
+    assert {:ok, before_roll_resolution} = Play.public_projection(campaign.id)
+    assert before_roll_resolution.world["time"] == "First watch"
+
+    assert {:ok, %{turn: failed, roll: %Roll{result: 17}}} =
+             Play.click_player_d20(waiting.id,
+               roll_source: fn ->
+                 :atomics.add(roll_source_calls, 1, 1)
+                 17
+               end,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert failed.status == :failed
+    assert failed.resolution_phase == :after_roll
+    assert Repo.get_by!(Roll, turn_id: waiting.id).result == 17
+    assert :atomics.get(provider_calls, 1) == 2
+    assert :atomics.get(roll_source_calls, 1) == 1
+    assert Play.public_projection(campaign.id) == {:ok, before_roll_resolution}
+
+    assert {:ok, completed} = Play.retry_turn(failed.id, provider: provider, model: "test-model")
+    assert completed.status == :completed
+    assert :atomics.get(provider_calls, 1) == 3
+    assert :atomics.get(roll_source_calls, 1) == 1
+
+    [_, failed_context, retry_context] = Agent.get(captured_contexts, & &1)
+
+    for context <- [failed_context, retry_context] do
+      assert context["phase"] == "after_roll"
+      assert context["player_roll"]["result"] == 17
+      assert context["player_roll"]["authorized_by"] == "player_click"
+    end
+
+    assert {:ok, %{world: %{"time" => "Second watch"}}} = Play.public_projection(campaign.id)
+
+    assert Repo.aggregate(Roll, :count) == 1
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :roll_request)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :player_roll)) == 1
+
+    assert Enum.count(timeline, fn event ->
+             event.event_type == :state_change and
+               event.payload["changes"] == %{"time" => "Second watch"}
+           end) == 1
+
+    assert Enum.find(timeline, &(&1.event_type == :player_roll)).payload["result"] == 17
+  end
+
   test "provider timeout or malformed output leaves canonical state and timeline untouched, then retry succeeds" do
     for provider_error <- [{:error, :timeout}, {:ok, "not JSON"}] do
       {campaign, session} = play_campaign("The Glass Observatory")

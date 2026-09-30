@@ -1016,9 +1016,29 @@ msgstr ""
 msgid "The scene"
 msgstr ""
 
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Current situation"
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "No current situation has been recorded yet."
+msgstr ""
+
 #: lib/storyteller_web/live/session_live/show.html.heex:149
 #, elixir-autogen, elixir-format
 msgid "The scene is being updated. You can leave and return; this turn will remain here."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your saved action is still unresolved. Retry continues this same turn."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your D20 result is saved. Retry continues this same turn with that result."
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/show.html.heex:86

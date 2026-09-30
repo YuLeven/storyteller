@@ -183,6 +183,24 @@
             {gettext("Saved action:")}
             <span class="whitespace-pre-wrap">{@current_turn.player_input}</span>
           </p>
+          <p
+            :if={@current_turn.resolution_phase == :after_roll}
+            class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm font-semibold text-stone-800"
+          >
+            {gettext("D20 result:")} {@current_turn_roll}
+          </p>
+          <p
+            :if={retryable?(@current_turn) && playable?(@session)}
+            class="mt-3 text-sm leading-6 text-rose-800"
+          >
+            {if @current_turn.resolution_phase == :after_roll,
+              do:
+                gettext(
+                  "Your D20 result is saved. Retry continues this same turn with that result."
+                ),
+              else:
+                gettext("Your saved action is still unresolved. Retry continues this same turn.")}
+          </p>
           <div class="mt-4 flex flex-wrap items-center gap-3">
             <button
               :if={retryable?(@current_turn) && playable?(@session)}
@@ -482,13 +500,36 @@
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
             {gettext("The scene")}
           </p>
+          <h2
+            :if={@player_character && @player_character.current_place}
+            class="mt-1 text-lg font-semibold text-stone-950"
+          >
+            {@player_character.current_place.name}
+          </h2>
+          <p
+            :if={!@player_character || !@player_character.current_place}
+            class="mt-2 text-sm leading-6 text-stone-600"
+          >
+            {gettext("Your current place has not been recorded yet.")}
+          </p>
+          <div class="mt-3 rounded-xl border border-amber-200/70 bg-white/70 px-3 py-3">
+            <p
+              id="current-situation-label"
+              class="text-xs font-semibold uppercase tracking-wide text-stone-500"
+            >
+              {gettext("Current situation")}
+            </p>
+            <p
+              id="current-situation"
+              class="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-800"
+            >
+              {@current_situation || gettext("No current situation has been recorded yet.")}
+            </p>
+          </div>
           <div :if={@player_character && @player_character.current_place}>
-            <h2 class="mt-1 text-lg font-semibold text-stone-950">
-              {@player_character.current_place.name}
-            </h2>
             <p
               :if={@player_character.current_place.description}
-              class="mt-2 whitespace-pre-wrap text-sm leading-6 text-stone-700"
+              class="mt-3 whitespace-pre-wrap text-sm leading-6 text-stone-700"
             >
               {@player_character.current_place.description}
             </p>
@@ -529,12 +570,6 @@
               {gettext("No one else is here right now.")}
             </p>
           </div>
-          <p
-            :if={!@player_character || !@player_character.current_place}
-            class="mt-2 text-sm leading-6 text-stone-600"
-          >
-            {gettext("Your current place has not been recorded yet.")}
-          </p>
         </section>
 
         <section

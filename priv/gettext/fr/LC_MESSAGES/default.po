@@ -1009,10 +1009,30 @@ msgstr "Le lancer demandé n’a pas pu être enregistré."
 msgid "The scene"
 msgstr "La scène"
 
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Current situation"
+msgstr "Situation actuelle"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "No current situation has been recorded yet."
+msgstr "La situation actuelle n’a pas encore été enregistrée."
+
 #: lib/storyteller_web/live/session_live/show.html.heex:149
 #, elixir-autogen, elixir-format
 msgid "The scene is being updated. You can leave and return; this turn will remain here."
 msgstr "La scène est en cours de mise à jour. Vous pouvez partir et revenir ; ce tour sera toujours là."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your saved action is still unresolved. Retry continues this same turn."
+msgstr "Votre action enregistrée n’est pas encore résolue. Réessayer poursuit ce même tour."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your D20 result is saved. Retry continues this same turn with that result."
+msgstr "Le résultat de votre D20 est enregistré. Réessayer poursuit ce même tour avec ce résultat."
 
 #: lib/storyteller_web/live/campaign_live/show.html.heex:86
 #, elixir-autogen, elixir-format

@@ -30,10 +30,12 @@ defmodule StorytellerWeb.SessionLive.Show do
             input_error?: false,
             submission_key: Ecto.UUID.generate(),
             current_turn: nil,
+            current_turn_roll: nil,
             projection: nil,
             player_character: nil,
             characters_by_id: %{},
             timeline: [],
+            current_situation: nil,
             timeline_history: [],
             timeline_live: [],
             timeline_has_earlier?: false,
@@ -405,13 +407,17 @@ defmodule StorytellerWeb.SessionLive.Show do
           do: socket.assigns.timeline_has_earlier?,
           else: has_earlier?
 
+      current_turn = Play.public_current_turn(campaign_id)
+
       assign(socket,
         projection: projection,
         player_character: Enum.find(projection.characters, &(&1.speaker_id == "player")),
         characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
         timeline: timeline,
+        current_situation: latest_public_narration(timeline),
         timeline_has_earlier?: timeline_has_earlier?,
-        current_turn: Play.public_current_turn(campaign_id),
+        current_turn: current_turn,
+        current_turn_roll: player_roll_result(timeline, current_turn),
         game_error: nil
       )
       |> assign_timeline_regions(recent_events)
@@ -419,6 +425,37 @@ defmodule StorytellerWeb.SessionLive.Show do
       _ ->
         assign(socket, game_error: gettext("The campaign's play state could not be refreshed."))
     end
+  end
+
+  defp latest_public_narration(events) do
+    events
+    |> Enum.reverse()
+    |> Enum.find_value(fn
+      %{event_type: :gm_narration, payload: %{"text" => text}}
+      when is_binary(text) ->
+        if String.trim(text) == "", do: nil, else: text
+
+      _event ->
+        nil
+    end)
+  end
+
+  defp player_roll_result(_events, nil), do: nil
+
+  defp player_roll_result(events, %{id: turn_id}) do
+    events
+    |> Enum.reverse()
+    |> Enum.find_value(fn
+      %{
+        event_type: :player_roll,
+        turn_id: ^turn_id,
+        payload: %{"result" => result}
+      } ->
+        result
+
+      _event ->
+        nil
+    end)
   end
 
   defp merge_timeline(existing, incoming), do: merge_timeline(existing, incoming, [])

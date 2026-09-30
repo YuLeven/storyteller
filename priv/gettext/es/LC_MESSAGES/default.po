@@ -1009,10 +1009,30 @@ msgstr "No se pudo registrar la tirada solicitada."
 msgid "The scene"
 msgstr "La escena"
 
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Current situation"
+msgstr "Situación actual"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "No current situation has been recorded yet."
+msgstr "Aún no se ha registrado la situación actual."
+
 #: lib/storyteller_web/live/session_live/show.html.heex:149
 #, elixir-autogen, elixir-format
 msgid "The scene is being updated. You can leave and return; this turn will remain here."
 msgstr "La escena se está actualizando. Puedes salir y volver; este turno seguirá aquí."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your saved action is still unresolved. Retry continues this same turn."
+msgstr "Tu acción guardada aún no se ha resuelto. Reintentar continúa este mismo turno."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your D20 result is saved. Retry continues this same turn with that result."
+msgstr "El resultado de tu D20 está guardado. Reintentar continúa este mismo turno con ese resultado."
 
 #: lib/storyteller_web/live/campaign_live/show.html.heex:86
 #, elixir-autogen, elixir-format

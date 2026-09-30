@@ -1,5 +1,20 @@
 # Feature log
 
+## 2026-09-30 — Put the current situation on the scene board
+
+- The current-place card now leads with the player's location and shows the latest public GM narration as the current situation, followed by place details and present characters. It updates on the next public narration and provides a localized empty state. The copy is sourced from public timeline events, so GM-private context stays out of the player board.
+- **Checked:** SessionLive behavior verifies empty state, latest narration replacing the prior situation while both remain in the story, Spanish/French strings, and private-text exclusion. Read-only 370px browser review of Amber Orchard confirms the place-first order and dark card contrast. No game turn was submitted. Full WSL suite: **158 tests, 0 failures**; format, warnings-as-errors compilation, asset build, and `git diff --check` pass.
+
+## 2026-09-30 — Make D20 turn recovery explicit
+
+- Failed turns now retain the provider failure reason and saved player action. Before a roll, the player sees that the saved action remains unresolved and retry resumes the same turn. After a player roll, the saved result is shown and retry is described as continuing with that result.
+- **Checked:** Play behavior covers a provider timeout after a recorded D20: retry reuses the saved result and creates each action/roll event and state change once. SessionLive behavior covers the failure panel, saved result, same-turn retry, and pre-roll reconnect guidance. Spanish and French recovery copy is included; the full suite passes (**158 tests, 0 failures**).
+
+## 2026-09-30 — Refresh the product comparison notes
+
+- Updated the desk research with the current distinction between Friends & Fables and Craft, Kanka's flexible per-entry inventory and dashboard tradeoffs, and LegendKeeper's map/wiki focus. The notes make clear that no competitor campaign was played and no usability ranking is claimed.
+- **Checked:** Claims link to official product documentation and are marked as vendor descriptions; account creation and terms acceptance were not attempted.
+
 ## 2026-09-30 — Keep campaign setup focused
 
 - Collapsed the four optional setup groups when empty and labeled each “Optional” in the summary. Adding a player fact, starting item, GM character, or campaign-panel field opens its section immediately, keeping the main setup path compact while preserving a clear path to flexible campaign configuration.

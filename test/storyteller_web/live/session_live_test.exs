@@ -83,6 +83,96 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute has_element?(view, "#campaign-fields")
   end
 
+  test "the scene card shows the latest public narration as the current situation", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+    test_pid = self()
+
+    set_handler(fn request ->
+      context = provider_context(request)
+      send(test_pid, {:fake_gm_call, context["player_action"]})
+
+      narration =
+        case context["player_action"] do
+          "I listen for footsteps." -> "Footsteps echo from the upper gallery."
+          "I open the gallery door." -> "Cold rain sweeps into the gallery."
+        end
+
+      {:ok,
+       %{
+         narration: narration,
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{"secret" => "A hidden passage lies behind the shelves."},
+         character_updates: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    assert has_element?(
+             view,
+             "#current-place #current-situation",
+             "No current situation has been recorded yet."
+           )
+
+    for {action, narration} <- [
+          {"I listen for footsteps.", "Footsteps echo from the upper gallery."},
+          {"I open the gallery door.", "Cold rain sweeps into the gallery."}
+        ] do
+      view
+      |> form("#turn-composer", turn: %{input: action})
+      |> render_submit()
+
+      assert_receive {:fake_gm_call, ^action}, 1_000
+
+      assert wait_until(fn ->
+               has_element?(view, "#current-place #current-situation", narration)
+             end)
+
+      refute has_element?(
+               view,
+               "#current-place #current-situation",
+               "A hidden passage lies behind the shelves."
+             )
+    end
+
+    assert has_element?(view, "#story-timeline", "Footsteps echo from the upper gallery.")
+    assert has_element?(view, "#story-timeline", "Cold rain sweeps into the gallery.")
+
+    refute has_element?(
+             view,
+             "#current-place #current-situation",
+             "Footsteps echo from the upper gallery."
+           )
+
+    refute render(view) =~ "A hidden passage lies behind the shelves."
+  end
+
+  test "current situation label and empty state follow the selected interface locale", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    for {locale, label, empty_state} <- [
+          {"es", "Situación actual", "Aún no se ha registrado la situación actual."},
+          {"fr", "Situation actuelle", "La situation actuelle n’a pas encore été enregistrée."}
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+      assert has_element?(view, "#current-situation-label", label)
+      assert has_element?(view, "#current-situation", empty_state)
+    end
+  end
+
   test "session navigation adds links when public objectives or tracked resources exist", %{
     conn: conn
   } do
@@ -665,6 +755,104 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(resumed, "#story-timeline", "Target: 14")
   end
 
+  test "after-roll failure shows the saved D20 result and retry reuses the same turn", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, after_roll_attempts} = Agent.start_link(fn -> 0 end)
+    test_pid = self()
+
+    set_handler(fn request ->
+      context = provider_context(request)
+
+      send(
+        test_pid,
+        {:fake_gm_call, context["phase"], get_in(context, ["player_roll", "result"])}
+      )
+
+      if context["phase"] == "initial" do
+        {:ok,
+         %{
+           narration: "The rope trembles above the lower floor.",
+           dialogue: [],
+           activities: [],
+           public_changes: %{},
+           private_changes: %{},
+           character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
+           roll_request: %{test: "Agility", difficulty: "Hard", target: 14}
+         }}
+      else
+        attempt = Agent.get_and_update(after_roll_attempts, fn value -> {value, value + 1} end)
+
+        if attempt == 0 do
+          {:error, :timeout}
+        else
+          {:ok,
+           %{
+             narration: "You reach the upper gallery with the rope still in hand.",
+             dialogue: [],
+             activities: [],
+             public_changes: %{},
+             private_changes: %{},
+             character_updates: [],
+             memory_update: %{public_summary: "", gm_private_summary: ""},
+             roll_request: nil
+           }}
+        end
+      end
+    end)
+
+    Application.put_env(:storyteller, :d20_roll_source, fn ->
+      send(test_pid, :d20_source_used)
+      17
+    end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    view
+    |> form("#turn-composer", turn: %{input: "I climb the rope to the gallery."})
+    |> render_submit()
+
+    assert_receive {:fake_gm_call, "initial", nil}, 1_000
+    assert wait_until(fn -> has_element?(view, "#roll-panel", "Agility") end)
+
+    view |> element("#roll-panel button[phx-click='roll-d20']") |> render_click()
+    assert_receive :d20_source_used, 1_000
+    assert_receive {:fake_gm_call, "after_roll", 17}, 1_000
+
+    assert wait_until(fn ->
+             has_element?(view, "#turn-error", "D20 result: 17") and
+               has_element?(view, "#turn-error", "Your D20 result is saved.")
+           end)
+
+    assert has_element?(
+             view,
+             "#turn-error",
+             "Retry continues this same turn with that result."
+           )
+
+    view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
+    assert_receive {:fake_gm_call, "after_roll", 17}, 1_000
+
+    assert wait_until(fn ->
+             has_element?(
+               view,
+               "#story-timeline",
+               "You reach the upper gallery with the rope still in hand."
+             )
+           end)
+
+    refute has_element?(view, "#turn-error")
+    refute_receive :d20_source_used, 100
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :player_roll)) == 1
+    assert Enum.find(timeline, &(&1.event_type == :player_roll)).payload["result"] == 17
+  end
+
   test "failed turn and reconnect guidance survive a new LiveView connection", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
@@ -703,6 +891,13 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert_receive {:fake_gm_attempt, 0, "initial"}, 1_000
     assert wait_until(fn -> has_element?(view, "#turn-error", "needs attention") end)
+
+    assert has_element?(
+             view,
+             "#turn-error",
+             "Your saved action is still unresolved. Retry continues this same turn."
+           )
+
     assert has_element?(view, "#turn-error a[href='/auth/connect']", "Reconnect account")
     assert render(view) =~ "I light the old signal beacon."
 

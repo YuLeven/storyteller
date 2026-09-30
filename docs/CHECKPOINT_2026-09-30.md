@@ -2,6 +2,14 @@
 
 Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, a player-controlled D20, bounded GM memory, configurable campaign panels, inventory and location ledgers, optional campaign objectives, and flexible player-character details. This remains an active product iteration, not a final release. Vineyard campaign data has not been imported or used for tests; ExUnit runs against the separate `storyteller_test` database.
 
+## Latest iteration
+
+- The play board's current-place card leads with the player's location, then shows the latest public GM narration as the current situation, followed by the place details and people present. A localized empty state appears before the first public narration. Private context is never used to build this card.
+- Failed-turn recovery explains that retry continues the saved action. If the D20 was already rolled, the error panel displays the saved result and says retry will reuse it. The recovery path remains tied to the same turn.
+- Refreshed desk research compares current official product positioning for Friends & Fables/Craft, Kanka, and LegendKeeper. This is not hands-on product benchmarking: no competitor campaign was played, no competitor account was created, and no terms were accepted.
+- The separate Amber Orchard session was reviewed read-only at a 370px viewport. The new scene card fits the mobile layout and its dark surface keeps the narration readable. No turn was submitted and the original Vineyard browser tab was left untouched.
+- Verification after this iteration: **158 tests, 0 failures**; `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix assets.build`, and `git diff --check` passed in WSL.
+
 ## Implemented
 
 - Reviewed campaign setup seeds stable player-owned inventory entries, public world details, GM characters, typed campaign panels, and up to 50 optional player-visible player-character label/value details. Those facts persist with the existing character description and appear in the player projection, board, and GM context; labels/values are bounded and duplicate labels are rejected without adding fixed RPG stats.
@@ -69,7 +77,7 @@ Storyteller has a working Phoenix LiveView gameplay loop with durable sessions, 
 ## Next work
 
 1. Continue exercising the fictional **The Amber Orchard** QA campaign through session restart/resume and failed-turn recovery. Normal dialogue/activity, inventory and location changes, D20, and a cross-session produce-for-cash trade have already been covered with fake providers. A live GM turn still needs the owner to complete OAuth consent. Never reuse the vineyard campaign or its data for tests.
-2. Run the hands-on benchmark tasks in `docs/PRODUCT_BENCHMARK_2026-09.md` for Friends & Fables/Craft, Kanka, and LegendKeeper when interactive access is available. Current notes are based on official pages, not interactive testing; no usability ranking is claimed.
+2. Run the hands-on benchmark tasks in `docs/PRODUCT_BENCHMARK_2026-09.md` for Friends & Fables/Craft, Kanka, and LegendKeeper when campaign access is available. The current blocker is competitor accounts and terms; no accounts were created or terms accepted. Current notes are based on official pages, not interactive testing; no usability ranking is claimed.
 3. Continue keyboard traversal, screen-reader label, small-screen, and contrast reviews on the play board; the current mobile check is a focused spot check.
 4. Profile the local response baseline before making a performance change; separate Phoenix/database work from Windows-to-WSL localhost forwarding, then define a measured target.
 5. Recheck the ChatGPT-plan OAuth preview eligibility and run a live-provider smoke check only after the owner completes account consent. Do not add API billing or an API-key fallback.
