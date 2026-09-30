@@ -65,9 +65,32 @@ defmodule StorytellerWeb.SessionLiveTest do
          public_changes: %{
            "date" => "Day 3, June 10",
            "time" => "09:20",
-           "weather" => "A light rain begins",
-           "location" => "The western road"
+           "weather" => "A light rain begins"
          },
+         location_changes: [
+           %{
+             type: "create_place",
+             place: %{
+               place_id: "western-road",
+               name: "The western road",
+               visibility: "public",
+               facts: %{"path" => "western"}
+             },
+             reason: "The stone archway opens onto the road."
+           },
+           %{
+             type: "move_character",
+             speaker_id: "player",
+             place_id: "western-road",
+             reason: "The player passes through the archway."
+           },
+           %{
+             type: "move_character",
+             speaker_id: "rhea",
+             place_id: "western-road",
+             reason: "Rhea joins the player by the archway."
+           }
+         ],
          private_changes: %{"unseen_clue" => "This stays private"},
          character_updates: [
            %{speaker_id: "rhea", visible_facts: %{"trust" => "She trusts your judgment."}}
@@ -97,6 +120,8 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ "Rhea Vale"
     assert html =~ "Rhea checks the gate latch."
     assert html =~ "The western road"
+    assert has_element?(view, "#current-place", "The western road")
+    assert has_element?(view, "#current-place", "Rhea Vale")
     assert html =~ "09:20"
     assert html =~ "A light rain begins"
     assert html =~ "Day 3, June 10"

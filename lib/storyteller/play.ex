@@ -12,7 +12,7 @@ defmodule Storyteller.Play do
 
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Panels
-  alias Storyteller.Play.{Character, Event, Roll, State, Turn}
+  alias Storyteller.Play.{Character, Event, LocationChanges, Place, Roll, State, Turn}
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
@@ -70,13 +70,24 @@ defmodule Storyteller.Play do
   facts. Keep private information only in gm_private_summary. These summaries
   maintain continuity when older event details leave the recent history window.
 
+  Canonical places and character presence are authoritative too. The supplied
+  place list and each character's current place are the source of truth. Create
+  a place before moving anyone there, keep stable place IDs, and return every
+  creation or movement in location_changes with a clear reason. Use only known
+  character speaker IDs. The player may only move to a public place. Do not
+  change the world location through public_changes; move the player to a
+  canonical public place instead.
+
   Return exactly one JSON object with these fields: narration (non-empty string),
   dialogue (array of {speaker_id, text}), activities (array of {speaker_id,
   text}), public_changes (object), private_changes (object), panel_changes
   (object mapping an existing campaign panel field key to its new absolute
   value), character_updates (array of {speaker_id, visible_facts?,
   gm_private_facts?}), memory_update ({public_summary, gm_private_summary}),
-  inventory_changes (array of operations: {type: "add", item: item, reason: text},
+  location_changes (array of {type: "create_place", place: {place_id, name,
+  description?, visibility, facts?}, reason} or {type: "move_character",
+  speaker_id, place_id, reason}), inventory_changes (array of operations:
+  {type: "add", item: item, reason: text},
   {type: "transfer", item_id: id, owner_id: speaker_id_or_party, reason: text},
   or {type: "consume", item_id: id, quantity: integer, reason: text}), and
   roll_request (null or {test, difficulty?, target?}).
@@ -163,17 +174,32 @@ defmodule Storyteller.Play do
               existing
           end
 
+        start_place = ensure_initial_place!(campaign.id, state.public_state["location"])
+
         player = %{
           campaign_id: campaign.id,
           speaker_id: "player",
           name: campaign.player_character,
           role: :player,
           visible_facts: player_facts,
-          gm_private_facts: %{}
+          gm_private_facts: %{},
+          current_place_id: start_place && start_place.place_id
         }
 
         ensure_character!(player)
-        Enum.each(character_attrs, &ensure_character!(&1 |> Map.put(:campaign_id, campaign.id)))
+
+        Enum.each(character_attrs, fn character ->
+          initial_place =
+            ensure_initial_place!(
+              campaign.id,
+              initial_character_location(character.visible_facts)
+            )
+
+          character
+          |> Map.put(:campaign_id, campaign.id)
+          |> Map.put(:current_place_id, initial_place && initial_place.place_id)
+          |> ensure_character!()
+        end)
 
         state
       end)
@@ -188,6 +214,16 @@ defmodule Storyteller.Play do
   def public_projection(campaign_id) do
     with %State{} = state <- Repo.get_by(State, campaign_id: campaign_id),
          {:ok, panel_projection} <- Panels.public_projection(campaign_id) do
+      places =
+        Repo.all(
+          from place in Place,
+            where: place.campaign_id == ^campaign_id and place.visibility == :public,
+            order_by: [asc: place.name, asc: place.place_id]
+        )
+        |> Enum.map(&public_place_projection/1)
+
+      places_by_id = Map.new(places, &{&1.place_id, &1})
+
       characters =
         Repo.all(
           from character in Character,
@@ -195,20 +231,35 @@ defmodule Storyteller.Play do
             order_by: [asc: character.inserted_at, asc: character.id]
         )
         |> Enum.map(fn character ->
+          current_place = Map.get(places_by_id, character.current_place_id)
+
           %{
             speaker_id: character.speaker_id,
             name: character.name,
             role: character.role,
             visible_facts: character.visible_facts,
-            visible_activity: character.visible_activity
+            visible_activity: character.visible_activity,
+            current_place_id: current_place && current_place.place_id,
+            current_place: current_place
           }
         end)
+
+      player = Enum.find(characters, &(&1.speaker_id == "player"))
+      player_location = player && player.current_place && player.current_place.name
+
+      world = Map.delete(state.public_state, "inventory")
+
+      world =
+        if is_binary(player_location),
+          do: Map.put(world, "location", player_location),
+          else: world
 
       {:ok,
        %{
          campaign_id: state.campaign_id,
          revision: state.revision,
-         world: Map.delete(state.public_state, "inventory"),
+         world: world,
+         places: places,
          inventory: Inventory.public_projection(Map.get(state.public_state, "inventory", [])),
          characters: characters,
          panels: panel_projection.panels
@@ -772,6 +823,15 @@ defmodule Storyteller.Play do
     sequence =
       append_inventory_change_event(state, turn, sequence, :gm_private, private_inventory_changes)
 
+    {public_location_changes, private_location_changes} =
+      Enum.split_with(proposal.location_changes, &(Map.get(&1, "visibility") == "public"))
+
+    sequence =
+      append_location_change_event(state, turn, sequence, :public, public_location_changes)
+
+    sequence =
+      append_location_change_event(state, turn, sequence, :gm_private, private_location_changes)
+
     Enum.reduce(proposal.character_updates, sequence, fn update, current ->
       sequence =
         if map_size(update.visible_facts) > 0 do
@@ -832,6 +892,52 @@ defmodule Storyteller.Play do
     })
   end
 
+  defp append_location_change_event(_state, _turn, sequence, _visibility, []), do: sequence
+
+  defp append_location_change_event(state, turn, sequence, visibility, changes) do
+    created_places =
+      changes
+      |> Enum.filter(&(Map.get(&1, "type") == "create_place"))
+      |> Map.new(fn change ->
+        place = change["place"]
+        {place["place_id"], place["name"]}
+      end)
+
+    character_names =
+      campaign_characters(turn.campaign_id)
+      |> Map.new(&{&1.speaker_id, &1.name})
+
+    changes =
+      Enum.map(changes, fn change ->
+        enriched =
+          case change do
+            %{"type" => "create_place", "place" => place} ->
+              Map.put(change, "place_name", place["name"])
+
+            %{"type" => "move_character", "place_id" => place_id} ->
+              place_name =
+                Map.get(created_places, place_id) ||
+                  case Repo.get_by(Place, campaign_id: turn.campaign_id, place_id: place_id) do
+                    %Place{name: name} -> name
+                    nil -> place_id
+                  end
+
+              enriched = Map.put(change, "place_name", place_name)
+
+              case Map.fetch(character_names, change["speaker_id"]) do
+                {:ok, name} -> Map.put(enriched, "character_name", name)
+                :error -> enriched
+              end
+          end
+
+        if visibility == :public, do: Map.drop(enriched, ["reason"]), else: enriched
+      end)
+
+    append_event!(%{state | event_sequence: sequence}, turn, :state_change, visibility, nil, %{
+      location_changes: changes
+    })
+  end
+
   defp append_event!(state, turn, type, visibility, speaker_id, payload) do
     sequence = state.event_sequence + 1
     append_event!(state, turn, type, visibility, speaker_id, payload, sequence)
@@ -885,6 +991,26 @@ defmodule Storyteller.Play do
   defp apply_proposed_state!(state, campaign_id, proposal) do
     public_state = deep_merge(state.public_state, proposal.public_changes)
     gm_private_state = deep_merge(state.gm_private_state, proposal.private_changes)
+
+    apply_location_changes!(campaign_id, proposal.location_changes)
+
+    public_state =
+      case Enum.find(proposal.location_changes, fn change ->
+             Map.get(change, "type") == "move_character" and
+               Map.get(change, "speaker_id") == "player"
+           end) do
+        nil ->
+          public_state
+
+        movement ->
+          destination =
+            Repo.get_by!(Place,
+              campaign_id: campaign_id,
+              place_id: Map.fetch!(movement, "place_id")
+            )
+
+          Map.put(public_state, "location", destination.name)
+      end
 
     inventory =
       ((Map.get(state.public_state, "inventory", []) || []) ++
@@ -942,6 +1068,31 @@ defmodule Storyteller.Play do
     end
   end
 
+  defp apply_location_changes!(_campaign_id, []), do: :ok
+
+  defp apply_location_changes!(campaign_id, changes) do
+    Enum.each(changes, fn
+      %{"type" => "create_place", "place" => place} ->
+        attrs =
+          place
+          |> Map.put("campaign_id", campaign_id)
+          |> Map.update!("visibility", &String.to_existing_atom/1)
+
+        insert_or_rollback!(Place.changeset(%Place{}, attrs))
+
+      %{"type" => "move_character", "speaker_id" => speaker_id, "place_id" => place_id} ->
+        character =
+          Repo.one!(
+            from candidate in Character,
+              where:
+                candidate.campaign_id == ^campaign_id and candidate.speaker_id == ^speaker_id,
+              lock: "FOR UPDATE"
+          )
+
+        update_or_rollback!(Character.changeset(character, %{current_place_id: place_id}))
+    end)
+  end
+
   defp set_visible_activity!(campaign_id, speaker_id, activity) do
     character = Repo.get_by!(Character, campaign_id: campaign_id, speaker_id: speaker_id)
 
@@ -953,7 +1104,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update inventory_changes roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update inventory_changes location_changes roll_request)
 
     cond do
       map_size(proposal) > length(allowed) -> {:error, :invalid_response}
@@ -979,12 +1130,15 @@ defmodule Storyteller.Play do
              field(proposal, :inventory_changes, []),
              turn.campaign_id
            ),
+         {:ok, location_changes} <-
+           validate_location_changes(field(proposal, :location_changes, []), turn.campaign_id),
          {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if roll_request &&
            (map_size(public_changes) > 0 or map_size(private_changes) > 0 or
-              panel_changes != [] or character_updates != [] or inventory_changes != []) do
+              panel_changes != [] or character_updates != [] or inventory_changes != [] or
+              location_changes != []) do
         {:error, :invalid_response}
       else
         {:ok,
@@ -997,6 +1151,7 @@ defmodule Storyteller.Play do
            panel_changes: panel_changes,
            character_updates: character_updates,
            inventory_changes: inventory_changes,
+           location_changes: location_changes,
            memory_update: memory_update,
            roll_request: roll_request
          }}
@@ -1048,6 +1203,22 @@ defmodule Storyteller.Play do
   end
 
   defp validate_inventory_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+
+  defp validate_location_changes(changes, campaign_id) when is_list(changes) do
+    places =
+      Repo.all(from place in Place, where: place.campaign_id == ^campaign_id)
+      |> Enum.map(fn place ->
+        %{place_id: place.place_id, visibility: Atom.to_string(place.visibility)}
+      end)
+
+    LocationChanges.validate(
+      changes,
+      places,
+      Enum.map(campaign_characters(campaign_id), & &1.speaker_id)
+    )
+  end
+
+  defp validate_location_changes(_changes, _campaign_id), do: {:error, :invalid_response}
 
   defp validate_lines(lines, campaign_id) when is_list(lines) and length(lines) <= 30 do
     characters = campaign_characters(campaign_id)
@@ -1196,7 +1367,10 @@ defmodule Storyteller.Play do
 
   defp world_changes_field(map, key) do
     with {:ok, changes} <- object_field(map, key),
-         false <- Enum.any?(Map.keys(changes), &(key_name(&1) == "inventory")) do
+         false <-
+           Enum.any?(Map.keys(changes), fn change_key ->
+             key_name(change_key) in ["inventory", "location", "current_location"]
+           end) do
       {:ok, changes}
     else
       _ -> {:error, :invalid_response}
@@ -1268,6 +1442,15 @@ defmodule Storyteller.Play do
     campaign = Repo.get!(Campaign, turn.campaign_id)
     state = Repo.get_by!(State, campaign_id: turn.campaign_id)
     characters = campaign_characters(turn.campaign_id)
+
+    places =
+      Repo.all(
+        from place in Place,
+          where: place.campaign_id == ^turn.campaign_id,
+          order_by: [asc: place.name, asc: place.place_id]
+      )
+
+    places_by_id = Map.new(places, &{&1.place_id, &1})
     panels = Panels.list_fields(turn.campaign_id)
 
     events =
@@ -1297,6 +1480,11 @@ defmodule Storyteller.Play do
         player_visible: Map.get(state.public_state, "inventory", []),
         gm_private: Map.get(state.gm_private_state, "inventory", [])
       },
+      places: %{
+        public: Enum.filter(places, &(&1.visibility == :public)) |> Enum.map(&place_context/1),
+        gm_private:
+          Enum.filter(places, &(&1.visibility == :gm_private)) |> Enum.map(&place_context/1)
+      },
       memory: %{
         public_summary: state.public_history_summary,
         gm_private_summary: state.gm_private_history_summary
@@ -1309,7 +1497,10 @@ defmodule Storyteller.Play do
             role: character.role,
             visible_facts: character.visible_facts,
             gm_private_facts: character.gm_private_facts,
-            visible_activity: character.visible_activity
+            visible_activity: character.visible_activity,
+            current_place_id: character.current_place_id,
+            current_place:
+              Map.get(places_by_id, character.current_place_id) |> maybe_place_context()
           }
         end),
       panels:
@@ -1520,10 +1711,78 @@ defmodule Storyteller.Play do
       nil ->
         insert_or_rollback!(Character.changeset(%Character{}, attrs))
 
-      _existing ->
-        :ok
+      existing ->
+        if is_nil(existing.current_place_id) and not is_nil(attrs.current_place_id) do
+          update_or_rollback!(
+            Character.changeset(existing, %{current_place_id: attrs.current_place_id})
+          )
+        else
+          existing
+        end
     end
   end
+
+  defp ensure_initial_place!(_campaign_id, location) when not is_binary(location), do: nil
+
+  defp ensure_initial_place!(campaign_id, location) do
+    name = String.trim(location)
+
+    if name == "" do
+      nil
+    else
+      place_id = initial_place_id(name)
+
+      case Repo.get_by(Place, campaign_id: campaign_id, place_id: place_id) do
+        %Place{} = place ->
+          place
+
+        nil ->
+          insert_or_rollback!(
+            Place.changeset(%Place{}, %{
+              campaign_id: campaign_id,
+              place_id: place_id,
+              name: name,
+              visibility: :public,
+              facts: %{}
+            })
+          )
+      end
+    end
+  end
+
+  defp initial_place_id(name) do
+    digest = :crypto.hash(:sha256, String.downcase(name)) |> Base.encode16(case: :lower)
+    "initial:" <> binary_part(digest, 0, 20)
+  end
+
+  defp initial_character_location(facts) when is_map(facts) do
+    Map.get(facts, "location") || Map.get(facts, :location) ||
+      Map.get(facts, "current_location") || Map.get(facts, :current_location)
+  end
+
+  defp initial_character_location(_), do: nil
+
+  defp public_place_projection(place) do
+    %{
+      place_id: place.place_id,
+      name: place.name,
+      description: place.description,
+      facts: place.facts
+    }
+  end
+
+  defp place_context(place) do
+    %{
+      place_id: place.place_id,
+      name: place.name,
+      description: place.description,
+      visibility: place.visibility,
+      facts: place.facts
+    }
+  end
+
+  defp maybe_place_context(nil), do: nil
+  defp maybe_place_context(place), do: place_context(place)
 
   defp insert_or_rollback!(changeset) do
     case Repo.insert(changeset) do
@@ -1544,7 +1803,7 @@ defmodule Storyteller.Play do
   defp proposal_has_state_changes?(proposal) do
     map_size(proposal.public_changes) > 0 or map_size(proposal.private_changes) > 0 or
       proposal.panel_changes != [] or proposal.character_updates != [] or
-      proposal.inventory_changes != [] or
+      proposal.inventory_changes != [] or proposal.location_changes != [] or
       proposal.activities != [] or proposal.memory_update != nil
   end
 

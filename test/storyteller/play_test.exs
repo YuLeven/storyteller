@@ -107,7 +107,11 @@ defmodule Storyteller.PlayTest do
       Agent.update(request_context, fn _ -> context end)
 
       {:ok,
-       Jason.encode!(ordinary_proposal(%{"public_changes" => %{"location" => "Upper dome"}}))}
+       Jason.encode!(
+         ordinary_proposal(%{
+           "location_changes" => move_player_to("upper-dome", "Upper dome")
+         })
+       )}
     end
 
     assert {:ok, turn} =
@@ -158,6 +162,166 @@ defmodule Storyteller.PlayTest do
              public_events,
              &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:lyra")
            )
+  end
+
+  test "places seed character presence, persist across turns, and keep private locations out of player views" do
+    {campaign, session} = play_campaign("The Quiet Vineyard")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "location", "Vineyard gate")
+      })
+    )
+
+    assert {:ok, _state} =
+             Play.initialize_campaign(campaign, %{
+               characters: [
+                 %{
+                   speaker_id: "npc:lyra",
+                   name: "Lyra Vale",
+                   visible_facts: %{"role" => "cellar keeper", "location" => "North cellar"}
+                 }
+               ]
+             })
+
+    assert {:ok, initial} = Play.public_projection(campaign.id)
+    player = Enum.find(initial.characters, &(&1.speaker_id == "player"))
+    lyra = Enum.find(initial.characters, &(&1.speaker_id == "npc:lyra"))
+    assert player.current_place.name == "Vineyard gate"
+    assert lyra.current_place.name == "North cellar"
+    assert Enum.map(initial.places, & &1.name) |> Enum.sort() == ["North cellar", "Vineyard gate"]
+
+    location_changes = [
+      %{
+        "type" => "create_place",
+        "place" => %{
+          "place_id" => "press-room",
+          "name" => "Old press room",
+          "description" => "Cool stone walls and a lingering scent of oak.",
+          "visibility" => "public",
+          "facts" => %{"surroundings" => "A row of aging barrels"}
+        },
+        "reason" => "The player follows the cellar passage."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "player",
+        "place_id" => "press-room",
+        "reason" => "The player enters the old press room."
+      },
+      %{
+        "type" => "create_place",
+        "place" => %{
+          "place_id" => "sealed-vault",
+          "name" => "Sealed reserve vault",
+          "visibility" => "gm_private",
+          "facts" => %{"secret" => "A missing vintage is hidden here."}
+        },
+        "reason" => "The cellar keeper has a concealed private room."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "npc:lyra",
+        "place_id" => "sealed-vault",
+        "reason" => "The keeper slips into the concealed vault."
+      }
+    ]
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "place-transition",
+               "I explore the cellar.",
+               provider: ordinary_provider(%{"location_changes" => location_changes}),
+               model: "test-model"
+             )
+
+    observed_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    context_provider = fn request ->
+      Agent.update(observed_context, fn _ -> decode_request(request) end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "place-context", "Look around the room.",
+               provider: context_provider,
+               model: "test-model"
+             )
+
+    context = Agent.get(observed_context, & &1)
+    assert Enum.any?(context["places"]["gm_private"], &(&1["place_id"] == "sealed-vault"))
+    context_lyra = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:lyra"))
+    assert context_lyra["current_place"]["place_id"] == "sealed-vault"
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    projected_player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    projected_lyra = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
+    assert projected_player.current_place.name == "Old press room"
+    assert projection.world["location"] == "Old press room"
+    assert projected_lyra.current_place == nil
+    assert Enum.all?(projection.places, &(&1.place_id != "sealed-vault"))
+
+    assert {:ok, public_events} = Play.public_timeline(campaign.id)
+    encoded_events = Jason.encode!(public_events)
+    refute encoded_events =~ "sealed-vault"
+    refute encoded_events =~ "Sealed reserve vault"
+    refute encoded_events =~ "concealed private room"
+    assert Enum.any?(public_events, &Map.has_key?(&1.payload, "location_changes"))
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    next_session_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "place-next-session",
+               "Start the next day in the press room.",
+               provider: fn request ->
+                 Agent.update(next_session_context, fn _ -> decode_request(request) end)
+                 {:ok, Jason.encode!(ordinary_proposal())}
+               end,
+               model: "test-model"
+             )
+
+    next_context = Agent.get(next_session_context, & &1)
+    next_player = Enum.find(next_context["characters"], &(&1["speaker_id"] == "player"))
+    assert next_player["current_place"]["name"] == "Old press room"
+    assert Enum.any?(next_context["places"]["gm_private"], &(&1["place_id"] == "sealed-vault"))
+  end
+
+  test "free-form world changes cannot teleport the player or overwrite the canonical location" do
+    {campaign, session} = play_campaign("The Quiet Vineyard")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "location", "Vineyard gate")
+      })
+    )
+
+    assert {:ok, _state} = Play.initialize_campaign(campaign)
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "free-form-location",
+               "I leave the gate.",
+               provider: ordinary_provider(%{"public_changes" => %{"location" => "The moon"}}),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.world["location"] == "Vineyard gate"
+
+    assert Enum.find(projection.characters, &(&1.speaker_id == "player")).current_place.name ==
+             "Vineyard gate"
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
   test "inventory is canonical, private to the GM when marked, and continues across sessions" do
@@ -432,7 +596,7 @@ defmodule Storyteller.PlayTest do
       first_session,
       "first",
       "Look at the map.",
-      ordinary_provider(%{"public_changes" => %{"location" => "Dome"}})
+      ordinary_provider(%{"location_changes" => move_player_to("dome", "Dome")})
     )
 
     complete_turn(
@@ -440,7 +604,7 @@ defmodule Storyteller.PlayTest do
       second_session,
       "second",
       "Open the catalog.",
-      ordinary_provider(%{"public_changes" => %{"location" => "Archive"}})
+      ordinary_provider(%{"location_changes" => move_player_to("archive", "Archive")})
     )
 
     assert {:ok, next_session} = Campaigns.start_session(first)
@@ -689,7 +853,9 @@ defmodule Storyteller.PlayTest do
         :return_old_result ->
           {:ok,
            Jason.encode!(
-             ordinary_proposal(%{"public_changes" => %{"location" => "Stale worker"}})
+             ordinary_proposal(%{
+               "location_changes" => move_player_to("stale", "Stale worker")
+             })
            )}
       end
     end
@@ -705,7 +871,9 @@ defmodule Storyteller.PlayTest do
     assert {:ok, current} =
              Play.retry_turn(pending.id,
                provider:
-                 ordinary_provider(%{"public_changes" => %{"location" => "Fresh worker"}}),
+                 ordinary_provider(%{
+                   "location_changes" => move_player_to("fresh", "Fresh worker")
+                 }),
                model: "test-model"
              )
 
@@ -778,7 +946,9 @@ defmodule Storyteller.PlayTest do
         :return_after_rollover ->
           {:ok,
            Jason.encode!(
-             ordinary_proposal(%{"public_changes" => %{"location" => "Must not commit"}})
+             ordinary_proposal(%{
+               "location_changes" => move_player_to("must-not-commit", "Must not commit")
+             })
            )}
       end
     end
@@ -833,7 +1003,9 @@ defmodule Storyteller.PlayTest do
         :return_after_archive ->
           {:ok,
            Jason.encode!(
-             ordinary_proposal(%{"public_changes" => %{"location" => "Must not commit"}})
+             ordinary_proposal(%{
+               "location_changes" => move_player_to("must-not-commit", "Must not commit")
+             })
            )}
       end
     end
@@ -993,10 +1165,32 @@ defmodule Storyteller.PlayTest do
             "gm_private_facts" => %{"still_hidden" => true}
           }
         ],
+        "location_changes" => [],
         "roll_request" => nil
       },
       overrides
     )
+  end
+
+  defp move_player_to(place_id, name) do
+    [
+      %{
+        "type" => "create_place",
+        "place" => %{
+          "place_id" => place_id,
+          "name" => name,
+          "visibility" => "public",
+          "facts" => %{"kind" => "known place"}
+        },
+        "reason" => "The scene establishes the place."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "player",
+        "place_id" => place_id,
+        "reason" => "The player's action brings them there."
+      }
+    ]
   end
 
   defp roll_proposal do

@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-09-30 — Canonical places and character presence
+
+- Added durable, campaign-scoped place records with stable IDs, descriptions, flexible surroundings, and public or GM-private visibility. A campaign's starting location becomes the player's initial place; explicitly visible character locations seed known NPC presence.
+- GM prompts now receive the public and hidden place lists plus each character's canonical current place. Location changes must create a place before moving someone, use a known character and destination, and keep the player out of GM-private places.
+- Accepted place creation and movement apply in the same transaction as the turn. Public projections and timeline events omit private places and private character locations. Generic world changes can no longer teleport a character or overwrite the canonical location.
+- Added a player-board scene card for the current place, surroundings, and people there; character cards show a known location, and public travel events appear in the story timeline.
+- Added a second idempotent fictional QA seed, **The Amber Orchard**, configured with an orchard starting scene, an NPC at a separate known place, flexible stock panels, and player-owned equipment. The earlier Observatory QA campaign is left untouched.
+- **Checked:** behavior tests cover seeded player/NPC locations, public movement, private vault isolation from projection and history, rejected free-form teleportation, and continuity into another session. The full WSL suite passed (110 tests, 0 failures); Spanish and French play-board labels render in locale tests.
+
 ## 2026-09-30 — Campaign inventory and continuity
 
 - Added optional starting items to the reviewed campaign setup, with a name, quantity, unit, category, and description. Items begin in the player's public inventory; the item structure also supports stable IDs, campaign-defined JSON properties, party/NPC ownership, and GM-private visibility.

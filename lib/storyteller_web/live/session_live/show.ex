@@ -29,6 +29,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             submission_key: Ecto.UUID.generate(),
             current_turn: nil,
             projection: nil,
+            player_character: nil,
             characters_by_id: %{},
             timeline: [],
             game_error: nil,
@@ -199,6 +200,7 @@ defmodule StorytellerWeb.SessionLive.Show do
          {:ok, timeline} <- Play.public_timeline(campaign_id) do
       assign(socket,
         projection: projection,
+        player_character: Enum.find(projection.characters, &(&1.speaker_id == "player")),
         characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
         timeline: timeline,
         current_turn: Play.public_current_turn(campaign_id),
@@ -306,6 +308,9 @@ defmodule StorytellerWeb.SessionLive.Show do
       is_list(Map.get(event.payload, "inventory_changes")) ->
         gettext("Inventory")
 
+      is_list(Map.get(event.payload, "location_changes")) ->
+        gettext("Places and travel")
+
       is_map(Map.get(event.payload, "panel_changes")) ->
         gettext("Campaign values")
 
@@ -334,6 +339,42 @@ defmodule StorytellerWeb.SessionLive.Show do
        do: changes
 
   defp inventory_change_values(_event), do: []
+
+  defp location_change_values(%{payload: %{"location_changes" => changes}}) when is_list(changes),
+    do: changes
+
+  defp location_change_values(_event), do: []
+
+  defp character_location_label(%{current_place: nil}, _player_character),
+    do: gettext("No known location")
+
+  defp character_location_label(character, %{current_place_id: place_id})
+       when not is_nil(place_id) and character.current_place_id == place_id,
+       do: gettext("Here")
+
+  defp character_location_label(character, _player_character), do: character.current_place.name
+
+  defp characters_here(_characters, %{current_place_id: nil}), do: []
+
+  defp characters_here(characters, player_character) do
+    Enum.filter(characters, fn character ->
+      character.speaker_id != "player" and
+        character.current_place_id == player_character.current_place_id
+    end)
+  end
+
+  defp location_event_text(%{"type" => "create_place", "place_name" => name}, _characters) do
+    gettext("Discovered %{place}", place: name)
+  end
+
+  defp location_event_text(
+         %{"type" => "move_character", "character_name" => character, "place_name" => place},
+         _characters
+       ) do
+    gettext("%{character} moved to %{place}", character: character, place: place)
+  end
+
+  defp location_event_text(_change, _characters), do: gettext("A location changed")
 
   defp inventory_event_text(%{"type" => "add", "item" => item}, _characters) do
     gettext("Added %{quantity} %{item}",

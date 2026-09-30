@@ -302,6 +302,14 @@
                     {inventory_event_text(change, @characters_by_id)}
                   </li>
                 </ul>
+                <ul
+                  :if={event.event_type == :state_change && location_change_values(event) != []}
+                  class="mt-2 space-y-1 text-sm text-stone-700"
+                >
+                  <li :for={change <- location_change_values(event)}>
+                    {location_event_text(change, @characters_by_id)}
+                  </li>
+                </ul>
               </article>
             </li>
           </ol>
@@ -448,6 +456,68 @@
         </section>
 
         <section
+          id="current-place"
+          class="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm"
+        >
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+            {gettext("Your place")}
+          </p>
+          <div :if={@player_character && @player_character.current_place}>
+            <h2 class="mt-1 text-lg font-semibold text-stone-950">
+              {@player_character.current_place.name}
+            </h2>
+            <p
+              :if={@player_character.current_place.description}
+              class="mt-2 whitespace-pre-wrap text-sm leading-6 text-stone-700"
+            >
+              {@player_character.current_place.description}
+            </p>
+            <dl
+              :if={map_size(@player_character.current_place.facts) > 0}
+              class="mt-3 space-y-2 border-t border-amber-200/70 pt-3"
+            >
+              <div :for={{key, value} <- @player_character.current_place.facts}>
+                <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                  {world_label(key)}
+                </dt>
+                <dd class="mt-0.5 whitespace-pre-wrap text-sm leading-6 text-stone-800">
+                  {display_value(value)}
+                </dd>
+              </div>
+            </dl>
+            <h3 class="mt-4 border-t border-amber-200/70 pt-3 text-sm font-semibold text-stone-800">
+              {gettext("People here")}
+            </h3>
+            <ul
+              :if={characters_here(@projection.characters, @player_character) != []}
+              class="mt-2 space-y-2"
+            >
+              <li
+                :for={character <- characters_here(@projection.characters, @player_character)}
+                class="rounded-xl bg-white/80 px-3 py-2"
+              >
+                <p class="text-sm font-semibold text-stone-900">{character.name}</p>
+                <p :if={character.visible_activity} class="mt-0.5 text-sm text-stone-600">
+                  {character.visible_activity}
+                </p>
+              </li>
+            </ul>
+            <p
+              :if={characters_here(@projection.characters, @player_character) == []}
+              class="mt-2 text-sm text-stone-600"
+            >
+              {gettext("No one else is here right now.")}
+            </p>
+          </div>
+          <p
+            :if={!@player_character || !@player_character.current_place}
+            class="mt-2 text-sm leading-6 text-stone-600"
+          >
+            {gettext("Your current place has not been recorded yet.")}
+          </p>
+        </section>
+
+        <section
           id="character-inventory"
           class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
         >
@@ -519,6 +589,9 @@
               <h3 class="font-semibold text-stone-900">{character.name}</h3>
               <p :if={character.role == :player} class="mt-0.5 text-xs text-stone-500">
                 {gettext("Your character")}
+              </p>
+              <p class="mt-1 text-xs text-stone-500">
+                {character_location_label(character, @player_character)}
               </p>
               <p :if={character.visible_activity} class="mt-2 text-sm leading-6 text-stone-700">
                 {character.visible_activity}

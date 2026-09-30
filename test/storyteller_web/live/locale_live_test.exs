@@ -72,6 +72,14 @@ defmodule StorytellerWeb.LocaleLiveTest do
   } do
     campaign =
       campaign_fixture(%{
+        starting_location: "Vineyard gate",
+        gm_characters: [
+          %{
+            speaker_id: "npc:keeper",
+            name: "The Keeper",
+            visible_facts: %{"location" => "Vineyard gate", "role" => "Cellar keeper"}
+          }
+        ],
         inventory: [
           %{
             name: "Poción de luz",
@@ -90,6 +98,10 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert spanish_html =~ "Objetos, provisiones y recuerdos"
     assert spanish_html =~ "Poción de luz"
     assert spanish_html =~ "2 viales"
+    assert spanish_html =~ "Tu ubicación"
+    assert spanish_html =~ "Personas aquí"
+    assert spanish_html =~ "Vineyard gate"
+    assert spanish_html =~ "The Keeper"
 
     assert {:ok, _preference} = Settings.set_ui_locale("fr")
     {:ok, _view, french_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
@@ -97,5 +109,9 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Objets, provisions et souvenirs"
     assert french_html =~ "Poción de luz"
     assert french_html =~ "2 viales"
+    assert french_html =~ "Votre lieu"
+    assert french_html =~ "Personnes présentes"
+    assert french_html =~ "Vineyard gate"
+    assert french_html =~ "The Keeper"
   end
 end
