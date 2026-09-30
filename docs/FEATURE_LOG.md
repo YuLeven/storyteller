@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-09-30 — Keep mobile scene context in one place
+
+- The sticky scene shortcut now points to the current place card, which already contains its surroundings and the people present. Removed the duplicate world-state card that repeated date, time, weather, and location from the compact header.
+- **Checked:** SessionLive behavior tests verify one scene destination, a single rendered time value, and the absence of the duplicate card. Read-only browser review uses the fictional Amber Orchard campaign.
+
 ## 2026-09-30 — Jump straight to the mobile turn composer
 
 - The sticky session bar begins with a “Your turn” link on playable sessions. It focuses the labeled composer and offsets it below the sticky bar; completed/read-only sessions have no dead composer link.

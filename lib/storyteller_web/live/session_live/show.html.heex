@@ -97,15 +97,9 @@
         </li>
         <li>
           <a
-            href="#world-state"
-            class="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-100"
-          >{gettext("The scene")}</a>
-        </li>
-        <li>
-          <a
             href="#current-place"
             class="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-100"
-          >{gettext("Your place")}</a>
+          >{gettext("The scene")}</a>
         </li>
         <li>
           <a
@@ -469,39 +463,12 @@
         </section>
 
         <section
-          id="world-state"
-          tabindex="-1"
-          class="scroll-mt-20 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
-        >
-          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
-            {gettext("World now")}
-          </p>
-          <h2 class="mt-1 text-lg font-semibold text-stone-950">{gettext("The scene")}</h2>
-          <dl :if={public_values(@projection.world) != []} class="mt-4 space-y-3">
-            <div :for={{key, value} <- public_values(@projection.world)}>
-              <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
-                {world_label(key)}
-              </dt>
-              <dd class="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-800">
-                {display_value(value)}
-              </dd>
-            </div>
-          </dl>
-          <p
-            :if={public_values(@projection.world) == []}
-            class="mt-3 text-sm leading-6 text-stone-500"
-          >
-            {gettext("The details of the world will emerge as you play.")}
-          </p>
-        </section>
-
-        <section
           id="current-place"
           tabindex="-1"
           class="scroll-mt-20 rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm"
         >
           <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
-            {gettext("Your place")}
+            {gettext("The scene")}
           </p>
           <div :if={@player_character && @player_character.current_place}>
             <h2 class="mt-1 text-lg font-semibold text-stone-950">

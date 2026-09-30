@@ -55,7 +55,6 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     for target <- [
           "turn-composer-card",
-          "world-state",
           "current-place",
           "story-timeline",
           "character-inventory"
@@ -63,6 +62,9 @@ defmodule StorytellerWeb.SessionLiveTest do
       assert has_element?(view, "#session-sections a[href='##{target}']")
       assert has_element?(view, "##{target}[tabindex='-1']")
     end
+
+    assert has_element?(view, "#session-sections a[href='#current-place']", "The scene")
+    refute has_element?(view, "#session-sections a[href='#world-state']")
 
     refute has_element?(view, "#session-sections a[href='#campaign-objectives']")
     refute has_element?(view, "#session-sections a[href='#campaign-fields']")
@@ -103,7 +105,6 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, view, _html} = live(conn, session_path(campaign, session))
 
     for target <- [
-          "world-state",
           "current-place",
           "story-timeline",
           "character-inventory",
@@ -245,15 +246,14 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(view, "#world-time", "Early morning")
     refute html =~ "Midmorning"
+    refute has_element?(view, "#world-state")
 
-    time_labels =
+    time_facts =
       html
       |> Floki.parse_document!()
-      |> Floki.find("#world-state dt")
-      |> Enum.map(&(Floki.text(&1) |> String.trim()))
-      |> Enum.count(&(&1 == "Time"))
+      |> Floki.find("#world-time")
 
-    assert time_labels == 1
+    assert length(time_facts) == 1
   end
 
   test "player character fact updates appear on the board with a reasoned timeline entry", %{
