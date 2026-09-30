@@ -32,7 +32,7 @@ The data model has meaningful safeguards, but it does not eliminate model mistak
 
 ## Product direction
 
-1. Give players a clear post-creation inventory management path. Keep the now-implemented safe property edits and whole/partial transfer rules behaviorally covered.
+1. Decide whether players need an auditable post-creation inventory correction request. Keep in-world additions, transfers, and consumption within the GM-proposed turn flow so the player board remains trustworthy.
 2. Keep the flexible player character sheet trustworthy: optional fields stay out of campaigns that do not need them, while accepted updates remain justified, public, and continuous across sessions.
 3. Keep place, presence, item, objective, panel, and event state canonical. Give the GM relevant hidden context, validate proposed changes, and commit accepted deltas atomically.
 4. Prioritize the current scene, clear status, accessible reading, and error recovery over decorative dashboards. Keep the browser light and LiveView-driven.

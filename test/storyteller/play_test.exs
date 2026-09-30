@@ -917,6 +917,107 @@ defmodule Storyteller.PlayTest do
     assert Enum.map(next_context["inventory"]["gm_private"], & &1["id"]) == []
   end
 
+  test "an Amber Orchard harvest sale consumes produce and carries cash into the next session" do
+    {campaign, session} = play_campaign("Amber Orchard harvest sale test fixture")
+
+    apples = %{
+      "id" => "orchard-apples",
+      "name" => "Amber apples",
+      "quantity" => 8,
+      "unit" => "basket",
+      "category" => "produce",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{"variety" => "Amberfall", "grade" => "first"}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "inventory", [apples])})
+    )
+
+    insert_panel_field!(campaign.id, %{
+      key: "orchard_cash",
+      panel: "Orchard ledger",
+      label: "Cash",
+      value_type: :money,
+      unit: "silver",
+      visibility: :public,
+      value: %{"value" => "18.5"}
+    })
+
+    first_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    sale_provider = fn request ->
+      Agent.update(first_context, fn _ -> decode_request(request) end)
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "inventory_changes" => [
+             %{
+               "type" => "consume",
+               "item_id" => "orchard-apples",
+               "quantity" => 1,
+               "reason" => "A customer buys one basket at the orchard stand."
+             }
+           ],
+           "panel_changes" => %{"orchard_cash" => "24.75"}
+         })
+       )}
+    end
+
+    complete_turn(
+      campaign,
+      session,
+      "amber-orchard-harvest-sale",
+      "Sell a basket of this morning's apples.",
+      sale_provider
+    )
+
+    before_sale_context = Agent.get(first_context, & &1)
+    [starting_stock] = before_sale_context["inventory"]["player_visible"]
+    assert starting_stock["quantity"] == 8
+
+    assert [%{"key" => "orchard_cash", "value" => "18.5", "unit" => "silver"}] =
+             Enum.filter(before_sale_context["panels"], &(&1["key"] == "orchard_cash"))
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    next_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    next_session_provider = fn request ->
+      Agent.update(next_context, fn _ -> decode_request(request) end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    complete_turn(
+      campaign,
+      next_session,
+      "amber-orchard-check-ledger",
+      "Check the remaining apples and cash.",
+      next_session_provider
+    )
+
+    resumed_context = Agent.get(next_context, & &1)
+    [remaining_stock] = resumed_context["inventory"]["player_visible"]
+    assert remaining_stock["id"] == "orchard-apples"
+    assert remaining_stock["quantity"] == 7
+
+    assert [%{"key" => "orchard_cash", "value" => "24.75", "unit" => "silver"}] =
+             Enum.filter(resumed_context["panels"], &(&1["key"] == "orchard_cash"))
+
+    assert {:ok, %{inventory: [projected_stock], panels: [cash_panel]}} =
+             Play.public_projection(campaign.id)
+
+    assert projected_stock["id"] == "orchard-apples"
+    assert projected_stock["quantity"] == 7
+    assert projected_stock["owner_id"] == "player"
+
+    assert [%{key: "orchard_cash", type: :money, unit: "silver", value: "24.75"}] =
+             cash_panel.fields
+  end
+
   test "inventory cannot change through free-form world changes or narration alone" do
     {campaign, session} = play_campaign("The Quiet Observatory")
 

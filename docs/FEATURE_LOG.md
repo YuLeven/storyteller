@@ -1,11 +1,17 @@
 # Feature log
 
+## 2026-09-30 — Genre-flexible resource trade scenario
+
+- Added a fictional Amber Orchard behavior scenario where the GM consumes one basket of produce and increases a typed cash balance in the same turn. The next session's GM context and the public projection both retain the remaining stock and updated cash.
+- This tests fungible campaign resources alongside item inventory without using vineyard campaign data.
+- **Checked:** the focused Play suite passes (27 tests, 0 failures); full `mix test` passes (136 tests, 0 failures). Format, warnings-as-errors compilation, asset build, and `git diff --check` pass in WSL.
+
 ## 2026-09-30 — In-play player character details
 
 - GM proposals may add or revise the player's flexible public `visible_facts` when the action establishes a durable detail. Existing unrelated facts stay intact; player updates require a concise action-grounded reason and cannot write GM-private player facts or overwrite name, identity, description, or canonical location keys.
 - Player fact patches apply atomically with the turn and create a public audit event containing only the patch and reason. The timeline identifies the character-detail update and explains its reason. GM-controlled characters keep their existing split public/private fact updates.
 - Updated the GM policy and proposal shape, and refreshed the product benchmark's remaining-gaps list. Spanish and French timeline labels and reason copy are translated.
-- **Checked:** focused Play and SessionLive suites pass (34 tests, 0 failures), covering public updates, later-session context, board rendering, reasoned audit history, private/missing-reason/unknown-ID/identity rejection, rollback, and existing GM-character updates. Full `mix test` passes (135 tests, 0 failures).
+- **Checked:** focused Play and SessionLive suites pass (34 tests, 0 failures), covering public updates, later-session context, board rendering, reasoned audit history, private/missing-reason/unknown-ID/identity rejection, rollback, and existing GM-character updates. Full `mix test` passes (136 tests, 0 failures).
 
 ## 2026-09-30 — Flexible player character details in campaign setup
 
