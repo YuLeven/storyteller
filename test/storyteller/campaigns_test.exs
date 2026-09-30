@@ -176,6 +176,52 @@ defmodule Storyteller.CampaignsTest do
     refute inspect(panel) =~ "abandoned relay"
   end
 
+  test "campaign setup persists normalized player-owned public starting inventory" do
+    attrs =
+      valid_campaign_attrs()
+      |> Map.put(:inventory, [
+        %{
+          name: "Cedarwood bottle",
+          quantity: "3",
+          unit: "bottles",
+          category: "Wine",
+          description: "A small batch from the east terrace."
+        }
+      ])
+
+    assert {:ok, campaign} = Campaigns.create_campaign(attrs)
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert [
+             %{
+               "name" => "Cedarwood bottle",
+               "quantity" => 3,
+               "unit" => "bottles",
+               "category" => "Wine",
+               "description" => "A small batch from the east terrace.",
+               "owner_id" => "player",
+               "visibility" => "public"
+             } = item
+           ] = projection.inventory
+
+    assert String.starts_with?(item["id"], "initial-")
+    assert projection.world["location"] == nil
+  end
+
+  test "campaign setup rejects invalid and zero starting item quantities" do
+    for quantity <- ["not-a-number", "1.5", "0", 0] do
+      attrs =
+        valid_campaign_attrs()
+        |> Map.put(:inventory, [%{name: "Healing potion", quantity: quantity}])
+
+      assert {:error, {:setup, "Starting item 1 needs a positive whole-number quantity."}} =
+               Campaigns.create_campaign(attrs)
+    end
+
+    assert Campaigns.list_campaigns() == []
+    assert Repo.all(Storyteller.Play.State) == []
+  end
+
   test "formula-like panel values are rejected before any setup is persisted" do
     attrs =
       valid_campaign_attrs()

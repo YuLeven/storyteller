@@ -7,6 +7,7 @@ defmodule Storyteller.Campaigns do
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
+  alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
   def list_campaigns do
@@ -50,6 +51,11 @@ defmodule Storyteller.Campaigns do
              normalize_setup_characters(attr(attrs, :gm_characters, attr(attrs, :characters, []))),
            {:ok, panel_fields} <-
              normalize_panel_fields(attr(attrs, :panel_fields, attr(attrs, :panels, []))),
+           {:ok, inventory} <-
+             normalize_initial_inventory(
+               attr(attrs, :inventory, []),
+               ["player" | Enum.map(characters, & &1.speaker_id)]
+             ),
            {:ok, public_state} <-
              normalize_initial_world(campaign_changeset, attr(attrs, :public_state, %{})) do
         {:ok,
@@ -59,6 +65,7 @@ defmodule Storyteller.Campaigns do
            public_state: public_state,
            characters: characters,
            panel_fields: panel_fields,
+           inventory: inventory,
            raw_attrs: attrs
          }}
       end
@@ -80,6 +87,7 @@ defmodule Storyteller.Campaigns do
         Play.initialize_campaign(campaign, %{
           public_state: setup.public_state,
           characters: setup.characters,
+          inventory: setup.inventory,
           player_visible_facts: %{"description" => campaign.player_character}
         })
       end)
@@ -367,6 +375,105 @@ defmodule Storyteller.Campaigns do
   end
 
   defp normalize_panel_fields(_), do: {:error, {:setup, "Panel fields must be a list."}}
+
+  defp normalize_initial_inventory(rows, valid_owner_ids) when is_list(rows) or is_map(rows) do
+    rows =
+      rows
+      |> indexed_rows()
+      |> Enum.reject(fn {_index, attrs} -> blank_row?(attrs) end)
+
+    cond do
+      length(rows) > 200 ->
+        {:error, {:setup, "Add no more than 200 starting items."}}
+
+      true ->
+        rows
+        |> Enum.reduce_while({:ok, []}, fn {row_index, attrs}, {:ok, acc} ->
+          case normalize_initial_item(attrs, row_index) do
+            {:ok, item} -> {:cont, {:ok, acc ++ [item]}}
+            {:error, message} -> {:halt, {:error, {:setup, message}}}
+          end
+        end)
+        |> case do
+          {:ok, items} ->
+            case Inventory.normalize_initial(items, valid_owner_ids) do
+              {:ok, normalized} ->
+                {:ok, normalized}
+
+              {:error, _reason} ->
+                {:error, {:setup, "Starting inventory contains an invalid item."}}
+            end
+
+          error ->
+            error
+        end
+    end
+  end
+
+  defp normalize_initial_inventory(_rows, _valid_owner_ids),
+    do: {:error, {:setup, "Starting inventory must be a list."}}
+
+  defp normalize_initial_item(attrs, row_index) when is_map(attrs) do
+    name = attr(attrs, :name, "") |> trim_string()
+    quantity = normalize_item_quantity(attr(attrs, :quantity))
+    unit = normalize_optional_item_text(attr(attrs, :unit), 80)
+    category = normalize_optional_item_text(attr(attrs, :category), 100)
+    description = normalize_optional_item_text(attr(attrs, :description), 2_000)
+
+    cond do
+      name == "" or String.length(name) > 160 ->
+        {:error, "Starting item #{row_index + 1} needs a name up to 160 characters."}
+
+      is_nil(quantity) ->
+        {:error, "Starting item #{row_index + 1} needs a positive whole-number quantity."}
+
+      unit == :invalid ->
+        {:error, "Starting item #{row_index + 1} has an invalid unit (up to 80 characters)."}
+
+      category == :invalid ->
+        {:error, "Starting item #{row_index + 1} has an invalid category (up to 100 characters)."}
+
+      description == :invalid ->
+        {:error,
+         "Starting item #{row_index + 1} has an invalid description (up to 2,000 characters)."}
+
+      true ->
+        {:ok,
+         %{
+           "name" => name,
+           "quantity" => quantity,
+           "unit" => empty_to_nil(unit),
+           "category" => empty_to_nil(category),
+           "description" => empty_to_nil(description)
+         }}
+    end
+  end
+
+  defp normalize_initial_item(_attrs, row_index),
+    do: {:error, "Starting item #{row_index + 1} must be an object."}
+
+  defp normalize_item_quantity(value) when is_integer(value) and value > 0 and value <= 1_000_000,
+    do: value
+
+  defp normalize_item_quantity(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {quantity, ""} when quantity > 0 and quantity <= 1_000_000 -> quantity
+      _ -> nil
+    end
+  end
+
+  defp normalize_item_quantity(_), do: nil
+
+  defp normalize_optional_item_text(value, max_length) when is_binary(value) do
+    trimmed = String.trim(value)
+    if String.length(trimmed) <= max_length, do: trimmed, else: :invalid
+  end
+
+  defp normalize_optional_item_text(nil, _max_length), do: ""
+  defp normalize_optional_item_text(_value, _max_length), do: :invalid
+
+  defp empty_to_nil(""), do: nil
+  defp empty_to_nil(value), do: value
 
   defp insert_panel_fields(repo, campaign_id, fields) do
     Enum.reduce_while(fields, {:ok, []}, fn field, {:ok, inserted} ->

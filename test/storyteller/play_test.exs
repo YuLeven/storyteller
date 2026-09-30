@@ -160,6 +160,188 @@ defmodule Storyteller.PlayTest do
            )
   end
 
+  test "inventory is canonical, private to the GM when marked, and continues across sessions" do
+    {campaign, session} = play_campaign("The Quiet Observatory")
+
+    herbs = %{
+      "id" => "healing-herbs",
+      "name" => "Healing herbs",
+      "quantity" => 2,
+      "unit" => "bundles",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{"healing" => %{"points" => 2}}
+    }
+
+    private_key = %{
+      "id" => "sealed-key",
+      "name" => "Sealed iron key",
+      "quantity" => 1,
+      "owner_id" => "npc:lyra",
+      "visibility" => "gm_private",
+      "properties" => %{}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", [herbs]),
+        gm_private_state: Map.put(state.gm_private_state, "inventory", [private_key])
+      })
+    )
+
+    first_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      context = decode_request(request)
+      Agent.update(first_context, fn _ -> context end)
+
+      changes = [
+        %{
+          "type" => "transfer",
+          "item_id" => "healing-herbs",
+          "owner_id" => "npc:lyra",
+          "reason" => "Lyra takes the treatment supplies to the injured keeper."
+        },
+        %{
+          "type" => "consume",
+          "item_id" => "healing-herbs",
+          "quantity" => 1,
+          "reason" => "One bundle is used to clean a cut."
+        },
+        %{
+          "type" => "add",
+          "item" => %{
+            "id" => "brass-key",
+            "name" => "Brass key",
+            "quantity" => 1,
+            "owner_id" => "player",
+            "visibility" => "public",
+            "category" => "Key",
+            "properties" => %{"opens" => "the observatory cabinet"}
+          },
+          "reason" => "The keeper explicitly hands over the cabinet key."
+        },
+        %{
+          "type" => "consume",
+          "item_id" => "sealed-key",
+          "quantity" => 1,
+          "reason" => "The keeper hides the key in a locked drawer."
+        }
+      ]
+
+      {:ok, Jason.encode!(ordinary_proposal(%{"inventory_changes" => changes}))}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "inventory-moves",
+               "Help the keeper tend the injured visitor.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    context = Agent.get(first_context, & &1)
+    assert Enum.map(context["inventory"]["player_visible"], & &1["id"]) == ["healing-herbs"]
+    assert Enum.map(context["inventory"]["gm_private"], & &1["id"]) == ["sealed-key"]
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert MapSet.new(Enum.map(projection.inventory, & &1["id"])) ==
+             MapSet.new(["healing-herbs", "brass-key"])
+
+    refute Enum.any?(projection.inventory, &(&1["id"] == "sealed-key"))
+    refute Map.has_key?(projection.world, "inventory")
+
+    moved_herbs = Enum.find(projection.inventory, &(&1["id"] == "healing-herbs"))
+    assert moved_herbs["owner_id"] == "npc:lyra"
+    assert moved_herbs["quantity"] == 1
+
+    {:ok, public_events} = Play.public_timeline(campaign.id)
+    inventory_event = Enum.find(public_events, &Map.has_key?(&1.payload, "inventory_changes"))
+    assert length(inventory_event.payload["inventory_changes"]) == 3
+    refute Jason.encode!(inventory_event.payload) =~ "reason"
+    refute Jason.encode!(inventory_event.payload) =~ "sealed-key"
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.gm_private_state["inventory"] == []
+    refute Jason.encode!(public_events) =~ "sealed-key"
+
+    assert {:ok, next_session} = Campaigns.start_session(campaign)
+    resumed_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    resumed_provider = fn request ->
+      Agent.update(resumed_context, fn _ -> decode_request(request) end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "inventory-resume",
+               "Check what supplies remain.",
+               provider: resumed_provider,
+               model: "test-model"
+             )
+
+    next_context = Agent.get(resumed_context, & &1)
+
+    assert Enum.map(next_context["inventory"]["player_visible"], & &1["id"]) == [
+             "healing-herbs",
+             "brass-key"
+           ]
+
+    assert Enum.map(next_context["inventory"]["gm_private"], & &1["id"]) == []
+  end
+
+  test "inventory cannot change through free-form world changes or narration alone" do
+    {campaign, session} = play_campaign("The Quiet Observatory")
+
+    item = %{
+      "id" => "field-journal",
+      "name" => "Field journal",
+      "quantity" => 1,
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "inventory", [item])})
+    )
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "free-form-inventory",
+               "Take a silver compass.",
+               provider: ordinary_provider(%{"public_changes" => %{"inventory" => []}})
+             )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "unproposed-inventory",
+               "Take a silver compass.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" => "You pocket a silver compass and keep walking."
+                 })
+             )
+
+    assert {:ok, %{inventory: [^item]}} = Play.public_projection(campaign.id)
+    {:ok, events} = Play.public_timeline(campaign.id)
+    refute Enum.any?(events, &Map.has_key?(&1.payload, "inventory_changes"))
+  end
+
   test "GM panel changes are typed, atomic, and private values stay out of public events" do
     {campaign, session} = play_campaign("The Glass Observatory")
 

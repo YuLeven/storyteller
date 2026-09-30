@@ -303,6 +303,9 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp state_change_label(event, characters) do
     cond do
+      is_list(Map.get(event.payload, "inventory_changes")) ->
+        gettext("Inventory")
+
       is_map(Map.get(event.payload, "panel_changes")) ->
         gettext("Campaign values")
 
@@ -325,6 +328,48 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: facts
 
   defp state_change_values(_event), do: %{}
+
+  defp inventory_change_values(%{payload: %{"inventory_changes" => changes}})
+       when is_list(changes),
+       do: changes
+
+  defp inventory_change_values(_event), do: []
+
+  defp inventory_event_text(%{"type" => "add", "item" => item}, _characters) do
+    gettext("Added %{quantity} %{item}",
+      quantity: quantity_label(item["quantity"], item["unit"]),
+      item: item["name"]
+    )
+  end
+
+  defp inventory_event_text(
+         %{"type" => "transfer", "item_name" => item, "owner_id" => owner_id} = change,
+         characters
+       ) do
+    gettext("Transferred %{quantity} %{item} to %{owner}",
+      quantity: quantity_label(change["quantity"], change["unit"]),
+      item: item,
+      owner: inventory_owner_name(owner_id, characters)
+    )
+  end
+
+  defp inventory_event_text(
+         %{"type" => "consume", "item_name" => item, "quantity" => quantity} = change,
+         _characters
+       ) do
+    gettext("Used %{quantity} %{item}",
+      quantity: quantity_label(quantity, change["unit"]),
+      item: item
+    )
+  end
+
+  defp inventory_event_text(_change, _characters), do: gettext("Inventory updated")
+
+  defp quantity_label(quantity, nil), do: to_string(quantity)
+  defp quantity_label(quantity, unit), do: "#{quantity} #{unit}"
+
+  defp inventory_owner_name("party", _characters), do: gettext("the party stash")
+  defp inventory_owner_name(owner_id, characters), do: speaker_name(characters, owner_id)
 
   defp world_display(world, keys) do
     case Enum.find(keys, fn key ->

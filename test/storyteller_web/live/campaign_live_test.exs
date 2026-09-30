@@ -74,6 +74,49 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
   end
 
+  test "starting inventory is editable in setup, reviewed, and visible on the play board", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+    view |> element("button[phx-click=add-starting-item]") |> render_click()
+    assert has_element?(view, "input[name='campaign[inventory][0][name]']")
+
+    attrs = %{
+      title: "The Quiet Observatory",
+      premise: "A sealed cabinet waits beneath the star charts.",
+      setting: "Asterfall Island",
+      tone: "Quiet wonder",
+      narration_language: "English",
+      player_character: "Mira Vale",
+      inventory: %{
+        "0" => %{
+          name: "Healing potion",
+          quantity: "2",
+          unit: "vials",
+          category: "Potion",
+          description: "A restorative tonic in green glass."
+        }
+      }
+    }
+
+    review_html = view |> form("#campaign-form", campaign: attrs) |> render_submit()
+    assert review_html =~ "Review your campaign"
+    assert review_html =~ "Starting inventory"
+    assert review_html =~ "Healing potion"
+    assert review_html =~ "2 vials"
+    assert Campaigns.list_campaigns() == []
+
+    view |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    session = hd(campaign.sessions)
+    {:ok, play_view, play_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert has_element?(play_view, "#character-inventory")
+    assert play_html =~ "Healing potion"
+    assert play_html =~ "2 vials"
+    assert play_html =~ "A restorative tonic in green glass."
+  end
+
   test "campaign setup accepts nested character and panel rows and only displays public panel values",
        %{
          conn: conn

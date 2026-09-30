@@ -66,4 +66,36 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert {:error, :invalid_locale} = Settings.set_ui_locale("de")
     assert Settings.ui_locale() == "es"
   end
+
+  test "inventory board labels are translated while campaign items remain unchanged", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        inventory: [
+          %{
+            name: "Poción de luz",
+            quantity: "2",
+            unit: "viales",
+            category: "Elixir"
+          }
+        ]
+      })
+
+    session = hd(campaign.sessions)
+
+    assert {:ok, _preference} = Settings.set_ui_locale("es")
+    {:ok, _view, spanish_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    assert spanish_html =~ "Inventario"
+    assert spanish_html =~ "Objetos, provisiones y recuerdos"
+    assert spanish_html =~ "Poción de luz"
+    assert spanish_html =~ "2 viales"
+
+    assert {:ok, _preference} = Settings.set_ui_locale("fr")
+    {:ok, _view, french_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    assert french_html =~ "Inventaire"
+    assert french_html =~ "Objets, provisions et souvenirs"
+    assert french_html =~ "Poción de luz"
+    assert french_html =~ "2 viales"
+  end
 end

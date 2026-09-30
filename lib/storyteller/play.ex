@@ -13,6 +13,7 @@ defmodule Storyteller.Play do
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Panels
   alias Storyteller.Play.{Character, Event, Roll, State, Turn}
+  alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
   @default_world %{"location" => nil, "world_time" => nil, "weather" => nil}
@@ -53,7 +54,15 @@ defmodule Storyteller.Play do
   Treat persisted campaign state and approved event history as authoritative.
   Do not invent a past event, resource change, or relationship to fill a context
   gap. Propose world and character changes explicitly so the application can
-  validate them before they become canonical. Preserve the campaign's narration
+  validate them before they become canonical. The supplied inventory is
+  canonical. Never imply an item was gained, lost, transferred, or consumed
+  unless you return a matching inventory_changes operation with a clear cause.
+  Use add only for an established acquisition, transfer only for an established
+  change of owner, and consume only when the player or world uses, spends,
+  destroys, or loses the item in the narrated outcome. Keep stable item IDs
+  unchanged. Use configured panel fields for fungible campaign balances. Each
+  operation needs a concise reason grounded in the action or established
+  fiction. Preserve the campaign's narration
   language and tone. Also return memory_update with public_summary and
   gm_private_summary. Keep each concise and update it with durable facts,
   relationships, commitments, and work in progress from this response. Preserve
@@ -67,7 +76,10 @@ defmodule Storyteller.Play do
   (object mapping an existing campaign panel field key to its new absolute
   value), character_updates (array of {speaker_id, visible_facts?,
   gm_private_facts?}), memory_update ({public_summary, gm_private_summary}),
-  and roll_request (null or {test, difficulty?, target?}).
+  inventory_changes (array of operations: {type: "add", item: item, reason: text},
+  {type: "transfer", item_id: id, owner_id: speaker_id_or_party, reason: text},
+  or {type: "consume", item_id: id, quantity: integer, reason: text}), and
+  roll_request (null or {test, difficulty?, target?}).
   Change only fields listed in the supplied panel definitions, preserve their
   types and units, and do not reveal or write a GM-private field into public
   narration or changes. Use only existing GM character
@@ -115,7 +127,26 @@ defmodule Storyteller.Play do
     with :ok <- validate_json_map(public_state),
          :ok <- validate_json_map(private_state),
          :ok <- validate_json_map(player_facts),
-         {:ok, character_attrs} <- normalize_initial_characters(attr(attrs, :characters, [])) do
+         {:ok, character_attrs} <- normalize_initial_characters(attr(attrs, :characters, [])),
+         {:ok, inventory} <-
+           Inventory.normalize_initial(
+             attr(attrs, :inventory, []),
+             ["player" | Enum.map(character_attrs, & &1.speaker_id)]
+           ) do
+      public_state =
+        Map.put(
+          public_state,
+          "inventory",
+          Enum.filter(inventory, &(Map.get(&1, "visibility") == "public"))
+        )
+
+      private_state =
+        Map.put(
+          private_state,
+          "inventory",
+          Enum.filter(inventory, &(Map.get(&1, "visibility") == "gm_private"))
+        )
+
       Repo.transaction(fn ->
         state =
           case Repo.get_by(State, campaign_id: campaign.id) do
@@ -177,7 +208,8 @@ defmodule Storyteller.Play do
        %{
          campaign_id: state.campaign_id,
          revision: state.revision,
-         world: state.public_state,
+         world: Map.delete(state.public_state, "inventory"),
+         inventory: Inventory.public_projection(Map.get(state.public_state, "inventory", [])),
          characters: characters,
          panels: panel_projection.panels
        }}
@@ -731,6 +763,15 @@ defmodule Storyteller.Play do
     sequence =
       append_panel_change_event(state, turn, sequence, :gm_private, private_panel_changes)
 
+    {public_inventory_changes, private_inventory_changes} =
+      Enum.split_with(proposal.inventory_changes, &(Map.get(&1, "visibility") == "public"))
+
+    sequence =
+      append_inventory_change_event(state, turn, sequence, :public, public_inventory_changes)
+
+    sequence =
+      append_inventory_change_event(state, turn, sequence, :gm_private, private_inventory_changes)
+
     Enum.reduce(proposal.character_updates, sequence, fn update, current ->
       sequence =
         if map_size(update.visible_facts) > 0 do
@@ -774,6 +815,21 @@ defmodule Storyteller.Play do
       nil,
       %{panel_changes: panel_changes}
     )
+  end
+
+  defp append_inventory_change_event(_state, _turn, sequence, _visibility, []), do: sequence
+
+  defp append_inventory_change_event(state, turn, sequence, visibility, changes) do
+    changes =
+      Enum.map(changes, fn change ->
+        if visibility == :public,
+          do: Map.drop(change, ["visibility", "reason"]),
+          else: Map.drop(change, ["visibility"])
+      end)
+
+    append_event!(%{state | event_sequence: sequence}, turn, :state_change, visibility, nil, %{
+      inventory_changes: changes
+    })
   end
 
   defp append_event!(state, turn, type, visibility, speaker_id, payload) do
@@ -830,6 +886,25 @@ defmodule Storyteller.Play do
     public_state = deep_merge(state.public_state, proposal.public_changes)
     gm_private_state = deep_merge(state.gm_private_state, proposal.private_changes)
 
+    inventory =
+      ((Map.get(state.public_state, "inventory", []) || []) ++
+         (Map.get(state.gm_private_state, "inventory", []) || []))
+      |> Inventory.apply_changes(proposal.inventory_changes)
+
+    public_state =
+      Map.put(
+        public_state,
+        "inventory",
+        Enum.filter(inventory, &(Map.get(&1, "visibility") == "public"))
+      )
+
+    gm_private_state =
+      Map.put(
+        gm_private_state,
+        "inventory",
+        Enum.filter(inventory, &(Map.get(&1, "visibility") == "gm_private"))
+      )
+
     Enum.each(proposal.character_updates, fn update ->
       character =
         Repo.one!(
@@ -878,7 +953,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates memory_update inventory_changes roll_request)
 
     cond do
       map_size(proposal) > length(allowed) -> {:error, :invalid_response}
@@ -893,18 +968,23 @@ defmodule Storyteller.Play do
     with {:ok, narration} <- text_field(proposal, :narration, 1, 10_000),
          {:ok, dialogue} <- validate_lines(field(proposal, :dialogue, []), turn.campaign_id),
          {:ok, activities} <- validate_lines(field(proposal, :activities, []), turn.campaign_id),
-         {:ok, public_changes} <- object_field(proposal, :public_changes),
-         {:ok, private_changes} <- object_field(proposal, :private_changes),
+         {:ok, public_changes} <- world_changes_field(proposal, :public_changes),
+         {:ok, private_changes} <- world_changes_field(proposal, :private_changes),
          {:ok, panel_changes} <-
            validate_panel_changes(field(proposal, :panel_changes, %{}), turn.campaign_id),
          {:ok, character_updates} <-
            validate_character_updates(field(proposal, :character_updates, []), turn.campaign_id),
+         {:ok, inventory_changes} <-
+           validate_inventory_changes(
+             field(proposal, :inventory_changes, []),
+             turn.campaign_id
+           ),
          {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if roll_request &&
            (map_size(public_changes) > 0 or map_size(private_changes) > 0 or
-              panel_changes != [] or character_updates != []) do
+              panel_changes != [] or character_updates != [] or inventory_changes != []) do
         {:error, :invalid_response}
       else
         {:ok,
@@ -916,6 +996,7 @@ defmodule Storyteller.Play do
            private_changes: private_changes,
            panel_changes: panel_changes,
            character_updates: character_updates,
+           inventory_changes: inventory_changes,
            memory_update: memory_update,
            roll_request: roll_request
          }}
@@ -950,6 +1031,23 @@ defmodule Storyteller.Play do
   end
 
   defp validate_panel_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+
+  defp validate_inventory_changes(changes, campaign_id) when is_list(changes) do
+    state = Repo.get_by!(State, campaign_id: campaign_id)
+    characters = campaign_characters(campaign_id)
+
+    current_inventory =
+      (Map.get(state.public_state, "inventory", []) || []) ++
+        (Map.get(state.gm_private_state, "inventory", []) || [])
+
+    Inventory.validate_changes(
+      changes,
+      current_inventory,
+      Enum.map(characters, & &1.speaker_id)
+    )
+  end
+
+  defp validate_inventory_changes(_changes, _campaign_id), do: {:error, :invalid_response}
 
   defp validate_lines(lines, campaign_id) when is_list(lines) and length(lines) <= 30 do
     characters = campaign_characters(campaign_id)
@@ -1096,6 +1194,15 @@ defmodule Storyteller.Play do
     if validate_json_map(value) == :ok, do: {:ok, value}, else: {:error, :invalid_response}
   end
 
+  defp world_changes_field(map, key) do
+    with {:ok, changes} <- object_field(map, key),
+         false <- Enum.any?(Map.keys(changes), &(key_name(&1) == "inventory")) do
+      {:ok, changes}
+    else
+      _ -> {:error, :invalid_response}
+    end
+  end
+
   defp decode_proposal(%{text: text}) when is_binary(text), do: decode_proposal(text)
 
   defp decode_proposal(text)
@@ -1186,6 +1293,10 @@ defmodule Storyteller.Play do
       player_action: turn.player_input,
       player_roll: roll && %{die: "D20", result: roll.result, authorized_by: :player_click},
       world: %{public: state.public_state, gm_private: state.gm_private_state},
+      inventory: %{
+        player_visible: Map.get(state.public_state, "inventory", []),
+        gm_private: Map.get(state.gm_private_state, "inventory", [])
+      },
       memory: %{
         public_summary: state.public_history_summary,
         gm_private_summary: state.gm_private_history_summary
@@ -1433,6 +1544,7 @@ defmodule Storyteller.Play do
   defp proposal_has_state_changes?(proposal) do
     map_size(proposal.public_changes) > 0 or map_size(proposal.private_changes) > 0 or
       proposal.panel_changes != [] or proposal.character_updates != [] or
+      proposal.inventory_changes != [] or
       proposal.activities != [] or proposal.memory_update != nil
   end
 

@@ -16,7 +16,8 @@ defmodule StorytellerWeb.CampaignLive.New do
        draft: nil,
        setup_error: nil,
        character_rows: [],
-       panel_rows: []
+       panel_rows: [],
+       inventory_rows: []
      )}
   end
 
@@ -30,7 +31,8 @@ defmodule StorytellerWeb.CampaignLive.New do
        draft: nil,
        setup_error: nil,
        character_rows: rows(attrs, "gm_characters"),
-       panel_rows: rows(attrs, "panel_fields")
+       panel_rows: rows(attrs, "panel_fields"),
+       inventory_rows: rows(attrs, "inventory")
      )}
   end
 
@@ -40,7 +42,8 @@ defmodule StorytellerWeb.CampaignLive.New do
 
     row_assigns = [
       character_rows: rows(attrs, "gm_characters"),
-      panel_rows: rows(attrs, "panel_fields")
+      panel_rows: rows(attrs, "panel_fields"),
+      inventory_rows: rows(attrs, "inventory")
     ]
 
     case Campaigns.validate_campaign_setup(attrs) do
@@ -52,7 +55,8 @@ defmodule StorytellerWeb.CampaignLive.New do
            reviewed: true,
            setup_error: nil,
            character_rows: row_assigns[:character_rows],
-           panel_rows: row_assigns[:panel_rows]
+           panel_rows: row_assigns[:panel_rows],
+           inventory_rows: row_assigns[:inventory_rows]
          )}
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -63,7 +67,8 @@ defmodule StorytellerWeb.CampaignLive.New do
            draft: nil,
            setup_error: nil,
            character_rows: row_assigns[:character_rows],
-           panel_rows: row_assigns[:panel_rows]
+           panel_rows: row_assigns[:panel_rows],
+           inventory_rows: row_assigns[:inventory_rows]
          )}
 
       {:error, {:setup, message}} ->
@@ -74,7 +79,8 @@ defmodule StorytellerWeb.CampaignLive.New do
            draft: nil,
            setup_error: setup_error_message(message),
            character_rows: row_assigns[:character_rows],
-           panel_rows: row_assigns[:panel_rows]
+           panel_rows: row_assigns[:panel_rows],
+           inventory_rows: row_assigns[:inventory_rows]
          )}
     end
   end
@@ -104,6 +110,17 @@ defmodule StorytellerWeb.CampaignLive.New do
   @impl true
   def handle_event("remove-panel-field", %{"index" => index}, socket) do
     {:noreply, assign(socket, panel_rows: remove_row(socket.assigns.panel_rows, index))}
+  end
+
+  @impl true
+  def handle_event("add-starting-item", _params, socket) do
+    index = next_index(socket.assigns.inventory_rows)
+    {:noreply, assign(socket, inventory_rows: socket.assigns.inventory_rows ++ [{index, %{}}])}
+  end
+
+  @impl true
+  def handle_event("remove-starting-item", %{"index" => index}, socket) do
+    {:noreply, assign(socket, inventory_rows: remove_row(socket.assigns.inventory_rows, index))}
   end
 
   @impl true
@@ -181,6 +198,49 @@ defmodule StorytellerWeb.CampaignLive.New do
 
   defp setup_error_message("Starting world details must be JSON-safe and under 100 KB.") do
     gettext("Starting world details must be valid data and under 100 KB.")
+  end
+
+  defp setup_error_message("Add no more than 200 starting items.") do
+    gettext("Add no more than 200 starting items.")
+  end
+
+  defp setup_error_message("Starting inventory contains an invalid item.") do
+    gettext("Starting inventory contains an invalid item. Check the item names and quantities.")
+  end
+
+  defp setup_error_message("Starting inventory must be a list.") do
+    gettext("Starting inventory must be a list.")
+  end
+
+  defp setup_error_message("Starting item " <> details) do
+    case String.split(details, " ", parts: 2) do
+      [number, "needs a name up to 160 characters."] ->
+        gettext("Starting item %{number} needs a name up to 160 characters.", number: number)
+
+      [number, "needs a positive whole-number quantity."] ->
+        gettext("Starting item %{number} needs a positive whole-number quantity.", number: number)
+
+      [number, "has an invalid unit (up to 80 characters)."] ->
+        gettext("Starting item %{number} has an invalid unit (up to 80 characters).",
+          number: number
+        )
+
+      [number, "has an invalid category (up to 100 characters)."] ->
+        gettext("Starting item %{number} has an invalid category (up to 100 characters).",
+          number: number
+        )
+
+      [number, "has an invalid description (up to 2,000 characters)."] ->
+        gettext("Starting item %{number} has an invalid description (up to 2,000 characters).",
+          number: number
+        )
+
+      [number, "must be an object."] ->
+        gettext("Starting item %{number} must be an object.", number: number)
+
+      _ ->
+        gettext("Campaign setup could not be validated. Review the fields and try again.")
+    end
   end
 
   defp setup_error_message(_message) do

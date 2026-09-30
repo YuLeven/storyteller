@@ -102,6 +102,122 @@
       <div class="space-y-4 border-t border-stone-100 pt-6">
         <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
+            <h2 class="text-lg font-semibold text-stone-950">{gettext("Starting inventory")}</h2>
+            <p class="mt-1 text-sm text-stone-600">
+              {gettext(
+                "Add items the player starts with. They are public and belong to the player; you can change ownership during play."
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="add-starting-item"
+            class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+          >{gettext("Add starting item")}</button>
+        </div>
+        <div
+          :if={@inventory_rows == []}
+          class="rounded-xl border border-dashed border-stone-300 p-4 text-sm text-stone-500"
+        >
+          {gettext("No starting items added yet.")}
+        </div>
+        <div
+          :for={{index, row} <- @inventory_rows}
+          id={"starting-item-#{index}"}
+          class="space-y-4 rounded-xl border border-stone-200 bg-stone-50 p-4"
+        >
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold text-stone-800">{gettext("Starting item")}</h3>
+            <button
+              type="button"
+              phx-click="remove-starting-item"
+              phx-value-index={index}
+              class="text-sm font-medium text-rose-700 hover:text-rose-900"
+            >{gettext("Remove")}</button>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <label
+              for={"inventory-name-#{index}"}
+              class="block text-sm font-medium text-stone-700"
+            >
+              {gettext("Item name")}
+              <input
+                id={"inventory-name-#{index}"}
+                name={"campaign[inventory][#{index}][name]"}
+                value={row_value(row, "name")}
+                placeholder={gettext("Healing potion")}
+                maxlength="160"
+                autocomplete="off"
+                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+              />
+            </label>
+            <label
+              for={"inventory-quantity-#{index}"}
+              class="block text-sm font-medium text-stone-700"
+            >
+              {gettext("Quantity")}
+              <input
+                id={"inventory-quantity-#{index}"}
+                name={"campaign[inventory][#{index}][quantity]"}
+                value={row_value(row, "quantity")}
+                type="number"
+                min="1"
+                max="1000000"
+                step="1"
+                inputmode="numeric"
+                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+              />
+            </label>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <label
+              for={"inventory-unit-#{index}"}
+              class="block text-sm font-medium text-stone-700"
+            >
+              {gettext("Unit (optional)")}
+              <input
+                id={"inventory-unit-#{index}"}
+                name={"campaign[inventory][#{index}][unit]"}
+                value={row_value(row, "unit")}
+                placeholder={gettext("bottles, coins, or doses")}
+                maxlength="80"
+                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+              />
+            </label>
+            <label
+              for={"inventory-category-#{index}"}
+              class="block text-sm font-medium text-stone-700"
+            >
+              {gettext("Category (optional)")}
+              <input
+                id={"inventory-category-#{index}"}
+                name={"campaign[inventory][#{index}][category]"}
+                value={row_value(row, "category")}
+                placeholder={gettext("Potion, tool, or keepsake")}
+                maxlength="100"
+                class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+              />
+            </label>
+          </div>
+          <label
+            for={"inventory-description-#{index}"}
+            class="block text-sm font-medium text-stone-700"
+          >
+            {gettext("Description (optional)")}
+            <textarea
+              id={"inventory-description-#{index}"}
+              name={"campaign[inventory][#{index}][description]"}
+              rows="2"
+              maxlength="2000"
+              class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+            >{row_value(row, "description")}</textarea>
+          </label>
+        </div>
+      </div>
+
+      <div class="space-y-4 border-t border-stone-100 pt-6">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
             <h2 class="text-lg font-semibold text-stone-950">
               {gettext("GM-controlled characters")}
             </h2>
@@ -393,6 +509,19 @@
             do: gettext("Player-visible"),
             else: gettext("GM only")}</span>
           <span>· {panel_initial_value(field)}{if field.unit, do: " " <> field.unit, else: ""}</span>
+        </li>
+      </ul>
+    </section>
+    <section :if={@draft.inventory != []} class="mt-6 border-t border-stone-100 pt-5">
+      <h3 class="font-semibold text-stone-900">{gettext("Starting inventory")}</h3>
+      <ul class="mt-2 space-y-2 text-sm text-stone-700">
+        <li :for={item <- @draft.inventory} class="rounded-lg bg-stone-50 px-3 py-2">
+          <span class="font-medium">{item["name"]}</span>
+          <span>· {item["quantity"]}{if item["unit"], do: " " <> item["unit"], else: ""}</span>
+          <span :if={item["category"]} class="text-stone-500">· {item["category"]}</span>
+          <p :if={item["description"]} class="mt-1 whitespace-pre-wrap text-stone-600">
+            {item["description"]}
+          </p>
         </li>
       </ul>
     </section>
