@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-09-30 — Refresh sourced product benchmark
+
+- Rechecked official Friends & Fables, Craft, Kanka, and LegendKeeper feature pages. The notes now describe the current advertised play and campaign-management features, distinguish those vendor claims from verified behavior, and avoid treating the products as interchangeable.
+- Added a consistent hands-on task protocol covering first play, scene/resource discovery, inventory/resource changes, cross-session continuity, recovery, and private facts. No product usability ranking is claimed before those tasks are performed.
+- **Checked:** source links point to the official product pages; interactive competitor testing remains outstanding.
+
 ## 2026-09-30 — Keep inventory canon inside the turn loop
 
 - Decided against direct player writes to canonical inventory in the single-player MVP. Item use, transfers, consumption, and resource changes go through the normal action composer and GM-validated proposals, preserving the story reason and audit trail for accepted changes.
