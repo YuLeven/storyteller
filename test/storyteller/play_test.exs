@@ -7,7 +7,7 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Event, Objective, Roll, State, Turn}
+  alias Storyteller.Play.{Character, Event, Objective, Roll, State, Turn}
 
   test "GM memory is persisted by visibility and only recent events are sent back to the model" do
     {campaign, session} = play_campaign("The Glass Observatory")
@@ -95,6 +95,222 @@ defmodule Storyteller.PlayTest do
     assert {:ok, projection} = Play.public_projection(campaign.id)
     refute Map.has_key?(projection, :memory)
     refute Map.has_key?(projection, :gm_private_history_summary)
+  end
+
+  test "player character details update publicly and reach the next session's GM context" do
+    campaign =
+      campaign_fixture(%{
+        player_character_details: [
+          %{label: "Health", value: "Exhausted"},
+          %{label: "Skills", value: "Pruning"}
+        ],
+        gm_characters: [
+          %{
+            speaker_id: "npc:lyra",
+            name: "Lyra",
+            visible_facts: %{"role" => "keeper"},
+            gm_private_facts: %{"motive" => "protect the chart"}
+          }
+        ]
+      })
+
+    session = hd(campaign.sessions)
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    first_provider = fn request ->
+      context = decode_request(request)
+      Agent.update(captured_context, fn _ -> context end)
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "character_updates" => [
+             %{
+               "speaker_id" => "npc:lyra",
+               "visible_facts" => %{"last_spoke" => "The eastern star moved once."},
+               "gm_private_facts" => %{"still_hidden" => true}
+             },
+             %{
+               "speaker_id" => "player",
+               "visible_facts" => %{
+                 "health" => "Rested",
+                 "Vineyard responsibility" => "Restoring the east terrace"
+               },
+               "reason" => "The player rests and accepts the terrace work."
+             }
+           ]
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed} = first_turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "player-fact-update",
+               "Rest and take on the terrace work.",
+               provider: first_provider
+             )
+
+    before_update_context = Agent.get(captured_context, & &1)
+
+    player_before_update =
+      Enum.find(before_update_context["characters"], &(&1["speaker_id"] == "player"))
+
+    assert player_before_update["visible_facts"]["Health"] == "Exhausted"
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    assert player.name == "Mira Vale, a patient apprentice astronomer"
+    assert player.visible_facts["description"] == "Mira Vale, a patient apprentice astronomer"
+    assert player.visible_facts["Health"] == "Rested"
+    refute Map.has_key?(player.visible_facts, "health")
+    assert player.visible_facts["Skills"] == "Pruning"
+    assert player.visible_facts["Vineyard responsibility"] == "Restoring the east terrace"
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    [fact_event] =
+      Enum.filter(timeline, &(&1.speaker_id == "player" and &1.event_type == :state_change))
+
+    assert fact_event.payload["visible_facts"]["Health"] == "Rested"
+    assert fact_event.payload["reason"] == "The player rests and accepts the terrace work."
+    refute Map.has_key?(fact_event.payload, "gm_private_facts")
+
+    player_record = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player_record.gm_private_facts == %{}
+
+    {:ok, next_session} = Campaigns.start_session(campaign)
+
+    next_provider = fn request ->
+      context = decode_request(request)
+      Agent.update(captured_context, fn _ -> context end)
+      {:ok, Jason.encode!(ordinary_proposal(%{"character_updates" => []}))}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "player-fact-next-session",
+               "Check on the terrace work.",
+               provider: next_provider
+             )
+
+    next_context = Agent.get(captured_context, & &1)
+    player_context = Enum.find(next_context["characters"], &(&1["speaker_id"] == "player"))
+    assert player_context["visible_facts"]["Health"] == "Rested"
+    assert player_context["visible_facts"]["Skills"] == "Pruning"
+
+    assert player_context["visible_facts"]["Vineyard responsibility"] ==
+             "Restoring the east terrace"
+
+    assert Repo.get!(Turn, first_turn.id).status == :completed
+  end
+
+  test "player fact updates reject private writes, missing reasons, unknown speakers, and identity changes atomically" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    initial_player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
+    Repo.update!(
+      Character.changeset(initial_player, %{
+        gm_private_facts: %{"secret" => "Never overwrite this private note."}
+      })
+    )
+
+    bad_proposals = [
+      {
+        "player-private-facts",
+        %{
+          "public_changes" => %{"weather" => "A rejected storm"},
+          "character_updates" => [
+            %{
+              "speaker_id" => "npc:lyra",
+              "visible_facts" => %{"trust" => "She trusts the player."},
+              "gm_private_facts" => %{}
+            },
+            %{
+              "speaker_id" => "player",
+              "visible_facts" => %{"Health" => "Changed"},
+              "gm_private_facts" => %{"secret" => "Proposed overwrite."},
+              "reason" => "The action supports the visible change."
+            }
+          ]
+        }
+      },
+      {
+        "player-missing-reason",
+        %{
+          "character_updates" => [
+            %{"speaker_id" => "player", "visible_facts" => %{"Health" => "Changed"}}
+          ]
+        }
+      },
+      {
+        "player-unknown-id",
+        %{
+          "character_updates" => [
+            %{
+              "speaker_id" => "not-a-campaign-character",
+              "visible_facts" => %{"Health" => "Changed"},
+              "reason" => "The action supports the visible change."
+            }
+          ]
+        }
+      },
+      {
+        "player-identity-change",
+        %{
+          "character_updates" => [
+            %{
+              "speaker_id" => "player",
+              "visible_facts" => %{
+                "description" => "A different person",
+                "name" => "Someone else"
+              },
+              "reason" => "This must not change core identity."
+            }
+          ]
+        }
+      },
+      {
+        "player-canonical-location-alias",
+        %{
+          "character_updates" => [
+            %{
+              "speaker_id" => "player",
+              "visible_facts" => %{"current_place_name" => "A different place"},
+              "reason" => "The location must come from the canonical place ledger."
+            }
+          ]
+        }
+      }
+    ]
+
+    for {key, overrides} <- bad_proposals do
+      assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+               Play.submit_turn(campaign.id, session.id, key, "Take a consequential action.",
+                 provider: ordinary_provider(overrides)
+               )
+    end
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    refute projection.world["weather"] == "A rejected storm"
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    refute Map.has_key?(player.visible_facts, "Health")
+
+    keeper = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
+    refute Map.has_key?(keeper.visible_facts, "trust")
+
+    unchanged_player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert unchanged_player.name == initial_player.name
+    assert unchanged_player.visible_facts == initial_player.visible_facts
+
+    assert unchanged_player.gm_private_facts == %{
+             "secret" => "Never overwrite this private note."
+           }
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
   test "public projections separate private world and character facts" do

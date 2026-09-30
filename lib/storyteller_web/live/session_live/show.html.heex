@@ -283,6 +283,13 @@
                   {gettext("D20 result:")} {event.payload["result"]}
                 </p>
 
+                <p
+                  :if={event.event_type == :state_change && state_change_reason(event)}
+                  class="mt-2 text-sm leading-6 text-stone-600"
+                >
+                  {gettext("Reason: %{reason}", reason: state_change_reason(event))}
+                </p>
+
                 <dl
                   :if={
                     event.event_type == :state_change && map_size(state_change_values(event)) > 0

@@ -103,12 +103,24 @@ defmodule Storyteller.Play do
   operation. Status is open, completed, or abandoned. Do not duplicate IDs or
   treat an unsupported completion as established.
 
+  You may update the player's character details only when the action establishes
+  a durable public fact about them. Add or revise flexible visible_facts such as
+  health, skills, or responsibilities, preserving unrelated facts. A player
+  character update must use speaker_id "player", include visible_facts and a
+  concise reason grounded in the action. Never include gm_private_facts for the
+  player, and never change the player's name, identity, or description. Use the
+  existing character_updates shape without a reason for GM-controlled characters;
+  their visible and GM-private fact updates continue to follow their respective
+  visibility scopes.
+
   Return exactly one JSON object with these fields: narration (non-empty string),
   dialogue (array of {speaker_id, text}), activities (array of {speaker_id,
   text}), public_changes (object), private_changes (object), panel_changes
   (object mapping an existing campaign panel field key to its new absolute
   value), character_updates (array of {speaker_id, visible_facts?,
-  gm_private_facts?}), memory_update ({public_summary, gm_private_summary}),
+  gm_private_facts?} for GM-controlled characters or {speaker_id: "player",
+  visible_facts, reason} for the player character), memory_update
+  ({public_summary, gm_private_summary}),
   location_changes (array of {type: "create_place", place: {place_id, name,
   description?, visibility, facts?}, reason} or {type: "move_character",
   speaker_id, place_id, reason}), inventory_changes (array of operations:
@@ -868,33 +880,48 @@ defmodule Storyteller.Play do
     sequence = append_objective_change_events(state, turn, proposal.objective_changes, sequence)
 
     Enum.reduce(proposal.character_updates, sequence, fn update, current ->
-      sequence =
-        if map_size(update.visible_facts) > 0 do
-          append_event!(
-            %{state | event_sequence: current},
-            turn,
-            :state_change,
-            :public,
-            update.speaker_id,
-            %{visible_facts: update.visible_facts}
-          )
-        else
-          current
-        end
+      append_character_update_events(state, turn, update, current)
+    end)
+  end
 
-      if map_size(update.gm_private_facts) > 0 do
+  defp append_character_update_events(state, turn, %{role: :player} = update, sequence) do
+    append_event!(
+      %{state | event_sequence: sequence},
+      turn,
+      :state_change,
+      :public,
+      update.speaker_id,
+      %{visible_facts: update.visible_facts, reason: update.reason}
+    )
+  end
+
+  defp append_character_update_events(state, turn, update, sequence) do
+    sequence =
+      if map_size(update.visible_facts) > 0 do
         append_event!(
           %{state | event_sequence: sequence},
           turn,
           :state_change,
-          :gm_private,
+          :public,
           update.speaker_id,
-          %{gm_private_facts: update.gm_private_facts}
+          %{visible_facts: update.visible_facts}
         )
       else
         sequence
       end
-    end)
+
+    if map_size(update.gm_private_facts) > 0 do
+      append_event!(
+        %{state | event_sequence: sequence},
+        turn,
+        :state_change,
+        :gm_private,
+        update.speaker_id,
+        %{gm_private_facts: update.gm_private_facts}
+      )
+    else
+      sequence
+    end
   end
 
   defp append_objective_change_events(_state, _turn, [], sequence), do: sequence
@@ -1131,10 +1158,18 @@ defmodule Storyteller.Play do
             lock: "FOR UPDATE"
         )
 
-      changes = %{
-        visible_facts: deep_merge(character.visible_facts, update.visible_facts),
-        gm_private_facts: deep_merge(character.gm_private_facts, update.gm_private_facts)
-      }
+      changes = %{visible_facts: deep_merge(character.visible_facts, update.visible_facts)}
+
+      changes =
+        if update.role == :gm do
+          Map.put(
+            changes,
+            :gm_private_facts,
+            deep_merge(character.gm_private_facts, update.gm_private_facts)
+          )
+        else
+          changes
+        end
 
       case Repo.update(Character.changeset(character, changes)) do
         {:ok, _updated} -> :ok
@@ -1603,41 +1638,144 @@ defmodule Storyteller.Play do
     characters = campaign_characters(campaign_id)
 
     Enum.reduce_while(updates, {:ok, []}, fn update, {:ok, acc} ->
-      if not is_map(update) do
-        {:halt, {:error, :invalid_response}}
-      else
-        keys = Enum.map(Map.keys(update), &key_name/1)
-        speaker_id = field(update, :speaker_id)
-        visible = field(update, :visible_facts, %{})
-        private = field(update, :gm_private_facts, %{})
-
-        cond do
-          Enum.any?(keys, &(&1 not in ["speaker_id", "visible_facts", "gm_private_facts"])) ->
+      case validate_character_update(update, characters) do
+        {:ok, normalized} ->
+          if normalized.role == :player and Enum.any?(acc, &(&1.speaker_id == "player")) do
             {:halt, {:error, :invalid_response}}
+          else
+            {:cont, {:ok, acc ++ [normalized]}}
+          end
 
-          not is_binary(speaker_id) ->
-            {:halt, {:error, :invalid_response}}
-
-          not Enum.any?(characters, &(&1.speaker_id == speaker_id and &1.role == :gm)) ->
-            {:halt, {:error, :invalid_response}}
-
-          not is_map(visible) or not is_map(private) ->
-            {:halt, {:error, :invalid_response}}
-
-          validate_json_map(visible) != :ok or validate_json_map(private) != :ok ->
-            {:halt, {:error, :invalid_response}}
-
-          true ->
-            {:cont,
-             {:ok,
-              acc ++
-                [%{speaker_id: speaker_id, visible_facts: visible, gm_private_facts: private}]}}
-        end
+        {:error, :invalid_response} ->
+          {:halt, {:error, :invalid_response}}
       end
     end)
   end
 
   defp validate_character_updates(_updates, _campaign_id), do: {:error, :invalid_response}
+
+  defp validate_character_update(update, characters) when is_map(update) do
+    keys = Enum.map(Map.keys(update), &key_name/1)
+    speaker_id = field(update, :speaker_id)
+    visible = field(update, :visible_facts, %{})
+    private = field(update, :gm_private_facts, %{})
+    character = Enum.find(characters, &(&1.speaker_id == speaker_id))
+
+    cond do
+      not unique_normalized_keys?(update) ->
+        {:error, :invalid_response}
+
+      Enum.any?(keys, &(&1 not in ["speaker_id", "visible_facts", "gm_private_facts", "reason"])) ->
+        {:error, :invalid_response}
+
+      not is_binary(speaker_id) or is_nil(character) ->
+        {:error, :invalid_response}
+
+      not is_map(visible) or not is_map(private) ->
+        {:error, :invalid_response}
+
+      not unique_normalized_keys?(visible) or validate_json_map(visible) != :ok or
+          validate_json_map(private) != :ok ->
+        {:error, :invalid_response}
+
+      character.role == :gm and "reason" in keys ->
+        {:error, :invalid_response}
+
+      character.role == :gm ->
+        {:ok,
+         %{
+           speaker_id: speaker_id,
+           role: :gm,
+           visible_facts: visible,
+           gm_private_facts: private
+         }}
+
+      character.role == :player ->
+        validate_player_character_update(
+          speaker_id,
+          visible,
+          private,
+          update,
+          keys,
+          character.visible_facts
+        )
+    end
+  end
+
+  defp validate_character_update(_update, _characters), do: {:error, :invalid_response}
+
+  defp validate_player_character_update(
+         speaker_id,
+         visible,
+         private,
+         update,
+         keys,
+         current_facts
+       ) do
+    reason = field(update, :reason)
+
+    cond do
+      "reason" not in keys ->
+        {:error, :invalid_response}
+
+      map_size(visible) == 0 or private != %{} ->
+        {:error, :invalid_response}
+
+      true ->
+        with {:ok, normalized_facts} <-
+               canonicalize_player_character_facts(visible, current_facts),
+             true <- valid_player_character_facts?(normalized_facts),
+             true <-
+               is_binary(reason) and String.trim(reason) != "" and String.length(reason) <= 240 do
+          {:ok,
+           %{
+             speaker_id: speaker_id,
+             role: :player,
+             visible_facts: normalized_facts,
+             gm_private_facts: %{},
+             reason: String.trim(reason)
+           }}
+        else
+          _ -> {:error, :invalid_response}
+        end
+    end
+  end
+
+  defp canonicalize_player_character_facts(facts, current_facts) do
+    entries =
+      Enum.map(facts, fn {key, value} ->
+        normalized_key = key |> key_name() |> String.trim()
+
+        existing_key =
+          Enum.find(Map.keys(current_facts), fn current_key ->
+            current_key
+            |> key_name()
+            |> String.trim()
+            |> String.downcase() == String.downcase(normalized_key)
+          end)
+
+        {existing_key || normalized_key, value}
+      end)
+
+    normalized_facts = Map.new(entries)
+
+    if map_size(normalized_facts) == length(entries),
+      do: {:ok, normalized_facts},
+      else: {:error, :invalid_response}
+  end
+
+  defp valid_player_character_facts?(facts) do
+    reserved =
+      ~w(description name identity speaker_id role character_id current_place current_place_id current_place_name current_location current_location_id location location_id place_id)
+
+    keys =
+      Enum.map(Map.keys(facts), fn key ->
+        key |> key_name() |> String.trim() |> String.downcase()
+      end)
+
+    Enum.all?(keys, &(&1 != "" and &1 not in reserved)) and
+      length(keys) == length(Enum.uniq(keys))
+  end
 
   defp validate_memory_update(update) when is_map(update) and map_size(update) == 2 do
     keys = Enum.map(Map.keys(update), &key_name/1)

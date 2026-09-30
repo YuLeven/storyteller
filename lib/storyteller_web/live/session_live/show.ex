@@ -426,6 +426,9 @@ defmodule StorytellerWeb.SessionLive.Show do
       is_map(Map.get(event.payload, "panel_changes")) ->
         gettext("Campaign values")
 
+      event.speaker_id == "player" and is_map(Map.get(event.payload, "visible_facts")) ->
+        gettext("Character details updated")
+
       is_nil(event.speaker_id) ->
         gettext("World update")
 
@@ -445,6 +448,12 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: facts
 
   defp state_change_values(_event), do: %{}
+
+  defp state_change_reason(%{payload: %{"visible_facts" => facts, "reason" => reason}})
+       when is_map(facts) and is_binary(reason),
+       do: reason
+
+  defp state_change_reason(_event), do: nil
 
   defp inventory_change_values(%{payload: %{"inventory_changes" => changes}})
        when is_list(changes),

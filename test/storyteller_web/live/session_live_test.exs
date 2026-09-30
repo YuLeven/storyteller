@@ -150,6 +150,57 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute reloaded_html =~ "A stale world location"
   end
 
+  test "player character fact updates appear on the board with a reasoned timeline entry", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        player_character_details: [%{label: "Health", value: "Weary"}]
+      })
+
+    session = hd(campaign.sessions)
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "After resting, you feel ready to return to the terrace.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: %{},
+         character_updates: [
+           %{
+             speaker_id: "player",
+             visible_facts: %{"Health" => "Rested"},
+             reason: "The player rests through the afternoon."
+           }
+         ],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         inventory_changes: [],
+         location_changes: [],
+         objective_changes: [],
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    view
+    |> form("#turn-composer", turn: %{input: "I rest through the afternoon."})
+    |> render_submit()
+
+    assert wait_until(fn -> render(view) =~ "Rested" end)
+    html = render(view)
+    assert html =~ "Character details updated"
+    assert html =~ "Reason: The player rests through the afternoon."
+    assert has_element?(view, "#story-timeline", "Health")
+
+    {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    assert player.visible_facts["Health"] == "Rested"
+  end
+
   test "a connected ChatGPT plan is clear beside the composer and links to usage settings", %{
     conn: conn
   } do
