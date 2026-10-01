@@ -241,7 +241,7 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
                             "entry_id" => "hidden-chart-secret",
                             "kind" => "fact",
                             "title" => "Altered chart",
-                            "details" => "The keeper secretly changed the star chart.",
+                            "details" => "The keeper secretly changed Lyra's star chart.",
                             "visibility" => "gm_private"
                           },
                           "reason" => "The GM records a concealed motive."
@@ -272,7 +272,7 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
              )
 
     assert Repo.get!(ContinuityEntry, hidden_entry.id).details ==
-             "The keeper secretly changed the star chart."
+             "The keeper secretly changed Lyra's star chart."
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
     refute Jason.encode!(projection) =~ "secretly changed"
@@ -320,7 +320,7 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     {context, metrics} = Agent.get(captured, & &1)
 
     assert metrics.conservative_input_token_upper_bound <= 24_000
-    assert metrics.omissions == [:player_managed_memory_details]
+    assert metrics.omissions == [:continuity_memory_details]
 
     assert Enum.any?(context["continuity"]["public"], fn entry ->
              entry["entry_id"] == public_entry.entry_id and
@@ -334,13 +334,13 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
                not Map.has_key?(entry, "details")
            end)
 
-    assert context["context_completeness"]["player_managed_memory_details_omitted"]
+    assert context["context_completeness"]["continuity_memory_details_omitted"]
 
     refute Jason.encode!(context["continuity"]["public"]) =~ "secretly changed"
 
     assert Enum.any?(context["continuity"]["gm_private"], fn entry ->
              entry["entry_id"] == hidden_entry.entry_id and
-               entry["details"] == "The keeper secretly changed the star chart."
+               entry["details"] == "The keeper secretly changed Lyra's star chart."
            end)
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
@@ -498,7 +498,7 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
                end)
       end
 
-      assert context["context_completeness"]["player_managed_memory_details_omitted"]
+      assert context["context_completeness"]["continuity_memory_details_omitted"]
     end)
   end
 

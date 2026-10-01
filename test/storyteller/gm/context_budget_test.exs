@@ -211,7 +211,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert public_place_identity.(long_compiled) == public_place_identity.(long_context)
   end
 
-  test "keeps every active continuity detail while compacting history and closed entries" do
+  test "keeps relevant active continuity details while compacting unrelated history" do
     context = base_context()
 
     continuity_entries =
@@ -228,11 +228,19 @@ defmodule Storyteller.GM.ContextBudgetTest do
         Enum.map(1..13, fn number ->
           %{
             entry_id: "active-#{number}",
-            kind: "fact",
-            title: "Active canon #{number}",
+            kind: if(number == 1, do: "commitment", else: "fact"),
+            title:
+              if(number == 1,
+                do: "Marisol's Bodega harvest agreement",
+                else: "Active canon #{number}"
+              ),
             details:
-              "Unmentioned durable canon #{number}: " <>
-                String.duplicate("keepsake stewardship ", 12),
+              if(number == 1,
+                do: "Marisol promised to reserve harvest wine at the Bodega.",
+                else:
+                  "Unmentioned durable canon #{number}: " <>
+                    String.duplicate("keepsake stewardship ", 12)
+              ),
             status: "active",
             visibility: "public"
           }
@@ -268,11 +276,19 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert Enum.find(compacted_entries, &(&1.entry_id == "active-1")) ==
              Enum.find(continuity_entries, &(&1.entry_id == "active-1"))
 
-    assert Enum.all?(Enum.filter(compacted_entries, &(&1.status == "active")), fn entry ->
-             String.starts_with?(entry.details, "Unmentioned durable canon")
+    unrelated_active =
+      Enum.filter(compacted_entries, &(&1.status == "active" and &1.entry_id != "active-1"))
+
+    assert length(unrelated_active) == 12
+
+    assert Enum.all?(unrelated_active, fn entry ->
+             entry.status == "active" and not Map.has_key?(entry, :details) and
+               not Map.has_key?(entry, :title)
            end)
 
     refute Map.has_key?(Enum.find(compacted_entries, &(&1.entry_id == "closed-old")), :details)
+    assert compacted.context_completeness.continuity_memory_details_omitted
+    assert :continuity_memory_details in metrics.omissions
     assert compacted.world == context.world
     assert compacted.inventory == context.inventory
     assert compacted.travel_connections == context.travel_connections
@@ -450,7 +466,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert metrics.conservative_input_token_upper_bound <= 24_000
     assert metrics.compacted?
-    assert metrics.omissions == [:player_managed_memory_details]
+    assert metrics.omissions == [:continuity_memory_details]
 
     [relevant | unrelated] = compiled.continuity.public
     assert relevant.details == hd(player_memories).details
@@ -462,7 +478,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert Enum.map(compiled.continuity.public, & &1.entry_id) ==
              Enum.map(player_memories, & &1.entry_id)
 
-    assert compiled.context_completeness.player_managed_memory_details_omitted
+    assert compiled.context_completeness.continuity_memory_details_omitted
     refute Map.get(compiled.context_completeness, :history_compacted, false)
 
     assert metrics.context_json_bytes < byte_size(Jason.encode!(context))
@@ -480,7 +496,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
               String.duplicate("The cellar plan remains part of the campaign. ", 4),
           status: "active",
           visibility: "public",
-          player_managed: true
+          player_managed: false
         }
       end)
 
@@ -491,7 +507,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       details: "The village proverb promised the east wind would calm before sunrise.",
       status: "active",
       visibility: "public",
-      player_managed: true
+      player_managed: false
     }
 
     context =
@@ -525,8 +541,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
       assert Enum.map(compiled.continuity.public, & &1.entry_id) ==
                Enum.map([non_commitment_decoy | commitments], & &1.entry_id)
 
-      assert compiled.context_completeness.player_managed_memory_details_omitted
-      assert :player_managed_memory_details in metrics.omissions
+      assert compiled.context_completeness.continuity_memory_details_omitted
+      assert :continuity_memory_details in metrics.omissions
 
       refute Enum.any?(compiled.continuity.public, fn entry ->
                entry.entry_id == "promise-word-fact" and Map.has_key?(entry, :details)
@@ -667,7 +683,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
                not Map.has_key?(entry, :title) and not Map.has_key?(entry, :details)
              end)
 
-      assert compiled.context_completeness.player_managed_memory_details_omitted
+      assert compiled.context_completeness.continuity_memory_details_omitted
     end
 
     for action <- [
@@ -745,10 +761,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
       |> Enum.map(& &1.entry_id)
 
     assert detailed_entry_ids == Enum.map(3..10, &"autumn-event-#{&1}")
-    assert compiled.context_completeness.player_managed_memory_details_omitted
+    assert compiled.context_completeness.continuity_memory_details_omitted
   end
 
-  test "uses exact meaningful word matches and leaves GM-authored or private continuity intact" do
+  test "filters unrelated public and private continuity details by relevance" do
     context = base_context()
 
     context =
@@ -794,21 +810,38 @@ defmodule Storyteller.GM.ContextBudgetTest do
              ])
 
     assert Enum.find(compiled.continuity.public, &(&1.entry_id == "gm-note")) ==
-             Enum.at(context.continuity.public, 1)
+             Map.take(Enum.at(context.continuity.public, 1), [
+               :entry_id,
+               :kind,
+               :status,
+               :visibility,
+               :player_managed
+             ])
 
-    assert compiled.continuity.gm_private == context.continuity.gm_private
+    assert compiled.continuity.gm_private == [
+             Map.take(hd(context.continuity.gm_private), [
+               :entry_id,
+               :kind,
+               :status,
+               :visibility,
+               :player_managed
+             ])
+           ]
   end
 
   test "fails recoverably when active continuity canon alone cannot fit" do
     context =
-      update_in(base_context(), [:continuity], fn _continuity ->
+      base_context()
+      |> Map.put(:player_action, "What did we agree about Marisol at the Bodega?")
+      |> update_in([:continuity], fn _continuity ->
         %{
           public: [
             %{
               entry_id: "active-large",
-              kind: "fact",
-              title: "A required durable fact",
-              details: String.duplicate("active canon ", 3_000),
+              kind: "commitment",
+              title: "Marisol's Bodega agreement",
+              details:
+                "Marisol agreed to " <> String.duplicate("keep the harvest reserve ", 3_000),
               status: "active",
               visibility: "public"
             },

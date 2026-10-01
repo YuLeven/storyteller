@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 — Bound GM context across every continuity-memory source
+
+- The context compiler now selects relevant details from both GM-authored and player-managed continuity entries in public and GM-private scopes, with an eight-detail cap per scope. Other entries retain stable identity, type, and status metadata, while a completeness marker tells the GM that omitted detail is unknown. Full records remain persisted and visible only through their correct campaign views; a relevant canon item that still exceeds the hard input bound continues to fail recoverably.
+- A fake-provider play regression has the GM establish a typed commitment and an unrelated decoy in one session, then asks a broad “what did we agree?” question in the next. The request retains the commitment details and omits the decoy details. Hidden-memory coverage confirms relevant private detail remains within GM context and out of player-visible projections.
+- **Checks:** ContextBudget **17 tests, 0 failures**; new cross-session Play behavior **1 selected, 0 failures**; story-memory correction suite **6 tests, 0 failures**; full WSL suite **342 tests, 0 failures**. Formatting, warnings-as-errors test compilation, and `git diff --check` also pass. No live provider call or campaign access was used.
+
 ## 2026-10-01 — Retrieve typed commitments from broad promise questions
 
 - General “what did we agree?” questions now retrieve details from public campaign memories explicitly typed as commitments, even when the question omits the commitment's subject. English, Spanish, and French prompts are covered. Retrieval remains bounded to the eight-detail cap; omitted details are marked incomplete, and a non-commitment fact containing the word “promised” stays out of detailed context.

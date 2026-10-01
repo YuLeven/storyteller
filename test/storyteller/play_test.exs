@@ -5508,7 +5508,7 @@ defmodule Storyteller.PlayTest do
     refute Map.has_key?(public_entries["bridge-toll"], "details")
 
     metrics = context |> Map.fetch!("context_completeness")
-    assert metrics["player_managed_memory_details_omitted"]
+    assert metrics["continuity_memory_details_omitted"]
 
     state_after = Repo.get_by!(State, campaign_id: campaign.id)
 
@@ -5533,6 +5533,92 @@ defmodule Storyteller.PlayTest do
 
     assert Repo.get!(ContinuityEntry, wine_memory.id) == wine_memory
     assert Repo.get!(ContinuityEntry, unrelated_memory.id) == unrelated_memory
+  end
+
+  test "a later-session generic agreement question receives typed commitment context" do
+    {campaign, first_session} = play_campaign("The Quiet Observatory Agreements")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-two-old-facts",
+               "Mira leaves the keeper's office after the conversation.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "observatory-work-agreement",
+                         "kind" => "commitment",
+                         "title" => "Mira's agreement with the keeper",
+                         "details" =>
+                           "Mira agreed to inspect the eastern lens before the first frost.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The keeper and Mira agree on the inspection."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "weather-proverb",
+                         "kind" => "fact",
+                         "title" => "The village weather proverb",
+                         "details" =>
+                           "The proverb promised the north wind would calm before dawn.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "Mira heard the local proverb."
+                     }
+                   ]
+                 })
+             )
+
+    agreement =
+      Repo.get_by!(ContinuityEntry,
+        campaign_id: campaign.id,
+        entry_id: "observatory-work-agreement"
+      )
+
+    word_match_decoy =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "weather-proverb")
+
+    {:ok, next_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(captured_context, fn _ -> decode_request(request) end)
+
+      proposal =
+        ordinary_proposal(%{
+          "narration" => "The keeper's agreement still stands.",
+          "dialogue" => [],
+          "activities" => [],
+          "character_updates" => []
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "ask-what-we-agreed",
+               "What did we agree?",
+               intent: :question,
+               provider: provider,
+               model: "test-model"
+             )
+
+    context = Agent.get(captured_context, & &1)
+    public_entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+
+    assert public_entries[agreement.entry_id]["details"] == agreement.details
+    refute Map.has_key?(public_entries[word_match_decoy.entry_id], "title")
+    refute Map.has_key?(public_entries[word_match_decoy.entry_id], "details")
+    assert context["context_completeness"]["continuity_memory_details_omitted"]
   end
 
   test "Ask GM reaches the provider with a modest conversation history inside the default bound" do

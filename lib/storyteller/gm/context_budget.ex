@@ -18,7 +18,7 @@ defmodule Storyteller.GM.ContextBudget do
   @relevant_event_text_chars 900
   @memory_summary_chars 1_500
   @detailed_continuity_count 12
-  @max_player_managed_memory_details 8
+  @max_continuity_memory_details 8
   @memory_stopwords MapSet.new(~w(
     a about above after again against all am an and any are as at be because been before being
     below between both but by can could did do does doing down during each few for from further
@@ -156,40 +156,40 @@ defmodule Storyteller.GM.ContextBudget do
     "acceptons" => "employment:acceptance",
     "acceptant" => "employment:acceptance",
     "acceptation" => "employment:acceptance",
-    "promise" => "employment:commitment",
-    "promises" => "employment:commitment",
-    "promised" => "employment:commitment",
-    "promising" => "employment:commitment",
-    "agree" => "employment:commitment",
-    "agrees" => "employment:commitment",
-    "agreed" => "employment:commitment",
-    "agreement" => "employment:commitment",
-    "promesa" => "employment:commitment",
-    "promesas" => "employment:commitment",
-    "prometer" => "employment:commitment",
-    "prometí" => "employment:commitment",
-    "prometi" => "employment:commitment",
-    "prometió" => "employment:commitment",
-    "prometio" => "employment:commitment",
-    "prometimos" => "employment:commitment",
-    "prometieron" => "employment:commitment",
-    "prometido" => "employment:commitment",
-    "prometida" => "employment:commitment",
-    "acordar" => "employment:commitment",
-    "acordé" => "employment:commitment",
-    "acorde" => "employment:commitment",
-    "acordó" => "employment:commitment",
-    "acordo" => "employment:commitment",
-    "acordamos" => "employment:commitment",
-    "acordaron" => "employment:commitment",
-    "promesse" => "employment:commitment",
-    "promesses" => "employment:commitment",
-    "promettre" => "employment:commitment",
-    "promis" => "employment:commitment",
-    "promet" => "employment:commitment",
-    "convenir" => "employment:commitment",
-    "convenu" => "employment:commitment",
-    "convenue" => "employment:commitment",
+    "promise" => "campaign:commitment",
+    "promises" => "campaign:commitment",
+    "promised" => "campaign:commitment",
+    "promising" => "campaign:commitment",
+    "agree" => "campaign:commitment",
+    "agrees" => "campaign:commitment",
+    "agreed" => "campaign:commitment",
+    "agreement" => "campaign:commitment",
+    "promesa" => "campaign:commitment",
+    "promesas" => "campaign:commitment",
+    "prometer" => "campaign:commitment",
+    "prometí" => "campaign:commitment",
+    "prometi" => "campaign:commitment",
+    "prometió" => "campaign:commitment",
+    "prometio" => "campaign:commitment",
+    "prometimos" => "campaign:commitment",
+    "prometieron" => "campaign:commitment",
+    "prometido" => "campaign:commitment",
+    "prometida" => "campaign:commitment",
+    "acordar" => "campaign:commitment",
+    "acordé" => "campaign:commitment",
+    "acorde" => "campaign:commitment",
+    "acordó" => "campaign:commitment",
+    "acordo" => "campaign:commitment",
+    "acordamos" => "campaign:commitment",
+    "acordaron" => "campaign:commitment",
+    "promesse" => "campaign:commitment",
+    "promesses" => "campaign:commitment",
+    "promettre" => "campaign:commitment",
+    "promis" => "campaign:commitment",
+    "promet" => "campaign:commitment",
+    "convenir" => "campaign:commitment",
+    "convenu" => "campaign:commitment",
+    "convenue" => "campaign:commitment",
     "pay" => "employment:compensation",
     "pays" => "employment:compensation",
     "paid" => "employment:compensation",
@@ -226,7 +226,7 @@ defmodule Storyteller.GM.ContextBudget do
                                 "employment:acceptance",
                                 "employment:compensation",
                                 "employment:terms",
-                                "employment:commitment"
+                                "campaign:commitment"
                               ])
   @ambiguous_compensation_terms MapSet.new([
                                   "pay",
@@ -285,19 +285,19 @@ defmodule Storyteller.GM.ContextBudget do
   def compile(context, instructions, model, opts)
       when is_map(context) and is_binary(instructions) do
     budget = token_budget(model, opts)
-    {selected_context, retrieval_omitted?} = retrieve_player_managed_memory(context)
+    {selected_context, retrieval_omitted?} = retrieve_relevant_continuity_details(context)
 
     selected_context =
       if retrieval_omitted? do
         context_with_completeness(selected_context, %{
-          player_managed_memory_details_omitted: true
+          continuity_memory_details_omitted: true
         })
       else
         selected_context
       end
 
     retrieval_omissions =
-      if retrieval_omitted?, do: [:player_managed_memory_details], else: []
+      if retrieval_omitted?, do: [:continuity_memory_details], else: []
 
     full =
       measure(
@@ -470,58 +470,56 @@ defmodule Storyteller.GM.ContextBudget do
         &Map.merge(&1, completeness)
       )
 
-  # Player-managed public story notes are deliberately opt-in by relevance.
-  # Keep only stable identity/status metadata for unrelated notes and cap the
-  # detailed candidate set. The campaign board remains the complete, player-
-  # visible source of these notes.
-  defp retrieve_player_managed_memory(context) do
+  # Durable continuity entries remain complete in storage and on the campaign
+  # board. Send detail only for a bounded, relevant set from each visibility
+  # scope; stable identity/status metadata tells the GM that other records
+  # exist without spending every turn's context on their full text.
+  defp retrieve_relevant_continuity_details(context) do
     continuity = value(context, :continuity)
 
     if is_map(continuity) do
       terms = query_terms(context)
-      public_key = if Map.has_key?(continuity, "public"), do: "public", else: :public
-      entries = Map.get(continuity, public_key)
 
-      if is_list(entries) do
-        detailed_memory_ids =
-          entries
-          |> Enum.filter(fn entry ->
-            value(entry, :player_managed) == true and memory_relevant?(entry, terms)
-          end)
-          |> Enum.take(-@max_player_managed_memory_details)
-          |> MapSet.new(&value(&1, :entry_id))
+      {selected, omitted?} =
+        Enum.map_reduce(continuity, false, fn {visibility, entries}, any_omitted? ->
+          entries = if is_list(entries), do: entries, else: []
 
-        {selected, omitted?} =
-          Enum.map_reduce(entries, false, fn entry, any_omitted? ->
-            player_managed? = value(entry, :player_managed) == true
-            relevant? = MapSet.member?(detailed_memory_ids, value(entry, :entry_id))
+          detailed_entry_ids =
+            entries
+            |> Enum.filter(&memory_relevant?(&1, terms))
+            |> Enum.take(-@max_continuity_memory_details)
+            |> MapSet.new(&value(&1, :entry_id))
 
-            if player_managed? and not relevant? and is_map(entry) do
-              {Map.take(
-                 entry,
-                 [
-                   :entry_id,
-                   :kind,
-                   :status,
-                   :visibility,
-                   :player_managed,
-                   "entry_id",
-                   "kind",
-                   "status",
-                   "visibility",
-                   "player_managed"
-                 ]
-               ), true}
-            else
-              {entry, any_omitted?}
-            end
-          end)
+          {selected_entries, omitted_here?} =
+            Enum.map_reduce(entries, false, fn entry, omitted_details? ->
+              relevant? = MapSet.member?(detailed_entry_ids, value(entry, :entry_id))
 
-        continuity = put_context_value(continuity, Atom.to_string(public_key), selected)
-        {put_context_value(context, "continuity", continuity), omitted?}
-      else
-        {context, false}
-      end
+              if relevant? or not is_map(entry) do
+                {entry, omitted_details?}
+              else
+                {Map.take(
+                   entry,
+                   [
+                     :entry_id,
+                     :kind,
+                     :status,
+                     :visibility,
+                     :player_managed,
+                     "entry_id",
+                     "kind",
+                     "status",
+                     "visibility",
+                     "player_managed"
+                   ]
+                 ), true}
+              end
+            end)
+
+          {{visibility, selected_entries}, any_omitted? or omitted_here?}
+        end)
+        |> then(fn {groups, any_omitted?} -> {Map.new(groups), any_omitted?} end)
+
+      {put_context_value(context, "continuity", selected), omitted?}
     else
       {context, false}
     end
@@ -594,7 +592,7 @@ defmodule Storyteller.GM.ContextBudget do
   # fact that happens to contain "promised" is not enough.
   defp typed_commitment_relevant?(entry, query_terms) do
     value(entry, :kind) in ["commitment", :commitment] and
-      MapSet.member?(query_terms, "employment:commitment")
+      MapSet.member?(query_terms, "campaign:commitment")
   end
 
   # Terms/schedule questions and a character's promise can refer to an older
@@ -608,7 +606,7 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp employment_commitment_relevant?(employment_matches) do
-    MapSet.member?(employment_matches, "employment:commitment") and
+    MapSet.member?(employment_matches, "campaign:commitment") and
       MapSet.member?(employment_matches, "employment:work")
   end
 
@@ -813,11 +811,11 @@ defmodule Storyteller.GM.ContextBudget do
           active? = value(entry, :status) in ["active", :active]
           mentioned? = relevance_score(entry_text(entry), terms) > 0
 
-          # Active continuity is canonical state, not optional history. Keep
-          # its complete details even when old and lexically unrelated to the
-          # current action; compacting it could silently erase durable facts.
-          # Closed entries can safely lose old detail because their summary
-          # identity/status remains present.
+          # The campaign database keeps the complete ledger. Before size
+          # compaction, relevant continuity details have already been selected
+          # under a separate cap; preserve those active details. Closed entries
+          # outside the recent window can safely lose detail while their stable
+          # identity/status metadata remains available.
           if active? or MapSet.member?(detailed_ids, value(entry, :entry_id)) or mentioned? do
             entry
           else
