@@ -9,7 +9,15 @@ import Config
 
 config :storyteller,
   ecto_repos: [Storyteller.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  gm_context_token_budgets: %{
+    "default" => 24_000,
+    "gpt-6-astra" => 24_000,
+    "gpt-5.6-sol" => 24_000,
+    "gpt-5.6-terra" => 24_000,
+    "gpt-5.6-luna" => 24_000,
+    "gpt-5.5" => 24_000
+  }
 
 auth_store_dir =
   System.get_env("STORYTELLER_AUTH_DIR") ||

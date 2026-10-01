@@ -1003,8 +1003,13 @@ defmodule Storyteller.PlayTest do
     public_context_entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
     private_context_entries = Map.new(context["continuity"]["gm_private"], &{&1["entry_id"], &1})
 
-    assert length(context["history"]) == 40
+    assert length(context["history"]) <= 40
     assert List.last(context["history"])["session_id"] == next_session.id
+
+    assert Enum.any?(context["history"], fn event ->
+             String.contains?(event["payload"]["text"] || "", "beat 19")
+           end)
+
     refute Enum.any?(context["history"], &(&1["payload"] |> Jason.encode!() =~ "Lyra's promise"))
     assert public_context_entries["lyra-promise"]["source_sequence"] == introduced_event.sequence
     assert public_context_entries["lyra-promise"]["details"] =~ "eastern star chart"
@@ -1111,7 +1116,7 @@ defmodule Storyteller.PlayTest do
 
     closed_promise = closed_context_entries["lyra-promise"]
 
-    assert length(closed_context["history"]) == 40
+    assert length(closed_context["history"]) <= 40
     refute Enum.any?(closed_context["history"], &(&1["sequence"] == resolution_event.sequence))
     assert closed_promise["kind"] == "commitment"
     assert closed_promise["title"] == "Lyra's promise"
@@ -1227,6 +1232,8 @@ defmodule Storyteller.PlayTest do
                session.id,
                "continuity-overflow",
                "Establish another durable fact.",
+               model: "test-model",
+               context_input_token_budget: 50_000,
                provider:
                  ordinary_provider(%{
                    "continuity_changes" => [
@@ -3935,6 +3942,107 @@ defmodule Storyteller.PlayTest do
              Play.public_timeline_page(campaign.id, before_sequence: 0)
   end
 
+  test "GM context retrieves an older relevant event beyond the recent history window" do
+    {campaign, session} = play_campaign("The Bodega Journey")
+    owner = self()
+
+    provider = fn request ->
+      [message] = request.input
+      [%{text: encoded_context}] = message.content
+      send(owner, {:gm_context, Jason.decode!(encoded_context)})
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    on_claim = fn turn_id, _attempt ->
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+      events =
+        Enum.map(1..50, fn sequence ->
+          text =
+            if sequence == 5 do
+              "The bodega is forty minutes from the Finca. Lyra is still at the Finca."
+            else
+              "An unrelated ledger entry #{sequence}."
+            end
+
+          %{
+            campaign_id: campaign.id,
+            session_id: session.id,
+            turn_id: turn_id,
+            sequence: sequence,
+            event_type: :gm_narration,
+            visibility: :public,
+            payload: %{"text" => text},
+            inserted_at: now
+          }
+        end)
+
+      assert {50, nil} = Repo.insert_all(Event, events)
+      conversation_types = [:gm_narration]
+
+      assert Repo.all(
+               from event in Event,
+                 where:
+                   event.campaign_id == ^campaign.id and event.sequence < 11 and
+                     event.event_type in ^conversation_types and
+                     fragment("?->>'text' ILIKE ?", event.payload, "%bodega%"),
+                 select: event.sequence
+             ) == [5]
+
+      Repo.update_all(from(state in State, where: state.campaign_id == ^campaign.id),
+        set: [event_sequence: 50]
+      )
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "retrieve-old-bodega-fact",
+               "Return to the bodega and ask about the wine.",
+               provider: provider,
+               model: "test-model",
+               on_claim: on_claim
+             )
+
+    assert_receive {:gm_context, context}
+    assert Enum.any?(context["history"], &(&1["sequence"] == 5))
+    assert Enum.any?(context["history"], &(&1["sequence"] == 50))
+  end
+
+  test "a context-size pause keeps the submitted action available for retry" do
+    {campaign, session} = play_campaign("The Quiet Cellar")
+    caller = self()
+
+    provider = fn _request ->
+      send(caller, :provider_called)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :failed, failure_code: "context_budget_exceeded"} = failed} =
+             Play.submit_turn(campaign.id, session.id, "context-retry", "Check the wine casks.",
+               provider: provider,
+               model: "test-model",
+               context_input_token_budget: 1
+             )
+
+    assert failed.player_input == "Check the wine casks."
+    refute_receive :provider_called
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    assert {:ok, %{status: :completed} = retried} =
+             Play.retry_turn(failed.id,
+               provider: provider,
+               model: "test-model",
+               context_input_token_budget: 24_000
+             )
+
+    assert retried.player_input == failed.player_input
+    assert_receive :provider_called
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+  end
+
   test "idempotency replays a completed turn and rejects key reuse with different text" do
     {campaign, session} = play_campaign("The Glass Observatory")
     caller = self()
@@ -4319,15 +4427,17 @@ defmodule Storyteller.PlayTest do
     end
   end
 
-  test "a new action supersedes a failed turn while its explicit retry remains available before that choice" do
+  test "superseding a failed turn preserves its safe failure diagnosis" do
     {campaign, session} = play_campaign("The Glass Observatory")
 
     assert {:ok, failed} =
              Play.submit_turn(campaign.id, session.id, "lost", "Check the window.",
-               provider: fn _ -> {:error, :usage_unavailable} end
+               provider: fn _ -> {:ok, Jason.encode!(%{"narration" => ""})} end
              )
 
     assert failed.status == :failed
+    assert failed.failure_code == "invalid_response"
+    assert failed.failure_stage == :proposal_validation
 
     assert {:ok, completed} =
              Play.submit_turn(campaign.id, session.id, "new-action", "Ask for tea.",
@@ -4336,7 +4446,10 @@ defmodule Storyteller.PlayTest do
              )
 
     assert completed.status == :completed
-    assert Repo.get!(Turn, failed.id).status == :superseded
+    superseded = Repo.get!(Turn, failed.id)
+    assert superseded.status == :superseded
+    assert superseded.failure_code == "invalid_response"
+    assert superseded.failure_stage == :proposal_validation
     assert {:ok, events} = Play.public_timeline(campaign.id)
     assert Enum.count(events, &(&1.event_type == :player_action)) == 1
     assert Enum.at(events, 0).payload["text"] == "Ask for tea."

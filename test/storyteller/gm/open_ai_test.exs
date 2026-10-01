@@ -35,7 +35,8 @@ defmodule Storyteller.GM.OpenAITest do
 
     request = %{
       instructions: "Return one JSON object.",
-      input: [%{role: "user", content: [%{type: "input_text", text: "Resolve this action."}]}]
+      input: [%{role: "user", content: [%{type: "input_text", text: "Resolve this action."}]}],
+      local_context_metrics: %{context_json_bytes: 1234, private_marker: "local-only"}
     }
 
     assert {:ok, %{text: "{\"narration\":\"The rain begins.\"}"}} =
@@ -56,7 +57,59 @@ defmodule Storyteller.GM.OpenAITest do
     assert body["stream"] == true
     assert Map.keys(body) |> Enum.sort() == ["input", "instructions", "model", "store", "stream"]
     refute Map.has_key?(body, "previous_response_id")
+    refute Jason.encode!(body) =~ "local_context_metrics"
+    refute Jason.encode!(body) =~ "local-only"
     assert Keyword.fetch!(options, :into) == :self
+  end
+
+  test "returns only safe numeric token usage from the completed response", context do
+    text = "The rain begins."
+
+    stream =
+      completion_event(text, %{
+        "input_tokens" => 246,
+        "output_tokens" => 31,
+        "total_tokens" => 277,
+        "input_tokens_details" => %{"cached_tokens" => 100},
+        "private_provider_field" => "must not be exposed"
+      })
+
+    assert {:ok,
+            %{
+              text: ^text,
+              usage: %{input_tokens: 246, output_tokens: 31}
+            }} =
+             OpenAI.stream_response(
+               %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+               store: context.store,
+               http: provider_http(self(), stream)
+             )
+  end
+
+  test "omits missing and malformed token usage without exposing provider payloads", context do
+    secret = "PRIVATE_USAGE_PAYLOAD_DO_NOT_LEAK"
+
+    cases = [
+      {nil, %{text: "Safe output"}},
+      {%{"input_tokens" => secret, "output_tokens" => -1}, %{text: "Safe output"}},
+      {%{"input_tokens" => 12.5, "output_tokens" => "invalid-#{secret}"}, %{text: "Safe output"}},
+      {%{"input_tokens" => -1, "output_tokens" => 7},
+       %{text: "Safe output", usage: %{output_tokens: 7}}}
+    ]
+
+    Enum.each(cases, fn {usage, expected} ->
+      log =
+        capture_log(fn ->
+          assert {:ok, ^expected} =
+                   OpenAI.stream_response(
+                     %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+                     store: context.store,
+                     http: provider_http(self(), completion_event("Safe output", usage))
+                   )
+        end)
+
+      refute log =~ secret
+    end)
   end
 
   test "lists only models visible to the selected account", context do
@@ -111,13 +164,17 @@ defmodule Storyteller.GM.OpenAITest do
         "\n\nevent: response.completed\ndata: " <>
         Jason.encode!(%{
           "type" => "response.completed",
-          "response" => %{"status" => "completed", "output" => []}
+          "response" => %{
+            "status" => "completed",
+            "output" => [],
+            "usage" => %{"input_tokens" => 8, "output_tokens" => 2}
+          }
         }) <>
         "\n\n"
 
     http = provider_http(self(), stream)
 
-    assert {:ok, %{text: "The answer"}} =
+    assert {:ok, %{text: "The answer", usage: %{input_tokens: 8, output_tokens: 2}}} =
              OpenAI.stream_response(
                %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
                store: context.store,
@@ -431,20 +488,24 @@ defmodule Storyteller.GM.OpenAITest do
     }
   end
 
-  defp completion_event(text) do
+  defp completion_event(text, usage \\ nil) do
+    response = %{
+      "output" => [
+        %{
+          "type" => "message",
+          "content" => [%{"type" => "output_text", "text" => text}]
+        }
+      ]
+    }
+
+    response = if is_map(usage), do: Map.put(response, "usage", usage), else: response
+
     "event: response.output_text.delta\ndata: " <>
       Jason.encode!(%{"type" => "response.output_text.delta", "delta" => text}) <>
       "\n\nevent: response.completed\ndata: " <>
       Jason.encode!(%{
         "type" => "response.completed",
-        "response" => %{
-          "output" => [
-            %{
-              "type" => "message",
-              "content" => [%{"type" => "output_text", "text" => text}]
-            }
-          ]
-        }
+        "response" => response
       }) <>
       "\n\n"
   end

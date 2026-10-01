@@ -75,6 +75,24 @@ defmodule StorytellerWeb.Telemetry do
           "The time the connection spent waiting before being checked out for the query"
       ),
 
+      # Safe GM context diagnostics: counts and byte sizes only, never prompt data.
+      summary("storyteller.gm.context.conservative_input_token_upper_bound"),
+      summary("storyteller.gm.context.provider_input_tokens"),
+      summary("storyteller.gm.context.provider_output_tokens"),
+      summary("storyteller.gm.context.instructions_bytes"),
+      summary("storyteller.gm.context.context_json_bytes"),
+      summary("storyteller.gm.context.section_campaign_bytes"),
+      summary("storyteller.gm.context.section_world_bytes"),
+      summary("storyteller.gm.context.section_inventory_bytes"),
+      summary("storyteller.gm.context.section_places_bytes"),
+      summary("storyteller.gm.context.section_travel_connections_bytes"),
+      summary("storyteller.gm.context.section_objectives_bytes"),
+      summary("storyteller.gm.context.section_memory_bytes"),
+      summary("storyteller.gm.context.section_continuity_bytes"),
+      summary("storyteller.gm.context.section_characters_bytes"),
+      summary("storyteller.gm.context.section_panels_bytes"),
+      summary("storyteller.gm.context.section_history_bytes"),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),

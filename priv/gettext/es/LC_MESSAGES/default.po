@@ -2515,3 +2515,8 @@ msgstr "Examino la escena para buscar algo nuevo o fuera de lugar."
 #, elixir-autogen, elixir-format
 msgid "What can I see from here that I haven't noticed yet?"
 msgstr "¿Qué puedo ver desde aquí que aún no haya notado?"
+
+#: lib/storyteller_web/live/session_live/show.ex:1845
+#, elixir-autogen, elixir-format
+msgid "The campaign context is too large for the configured GM input budget. Your action is saved. Review campaign details, then retry this turn."
+msgstr "El contexto de la campaña supera el límite configurado de entrada para el DJ. Tu acción se ha guardado. Revisa los detalles de la campaña y vuelve a intentarlo."

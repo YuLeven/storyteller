@@ -1840,6 +1840,12 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp failure_message("model_unavailable"),
     do: gettext("No available model could resolve this turn.")
 
+  defp failure_message("context_budget_exceeded"),
+    do:
+      gettext(
+        "The campaign context is too large for the configured GM input budget. Your action is saved. Review campaign details, then retry this turn."
+      )
+
   defp failure_message("timeout"),
     do: gettext("The game master took too long to answer. Your turn is saved.")
 

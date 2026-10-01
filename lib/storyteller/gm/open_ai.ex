@@ -37,8 +37,8 @@ defmodule Storyteller.GM.OpenAI do
          {:ok, response} <-
            log_stage_error(:responses_request, post_response(access_token, body, opts)),
          :ok <- require_http_success(response, :responses),
-         {:ok, text} <- completed_response(response) do
-      {:ok, %{text: text}}
+         {:ok, result} <- completed_response(response) do
+      {:ok, result}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
       _ -> {:error, :provider_error}
@@ -179,8 +179,10 @@ defmodule Storyteller.GM.OpenAI do
 
   defp completed_response(response) do
     case consume_sse(response_body(response)) do
-      {:completed, text} ->
-        {:ok, text}
+      {:completed, text, usage} ->
+        result = %{text: text}
+        result = if map_size(usage) > 0, do: Map.put(result, :usage, usage), else: result
+        {:ok, result}
 
       {:failed, details} ->
         log_provider_failure(
@@ -266,7 +268,7 @@ defmodule Storyteller.GM.OpenAI do
           end
 
         case final_status do
-          {:completed, _} = completed -> completed
+          {:completed, _, _} = completed -> completed
           {:failed, _} = failed -> failed
           {:incomplete, _} = incomplete -> incomplete
           _ -> :missing_completion
@@ -300,7 +302,7 @@ defmodule Storyteller.GM.OpenAI do
     end)
   end
 
-  defp process_frame(_frame, {:completed, _} = completed), do: completed
+  defp process_frame(_frame, {:completed, _, _} = completed), do: completed
   defp process_frame(_frame, {:failed, _} = failed), do: failed
   defp process_frame(_frame, {:incomplete, _} = incomplete), do: incomplete
 
@@ -369,10 +371,17 @@ defmodule Storyteller.GM.OpenAI do
   defp process_event(event, payload, deltas, size) do
     case payload["type"] || event do
       "response.completed" ->
+        usage = response_usage(payload["response"])
+
         case output_text(payload["response"]) do
-          {:ok, text} -> {:completed, text}
-          _ when size > 0 -> {:completed, deltas |> Enum.reverse() |> IO.iodata_to_binary()}
-          _ -> {:incomplete, :completed_without_text}
+          {:ok, text} ->
+            {:completed, text, usage}
+
+          _ when size > 0 ->
+            {:completed, deltas |> Enum.reverse() |> IO.iodata_to_binary(), usage}
+
+          _ ->
+            {:incomplete, :completed_without_text}
         end
 
       "response.output_text.delta" ->
@@ -424,6 +433,18 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   defp output_text(_), do: {:error, :missing_output}
+
+  defp response_usage(%{"usage" => usage}) when is_map(usage) do
+    [:input_tokens, :output_tokens]
+    |> Enum.reduce(%{}, fn key, acc ->
+      case usage[Atom.to_string(key)] do
+        count when is_integer(count) and count >= 0 -> Map.put(acc, key, count)
+        _ -> acc
+      end
+    end)
+  end
+
+  defp response_usage(_response), do: %{}
 
   defp http_error_details(body) do
     case decode_error_body(body) do

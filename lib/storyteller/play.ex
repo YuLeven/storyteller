@@ -11,6 +11,7 @@ defmodule Storyteller.Play do
   import Ecto.Query, warn: false
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
+  alias Storyteller.GM.ContextBudget
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
 
@@ -46,6 +47,8 @@ defmodule Storyteller.Play do
   @max_turn_text 20_000
   @max_provider_output_bytes 100_000
   @max_history_events 40
+  @max_relevant_older_events 40
+  @max_history_search_terms 8
   @max_history_summary_chars 6_000
   @max_active_continuity_entries 80
   @max_total_continuity_entries 100
@@ -67,6 +70,16 @@ defmodule Storyteller.Play do
     :time_passage,
     :gm_narration,
     :npc_dialogue,
+    :roll_request,
+    :player_roll
+  ]
+  @context_history_event_types [
+    :player_action,
+    :player_question,
+    :time_passage,
+    :gm_narration,
+    :npc_dialogue,
+    :character_activity,
     :roll_request,
     :player_roll
   ]
@@ -209,6 +222,12 @@ defmodule Storyteller.Play do
   movement into the scene. Storyteller does not assume an unmodeled phone,
   letter, or other communication path.
 
+  Context may explicitly state that older prose or nonlocal profile details
+  were compacted to stay within the input budget. Canonical world, inventory,
+  routes, presence, and current objectives remain authoritative. Never invent an
+  omitted historical fact; if the player's question depends on one, say the
+  campaign notes do not contain enough detail and ask for a reminder.
+
   Update durable objectives only when the action or established history supports
   the change. Return objective_changes in the order they should apply. A create
   operation uses {type: "create", objective: {objective_id, title, details?,
@@ -292,6 +311,7 @@ defmodule Storyteller.Play do
     :timeout,
     :provider_error,
     :model_unavailable,
+    :context_budget_exceeded,
     :invalid_response,
     :session_closed,
     :campaign_archived
@@ -1049,11 +1069,14 @@ defmodule Storyteller.Play do
            provider when not is_nil(provider) <- provider,
            {:ok, :ok} <- resolution_plan_check(opts),
            {:ok, context} <- run_resolution_stage(:context, fn -> model_context(turn.id) end),
+           {:ok, request} <-
+             run_resolution_stage(:context, fn -> provider_request(context, opts, turn.intent) end),
            {:ok, :ok} <- resolution_plan_check(opts),
            {:ok, response} <-
              run_resolution_stage(:provider, fn ->
-               call_provider(provider, provider_request(context, opts, turn.intent))
+               call_provider(provider, request)
              end),
+           :ok <- emit_context_usage(request, response),
            {:ok, proposal} <-
              run_resolution_stage(:response_decoding, fn -> decode_proposal(response) end),
            {:ok, validated} <-
@@ -1160,9 +1183,7 @@ defmodule Storyteller.Play do
                   from(turn in Turn,
                     where: turn.campaign_id == ^campaign_id and turn.status == :failed
                   )
-                  |> Repo.update_all(
-                    set: [status: :superseded, failure_code: "superseded", updated_at: utc_now()]
-                  )
+                  |> Repo.update_all(set: [status: :superseded, updated_at: utc_now()])
 
                   attrs = %{
                     campaign_id: campaign_id,
@@ -4236,22 +4257,33 @@ defmodule Storyteller.Play do
   defp normalize_provider_return(_), do: {:error, :provider_error}
 
   defp provider_request(context, opts, intent) do
+    instructions = @gm_policy <> interaction_mode_guidance(intent)
+    model = Keyword.get(opts, :model)
     request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
 
-    request = %{
-      instructions: @gm_policy <> interaction_mode_guidance(intent),
-      input: [
-        %{
-          role: "user",
-          content: [%{type: "input_text", text: Jason.encode!(request_context)}]
-        }
-      ]
-    }
+    with {:ok, %{context: compiled_context, metrics: metrics}} <-
+           ContextBudget.compile(request_context, instructions, model, opts) do
+      request = %{
+        instructions: instructions,
+        input: [
+          %{
+            role: "user",
+            content: [%{type: "input_text", text: Jason.encode!(compiled_context)}]
+          }
+        ],
+        local_context_metrics: metrics
+      }
 
-    case Keyword.get(opts, :model) do
-      model when is_binary(model) and model != "" -> Map.put(request, :model, model)
-      _ -> request
+      case model do
+        model when is_binary(model) and model != "" -> {:ok, Map.put(request, :model, model)}
+        _ -> {:ok, request}
+      end
     end
+  end
+
+  defp emit_context_usage(request, response) do
+    usage = if is_map(response), do: Map.get(response, :usage, %{}), else: %{}
+    ContextBudget.emit_metrics(Map.get(request, :local_context_metrics), usage)
   end
 
   defp interaction_mode_guidance(:question) do
@@ -4313,7 +4345,7 @@ defmodule Storyteller.Play do
     player_place_id = current_player_place_id(turn.campaign_id)
     panels = Panels.list_fields(turn.campaign_id)
 
-    events =
+    recent_events =
       Repo.all(
         from event in Event,
           where: event.campaign_id == ^turn.campaign_id,
@@ -4321,6 +4353,15 @@ defmodule Storyteller.Play do
           limit: ^@max_history_events
       )
       |> Enum.reverse()
+
+    events =
+      retrieve_relevant_older_events(
+        turn,
+        recent_events,
+        characters,
+        places_by_id,
+        player_place_id
+      )
 
     roll = Repo.get_by(Roll, turn_id: turn.id, kind: :player_click)
 
@@ -4408,6 +4449,77 @@ defmodule Storyteller.Play do
           }
         end)
     }
+  end
+
+  defp retrieve_relevant_older_events(_turn, [], _characters, _places_by_id, _player_place_id),
+    do: []
+
+  defp retrieve_relevant_older_events(
+         turn,
+         recent_events,
+         characters,
+         places_by_id,
+         player_place_id
+       ) do
+    oldest_recent_sequence = hd(recent_events).sequence
+    search_terms = history_search_terms(turn, characters, places_by_id, player_place_id)
+
+    older_events =
+      if search_terms == [] do
+        []
+      else
+        search_patterns = Enum.map(search_terms, &"%#{&1}%")
+
+        Repo.all(
+          from event in Event,
+            where:
+              event.campaign_id == ^turn.campaign_id and
+                event.sequence < ^oldest_recent_sequence and
+                event.event_type in ^@context_history_event_types and
+                fragment(
+                  "?->>'text' ILIKE ANY(?)",
+                  event.payload,
+                  type(^search_patterns, {:array, :string})
+                ),
+            order_by: [desc: event.sequence],
+            limit: ^@max_relevant_older_events
+        )
+        |> Enum.reverse()
+      end
+
+    (older_events ++ recent_events)
+    |> Enum.uniq_by(& &1.sequence)
+    |> Enum.sort_by(& &1.sequence)
+  end
+
+  defp history_search_terms(turn, characters, places_by_id, player_place_id) do
+    scene_names =
+      characters
+      |> Enum.filter(fn character ->
+        character.speaker_id == "player" or
+          (is_binary(player_place_id) and character.current_place_id == player_place_id)
+      end)
+      |> Enum.map(fn character ->
+        if character.speaker_id == "player", do: nil, else: character.name
+      end)
+
+    current_place_name =
+      case Map.get(places_by_id, player_place_id) do
+        %Place{name: name} -> name
+        _ -> nil
+      end
+
+    [turn.player_input, current_place_name | scene_names]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.flat_map(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
+    |> List.flatten()
+    |> Enum.map(&String.downcase/1)
+    |> Enum.reject(
+      &(&1 in ~w(the and for from with that this what where when can you are was were how why tell show about please does did has have into then next time days day let))
+    )
+    |> Enum.uniq()
+    |> Enum.sort_by(fn term -> {-String.length(term), term} end)
+    |> Enum.take(@max_history_search_terms)
   end
 
   defp voice_guidance_context(%Character{role: :gm, voice_guidance: guidance}) do
