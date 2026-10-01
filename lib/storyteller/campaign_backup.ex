@@ -28,10 +28,11 @@ defmodule Storyteller.CampaignBackup do
   alias Storyteller.Repo
 
   @format "storyteller.campaign-backup"
-  @version 4
+  @version 5
   @legacy_version 1
   @previous_version 2
   @current_previous_version 3
+  @place_connections_version 4
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -217,6 +218,9 @@ defmodule Storyteller.CampaignBackup do
     %{
       "revision" => state.revision,
       "event_sequence" => state.event_sequence,
+      "elapsed_world_minutes" => state.elapsed_world_minutes,
+      "elapsed_world_anchor_minutes" => state.elapsed_world_anchor_minutes,
+      "elapsed_world_anchor" => state.elapsed_world_anchor,
       "public_state" => state.public_state,
       "gm_private_state" => state.gm_private_state,
       "public_history_summary" => state.public_history_summary,
@@ -378,6 +382,7 @@ defmodule Storyteller.CampaignBackup do
              @legacy_version,
              @previous_version,
              @current_previous_version,
+             @place_connections_version,
              @version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
@@ -391,7 +396,7 @@ defmodule Storyteller.CampaignBackup do
          :ok <- validate_character_places(characters, places),
          {:ok, place_connections} <-
            validate_place_connections(Map.get(backup, "place_connections", []), places),
-         {:ok, state} <- validate_state(backup["state"], characters),
+         {:ok, state} <- validate_state(backup["state"], characters, backup["schema_version"]),
          {:ok, panels} <- validate_panels(backup["panels"]),
          {:ok, objectives} <- validate_objectives(backup["objectives"]),
          {:ok, turns} <- validate_turns(backup["turns"], sessions, backup["schema_version"]),
@@ -431,7 +436,7 @@ defmodule Storyteller.CampaignBackup do
        when version in [@previous_version, @current_previous_version],
        do: root_backup_keys() ++ ["authoring_corrections"]
 
-  defp root_backup_keys(@version),
+  defp root_backup_keys(version) when version in [@place_connections_version, @version],
     do: root_backup_keys() ++ ["authoring_corrections", "place_connections"]
 
   defp root_backup_keys(_), do: []
@@ -528,11 +533,17 @@ defmodule Storyteller.CampaignBackup do
        else: {:error, :invalid_backup}
   end
 
-  defp validate_state(map, characters) do
+  defp validate_state(map, characters, version) do
+    clock_keys =
+      if version >= @version,
+        do: ~w(elapsed_world_minutes elapsed_world_anchor_minutes elapsed_world_anchor),
+        else: []
+
     with :ok <-
            exact_keys(
              map,
-             ~w(revision event_sequence public_state gm_private_state public_history_summary gm_private_history_summary inserted_at updated_at),
+             ~w(revision event_sequence public_state gm_private_state public_history_summary gm_private_history_summary inserted_at updated_at) ++
+               clock_keys,
              :state
            ),
          true <- is_integer(map["revision"]) and map["revision"] >= 0,
@@ -541,6 +552,8 @@ defmodule Storyteller.CampaignBackup do
          {:ok, private_state} <- json_map(map["gm_private_state"], @max_state_bytes),
          {:ok, public_summary} <- text(map["public_history_summary"], 0, 6_000),
          {:ok, private_summary} <- text(map["gm_private_history_summary"], 0, 6_000),
+         {:ok, elapsed_world_minutes, elapsed_world_anchor_minutes, elapsed_world_anchor} <-
+           validate_elapsed_clock(map, public_state, version),
          {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
          {:ok, updated_at} <- parse_datetime(map["updated_at"], false),
          :ok <- validate_inventory_state(public_state, private_state, characters) do
@@ -548,6 +561,9 @@ defmodule Storyteller.CampaignBackup do
        %{
          revision: map["revision"],
          event_sequence: map["event_sequence"],
+         elapsed_world_minutes: elapsed_world_minutes,
+         elapsed_world_anchor_minutes: elapsed_world_anchor_minutes,
+         elapsed_world_anchor: elapsed_world_anchor,
          public_state: public_state,
          gm_private_state: private_state,
          public_history_summary: public_summary,
@@ -557,6 +573,44 @@ defmodule Storyteller.CampaignBackup do
        }}
     end
   end
+
+  defp validate_elapsed_clock(_map, public_state, version) when version < @version do
+    {:ok, 0, 0, backup_world_time_labels(public_state)}
+  end
+
+  defp validate_elapsed_clock(map, _public_state, _version) do
+    with true <-
+           is_integer(map["elapsed_world_minutes"]) and map["elapsed_world_minutes"] >= 0,
+         true <-
+           is_integer(map["elapsed_world_anchor_minutes"]) and
+             map["elapsed_world_anchor_minutes"] >= 0 and
+             map["elapsed_world_anchor_minutes"] <= map["elapsed_world_minutes"],
+         {:ok, anchor} <- json_map(map["elapsed_world_anchor"], 10_000),
+         true <- Enum.all?(Map.keys(anchor), &(&1 in ["date", "time"])),
+         true <- Enum.all?(anchor, fn {_key, value} -> is_binary(value) end) do
+      {:ok, map["elapsed_world_minutes"], map["elapsed_world_anchor_minutes"], anchor}
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp backup_world_time_labels(public_state) do
+    date = first_world_label(public_state, ~w(date current_date world_date calendar_date))
+    time = first_world_label(public_state, ~w(time current_time time_of_day world_time))
+    %{} |> maybe_put_world_label("date", date) |> maybe_put_world_label("time", time)
+  end
+
+  defp first_world_label(world, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(world, key) do
+        value when is_binary(value) and value != "" -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp maybe_put_world_label(map, _key, nil), do: map
+  defp maybe_put_world_label(map, key, value), do: Map.put(map, key, value)
 
   defp validate_inventory_state(public_state, private_state, characters) do
     owners = Enum.map(characters, & &1.speaker_id)
@@ -877,7 +931,9 @@ defmodule Storyteller.CampaignBackup do
   defp turn_backup_keys(@current_previous_version),
     do: turn_backup_keys(@previous_version) ++ ["failure_stage"]
 
-  defp turn_backup_keys(@version), do: turn_backup_keys(@current_previous_version)
+  defp turn_backup_keys(version)
+       when version in [@place_connections_version, @version],
+       do: turn_backup_keys(@current_previous_version)
 
   defp optional_enum(nil, _allowed), do: {:ok, nil}
   defp optional_enum(value, allowed), do: enum(value, allowed)

@@ -50,6 +50,7 @@ defmodule Storyteller.Play do
   @max_relevant_older_events 40
   @max_history_search_terms 8
   @max_history_summary_chars 6_000
+  @max_turn_elapsed_minutes 5_256_000_000
   @max_active_continuity_entries 80
   @max_total_continuity_entries 100
   @max_continuity_entry_details_chars 500
@@ -95,7 +96,9 @@ defmodule Storyteller.Play do
   warrants, then return control at a meaningful choice. Write one concise,
   coherent beat with the consequence of the player's input. Do not recap or
   preface with board facts. The timeline labels canonical in-world date/time;
-  the world bar shows location, date/time, and weather. Keep these consistent;
+  elapsed_world_clock is canonical elapsed minutes and exact labels; never
+  parse date/time text.
+  The world bar shows location, date/time, and weather. Keep these consistent;
   naturally narrate changes or relevant conditions, not unchanged indicators. Use only
   public world keys date, time, weather. For looks/inspection, report only new
   details supported by public canon and the character's vantage; if none, say
@@ -150,7 +153,9 @@ defmodule Storyteller.Play do
   Give every connection change a grounded reason.
   Movement must use an existing route or one proposed in this response. The app
   computes the shortest valid duration and records it; narrate the required
-  journey and consequences, never a shorter trip. Use private routes/relevance
+  journey and consequences, never a shorter trip. Report total turn minutes in
+  time_advance_minutes, including travel; the server clamps to each character's
+  summed route and uses the maximum across characters. Use private routes/relevance
   only in GM-private context. Do not place people together without valid travel.
 
   OBJECTIVES AND MEMORY: Objectives are commitments, public or private. Do not
@@ -194,9 +199,10 @@ defmodule Storyteller.Play do
 
   ACT, ASK, TIME: Act describes the player's in-character action or speech.
   Ask is a direct out-of-character question to the GM; answer briefly without
-  changing time or canon. Time passage is an explicit request to advance the
-  world, not a player-character action: preserve any stated duration exactly,
-  including multiple days; for open-ended waits use a natural interval and hand
+  changing time or canon and set time_advance_minutes to 0. Time passage is an
+  explicit request to advance the world, not a player-character action: encode
+  its full stated duration, including multiple days, as positive bounded minutes;
+  for open-ended waits use a natural interval and hand
   back control at a meaningful decision. Advance NPC/world events only; never
   decide, move, speak, think, or roll for the player character. The request's
   mode-specific instructions further constrain the response.
@@ -219,6 +225,8 @@ defmodule Storyteller.Play do
   reason}, consume {item_id,quantity,reason}, or flexible-property update
   {item_id,properties,reason}); objective_changes (ordered create/update
   operations as above); continuity_changes (create/update operations as above);
+  time_advance_minutes (integer 0..5256000000; total turn minutes including
+  travel; Ask 0, Time passage positive);
   roll_request (null or {test,difficulty?,target?}). Dialogue, activities, and
   updates use known NPC IDs or IDs created here. A roll needs test plus target or
   difficulty. Never include player actions or roll results; resolving a roll
@@ -293,7 +301,8 @@ defmodule Storyteller.Play do
                 State.changeset(%State{}, %{
                   campaign_id: campaign.id,
                   public_state: public_state,
-                  gm_private_state: private_state
+                  gm_private_state: private_state,
+                  elapsed_world_anchor: world_time_labels(public_state)
                 })
               )
 
@@ -398,6 +407,8 @@ defmodule Storyteller.Play do
           do: Map.put(world, "location", player_location),
           else: Map.delete(world, "location")
 
+      elapsed_world_clock = elapsed_world_clock_projection(state)
+
       inventory = Inventory.public_projection(Map.get(state.public_state, "inventory", []))
 
       {:ok,
@@ -405,6 +416,7 @@ defmodule Storyteller.Play do
          campaign_id: state.campaign_id,
          revision: state.revision,
          world: world,
+         elapsed_world_clock: elapsed_world_clock,
          places: places,
          inventory: inventory,
          latest_inventory_changes: latest_public_inventory_changes(campaign_id, inventory),
@@ -2276,6 +2288,7 @@ defmodule Storyteller.Play do
     state_attrs =
       %{public_state: public_state, gm_private_state: gm_private_state}
       |> Map.merge(proposal.memory_update || %{})
+      |> Map.merge(advance_world_clock(state, public_state, proposal))
 
     case Repo.update(State.changeset(state, state_attrs)) do
       {:ok, updated} -> updated
@@ -2482,7 +2495,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes travel_changes objective_changes continuity_changes roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes travel_changes objective_changes continuity_changes time_advance_minutes roll_request)
 
     cond do
       not unique_normalized_keys?(proposal) ->
@@ -2495,17 +2508,22 @@ defmodule Storyteller.Play do
         {:error, :invalid_response}
 
       true ->
-        proposal =
-          if turn.intent == :question do
-            %{
-              narration: field(proposal, :narration),
-              memory_update: %{public_summary: "", gm_private_summary: ""}
-            }
-          else
-            proposal
-          end
+        if turn.intent == :question and field(proposal, :time_advance_minutes, 0) != 0 do
+          {:error, :invalid_response}
+        else
+          proposal =
+            if turn.intent == :question do
+              %{
+                narration: field(proposal, :narration),
+                time_advance_minutes: 0,
+                memory_update: %{public_summary: "", gm_private_summary: ""}
+              }
+            else
+              proposal
+            end
 
-        validate_proposal_fields(proposal, turn)
+          validate_proposal_fields(proposal, turn)
+        end
     end
   end
 
@@ -2527,6 +2545,7 @@ defmodule Storyteller.Play do
         objective_changes: [],
         continuity_changes: [],
         memory_update: nil,
+        time_advance_minutes: 0,
         roll_request: nil
     }
   end
@@ -2600,6 +2619,8 @@ defmodule Storyteller.Play do
              turn.campaign_id
            ),
          {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
+         {:ok, time_advance_minutes} <-
+           validate_time_advance(field(proposal, :time_advance_minutes, 0), turn.intent),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if turn.intent == :time_passage and
@@ -2619,7 +2640,7 @@ defmodule Storyteller.Play do
                 inventory_changes != [] or
                 location_changes != [] or objective_changes != [] or
                 travel_changes != [] or
-                continuity_changes != []) do
+                continuity_changes != [] or time_advance_minutes != 0) do
           {:error, :invalid_response}
         else
           validated = %{
@@ -2637,6 +2658,7 @@ defmodule Storyteller.Play do
             objective_changes: objective_changes,
             continuity_changes: continuity_changes,
             memory_update: memory_update,
+            time_advance_minutes: time_advance_minutes,
             roll_request: roll_request
           }
 
@@ -2648,6 +2670,17 @@ defmodule Storyteller.Play do
       end
     end
   end
+
+  defp validate_time_advance(value, intent)
+       when is_integer(value) and value >= 0 and value <= @max_turn_elapsed_minutes do
+    cond do
+      intent == :question and value != 0 -> {:error, :invalid_response}
+      intent == :time_passage and value == 0 -> {:error, :invalid_response}
+      true -> {:ok, value}
+    end
+  end
+
+  defp validate_time_advance(_value, _intent), do: {:error, :invalid_response}
 
   defp time_passage_player_agency?(
          dialogue,
@@ -4218,7 +4251,7 @@ defmodule Storyteller.Play do
     an action or dialogue spoken by the player's character. Answer it plainly
     and briefly as GM narration. Do not advance fictional time or change any
     canonical world, character, inventory, location, objective, continuity,
-    memory, or tracked-resource data. Do not create NPC dialogue, activities,
+    memory, or tracked-resource data; set time_advance_minutes to 0. Do not create NPC dialogue, activities,
     rolls, or other events; only narration is used for this answer.
     """
   end
@@ -4229,10 +4262,11 @@ defmodule Storyteller.Play do
     The player explicitly asks to let time pass. Treat this as an out-of-
     character request to advance the world, not as an action performed by their
     character. Preserve an explicit requested duration exactly, including
-    multi-day durations; do not shorten it or impose a maximum. If the request
-    is open-ended, advance a natural interval and return control when a
+    multi-day durations within the bounded time field; never silently shorten
+    it. If the request is open-ended, advance a natural interval and return control when a
     meaningful decision is due. Keep calendar, time, weather, and other world
-    changes canonical and consistent. The request authorizes passage of time
+    changes canonical and consistent. Set time_advance_minutes to the total
+    fictional minutes that pass, including travel. The request authorizes passage of time
     only: do not choose or narrate actions, speech, thoughts, or decisions for
     the player's character, do not move or update that character, and do not
     request a player roll. Narrate relevant world and non-player-character
@@ -4311,6 +4345,7 @@ defmodule Storyteller.Play do
           ),
         gm_private: state.gm_private_state
       },
+      elapsed_world_clock: elapsed_world_clock_context(state),
       inventory: %{
         player_visible: Map.get(state.public_state, "inventory", []),
         gm_private: Map.get(state.gm_private_state, "inventory", [])
@@ -4913,7 +4948,66 @@ defmodule Storyteller.Play do
       proposal.inventory_changes != [] or proposal.location_changes != [] or
       proposal.travel_changes != [] or
       proposal.objective_changes != [] or proposal.continuity_changes != [] or
-      proposal.activities != [] or proposal.memory_update != nil
+      proposal.activities != [] or proposal.memory_update != nil or
+      proposal.time_advance_minutes != 0
+  end
+
+  defp advance_world_clock(state, public_state, proposal) do
+    travel_floor = canonical_travel_minutes(proposal.location_changes)
+    turn_minutes = max(travel_floor, proposal.time_advance_minutes)
+    elapsed_minutes = state.elapsed_world_minutes + turn_minutes
+
+    prior_labels = world_time_labels(state.public_state)
+    next_labels = world_time_labels(public_state)
+
+    {anchor_labels, anchor_minutes} =
+      if prior_labels != next_labels do
+        {next_labels, elapsed_minutes}
+      else
+        {state.elapsed_world_anchor, state.elapsed_world_anchor_minutes}
+      end
+
+    %{
+      elapsed_world_minutes: elapsed_minutes,
+      elapsed_world_anchor_minutes: anchor_minutes,
+      elapsed_world_anchor: anchor_labels
+    }
+  end
+
+  defp canonical_travel_minutes(location_changes) do
+    location_changes
+    |> Enum.filter(&(Map.get(&1, "type") == "move_character"))
+    |> Enum.group_by(&Map.get(&1, "speaker_id"))
+    |> Enum.map(fn {_speaker_id, movements} ->
+      Enum.reduce(movements, 0, fn movement, total ->
+        total + Map.get(movement, "travel_minutes", 0)
+      end)
+    end)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  defp world_time_labels(world) when is_map(world) do
+    world
+    |> canonical_public_world()
+    |> Map.take(["date", "time"])
+  end
+
+  defp world_time_labels(_world), do: %{}
+
+  defp elapsed_world_clock_projection(state) do
+    Map.merge(elapsed_world_clock_context(state), %{
+      total_minutes: state.elapsed_world_minutes,
+      anchor_minutes: state.elapsed_world_anchor_minutes
+    })
+  end
+
+  defp elapsed_world_clock_context(state) do
+    %{
+      total_minutes: state.elapsed_world_minutes,
+      anchor_minutes: state.elapsed_world_anchor_minutes,
+      minutes_since_anchor: state.elapsed_world_minutes - state.elapsed_world_anchor_minutes,
+      anchor: state.elapsed_world_anchor
+    }
   end
 
   defp public_objectives(campaign_id) do

@@ -1672,6 +1672,9 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
+  defp elapsed_clock_text(1), do: gettext("1 minute elapsed")
+  defp elapsed_clock_text(minutes), do: gettext("%{minutes} minutes elapsed", minutes: minutes)
+
   defp world_value(world, keys) when is_map(world) do
     case Enum.find(keys, fn key ->
            Map.has_key?(world, key) and not is_nil(Map.get(world, key)) and

@@ -1670,10 +1670,26 @@ defmodule Storyteller.PlayTest do
 
     assert movement["travel_minutes"] == 40
 
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.elapsed_world_minutes == 40
+    assert state.elapsed_world_anchor == %{"time" => "First watch"}
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.elapsed_world_clock.minutes_since_anchor == 40
+
+    assert {:ok, next_session} =
+             Campaigns.start_session(Campaigns.get_campaign!(campaign.id), %{
+               title: "After the road"
+             })
+
     request_context = Agent.start_link(fn -> nil end) |> elem(1)
 
     assert {:ok, %{status: :completed}} =
-             Play.submit_turn(campaign.id, session.id, "bodega-scene-context", "Look around.",
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "bodega-scene-context",
+               "Look around.",
                provider: fn request ->
                  Agent.update(request_context, fn _ -> decode_request(request) end)
 
@@ -1691,11 +1707,220 @@ defmodule Storyteller.PlayTest do
 
     context = Agent.get(request_context, & &1)
     assert Enum.any?(context["travel_connections"]["public"], &(&1["travel_minutes"] == 40))
+    assert context["elapsed_world_clock"]["total_minutes"] == 40
 
     assert Enum.any?(context["travel_connections"]["public_routes"], fn route ->
              route["travel_minutes"] == 40 and finca.place_id in route["place_ids"] and
                bodega.place_id in route["place_ids"]
            end)
+  end
+
+  test "elapsed time sums each character's sequential route legs and takes the max across concurrent trips" do
+    {campaign, session} = play_campaign("The Orchard Road")
+    finca = establish_starting_place!(campaign, "Finca")
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    proposal =
+      ordinary_proposal(%{
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "time_advance_minutes" => 20,
+        "location_changes" => [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "bodega",
+              "name" => "Bodega",
+              "visibility" => "public",
+              "facts" => %{}
+            },
+            "reason" => "The bodega is established."
+          },
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "press-room",
+              "name" => "Press room",
+              "visibility" => "public",
+              "facts" => %{}
+            },
+            "reason" => "The press room is established."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "bodega",
+            "reason" => "The player reaches the bodega."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "press-room",
+            "reason" => "The player continues to the press room."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => "bodega",
+            "reason" => "Lyra travels to the bodega."
+          }
+        ],
+        "travel_changes" => [
+          %{
+            "type" => "create_connection",
+            "place_a_id" => finca.place_id,
+            "place_b_id" => "bodega",
+            "travel_minutes" => 40,
+            "visibility" => "public",
+            "reason" => "The road takes forty minutes."
+          },
+          %{
+            "type" => "create_connection",
+            "place_a_id" => "bodega",
+            "place_b_id" => "press-room",
+            "travel_minutes" => 15,
+            "visibility" => "public",
+            "reason" => "The track takes fifteen minutes."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "sequential-travel",
+               "Travel through the bodega to the press room.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.elapsed_world_minutes == 55
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.elapsed_world_clock.minutes_since_anchor == 55
+  end
+
+  test "Ask GM never advances time, time labels re-anchor the cue, and a later wait accumulates" do
+    {campaign, session} = play_campaign("The Watchmaker's Orchard")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "ask-no-time", "What do I see?",
+               intent: :question,
+               provider: ordinary_provider(),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 0
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "wait-must-name-duration",
+               "Let time pass.",
+               intent: :time_passage,
+               provider: ordinary_provider(),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 0
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "duration-is-bounded",
+               "Wait a very long time.",
+               provider: ordinary_provider(%{"time_advance_minutes" => 5_256_000_001}),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 0
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(campaign.id, session.id, "ask-cannot-advance", "What time is it?",
+               intent: :question,
+               provider: ordinary_provider(%{"time_advance_minutes" => 1}),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 0
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "update-label", "Let the morning arrive.",
+               provider:
+                 ordinary_provider(%{
+                   "public_changes" => %{"time" => "Morning"},
+                   "time_advance_minutes" => 60
+                 }),
+               model: "test-model"
+             )
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.elapsed_world_minutes == 60
+    assert state.elapsed_world_anchor_minutes == 60
+    assert state.elapsed_world_anchor == %{"time" => "Morning"}
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "later-wait", "Wait a little longer.",
+               provider: ordinary_provider(%{"time_advance_minutes" => 12}),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.elapsed_world_clock.total_minutes == 72
+    assert projection.elapsed_world_clock.minutes_since_anchor == 12
+  end
+
+  test "a rejected movement and provider failure leave elapsed world time unchanged" do
+    {campaign, session} = play_campaign("The Closed Road")
+    before = Repo.get_by!(State, campaign_id: campaign.id)
+
+    invalid_move =
+      ordinary_proposal(%{
+        "time_advance_minutes" => 120,
+        "location_changes" => [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "distant-bodega",
+              "name" => "Distant bodega",
+              "visibility" => "public",
+              "facts" => %{}
+            },
+            "reason" => "The bodega is identified."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "distant-bodega",
+            "reason" => "The player travels there."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(campaign.id, session.id, "unconnected-travel", "Go to the bodega.",
+               provider: fn _ -> {:ok, Jason.encode!(invalid_move)} end,
+               model: "test-model"
+             )
+
+    after_rejection = Repo.get_by!(State, campaign_id: campaign.id)
+    assert after_rejection.elapsed_world_minutes == before.elapsed_world_minutes
+    refute Repo.get_by(Place, campaign_id: campaign.id, place_id: "distant-bodega")
+
+    assert {:ok, %{status: :failed}} =
+             Play.submit_turn(campaign.id, session.id, "provider-failure", "Look around.",
+               provider: fn _ -> {:error, :timeout} end,
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
+             before.elapsed_world_minutes
   end
 
   test "rejects off-scene NPC dialogue but accepts dialogue after a same-turn arrival" do
@@ -4285,6 +4510,7 @@ defmodule Storyteller.PlayTest do
            "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The courier is here."}],
            "activities" => [%{"speaker_id" => "npc:lyra", "text" => "Lyra receives the letter."}],
            "public_changes" => %{"date" => "Day 22", "time" => "Morning"},
+           "time_advance_minutes" => 30_240,
            "roll_request" => nil
          })
        )}
@@ -4308,6 +4534,9 @@ defmodule Storyteller.PlayTest do
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.public_state["date"] == "Day 22"
     assert state.public_state["time"] == "Morning"
+    assert state.elapsed_world_minutes == 30_240
+    assert state.elapsed_world_anchor_minutes == 30_240
+    assert state.elapsed_world_anchor == %{"date" => "Day 22", "time" => "Morning"}
 
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     assert Enum.any?(timeline, &(&1.event_type == :time_passage))
@@ -4909,6 +5138,7 @@ defmodule Storyteller.PlayTest do
                    "location" => nil,
                    "world_time" => "First watch"
                  },
+                 elapsed_world_anchor: %{"time" => "First watch"},
                  gm_private_state: %{"weather_cause" => "a distant pressure front"}
                })
              )
@@ -4985,6 +5215,7 @@ defmodule Storyteller.PlayTest do
         "private_changes" => %{"weather_cause" => "a distant pressure front"},
         "panel_changes" => [],
         "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+        "time_advance_minutes" => 0,
         "character_updates" => [
           %{
             "speaker_id" => "npc:lyra",

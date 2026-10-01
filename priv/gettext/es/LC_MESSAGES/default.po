@@ -2520,3 +2520,13 @@ msgstr "¿Qué puedo ver desde aquí que aún no haya notado?"
 #, elixir-autogen, elixir-format
 msgid "The campaign context is too large for the configured GM input budget. Your action is saved. Review campaign details, then retry this turn."
 msgstr "El contexto de la campaña supera el límite configurado de entrada para el DJ. Tu acción se ha guardado. Revisa los detalles de la campaña y vuelve a intentarlo."
+
+#: lib/storyteller_web/live/session_live/show.ex:1675
+#, elixir-autogen, elixir-format
+msgid "1 minute elapsed"
+msgstr "Ha pasado 1 minuto"
+
+#: lib/storyteller_web/live/session_live/show.ex:1676
+#, elixir-autogen, elixir-format
+msgid "%{minutes} minutes elapsed"
+msgstr "Han pasado %{minutes} minutos"

@@ -272,7 +272,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 4
+    assert document["schema_version"] == 5
     assert document["campaign"]["title"] == campaign.title
     assert document["campaign"]["player_character_name"] == "Mira Vale"
     assert document["campaign"]["player_character"] == campaign.player_character
@@ -337,6 +337,12 @@ defmodule Storyteller.CampaignBackupTest do
     imported_state = Repo.get_by!(State, campaign_id: imported.id)
     assert imported_state.public_state == original_state.public_state
     assert imported_state.gm_private_state == original_state.gm_private_state
+    assert imported_state.elapsed_world_minutes == original_state.elapsed_world_minutes
+
+    assert imported_state.elapsed_world_anchor_minutes ==
+             original_state.elapsed_world_anchor_minutes
+
+    assert imported_state.elapsed_world_anchor == original_state.elapsed_world_anchor
     assert imported_state.public_history_summary == original_state.public_history_summary
     assert imported_state.gm_private_history_summary == original_state.gm_private_history_summary
 
@@ -429,7 +435,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 5),
+          Map.put(decoded, "schema_version", 6),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
           put_in(decoded, ["campaign", "status"], "suspended"),
@@ -528,7 +534,8 @@ defmodule Storyteller.CampaignBackupTest do
       %{
         document
         | "schema_version" => 1,
-          "campaign" => Map.delete(document["campaign"], "player_character_name")
+          "campaign" => Map.delete(document["campaign"], "player_character_name"),
+          "state" => drop_elapsed_clock(document["state"])
       }
       | "turns" => Enum.map(document["turns"], &Map.drop(&1, ["intent", "failure_stage"])),
         "characters" => Enum.map(document["characters"], &Map.delete(&1, "voice_guidance")),
@@ -566,7 +573,7 @@ defmodule Storyteller.CampaignBackupTest do
            ) == 0
   end
 
-  test "round-trips the fixed failure stage in version four and imports versions two and three" do
+  test "round-trips failure stages in version five and imports versions two through four" do
     campaign = campaign_fixture()
     [session] = campaign.sessions
     raw_model_output = "RAW-MODEL-OUTPUT-SENTINEL"
@@ -589,7 +596,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 4
+    assert document["schema_version"] == 5
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -598,9 +605,25 @@ defmodule Storyteller.CampaignBackupTest do
     imported_turn = Play.get_turn(imported.id, failed.idempotency_key)
     assert imported_turn.failure_stage == :response_decoding
 
-    # This is the exported v3 shape: it retains v3's failure_stage field and
-    # drops only the v4 place_connections root field.
-    v3_document = Map.drop(%{document | "schema_version" => 3}, ["place_connections"])
+    # Version four had connections and failure stages, but no elapsed clock.
+    v4_document = %{
+      document
+      | "schema_version" => 4,
+        "state" => drop_elapsed_clock(document["state"])
+    }
+
+    assert {:ok, imported_v4} = CampaignBackup.import(Jason.encode!(v4_document))
+    imported_v4_state = Repo.get_by!(State, campaign_id: imported_v4.id)
+    assert imported_v4_state.elapsed_world_minutes == 0
+
+    assert imported_v4_state.elapsed_world_anchor == %{}
+
+    # Version three had failure stages but not the place graph or elapsed clock.
+    v3_document =
+      Map.drop(
+        %{document | "schema_version" => 3, "state" => drop_elapsed_clock(document["state"])},
+        ["place_connections"]
+      )
 
     assert {:ok, imported_v3} = CampaignBackup.import(Jason.encode!(v3_document))
 
@@ -617,6 +640,7 @@ defmodule Storyteller.CampaignBackupTest do
         %{
           document
           | "schema_version" => 2,
+            "state" => drop_elapsed_clock(document["state"]),
             "turns" => Enum.map(document["turns"], &Map.delete(&1, "failure_stage"))
         },
         ["place_connections"]
@@ -630,6 +654,14 @@ defmodule Storyteller.CampaignBackupTest do
              :count
            ) == 0
   end
+
+  defp drop_elapsed_clock(state),
+    do:
+      Map.drop(state, [
+        "elapsed_world_minutes",
+        "elapsed_world_anchor_minutes",
+        "elapsed_world_anchor"
+      ])
 
   test "imports atomically and an enclosing rollback removes the new campaign and all children" do
     campaign = campaign_fixture()

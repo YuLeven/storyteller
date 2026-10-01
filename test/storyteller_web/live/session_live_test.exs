@@ -493,6 +493,7 @@ defmodule StorytellerWeb.SessionLiveTest do
          private_changes: %{},
          character_updates: [],
          memory_update: %{public_summary: "", gm_private_summary: ""},
+         time_advance_minutes: 60,
          roll_request: nil
        }}
     end)
@@ -1090,6 +1091,37 @@ defmodule StorytellerWeb.SessionLiveTest do
       |> Floki.find("#world-time")
 
     assert length(time_facts) == 1
+  end
+
+  test "elapsed time appears as a compact cue beneath the in-world time label", %{conn: conn} do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          state.public_state
+          |> Map.drop(["world_time", "current_time", "time_of_day"])
+          |> Map.put("time", "First watch"),
+        elapsed_world_minutes: 41,
+        elapsed_world_anchor_minutes: 0,
+        elapsed_world_anchor: %{"time" => "First watch"}
+      })
+    )
+
+    for {locale, expected} <- [
+          {"en", "41 minutes elapsed"},
+          {"es", "Han pasado 41 minutos"},
+          {"fr", "41 minutes écoulées"}
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, view, _html} = live_play(conn, campaign, session)
+      assert has_element?(view, "#world-time", "First watch")
+      assert has_element?(view, "#elapsed-world-time", expected)
+    end
+
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
   end
 
   test "player character fact updates appear on the board without a system chat entry", %{

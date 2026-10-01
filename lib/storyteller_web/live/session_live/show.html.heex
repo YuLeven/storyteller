@@ -120,6 +120,14 @@
         >
           {world_display(@projection.world, ["time", "current_time", "time_of_day", "world_time"])}
         </p>
+        <p
+          :if={@projection.elapsed_world_clock.minutes_since_anchor > 0}
+          id="elapsed-world-time"
+          data-panel-watch="elapsed-world-time"
+          class="mt-1 text-xs font-medium text-stone-500"
+        >
+          {elapsed_clock_text(@projection.elapsed_world_clock.minutes_since_anchor)}
+        </p>
       </div>
       <div class="rounded-xl bg-stone-50 px-4 py-3">
         <h2 class="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
