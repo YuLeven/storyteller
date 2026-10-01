@@ -4920,8 +4920,10 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Keep every GM-private fact, name, place, route, presence, objective, inventory value"
 
+    assert instructions =~ "Omitted context is unknown; never infer it."
+
     assert instructions =~
-             "never infer them; if needed, say campaign notes lack the detail and ask the player"
+             "For multiple matching public memories, name candidates or ask which one; do not guess."
 
     assert instructions =~ "Movement must use an existing route or one proposed in this response"
     assert instructions =~ "Public NPC speech/activity must come from the player's final place"

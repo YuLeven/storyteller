@@ -18,6 +18,7 @@ defmodule Storyteller.GM.ContextBudget do
   @relevant_event_text_chars 900
   @memory_summary_chars 1_500
   @detailed_continuity_count 12
+  @max_player_managed_memory_details 8
   @memory_stopwords MapSet.new(~w(
     a about above after again against all am an and any are as at be because been before being
     below between both but by can could did do does doing down during each few for from further
@@ -49,14 +50,18 @@ defmodule Storyteller.GM.ContextBudget do
     "autumn" => "season:autumn",
     "otoño" => "season:autumn",
     "automne" => "season:autumn",
-    "event" => "occasion:tasting",
-    "events" => "occasion:tasting",
+    "event" => "occasion:event",
+    "events" => "occasion:event",
     "tasting" => "occasion:tasting",
     "tastings" => "occasion:tasting",
-    "evento" => "occasion:tasting",
-    "eventos" => "occasion:tasting",
-    "événement" => "occasion:tasting",
-    "événements" => "occasion:tasting",
+    "degustacion" => "occasion:tasting",
+    "degustación" => "occasion:tasting",
+    "cata" => "occasion:tasting",
+    "dégustation" => "occasion:tasting",
+    "evento" => "occasion:event",
+    "eventos" => "occasion:event",
+    "événement" => "occasion:event",
+    "événements" => "occasion:event",
     "earmark" => "allocation:set-aside",
     "earmarked" => "allocation:set-aside",
     "reserve" => "allocation:set-aside",
@@ -72,7 +77,12 @@ defmodule Storyteller.GM.ContextBudget do
   }
 
   @autumn_terms MapSet.new(["fall", "autumn", "otoño", "automne"])
-  @seasonal_supporting_concepts MapSet.new(["occasion:tasting", "allocation:set-aside"])
+  @seasonal_supporting_concepts MapSet.new([
+                                  "occasion:event",
+                                  "occasion:tasting",
+                                  "allocation:set-aside"
+                                ])
+  @event_subconcepts MapSet.new(["occasion:tasting"])
 
   @measured_sections [
     :campaign,
@@ -293,9 +303,9 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
   # Player-managed public story notes are deliberately opt-in by relevance.
-  # Keep only stable identity/status metadata in context, and omit unrelated
-  # note content even when the whole request fits under the size ceiling. The
-  # campaign board remains the complete, player-visible source of these notes.
+  # Keep only stable identity/status metadata for unrelated notes and cap the
+  # detailed candidate set. The campaign board remains the complete, player-
+  # visible source of these notes.
   defp retrieve_player_managed_memory(context) do
     continuity = value(context, :continuity)
 
@@ -305,10 +315,18 @@ defmodule Storyteller.GM.ContextBudget do
       entries = Map.get(continuity, public_key)
 
       if is_list(entries) do
+        detailed_memory_ids =
+          entries
+          |> Enum.filter(fn entry ->
+            value(entry, :player_managed) == true and memory_relevant?(entry, terms)
+          end)
+          |> Enum.take(-@max_player_managed_memory_details)
+          |> MapSet.new(&value(&1, :entry_id))
+
         {selected, omitted?} =
           Enum.map_reduce(entries, false, fn entry, any_omitted? ->
             player_managed? = value(entry, :player_managed) == true
-            relevant? = memory_relevant?(entry, terms)
+            relevant? = MapSet.member?(detailed_memory_ids, value(entry, :entry_id))
 
             if player_managed? and not relevant? and is_map(entry) do
               {Map.take(
@@ -367,13 +385,30 @@ defmodule Storyteller.GM.ContextBudget do
         false
 
       MapSet.member?(matched_concepts, "season:autumn") ->
-        if MapSet.size(query_support) == 0,
-          do: exact_season_match?,
-          else: MapSet.subset?(query_support, note_support)
+        if MapSet.size(query_support) == 0 do
+          exact_season_match?
+        else
+          seasonal_support_matches?(query_support, note_support)
+        end
 
       true ->
         true
     end
+  end
+
+  # A broad "fall event" query should retrieve distinct event candidates. A
+  # tasting is an event subtype, but a note must still match every narrower
+  # requested cue (such as an allocation) to be included in a specific query.
+  defp seasonal_support_matches?(query_support, note_support) do
+    event_requested? = MapSet.member?(query_support, "occasion:event")
+    specific_support = MapSet.delete(query_support, "occasion:event")
+
+    event_matches? =
+      MapSet.member?(note_support, "occasion:event") or
+        not MapSet.disjoint?(note_support, @event_subconcepts)
+
+    MapSet.subset?(specific_support, note_support) and
+      (not event_requested? or event_matches?)
   end
 
   defp meaningful_terms(text) when is_binary(text) do

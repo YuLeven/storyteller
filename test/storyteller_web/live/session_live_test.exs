@@ -2575,16 +2575,13 @@ defmodule StorytellerWeb.SessionLiveTest do
     test_pid = self()
 
     for {locale, guidance, saved_label, resume_label, retry_label, recovery_copy} <- [
-          {"en",
-           "ChatGPT reported an account usage limit. The GM cannot respond until account usage is available.",
-           "Your turn is saved", "Resume requests", "Retry this turn",
+          {"en", "ChatGPT reported an account usage limit.", "Your turn is saved",
+           "Resume requests", "Retry this turn",
            "Your action is saved below. Retry continues this same turn."},
-          {"es",
-           "ChatGPT informó de un límite de uso de esta cuenta. El director de juego no puede responder hasta que haya uso disponible en la cuenta.",
-           "Tu turno está guardado", "Reanudar solicitudes", "Reintentar este turno",
+          {"es", "ChatGPT informó de un límite de uso de esta cuenta.", "Tu turno está guardado",
+           "Reanudar solicitudes", "Reintentar este turno",
            "Tu acción está guardada abajo. Reintentar continúa este mismo turno."},
-          {"fr",
-           "ChatGPT a signalé une limite d’utilisation du compte. Le maître du jeu ne peut pas répondre tant que le compte n’a pas de quota disponible.",
+          {"fr", "ChatGPT a signalé une limite d’utilisation de ce compte.",
            "Votre tour est enregistré", "Reprendre les requêtes", "Réessayer ce tour",
            "Votre action est enregistrée ci-dessous. Réessayer poursuit ce même tour."}
         ] do
@@ -2603,7 +2600,7 @@ defmodule StorytellerWeb.SessionLiveTest do
       |> form("#turn-composer", turn: %{input: "I check whether the road is open."})
       |> render_submit()
 
-      assert wait_until(fn -> has_element?(view, "#turn-error", guidance) end)
+      assert wait_until(fn -> has_element?(view, "#plan-usage-paused", guidance) end)
       assert_receive :fake_usage_limit_call, 1_000
 
       assert has_element?(
@@ -2614,6 +2611,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       assert has_element?(view, "#plan-usage-paused a[href='https://chatgpt.com/settings/usage']")
       assert has_element?(view, "#turn-error", saved_label)
+      refute has_element?(view, "#turn-error", guidance)
       assert has_element?(view, "#turn-error", recovery_copy)
       assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
       assert recovery_copy_count(view, recovery_copy) == 1
@@ -2641,6 +2639,81 @@ defmodule StorytellerWeb.SessionLiveTest do
       assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
       refute_receive :fake_usage_limit_call, 50
     end
+  end
+
+  test "a usage limit during the GM opening keeps the first scene retryable without repeating the pause",
+       %{
+         conn: conn
+       } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+
+    set_handler(
+      fn _request ->
+        send(test_pid, :opening_scene_usage_limit)
+        {:error, :usage_limit}
+      end,
+      handle_opening?: true
+    )
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+    opening_turn = Play.public_current_turn(campaign.id)
+
+    assert_receive :opening_scene_usage_limit, 1_000
+
+    assert wait_until(fn ->
+             match?(
+               %Turn{intent: :opening_scene, status: :failed},
+               Repo.get!(Turn, opening_turn.id)
+             ) and has_element?(view, "#plan-usage-paused") and
+               has_element?(view, "#turn-error", "The opening scene has not been recorded yet.")
+           end)
+
+    assert has_element?(view, "#plan-usage-paused", "ChatGPT reported an account usage limit")
+    refute has_element?(view, "#turn-error", "ChatGPT reported an account usage limit")
+    refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
+    assert Play.public_current_turn(campaign.id).id == opening_turn.id
+    assert has_element?(view, "#turn-input[disabled]")
+
+    set_handler(
+      fn request ->
+        send(test_pid, :opening_scene_retry_provider_call)
+
+        {:ok, proposal} = FakeProvider.opening_scene_response(provider_context(request))
+
+        {:ok,
+         %{
+           proposal
+           | narration: "Rain beads on the inn's window; the pass is closed for the night."
+         }}
+      end,
+      handle_opening?: true
+    )
+
+    view
+    |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
+    |> render_click()
+
+    assert wait_until(fn -> not has_element?(view, "#plan-usage-paused") end)
+    refute_receive :opening_scene_retry_provider_call, 50
+
+    view
+    |> element("#turn-error button[phx-click='retry-turn']")
+    |> render_click()
+
+    assert_receive :opening_scene_retry_provider_call, 1_000
+
+    assert wait_until(fn ->
+             match?(
+               %Turn{intent: :opening_scene, status: :completed},
+               Repo.get!(Turn, opening_turn.id)
+             ) and has_element?(view, "#story-timeline", "Rain beads on the inn's window")
+           end)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+    refute Enum.any?(timeline, &(&1.event_type == :player_action))
   end
 
   test "a plan limit blocks stale submissions in other sessions until a manual retry relatches it",
@@ -3220,18 +3293,21 @@ defmodule StorytellerWeb.SessionLiveTest do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     events =
-      Enum.map(1..1_101, fn sequence ->
-        %{
-          campaign_id: campaign.id,
-          session_id: if(sequence <= 551, do: earlier_session.id, else: session.id),
-          turn_id: if(sequence <= 551, do: earlier_turn.id, else: turn.id),
-          sequence: sequence,
-          event_type: :gm_narration,
-          visibility: :public,
-          payload: %{"text" => "History marker #{sequence}"},
-          inserted_at: now
-        }
-      end)
+      Enum.map(
+        1..1_101,
+        fn sequence ->
+          %{
+            campaign_id: campaign.id,
+            session_id: if(sequence <= 551, do: earlier_session.id, else: session.id),
+            turn_id: if(sequence <= 551, do: earlier_turn.id, else: turn.id),
+            sequence: sequence,
+            event_type: :gm_narration,
+            visibility: :public,
+            payload: %{"text" => "History marker #{sequence}"},
+            inserted_at: now
+          }
+        end
+      )
 
     assert {1_101, nil} = Repo.insert_all(Event, events)
 

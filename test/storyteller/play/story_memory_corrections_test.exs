@@ -414,15 +414,28 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     {:ok, later_session} = Campaigns.start_session(campaign)
     captured = Agent.start_link(fn -> [] end) |> elem(1)
 
-    questions = [
+    narrow_questions = [
       "What quantity did we earmark for the fall event?",
       "¿Qué cantidad reservamos para el evento de otoño?",
       "Quelle quantité avons-nous réservée pour l'événement d'automne ?"
     ]
 
-    questions
+    broad_questions = [
+      "Tell me about the fall event.",
+      "Cuéntame sobre el evento de otoño.",
+      "Parle-moi de l'événement d'automne."
+    ]
+
+    queries =
+      Enum.map(narrow_questions, &{&1, [relevant_entry.entry_id]}) ++
+        Enum.map(
+          broad_questions,
+          &{&1, [relevant_entry.entry_id, same_season_event_entry.entry_id]}
+        )
+
+    queries
     |> Enum.with_index()
-    |> Enum.each(fn {question, index} ->
+    |> Enum.each(fn {{question, expected_entry_ids}, index} ->
       assert {:ok, %{status: :completed}} =
                Play.submit_turn(
                  campaign.id,
@@ -432,7 +445,8 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
                  provider: fn request ->
                    captured_request = %{
                      context: decode_request(request),
-                     metrics: request.local_context_metrics
+                     metrics: request.local_context_metrics,
+                     expected_entry_ids: expected_entry_ids
                    }
 
                    Agent.update(captured, &[captured_request | &1])
@@ -442,10 +456,18 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     end)
 
     requests = Agent.get(captured, & &1)
-    assert length(requests) == length(questions)
+    assert length(requests) == length(queries)
 
-    Enum.each(requests, fn %{context: context, metrics: metrics} ->
+    Enum.each(requests, fn %{context: context, metrics: metrics, expected_entry_ids: expected_ids} ->
       assert metrics.conservative_input_token_upper_bound <= 24_000
+
+      detailed_entry_ids =
+        context["continuity"]["public"]
+        |> Enum.filter(&Map.has_key?(&1, "details"))
+        |> Enum.map(& &1["entry_id"])
+        |> MapSet.new()
+
+      assert detailed_entry_ids == MapSet.new(expected_ids)
 
       assert Enum.any?(context["continuity"]["public"], fn entry ->
                entry["entry_id"] == relevant_entry.entry_id and
@@ -463,10 +485,18 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
                  (Map.has_key?(entry, "title") or Map.has_key?(entry, "details"))
              end)
 
-      refute Enum.any?(context["continuity"]["public"], fn entry ->
-               entry["entry_id"] == same_season_event_entry.entry_id and
-                 (Map.has_key?(entry, "title") or Map.has_key?(entry, "details"))
-             end)
+      if Enum.member?(expected_ids, same_season_event_entry.entry_id) do
+        assert Enum.any?(context["continuity"]["public"], fn entry ->
+                 entry["entry_id"] == same_season_event_entry.entry_id and
+                   entry["details"] ==
+                     "The town's autumn fundraiser event paid for the north gate roof."
+               end)
+      else
+        refute Enum.any?(context["continuity"]["public"], fn entry ->
+                 entry["entry_id"] == same_season_event_entry.entry_id and
+                   (Map.has_key?(entry, "title") or Map.has_key?(entry, "details"))
+               end)
+      end
 
       assert context["context_completeness"]["player_managed_memory_details_omitted"]
     end)

@@ -406,6 +406,39 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
+  test "bounds broad seasonal event retrieval to the newest eight matching notes" do
+    player_memories =
+      Enum.map(1..10, fn number ->
+        %{
+          entry_id: "autumn-event-#{number}",
+          kind: "fact",
+          title: "Autumn event #{number}",
+          details: "The town autumn event #{number} takes place in the square.",
+          status: "active",
+          visibility: "public",
+          player_managed: true
+        }
+      end)
+
+    context =
+      base_context()
+      |> Map.put(:player_action, "Tell me about the fall event.")
+      |> Map.put(:continuity, %{public: player_memories, gm_private: []})
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+
+    assert metrics.conservative_input_token_upper_bound <= 24_000
+
+    detailed_entry_ids =
+      compiled.continuity.public
+      |> Enum.filter(&Map.has_key?(&1, :details))
+      |> Enum.map(& &1.entry_id)
+
+    assert detailed_entry_ids == Enum.map(3..10, &"autumn-event-#{&1}")
+    assert compiled.context_completeness.player_managed_memory_details_omitted
+  end
+
   test "uses exact meaningful word matches and leaves GM-authored or private continuity intact" do
     context = base_context()
 

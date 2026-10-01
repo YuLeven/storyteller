@@ -1,5 +1,19 @@
 # Feature log
 
+## 2026-10-01 — Retrieve broad seasonal questions as bounded candidate sets
+
+- “Tell me about the fall event?” can refer to more than one established event. Retrieval now keeps event and tasting concepts distinct, while treating tastings as a kind of event. A broad seasonal event question can therefore give the GM both the autumn tasting commitment and the autumn fundraiser; a question about the quantity earmarked keeps only the tasting commitment. Same-season roof repairs and an unrelated bridge agreement remain out of those answers. English, Spanish, and French behavior is covered through the fake-provider path.
+- Broad matches are limited to the eight newest relevant player-managed memories. When older details are omitted, the existing completeness notice tells the GM not to treat the supplied candidate list as exhaustive; GM instructions now say to surface supported alternatives or ask which one the player means. This bounds the number of note details added, while the existing request-size gate still enforces the configured input ceiling.
+- **Limit:** retrieval uses a small curated vocabulary and one event-to-tasting relation; it does not understand arbitrary paraphrases or infer event categories. Omitted candidates remain available on the campaign board and may require more specific wording to retrieve.
+- **Checks:** focused WSL run with a reduced Erlang scheduler count and `--max-cases 4`: context-budget and story-memory suites, **20 tests, 0 failures**. The new behavior checks that the serialized UTF-8 byte/framing bound stays under the configured 24,000 input ceiling for multilingual questions and a 10-note candidate set; this is a conservative proxy, not an exact token count. Tests use isolated fixtures and fake providers; no existing campaign data or real provider was used.
+
+## 2026-10-01 — Keep account-limit recovery calm on the play surface
+
+- A separate fictional QA session showed the shared ChatGPT usage-limit reason repeated in the global pause notice and the failed opening-scene card. When the account-wide pause is visible, its notice now owns the explanation and resume action; the turn card stays focused on the saved action or the fact that the opening scene still needs to run.
+- The opening scene remains blocked until the player explicitly resumes requests, then the same saved scene is retryable. Resume only clears the pause and makes no provider call; an explicit retry resolves that same opening turn once. This does not create a player action or change game state on failure.
+- Updated the UX acceptance contract and kept the GM's concise instruction to offer alternatives for multiple matching memories within the existing prompt-size gate. English, Spanish, and French recovery copy, the GM-first opening flow, and retry behavior have LiveView coverage.
+- **Checks:** full WSL suite **334 tests, 0 failures**; three targeted LiveView scenarios **3 tests, 0 failures**; test-environment formatting, Gettext freshness, warnings-as-errors compilation, and `git diff --check` passed. Automated tests used isolated data and fake providers. Browser inspection was read-only; no resume, retry, or real provider request was performed.
+
 ## 2026-10-01 — Benchmark long-campaign context against full history
 
 - This iteration operationalizes the product thesis reinforced by market research and captured in `IMPLEMENTATION_PLAN.md`: Storyteller owns durable campaign canon, while each GM request receives only relevant bounded context. Coherence and context cost are co-equal MVP acceptance goals.

@@ -150,8 +150,8 @@ defmodule Storyteller.Play do
   name, place, route, presence, objective, inventory value, and reason out of
   public narration, dialogue, activities, events, projections, and changes.
   Reveal a secret only when play establishes that the player learns it.
-  Compaction notices mean omitted prose/profile details are unknown: never infer
-  them; if needed, say campaign notes lack the detail and ask the player.
+  Omitted context is unknown; never infer it. For multiple matching public
+  memories, name candidates or ask which one; do not guess.
 
   WORLD AND PEOPLE: Date/time/weather have one canonical value; never use aliases
   (e.g. current_date, world_time, time_of_day, conditions). Create places before

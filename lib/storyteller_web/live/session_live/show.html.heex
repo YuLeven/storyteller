@@ -261,11 +261,14 @@
               do: gettext("Your turn is saved"),
               else: gettext("This turn needs attention")}
           </h2>
-          <p class={
-            if @current_turn.failure_code == "usage_limit",
-              do: "mt-1 text-sm leading-6 text-amber-950",
-              else: "mt-1 text-sm leading-6 text-rose-800"
-          }>
+          <p
+            :if={not (@current_turn.failure_code == "usage_limit" and @plan_usage_paused?)}
+            class={
+              if @current_turn.failure_code == "usage_limit",
+                do: "mt-1 text-sm leading-6 text-amber-950",
+                else: "mt-1 text-sm leading-6 text-rose-800"
+            }
+          >
             {failure_message(@current_turn.failure_code, @plan_usage_paused?)}
           </p>
           <p
