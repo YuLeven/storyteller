@@ -1,11 +1,18 @@
 # Feature log
 
+## 2026-10-01 — Benchmark long-campaign context against full history
+
+- This iteration operationalizes the product thesis reinforced by market research and captured in `IMPLEMENTATION_PLAN.md`: Storyteller owns durable campaign canon, while each GM request receives only relevant bounded context. Coherence and context cost are co-equal MVP acceptance goals.
+- Added a deterministic 240-event campaign fixture and compared its full-history request size with the compiled request. The test requires the bounded request to be at least 5× smaller and within 2 KB of the equivalent 12-event campaign.
+- The older Finca/Bodega staff commitment and newest event remain in GM context, while unrelated middle history is omitted. World, inventory, routes, place identities, character locations, and an active remote-character duty survive compaction. These measurements are serialized UTF-8 bytes plus request framing; they are a conservative proxy, not a tokenizer measurement. Real provider aggregate usage remains a separate runtime measurement.
+- **Checks:** context-budget suite **13 tests, 0 failures**; full WSL suite **332 tests, 0 failures**; test-environment format, Gettext freshness, warnings-as-errors compilation, and `git diff --check` passed. No live provider or campaign database was used.
+
 ## 2026-10-01 — Retrieve seasonal campaign memories across paraphrased questions
 
-- A player could preserve a commitment on the campaign board, then ask about it later using another season's common name (“fall” vs. “autumn”) and have the detail omitted from GM context. The local relevance vocabulary now connects fall/autumn, otoño, and automne with tasting/event phrasing. A season match alone is too broad, so autumn questions need a second shared occasion concept unless the note uses the exact season word.
-- Added a fake-provider, later-session behavior test for the autumn bottle reserve. The note reaches the GM when asked in English, Spanish, or French, while unrelated bridge-toll and same-season roof-repair notes stay out of context; each request remains within the configured input bound.
+- A player could preserve a commitment on the campaign board, then ask about it later using another season's common name (“fall” vs. “autumn”) and have the detail omitted from GM context. The local relevance vocabulary now connects fall/autumn, otoño, and automne with tasting/event phrasing and allocation terms such as earmark, reserve, and aside. With a paraphrased season, each topical cue in the question must also match; a shared season or generic event alone is too broad.
+- Added a fake-provider, later-session behavior test for the autumn bottle reserve. The note reaches the GM when asked in English, Spanish, or French, while an unrelated bridge toll, same-season roof repair, and autumn fundraiser event stay out of context; each request remains within the configured input bound.
 - The vocabulary remains curated and deterministic; this does not claim general semantic understanding. Broader paraphrase recall and false-inclusion coverage remain open MVP work.
-- **Checks:** context-budget and story-memory suites **18 tests, 0 failures**; full WSL suite **331 tests, 0 failures**; format, Gettext freshness, warnings-as-errors test compilation, and `git diff --check` passed. Automated tests use isolated data and fake providers; no live provider or existing campaign was used.
+- **Checks:** context-budget and story-memory suites **19 tests, 0 failures**; full WSL suite **332 tests, 0 failures**; format, Gettext freshness, warnings-as-errors test compilation, and `git diff --check` passed. Automated tests use isolated data and fake providers; no live provider or existing campaign was used.
 
 ## 2026-10-01 — Keep character voice guidance open while editing
 

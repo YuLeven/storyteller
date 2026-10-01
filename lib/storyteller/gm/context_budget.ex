@@ -56,8 +56,23 @@ defmodule Storyteller.GM.ContextBudget do
     "evento" => "occasion:tasting",
     "eventos" => "occasion:tasting",
     "événement" => "occasion:tasting",
-    "événements" => "occasion:tasting"
+    "événements" => "occasion:tasting",
+    "earmark" => "allocation:set-aside",
+    "earmarked" => "allocation:set-aside",
+    "reserve" => "allocation:set-aside",
+    "reserved" => "allocation:set-aside",
+    "aside" => "allocation:set-aside",
+    "reservamos" => "allocation:set-aside",
+    "reservar" => "allocation:set-aside",
+    "reservado" => "allocation:set-aside",
+    "reservada" => "allocation:set-aside",
+    "réserver" => "allocation:set-aside",
+    "réservé" => "allocation:set-aside",
+    "réservée" => "allocation:set-aside"
   }
+
+  @autumn_terms MapSet.new(["fall", "autumn", "otoño", "automne"])
+  @seasonal_supporting_concepts MapSet.new(["occasion:tasting", "allocation:set-aside"])
 
   @measured_sections [
     :campaign,
@@ -327,13 +342,8 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp memory_relevant?(entry, query_terms) do
-    text = entry_text(entry)
-
-    directly_mentioned? =
-      not MapSet.disjoint?(
-        MapSet.difference(query_terms, @memory_stopwords),
-        raw_meaningful_terms(text)
-      )
+    note_text = entry_text(entry)
+    note_terms = meaningful_terms(note_text)
 
     meaningful_query_terms =
       query_terms
@@ -341,15 +351,28 @@ defmodule Storyteller.GM.ContextBudget do
       |> MapSet.new()
       |> MapSet.difference(@memory_stopwords)
 
-    matched_concepts = MapSet.intersection(meaningful_query_terms, meaningful_terms(text))
+    matched_concepts = MapSet.intersection(meaningful_query_terms, note_terms)
+
+    query_support = MapSet.intersection(meaningful_query_terms, @seasonal_supporting_concepts)
+    note_support = MapSet.intersection(note_terms, @seasonal_supporting_concepts)
+
+    exact_season_match? =
+      not MapSet.disjoint?(
+        MapSet.intersection(query_terms, @autumn_terms),
+        MapSet.intersection(raw_meaningful_terms(note_text), @autumn_terms)
+      )
 
     cond do
-      directly_mentioned? -> true
-      MapSet.size(matched_concepts) == 0 -> false
-      # Season words are broad on their own; require a second shared concept
-      # such as an occasion before treating a translated season as relevant.
-      MapSet.member?(matched_concepts, "season:autumn") -> MapSet.size(matched_concepts) > 1
-      true -> true
+      MapSet.size(matched_concepts) == 0 ->
+        false
+
+      MapSet.member?(matched_concepts, "season:autumn") ->
+        if MapSet.size(query_support) == 0,
+          do: exact_season_match?,
+          else: MapSet.subset?(query_support, note_support)
+
+      true ->
+        true
     end
   end
 

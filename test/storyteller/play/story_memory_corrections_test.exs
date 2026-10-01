@@ -384,7 +384,7 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     unrelated_entry =
       Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Bridge toll agreement")
 
-    assert {:ok, _same_season_but_unrelated} =
+    assert {:ok, same_season_revision} =
              memory_correction(campaign, first_session, toll.revision, "add", nil, %{
                "kind" => "fact",
                "title" => "Autumn roof repair",
@@ -393,6 +393,23 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
 
     same_season_entry =
       Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Autumn roof repair")
+
+    assert {:ok, _same_season_event_but_unrelated} =
+             memory_correction(
+               campaign,
+               first_session,
+               same_season_revision.revision,
+               "add",
+               nil,
+               %{
+                 "kind" => "fact",
+                 "title" => "Autumn fundraiser event",
+                 "details" => "The town's autumn fundraiser event paid for the north gate roof."
+               }
+             )
+
+    same_season_event_entry =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Autumn fundraiser event")
 
     {:ok, later_session} = Campaigns.start_session(campaign)
     captured = Agent.start_link(fn -> [] end) |> elem(1)
@@ -443,6 +460,11 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
 
       refute Enum.any?(context["continuity"]["public"], fn entry ->
                entry["entry_id"] == same_season_entry.entry_id and
+                 (Map.has_key?(entry, "title") or Map.has_key?(entry, "details"))
+             end)
+
+      refute Enum.any?(context["continuity"]["public"], fn entry ->
+               entry["entry_id"] == same_season_event_entry.entry_id and
                  (Map.has_key?(entry, "title") or Map.has_key?(entry, "details"))
              end)
 

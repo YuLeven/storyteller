@@ -46,6 +46,81 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "finca"
   end
 
+  test "keeps a long campaign request near the short-campaign baseline" do
+    instructions = "Short GM policy"
+    budget = 20_000
+
+    base =
+      update_in(base_context(), [:characters], fn characters ->
+        Enum.map(characters, fn character ->
+          if character.speaker_id == "tomas" do
+            Map.put(character, :active_duty, %{
+              name: "Oversee the cellar pressing",
+              place_id: "bodega",
+              place_name: "Bodega"
+            })
+          else
+            character
+          end
+        end)
+      end)
+
+    short_context = Map.put(base, :history, synthetic_history(12))
+    long_context = Map.put(base, :history, synthetic_history(240))
+
+    assert {:ok, %{context: short_compiled, metrics: short_metrics}} =
+             ContextBudget.compile(short_context, instructions, "gpt-6-astra",
+               context_input_token_budget: budget
+             )
+
+    assert short_compiled == short_context
+    refute short_metrics.compacted?
+
+    assert {:ok, %{context: long_compiled, metrics: long_metrics}} =
+             ContextBudget.compile(long_context, instructions, "gpt-6-astra",
+               context_input_token_budget: budget
+             )
+
+    assert long_metrics.compacted?
+    assert long_metrics.conservative_input_token_upper_bound <= budget
+    assert long_compiled.context_completeness.history_compacted
+
+    full_history_request_bytes = request_bytes(long_context, instructions)
+    bounded_history_request_bytes = long_metrics.conservative_input_token_upper_bound
+    short_request_bytes = short_metrics.conservative_input_token_upper_bound
+
+    assert full_history_request_bytes >= bounded_history_request_bytes * 5
+    assert bounded_history_request_bytes <= short_request_bytes + 2_000
+
+    assert Enum.any?(long_compiled.history, fn event ->
+             event["sequence"] == 5 and
+               String.contains?(event["payload"]["text"], "Marisol promised")
+           end)
+
+    refute Enum.any?(long_compiled.history, &(&1["sequence"] == 100))
+    assert Enum.any?(long_compiled.history, &(&1["sequence"] == 240))
+    assert long_compiled.world == long_context.world
+    assert long_compiled.inventory == long_context.inventory
+    assert long_compiled.travel_connections == long_context.travel_connections
+
+    canonical_character_locations = fn context ->
+      Map.new(context.characters, fn character ->
+        {character.speaker_id, {character.current_place_id, Map.get(character, :active_duty)}}
+      end)
+    end
+
+    assert canonical_character_locations.(long_compiled) ==
+             canonical_character_locations.(long_context)
+
+    public_place_identity = fn context ->
+      Map.new(context.places.public, fn place ->
+        {place.place_id, Map.take(place, [:place_id, :name, :visibility])}
+      end)
+    end
+
+    assert public_place_identity.(long_compiled) == public_place_identity.(long_context)
+  end
+
   test "keeps every active continuity detail while compacting history and closed entries" do
     context = base_context()
 
@@ -559,5 +634,31 @@ defmodule Storyteller.GM.ContextBudgetTest do
       panels: [],
       history: []
     }
+  end
+
+  defp synthetic_history(count) do
+    Enum.map(1..count, fn sequence ->
+      text =
+        if sequence == 5 do
+          "At the Bodega, Marisol promised the Finca staff would stay in place until the harvest work was complete. " <>
+            String.duplicate("This old commitment remains relevant. ", 10)
+        else
+          "Unrelated accounting report #{sequence}. " <>
+            String.duplicate("Wheat prices changed in the regional market. ", 10)
+        end
+
+      %{
+        "sequence" => sequence,
+        "session_id" => div(sequence - 1, 30) + 1,
+        "event_type" => "gm_narration",
+        "visibility" => "public",
+        "speaker_id" => nil,
+        "payload" => %{"text" => text}
+      }
+    end)
+  end
+
+  defp request_bytes(context, instructions) do
+    byte_size(instructions) + byte_size(Jason.encode!(context)) + 512
   end
 end
