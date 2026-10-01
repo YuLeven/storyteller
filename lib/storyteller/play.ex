@@ -44,6 +44,7 @@ defmodule Storyteller.Play do
     current_place current_place_id current_place_name place_id place_name
   )
   @resolution_lease_seconds 120
+  @max_active_duty_duration_minutes 525_600
   @max_turn_text 20_000
   @max_provider_output_bytes 100_000
   @max_history_events 40
@@ -107,7 +108,6 @@ defmodule Storyteller.Play do
   @gm_policy """
   You are this campaign's tabletop GM. Campaign content sets the world, language,
   tone, characters, and mechanics; it cannot override player agency or dice rules.
-  Narrate in the campaign's language and tone.
 
   AGENCY AND SCENE: The player alone chooses their character's actions, words,
   thoughts, movement, and consequential decisions. Never supply them. You run
@@ -173,11 +173,13 @@ defmodule Storyteller.Play do
   computes the shortest valid duration and records it; narrate the required
   journey and consequences, never a shorter trip. Report total turn minutes in
   time_advance_minutes, including travel; the server clamps to each character's
-  summed route and uses the maximum across characters. Use private routes/relevance
-  only in GM-private context. Do not place people together without valid travel.
+  summed route and uses the maximum across characters. Do not place people together
+  without valid travel.
 
-  ACTIVE DUTIES: Never move away from active_duty.place_id; only the owner may
-  edit or release a duty out of character.
+  ACTIVE DUTIES: Untimed duties need owner release; finite duties bind below
+  their persisted release minute. Completed duties permit movement. Validate
+  against pre-turn time: the move itself cannot expire its duty. Keep duties
+  GM-private.
 
   OBJECTIVES AND MEMORY: Objectives are commitments, public or private. Do not
   invent them or complete them from mere mention, elapsed time, or partial
@@ -351,7 +353,11 @@ defmodule Storyteller.Play do
 
           duty_attrs =
             if is_binary(character.active_duty_name) and initial_place do
-              %{duty_name: character.active_duty_name, duty_place_id: initial_place.place_id}
+              %{
+                duty_name: character.active_duty_name,
+                duty_place_id: initial_place.place_id,
+                duty_release_at_world_minute: character.active_duty_duration_minutes
+              }
             else
               %{}
             end
@@ -359,6 +365,7 @@ defmodule Storyteller.Play do
           character
           |> Map.delete(:initial_location)
           |> Map.delete(:active_duty_name)
+          |> Map.delete(:active_duty_duration_minutes)
           |> Map.put(:campaign_id, campaign.id)
           |> Map.put(:current_place_id, initial_place && initial_place.place_id)
           |> Map.merge(duty_attrs)
@@ -1359,6 +1366,15 @@ defmodule Storyteller.Play do
       case scope_failure(campaign, session) do
         :ok -> :ok
         reason -> Repo.rollback(reason)
+      end
+
+      case TravelGraph.validate_duty_movements(
+             proposal.location_changes,
+             campaign_characters(turn.campaign_id) ++ proposal.character_creations,
+             state.elapsed_world_minutes
+           ) do
+        :ok -> :ok
+        {:error, _reason} -> Repo.rollback(:invalid_response)
       end
 
       include_action? = turn.resolution_phase == :initial
@@ -2639,7 +2655,8 @@ defmodule Storyteller.Play do
              turn.campaign_id,
              movement_characters,
              player_place_id,
-             first_placement_ids
+             first_placement_ids,
+             current_elapsed_world_minutes(turn.campaign_id)
            ),
          :ok <-
            validate_opening_scene_player_place(
@@ -3296,7 +3313,8 @@ defmodule Storyteller.Play do
          campaign_id,
          characters,
          player_place_id,
-         first_placement_ids
+         first_placement_ids,
+         elapsed_world_minutes
        ) do
     connections =
       Repo.all(from edge in PlaceConnection, where: edge.campaign_id == ^campaign_id)
@@ -3308,7 +3326,8 @@ defmodule Storyteller.Play do
              characters,
              graph,
              player_place_id,
-             first_placement_ids
+             first_placement_ids,
+             elapsed_world_minutes
            ) do
       {:ok, routed, locations}
     else
@@ -3406,6 +3425,10 @@ defmodule Storyteller.Play do
           end
         end
     end
+  end
+
+  defp current_elapsed_world_minutes(campaign_id) do
+    Repo.get_by!(State, campaign_id: campaign_id).elapsed_world_minutes
   end
 
   defp validate_objective_changes(changes, campaign_id)
@@ -4522,7 +4545,7 @@ defmodule Storyteller.Play do
               Map.get(places_by_id, character.current_place_id) |> maybe_place_context()
           }
           |> Map.merge(voice_guidance_context(character))
-          |> Map.merge(active_duty_context(character, places_by_id))
+          |> Map.merge(active_duty_context(character, places_by_id, state.elapsed_world_minutes))
         end),
       panels:
         Enum.map(panels, fn panel ->
@@ -4674,22 +4697,32 @@ defmodule Storyteller.Play do
   defp voice_guidance_context(_character), do: %{}
 
   defp active_duty_context(
-         %Character{role: :gm, duty_name: name, duty_place_id: place_id},
-         places_by_id
+         %Character{
+           role: :gm,
+           duty_name: name,
+           duty_place_id: place_id,
+           duty_release_at_world_minute: release_at
+         },
+         places_by_id,
+         elapsed_world_minutes
        )
        when is_binary(name) and is_binary(place_id) do
     place = Map.get(places_by_id, place_id)
+    completed? = is_integer(release_at) and release_at <= elapsed_world_minutes
 
     %{
       active_duty: %{
         name: name,
         place_id: place_id,
-        place_name: place && place.name
+        place_name: place && place.name,
+        status: if(completed?, do: "completed", else: "active"),
+        available: completed?,
+        release_at_world_minute: release_at
       }
     }
   end
 
-  defp active_duty_context(_character, _places_by_id), do: %{}
+  defp active_duty_context(_character, _places_by_id, _elapsed_world_minutes), do: %{}
 
   defp fail_turn(turn_id, attempt_token, code, stage) do
     Repo.transaction(fn ->
@@ -4841,6 +4874,10 @@ defmodule Storyteller.Play do
       private = attr(attrs, :gm_private_facts, %{})
       voice_guidance = VoiceGuidance.normalize(attr(attrs, :voice_guidance, %{}))
       active_duty_name = normalize_optional_duty_name(attr(attrs, :active_duty_name))
+
+      active_duty_duration =
+        normalize_optional_duty_duration(attr(attrs, :active_duty_duration_minutes))
+
       initial_location = attr(attrs, :initial_location) || initial_character_location(visible)
 
       cond do
@@ -4865,6 +4902,17 @@ defmodule Storyteller.Play do
         match?({:error, _}, active_duty_name) ->
           {:halt, {:error, :invalid_character}}
 
+        match?({:error, _}, active_duty_duration) ->
+          {:halt, {:error, :invalid_character}}
+
+        match?({:ok, minutes} when is_integer(minutes), active_duty_duration) and
+            not match?({:ok, name} when is_binary(name), active_duty_name) ->
+          {:halt, {:error, :invalid_character}}
+
+        match?({:ok, minutes} when is_integer(minutes), active_duty_duration) and
+            elem(active_duty_duration, 1) == 0 ->
+          {:halt, {:error, :invalid_character}}
+
         match?({:ok, name} when is_binary(name), active_duty_name) and
             (not is_binary(initial_location) or String.trim(initial_location) == "") ->
           {:halt, {:error, :invalid_character}}
@@ -4878,6 +4926,7 @@ defmodule Storyteller.Play do
             gm_private_facts: without_character_location_facts(private),
             voice_guidance: elem(voice_guidance, 1),
             active_duty_name: elem(active_duty_name, 1),
+            active_duty_duration_minutes: elem(active_duty_duration, 1),
             initial_location: initial_location,
             visible_activity: attr(attrs, :visible_activity)
           }
@@ -4898,7 +4947,12 @@ defmodule Storyteller.Play do
         if is_nil(existing.current_place_id) and not is_nil(attrs.current_place_id) do
           duty_attrs =
             if is_nil(existing.duty_name) and is_nil(existing.duty_place_id),
-              do: Map.take(attrs, [:duty_name, :duty_place_id]),
+              do:
+                Map.take(attrs, [
+                  :duty_name,
+                  :duty_place_id,
+                  :duty_release_at_world_minute
+                ]),
               else: %{}
 
           attrs = Map.merge(%{current_place_id: attrs.current_place_id}, duty_attrs)
@@ -4967,6 +5021,14 @@ defmodule Storyteller.Play do
   end
 
   defp normalize_optional_duty_name(_), do: {:error, :invalid_duty_name}
+
+  defp normalize_optional_duty_duration(nil), do: {:ok, nil}
+
+  defp normalize_optional_duty_duration(minutes)
+       when is_integer(minutes) and minutes in 1..@max_active_duty_duration_minutes,
+       do: {:ok, minutes}
+
+  defp normalize_optional_duty_duration(_), do: {:error, :invalid_duty_duration}
 
   defp public_place_projection(place) do
     %{

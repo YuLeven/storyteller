@@ -183,13 +183,17 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     {:ok, stale_view, _stale_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     assert html =~ "Active duty (GM only, optional)"
+    assert html =~ "Minutes until available (in-world)"
     assert has_element?(view, "input[name='campaign[expected_revision]']")
 
     assignment_attrs = %{
       correction_reason: "Elin is responsible for the evening beacon checks.",
       expected_revision: "0",
       character_active_duties: %{
-        "keeper-elin" => %{duty_name: "Check the evening beacon"}
+        "keeper-elin" => %{
+          duty_name: "Check the evening beacon",
+          duty_duration_minutes: "90"
+        }
       }
     }
 
@@ -198,6 +202,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
     assert character.duty_name == "Check the evening beacon"
     assert character.duty_place_id == character.current_place_id
+    assert character.duty_release_at_world_minute == 90
     correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
     assert correction.contains_private_changes
 

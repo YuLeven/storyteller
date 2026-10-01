@@ -11,6 +11,9 @@ defmodule Storyteller.Campaigns do
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
+  @max_duty_duration_minutes 525_600
+  @max_world_minute 2_147_483_647
+
   def list_campaigns do
     session_query = from session in Session, order_by: [desc: session.inserted_at]
 
@@ -104,6 +107,8 @@ defmodule Storyteller.Campaigns do
               lock: "FOR UPDATE"
           )
 
+        world_clock = Repo.get_by!(State, campaign_id: campaign_id)
+
         plan =
           authoring_change_plan(
             campaign,
@@ -111,7 +116,8 @@ defmodule Storyteller.Campaigns do
             changeset,
             voice_updates,
             fact_updates,
-            duty_updates
+            duty_updates,
+            world_clock.elapsed_world_minutes
           )
 
         if map_size(plan.before_state) == 0 do
@@ -122,7 +128,13 @@ defmodule Storyteller.Campaigns do
 
           state =
             if plan.duty_changed? do
-              validate_duty_authoring_revision!(campaign_id, attr(attrs, :expected_revision))
+              locked_state =
+                validate_duty_authoring_revision!(campaign_id, attr(attrs, :expected_revision))
+
+              if locked_state.elapsed_world_minutes != world_clock.elapsed_world_minutes,
+                do: Repo.rollback(:stale_authoring_revision)
+
+              locked_state
             else
               nil
             end
@@ -169,7 +181,8 @@ defmodule Storyteller.Campaigns do
          changeset,
          voice_updates,
          fact_updates,
-         duty_updates
+         duty_updates,
+         elapsed_world_minutes
        ) do
     by_speaker = Map.new(characters, &{&1.speaker_id, &1})
     updated_campaign = Ecto.Changeset.apply_changes(changeset)
@@ -184,7 +197,13 @@ defmodule Storyteller.Campaigns do
       player_character_diff(Map.get(by_speaker, "player"), campaign, updated_campaign, changeset)
 
     {gm_before, gm_after, gm_updates, private?, duty_changed?} =
-      gm_character_diffs(by_speaker, voice_updates, fact_updates, duty_updates)
+      gm_character_diffs(
+        by_speaker,
+        voice_updates,
+        fact_updates,
+        duty_updates,
+        elapsed_world_minutes
+      )
 
     before_state =
       %{}
@@ -265,14 +284,20 @@ defmodule Storyteller.Campaigns do
     {before, after_map, attrs}
   end
 
-  defp gm_character_diffs(by_speaker, voice_updates, fact_updates, duty_updates) do
+  defp gm_character_diffs(
+         by_speaker,
+         voice_updates,
+         fact_updates,
+         duty_updates,
+         elapsed_world_minutes
+       ) do
     voices = Map.new(voice_updates)
     facts = Map.new(fact_updates)
     speakers = Enum.uniq(Map.keys(voices) ++ Map.keys(facts) ++ Map.keys(duty_updates))
 
     Enum.reduce(speakers, {%{}, %{}, %{}, false, false}, fn speaker_id,
                                                             {before_all, after_all, updates_all,
-                                                             private?, duty_changed?} ->
+                                                             private?, any_duty_changed?} ->
       character = Map.fetch!(by_speaker, speaker_id)
       old_voice = character.voice_guidance || %{}
       new_voice = Map.get(voices, speaker_id, old_voice)
@@ -281,12 +306,26 @@ defmodule Storyteller.Campaigns do
       old_private = character.gm_private_facts || %{}
       new_visible = update_fact_text(old_visible, "description", fact_edits, :visible_facts_text)
       new_private = update_fact_text(old_private, "notes", fact_edits, :private_notes)
-      new_duty_name = Map.get(duty_updates, speaker_id, character.duty_name)
+      duty_update = Map.get(duty_updates, speaker_id, %{})
+      new_duty_name = Map.get(duty_update, :duty_name, character.duty_name)
+      duration_minutes = Map.get(duty_update, :duration_minutes, :preserve)
+
+      new_duty_release_at =
+        duty_release_threshold(character, new_duty_name, duration_minutes, elapsed_world_minutes)
+
+      duty_changed? =
+        new_duty_name != character.duty_name or
+          new_duty_release_at != character.duty_release_at_world_minute
+
+      completed_same_duty? =
+        new_duty_name == character.duty_name and is_integer(new_duty_release_at) and
+          new_duty_release_at <= elapsed_world_minutes
 
       new_duty_place_id =
         cond do
           is_nil(new_duty_name) -> nil
-          new_duty_name == character.duty_name -> character.duty_place_id
+          not duty_changed? -> character.duty_place_id
+          completed_same_duty? -> character.duty_place_id
           is_binary(character.current_place_id) -> character.current_place_id
           true -> Repo.rollback(:invalid_active_duty)
         end
@@ -301,8 +340,15 @@ defmodule Storyteller.Campaigns do
         Repo.rollback(:invalid_active_duty)
       end
 
-      old_duty = %{"name" => character.duty_name, "place_id" => character.duty_place_id}
-      new_duty = %{"name" => new_duty_name, "place_id" => new_duty_place_id}
+      old_duty =
+        duty_audit_snapshot(
+          character.duty_name,
+          character.duty_place_id,
+          character.duty_release_at_world_minute
+        )
+
+      new_duty =
+        duty_audit_snapshot(new_duty_name, new_duty_place_id, new_duty_release_at)
 
       {voice_before, voice_after_map} = map_diff(old_voice, new_voice)
 
@@ -338,7 +384,8 @@ defmodule Storyteller.Campaigns do
         if map_size(duty_before) > 0 do
           Map.merge(update_attrs, %{
             duty_name: new_duty_name,
-            duty_place_id: new_duty_place_id
+            duty_place_id: new_duty_place_id,
+            duty_release_at_world_minute: new_duty_release_at
           })
         else
           update_attrs
@@ -356,8 +403,45 @@ defmodule Storyteller.Campaigns do
         private? or map_size(private_before) > 0 or map_size(voice_before) > 0 or
           map_size(duty_before) > 0
 
-      {before_all, after_all, updates_all, private?, duty_changed? or map_size(duty_before) > 0}
+      {before_all, after_all, updates_all, private?,
+       any_duty_changed? or map_size(duty_before) > 0}
     end)
+  end
+
+  defp duty_release_threshold(_character, nil, _duration_minutes, _elapsed_world_minutes),
+    do: nil
+
+  defp duty_release_threshold(_character, _duty_name, nil, _elapsed_world_minutes), do: nil
+
+  defp duty_release_threshold(character, duty_name, :preserve, _elapsed_world_minutes) do
+    if duty_name == character.duty_name,
+      do: character.duty_release_at_world_minute,
+      else: nil
+  end
+
+  defp duty_release_threshold(character, duty_name, 0, elapsed_world_minutes) do
+    if duty_name == character.duty_name do
+      elapsed_world_minutes
+    else
+      Repo.rollback(:invalid_active_duty)
+    end
+  end
+
+  defp duty_release_threshold(_character, _duty_name, duration_minutes, elapsed_world_minutes)
+       when is_integer(duration_minutes) and duration_minutes in 1..@max_duty_duration_minutes do
+    release_at = elapsed_world_minutes + duration_minutes
+    if release_at <= @max_world_minute, do: release_at, else: Repo.rollback(:invalid_active_duty)
+  end
+
+  defp duty_release_threshold(_character, _duty_name, _duration_minutes, _elapsed_world_minutes),
+    do: Repo.rollback(:invalid_active_duty)
+
+  defp duty_audit_snapshot(name, place_id, release_at) do
+    %{
+      "name" => name,
+      "place_id" => place_id,
+      "release_at_world_minute" => if(is_integer(release_at), do: Integer.to_string(release_at))
+    }
   end
 
   defp diff_one_key(before_map, after_map, key) do
@@ -804,13 +888,25 @@ defmodule Storyteller.Campaigns do
             not is_binary(speaker_id) or not MapSet.member?(known_speakers, speaker_id) ->
               {:halt, {:error, :invalid_active_duty}}
 
-            not is_map(row) or keys != ["duty_name"] ->
+            not is_map(row) or
+                Enum.sort(keys) not in [["duty_name"], ["duty_duration_minutes", "duty_name"]] ->
               {:halt, {:error, :invalid_active_duty}}
 
             true ->
-              case normalize_duty_name(attr(row, :duty_name)) do
-                {:ok, name} -> {:cont, {:ok, Map.put(acc, speaker_id, name)}}
-                :error -> {:halt, {:error, :invalid_active_duty}}
+              with {:ok, name} <- normalize_duty_name(attr(row, :duty_name)),
+                   {:ok, duration_minutes} <-
+                     if("duty_duration_minutes" in keys,
+                       do: normalize_duty_duration(attr(row, :duty_duration_minutes)),
+                       else: {:ok, :preserve}
+                     ) do
+                {:cont,
+                 {:ok,
+                  Map.put(acc, speaker_id, %{
+                    duty_name: name,
+                    duration_minutes: duration_minutes
+                  })}}
+              else
+                _ -> {:halt, {:error, :invalid_active_duty}}
               end
           end
         end)
@@ -832,6 +928,27 @@ defmodule Storyteller.Campaigns do
   end
 
   defp normalize_duty_name(_), do: :error
+
+  defp normalize_duty_duration(value) when is_integer(value) do
+    if value in 0..@max_duty_duration_minutes, do: {:ok, value}, else: :error
+  end
+
+  defp normalize_duty_duration(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        {:ok, nil}
+
+      true ->
+        case Integer.parse(value) do
+          {minutes, ""} when minutes in 0..@max_duty_duration_minutes -> {:ok, minutes}
+          _ -> :error
+        end
+    end
+  end
+
+  defp normalize_duty_duration(_), do: :error
 
   defp validate_duty_authoring_revision!(campaign_id, expected_revision) do
     state =
@@ -942,6 +1059,14 @@ defmodule Storyteller.Campaigns do
           name = attrs |> attr(:name, "") |> trim_string()
           starting_place = attrs |> attr(:starting_place, "") |> trim_string()
           active_duty_name = attrs |> attr(:active_duty_name, "") |> trim_string()
+
+          active_duty_duration_minutes =
+            case normalize_duty_duration(attr(attrs, :active_duty_duration_minutes, "")) do
+              {:ok, value} when value in [nil, :preserve] -> nil
+              {:ok, minutes} when is_integer(minutes) and minutes > 0 -> minutes
+              _ -> :invalid
+            end
+
           visible = character_facts(attrs, :visible_facts, :visible_facts_text, "description")
           private = character_facts(attrs, :gm_private_facts, :private_notes, "notes")
           voice_guidance = attr(attrs, :voice_guidance, %{})
@@ -972,6 +1097,18 @@ defmodule Storyteller.Campaigns do
                {:error,
                 {:setup,
                  "GM character #{row_index + 1} active duty must be 160 characters or fewer."}}}
+
+            active_duty_duration_minutes == :invalid ->
+              {:halt,
+               {:error,
+                {:setup,
+                 "GM character #{row_index + 1} active duty duration must be a positive whole number up to 525600 minutes."}}}
+
+            is_integer(active_duty_duration_minutes) and active_duty_name == "" ->
+              {:halt,
+               {:error,
+                {:setup,
+                 "GM character #{row_index + 1} needs an active duty before setting its duration."}}}
 
             active_duty_name != "" and starting_place == "" ->
               {:halt,
@@ -1014,6 +1151,7 @@ defmodule Storyteller.Campaigns do
                       name: name,
                       initial_location: clean_optional(starting_place),
                       active_duty_name: clean_optional(active_duty_name),
+                      active_duty_duration_minutes: active_duty_duration_minutes,
                       visible_facts: visible,
                       gm_private_facts: private,
                       voice_guidance: elem(normalized_voice_guidance, 1)

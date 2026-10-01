@@ -90,7 +90,8 @@ defmodule Storyteller.CampaignAuthoringTest do
             speaker_id: "npc:cellar-keeper",
             name: "Marcel",
             starting_place: "The river bodega",
-            active_duty_name: "Tend the morning fermentation checks"
+            active_duty_name: "Tend the morning fermentation checks",
+            active_duty_duration_minutes: 45
           }
         ]
       })
@@ -103,6 +104,7 @@ defmodule Storyteller.CampaignAuthoringTest do
     assert character.current_place_id == bodega.place_id
     assert character.duty_name == "Tend the morning fermentation checks"
     assert character.duty_place_id == bodega.place_id
+    assert character.duty_release_at_world_minute == 45
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
     projected = Enum.find(projection.characters, &(&1.speaker_id == "npc:cellar-keeper"))
@@ -118,7 +120,10 @@ defmodule Storyteller.CampaignAuthoringTest do
     assert gm_character.active_duty == %{
              name: "Tend the morning fermentation checks",
              place_id: bodega.place_id,
-             place_name: "The river bodega"
+             place_name: "The river bodega",
+             status: "active",
+             available: false,
+             release_at_world_minute: 45
            }
   end
 
@@ -159,12 +164,14 @@ defmodule Storyteller.CampaignAuthoringTest do
 
     assert correction.before_state["gm_characters"]["npc:cellar-keeper"]["active_duty"] == %{
              "name" => nil,
-             "place_id" => nil
+             "place_id" => nil,
+             "release_at_world_minute" => nil
            }
 
     assert correction.after_state["gm_characters"]["npc:cellar-keeper"]["active_duty"] == %{
              "name" => "Watch the fermentation vats",
-             "place_id" => character.current_place_id
+             "place_id" => character.current_place_id,
+             "release_at_world_minute" => nil
            }
 
     assert Campaigns.list_public_authoring_corrections(campaign.id) == []
@@ -212,6 +219,106 @@ defmodule Storyteller.CampaignAuthoringTest do
     assert Repo.get_by!(State, campaign_id: campaign.id).revision == state_before.revision + 2
     assert {:ok, history_after_release} = Play.public_timeline(campaign.id)
     assert history_after_release == history_before
+  end
+
+  test "finite duty edits anchor to elapsed world minutes, zero completes, and clearing wins over duration" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Finca",
+        gm_characters: [
+          %{
+            speaker_id: "npc:cellar-keeper",
+            name: "Marcel",
+            starting_place: "The Finca"
+          }
+        ]
+      })
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:cellar-keeper")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        elapsed_world_minutes: 120,
+        elapsed_world_anchor_minutes: 120
+      })
+    )
+
+    assert {:ok, before} = Play.public_projection(campaign.id)
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "expected_revision" => before.revision,
+               "correction_reason" => "Marcel covers one more cellar hour.",
+               "character_active_duties" => %{
+                 "npc:cellar-keeper" => %{
+                   "duty_name" => "Watch the fermentation vats",
+                   "duty_duration_minutes" => "45"
+                 }
+               }
+             })
+
+    assigned = Repo.get_by!(Character, id: character.id)
+    assert assigned.duty_release_at_world_minute == 165
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 120
+    assert {:ok, after_assignment} = Play.public_projection(campaign.id)
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "expected_revision" => after_assignment.revision,
+               "correction_reason" => "The vats are already unattended; release Marcel now.",
+               "character_active_duties" => %{
+                 "npc:cellar-keeper" => %{
+                   "duty_name" => "Watch the fermentation vats",
+                   "duty_duration_minutes" => "0"
+                 }
+               }
+             })
+
+    completed = Repo.get_by!(Character, id: character.id)
+    assert completed.duty_release_at_world_minute == 120
+    assert completed.duty_place_id == character.current_place_id
+    assert {:ok, after_completion} = Play.public_projection(campaign.id)
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "expected_revision" => after_completion.revision,
+               "correction_reason" => "The temporary duty has ended.",
+               "character_active_duties" => %{
+                 "npc:cellar-keeper" => %{
+                   "duty_name" => "",
+                   "duty_duration_minutes" => "30"
+                 }
+               }
+             })
+
+    released = Repo.get_by!(Character, id: character.id)
+    assert is_nil(released.duty_name)
+    assert is_nil(released.duty_place_id)
+    assert is_nil(released.duty_release_at_world_minute)
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 120
+
+    [first, second, third] = Repo.all(AuthoringCorrection) |> Enum.sort_by(& &1.sequence)
+
+    assert first.after_state["gm_characters"]["npc:cellar-keeper"]["active_duty"][
+             "release_at_world_minute"
+           ] == "165"
+
+    assert second.before_state["gm_characters"]["npc:cellar-keeper"]["active_duty"][
+             "release_at_world_minute"
+           ] == "165"
+
+    assert second.after_state["gm_characters"]["npc:cellar-keeper"]["active_duty"][
+             "release_at_world_minute"
+           ] == "120"
+
+    assert third.after_state["gm_characters"]["npc:cellar-keeper"]["active_duty"] == %{
+             "name" => nil,
+             "place_id" => nil,
+             "release_at_world_minute" => nil
+           }
+
+    assert Campaigns.list_public_authoring_corrections(campaign.id) == []
   end
 
   test "a GM duty needs a canonical starting place and its edit rejects unresolved turns" do

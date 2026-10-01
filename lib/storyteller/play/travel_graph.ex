@@ -49,10 +49,12 @@ defmodule Storyteller.Play.TravelGraph do
         characters,
         connections,
         player_place_id,
-        first_placement_ids \\ MapSet.new()
+        first_placement_ids \\ MapSet.new(),
+        elapsed_world_minutes \\ 0
       ) do
     with {:ok, graph} <- normalize_connections(connections),
-         {:ok, locations, active_duties} <- normalize_character_locations(characters) do
+         {:ok, locations, active_duties} <-
+           normalize_character_locations(characters, elapsed_world_minutes) do
       Enum.reduce_while(changes, {:ok, [], locations, active_duties}, fn
         %{"type" => "move_character", "speaker_id" => speaker_id, "place_id" => place_id} = move,
         {:ok, accepted, current_locations, duties} ->
@@ -96,6 +98,30 @@ defmodule Storyteller.Play.TravelGraph do
       end
     end
   end
+
+  @doc "Rechecks duty availability against the persisted pre-commit world clock."
+  def validate_duty_movements(changes, characters, elapsed_world_minutes)
+      when is_list(changes) and is_list(characters) and is_integer(elapsed_world_minutes) and
+             elapsed_world_minutes >= 0 do
+    with {:ok, _locations, active_duties} <-
+           normalize_character_locations(characters, elapsed_world_minutes) do
+      if Enum.any?(changes, fn
+           %{"type" => "move_character", "speaker_id" => speaker_id, "place_id" => place_id} ->
+             case Map.get(active_duties, speaker_id) do
+               %{place_id: duty_place_id} -> duty_place_id != place_id
+               _ -> false
+             end
+
+           _change ->
+             false
+         end),
+         do: {:error, :active_duty},
+         else: :ok
+    end
+  end
+
+  def validate_duty_movements(_changes, _characters, _elapsed_world_minutes),
+    do: {:error, :invalid_movements}
 
   @doc "Applies normalized edge proposals in memory for same-turn route validation."
   def merge_changes(connections, changes) do
@@ -349,7 +375,9 @@ defmodule Storyteller.Play.TravelGraph do
 
   defp normalize_connections(_), do: {:error, :invalid_connections}
 
-  defp normalize_character_locations(characters) when is_list(characters) do
+  defp normalize_character_locations(characters, elapsed_world_minutes)
+       when is_list(characters) and is_integer(elapsed_world_minutes) and
+              elapsed_world_minutes >= 0 do
     Enum.reduce_while(characters, {:ok, %{}}, fn character, {:ok, acc} ->
       speaker_id = get(character, :speaker_id)
       place_id = get(character, :current_place_id)
@@ -370,9 +398,15 @@ defmodule Storyteller.Play.TravelGraph do
             speaker_id = get(character, :speaker_id)
             duty_name = get(character, :duty_name)
             duty_place_id = get(character, :duty_place_id)
+            release_at = get(character, :duty_release_at_world_minute)
 
-            if is_binary(duty_name) and duty_name != "" and is_binary(duty_place_id) do
-              Map.put(acc, speaker_id, %{name: duty_name, place_id: duty_place_id})
+            if is_binary(duty_name) and duty_name != "" and is_binary(duty_place_id) and
+                 (is_nil(release_at) or release_at > elapsed_world_minutes) do
+              Map.put(acc, speaker_id, %{
+                name: duty_name,
+                place_id: duty_place_id,
+                release_at_world_minute: release_at
+              })
             else
               acc
             end
@@ -385,7 +419,7 @@ defmodule Storyteller.Play.TravelGraph do
     end
   end
 
-  defp normalize_character_locations(_), do: {:error, :invalid_characters}
+  defp normalize_character_locations(_, _elapsed_world_minutes), do: {:error, :invalid_characters}
 
   defp apply_normalized_changes(graph, changes) when is_list(changes) do
     Enum.reduce_while(changes, {:ok, graph}, fn change, {:ok, acc} ->

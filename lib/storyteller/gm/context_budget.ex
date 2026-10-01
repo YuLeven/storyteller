@@ -83,6 +83,16 @@ defmodule Storyteller.GM.ContextBudget do
                                   "allocation:set-aside"
                                 ])
   @event_subconcepts MapSet.new(["occasion:tasting"])
+  @history_broad_action_terms MapSet.new(~w(
+    ask asks asked asking request requests requesting
+    do does did doing need needs needed needing happen happens happened happening
+    see sees seeing look looks looking tell tells telling show shows showing describe describes describing
+    close closes closing evening night tonight morning today tomorrow now later next around else anything something
+    hacer hace haces hacemos hacen falta necesito necesitas necesitamos necesitan pasando pasa pasar ver mirar
+    preguntar pregunto preguntas necesita algo siguiente noche tarde ahora cerrar cerramos qué
+    quoi est faire faut besoin demander demande demandes passe passer voir regarder dis dire montre montrer
+    prochain prochaine prochainement soir soirée soiree demain maintenant fermer ferme fermons
+  ))
 
   @measured_sections [
     :campaign,
@@ -228,10 +238,11 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp compact_context(context) do
     terms = query_terms(context)
+    history_query = history_query(context)
     player_place_id = player_place_id(context)
 
     {history, history_omitted?} =
-      compact_history(Map.get(context, "history", context[:history]), terms)
+      compact_history(Map.get(context, "history", context[:history]), history_query)
 
     {characters, profiles_omitted?} =
       compact_characters(
@@ -441,7 +452,7 @@ defmodule Storyteller.GM.ContextBudget do
     relevant_older =
       story_events
       |> Enum.reject(&MapSet.member?(recent_sequences, event_sequence(&1)))
-      |> Enum.map(&{relevance_score(event_text(&1), terms), &1})
+      |> Enum.map(&{history_relevance_score(&1, terms), &1})
       |> Enum.filter(&(elem(&1, 0) > 0))
       |> Enum.sort_by(fn {score, event} -> {-score, -event_sequence(event)} end)
       |> Enum.take(@relevant_history_count)
@@ -672,6 +683,14 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_text(text, _max_chars), do: text
 
   defp query_terms(context) do
+    context
+    |> query_components()
+    |> Map.fetch!(:terms)
+  end
+
+  defp history_query(context), do: query_components(context)
+
+  defp query_components(context) do
     action = value(context, :player_action) || ""
     player_place_id = player_place_id(context)
 
@@ -707,12 +726,9 @@ defmodule Storyteller.GM.ContextBudget do
       |> Enum.filter(&is_binary/1)
       |> Enum.join(" ")
 
-    word_terms =
-      String.downcase([action, scene_text, place_text] |> Enum.join(" "))
-      |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
-      |> List.flatten()
-      |> Enum.reject(&MapSet.member?(@memory_stopwords, &1))
-      |> MapSet.new()
+    action_terms = raw_meaningful_terms(action)
+    action_specific_terms = MapSet.difference(action_terms, @history_broad_action_terms)
+    place_and_character_terms = raw_meaningful_terms([scene_text, place_text] |> Enum.join(" "))
 
     speaker_terms =
       scene_characters
@@ -722,8 +738,50 @@ defmodule Storyteller.GM.ContextBudget do
       |> Enum.map(&String.downcase/1)
       |> MapSet.new()
 
-    MapSet.union(word_terms, speaker_terms)
+    anchor_terms = MapSet.union(place_and_character_terms, speaker_terms)
+
+    %{
+      terms: MapSet.union(action_terms, anchor_terms),
+      action_terms: MapSet.difference(action_specific_terms, anchor_terms),
+      anchor_terms: anchor_terms
+    }
   end
+
+  defp history_relevance_score(event, %{action_terms: action_terms} = query)
+       when is_map(event) do
+    text = event_text(event)
+
+    if MapSet.size(action_terms) < 2 do
+      relevance_score(text, query.anchor_terms)
+    else
+      event_terms =
+        case value(event, :speaker_id) do
+          speaker_id when is_binary(speaker_id) ->
+            MapSet.put(raw_meaningful_terms(text), String.downcase(speaker_id))
+
+          _ ->
+            raw_meaningful_terms(text)
+        end
+
+      action_matches = MapSet.intersection(event_terms, action_terms)
+      anchor_matches = MapSet.intersection(event_terms, query.anchor_terms)
+      action_match_count = MapSet.size(action_matches)
+      anchor_match_count = MapSet.size(anchor_matches)
+
+      cond do
+        action_match_count >= 2 ->
+          action_match_count + anchor_match_count
+
+        action_match_count >= 1 and anchor_match_count >= 1 ->
+          action_match_count + anchor_match_count
+
+        true ->
+          0
+      end
+    end
+  end
+
+  defp history_relevance_score(event, terms), do: relevance_score(event_text(event), terms)
 
   defp connected_place_ids(_context, nil), do: []
 

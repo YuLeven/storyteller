@@ -162,6 +162,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
           name: "Marcel",
           starting_place: "The river bodega",
           active_duty_name: "Tend the fermentation vats",
+          active_duty_duration_minutes: "75",
           visible_facts_text: "A warm, observant beaver cook from Lyon.",
           private_notes: "Secret: he altered the cellar ledger.",
           voice_guidance: %{
@@ -201,6 +202,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert review_html =~ "The river bodega"
     assert review_html =~ "Active duty (GM only)"
     assert review_html =~ "Tend the fermentation vats"
+    assert review_html =~ "Available after 75 in-world minutes."
     assert review_html =~ "The west cellar"
     assert review_html =~ "Second day of harvest"
     assert review_html =~ "Late evening"
@@ -229,6 +231,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
     view |> element("button[phx-click=edit]") |> render_click()
     assert has_element?(view, "#gm-starting-place-0[value='The river bodega']")
     assert has_element?(view, "#gm-active-duty-0[value='Tend the fermentation vats']")
+    assert has_element?(view, "#gm-active-duty-minutes-0[value='75']")
     assert has_element?(view, "#gm-starting-place-1[value='']")
     submit_wizard_step(view, attrs, "continue")
 
@@ -245,8 +248,9 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert marcel.current_place_id == bodega.place_id
     assert marcel.current_place == Map.take(bodega, [:place_id, :name, :description, :facts])
 
-    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "marcel").duty_place_id ==
-             bodega.place_id
+    marcel_record = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "marcel")
+    assert marcel_record.duty_place_id == bodega.place_id
+    assert marcel_record.duty_release_at_world_minute == 75
 
     refute Map.has_key?(marcel, :active_duty)
     refute Jason.encode!(projection) =~ "Tend the fermentation vats"

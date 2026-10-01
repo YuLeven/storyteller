@@ -18,7 +18,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
          |> push_navigate(to: ~p"/")}
 
       campaign ->
-        revision = campaign_revision(campaign.id)
+        {revision, elapsed_minutes} = campaign_clock(campaign.id)
 
         {:ok,
          assign(socket,
@@ -26,7 +26,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            campaign: campaign,
            state_revision: revision,
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
-           gm_characters: Campaigns.list_gm_characters(campaign.id),
+           gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
            save_error: nil
@@ -51,14 +51,16 @@ defmodule StorytellerWeb.CampaignLive.Edit do
   def handle_event("save", %{"campaign" => attrs}, socket) do
     case Campaigns.update_campaign_authoring(socket.assigns.campaign, attrs) do
       {:ok, campaign} ->
+        {revision, elapsed_minutes} = campaign_clock(campaign.id)
+
         {:noreply,
          socket
          |> put_flash(:info, gettext("Campaign changes saved."))
          |> assign(
            campaign: Campaigns.get_campaign!(campaign.id),
-           state_revision: campaign_revision(campaign.id),
+           state_revision: revision,
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
-           gm_characters: Campaigns.list_gm_characters(campaign.id),
+           gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
            save_error: nil
@@ -114,14 +116,18 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
-               "An active duty needs a name up to 160 characters and a character with a known current place."
+               "An active duty needs a name up to 160 characters, a known current place, and a whole-number duration from 0 to 525600 minutes."
              )
          )}
 
       {:error, :stale_authoring_revision} ->
+        {revision, elapsed_minutes} = campaign_clock(socket.assigns.campaign.id)
+
         {:noreply,
          assign(socket,
-           state_revision: campaign_revision(socket.assigns.campaign.id),
+           state_revision: revision,
+           gm_characters:
+             gm_characters_with_duty_time(socket.assigns.campaign.id, elapsed_minutes),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
@@ -167,11 +173,26 @@ defmodule StorytellerWeb.CampaignLive.Edit do
   defp voice_value(character, field), do: Map.get(character.voice_guidance || %{}, field, "")
   defp fact_value(facts, key), do: Map.get(facts || %{}, key, "")
 
-  defp campaign_revision(campaign_id) do
+  defp campaign_clock(campaign_id) do
     case Play.public_projection(campaign_id) do
-      {:ok, projection} -> projection.revision
-      _ -> 0
+      {:ok, projection} ->
+        {projection.revision, projection.elapsed_world_clock.total_minutes}
+
+      _ ->
+        {0, 0}
     end
+  end
+
+  defp gm_characters_with_duty_time(campaign_id, elapsed_minutes) do
+    Campaigns.list_gm_characters(campaign_id)
+    |> Enum.map(fn character ->
+      remaining =
+        if is_integer(character.duty_release_at_world_minute),
+          do: max(character.duty_release_at_world_minute - elapsed_minutes, 0),
+          else: nil
+
+      Map.put(character, :duty_duration_minutes, remaining)
+    end)
   end
 
   def correction_category_label("campaign_setup"), do: gettext("Campaign setup")

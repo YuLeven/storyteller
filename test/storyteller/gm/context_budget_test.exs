@@ -4,7 +4,12 @@ defmodule Storyteller.GM.ContextBudgetTest do
   alias Storyteller.GM.ContextBudget
 
   test "compacts unrelated history while retrieving an older fact named in the action" do
-    context = base_context()
+    context =
+      base_context()
+      |> Map.put(
+        :player_action,
+        "Check whether Marisol stayed at the Finca after the forty-minute trip to the Bodega."
+      )
 
     history =
       Enum.map(1..50, fn sequence ->
@@ -46,12 +51,69 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "finca"
   end
 
+  test "broad questions retrieve a small bounded set of scene anchors in each supported language" do
+    history =
+      Enum.map(1..40, fn sequence ->
+        {event_type, speaker_id, text} =
+          case sequence do
+            5 ->
+              {:gm_narration, nil,
+               "At the Bodega, the reserve wine is held for a private autumn tasting."}
+
+            17 ->
+              {:npc_dialogue, "marisol", "I promised to set the reserve aside for you."}
+
+            _ ->
+              {:gm_narration, nil,
+               "Unrelated regional accounting summary #{sequence}. " <>
+                 String.duplicate("No vineyard details. ", 45)}
+          end
+
+        %{
+          "sequence" => sequence,
+          "session_id" => div(sequence - 1, 20) + 1,
+          "event_type" => Atom.to_string(event_type),
+          "visibility" => "public",
+          "speaker_id" => speaker_id,
+          "payload" => %{"text" => text}
+        }
+      end)
+
+    actions = [
+      "I ask what needs doing before we close for the evening.",
+      "¿Qué hace falta antes de cerrar por la noche?",
+      "Qu'est-ce qu'il faut faire avant de fermer pour la soirée ?"
+    ]
+
+    for action <- actions do
+      context =
+        base_context()
+        |> Map.put(:player_action, action)
+        |> Map.put(:history, history)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+
+      assert metrics.compacted?
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert length(compiled.history) <= 20
+      assert Enum.any?(compiled.history, &(&1["sequence"] == 5))
+      assert Enum.any?(compiled.history, &(&1["sequence"] == 17))
+      refute Enum.any?(compiled.history, &(&1["sequence"] == 10))
+    end
+  end
+
   test "keeps a long campaign request near the short-campaign baseline" do
-    instructions = "Short GM policy"
-    budget = 20_000
+    instructions = production_gm_policy()
+    budget = Application.fetch_env!(:storyteller, :gm_context_token_budgets)["default"]
 
     base =
-      update_in(base_context(), [:characters], fn characters ->
+      base_context()
+      |> Map.put(
+        :player_action,
+        "At the Bodega, I ask whether Marisol can help with cellar pressing before harvest work is done."
+      )
+      |> update_in([:characters], fn characters ->
         Enum.map(characters, fn character ->
           if character.speaker_id == "tomas" do
             Map.put(character, :active_duty, %{
@@ -67,6 +129,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     short_context = Map.put(base, :history, synthetic_history(12))
     long_context = Map.put(base, :history, synthetic_history(240))
+    assert short_context.player_action == long_context.player_action
 
     assert {:ok, %{context: short_compiled, metrics: short_metrics}} =
              ContextBudget.compile(short_context, instructions, "gpt-6-astra",
@@ -92,12 +155,39 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert full_history_request_bytes >= bounded_history_request_bytes * 5
     assert bounded_history_request_bytes <= short_request_bytes + 2_000
 
-    assert Enum.any?(long_compiled.history, fn event ->
-             event["sequence"] == 5 and
-               String.contains?(event["payload"]["text"], "Marisol promised")
-           end)
+    recent_sequences =
+      long_context.history
+      |> Enum.take(-12)
+      |> MapSet.new(& &1["sequence"])
 
-    refute Enum.any?(long_compiled.history, &(&1["sequence"] == 100))
+    expected_relevant_sequences = MapSet.new([5, 73, 157])
+    hard_decoy_candidates = MapSet.new([193, 199, 211, 217, 223, 225, 227])
+
+    older_candidates =
+      long_context.history
+      |> Enum.reject(&MapSet.member?(recent_sequences, &1["sequence"]))
+      |> MapSet.new(& &1["sequence"])
+
+    retrieved_older_sequences =
+      long_compiled.history
+      |> Enum.reject(&MapSet.member?(recent_sequences, &1["sequence"]))
+      |> MapSet.new(& &1["sequence"])
+
+    true_positives = MapSet.intersection(retrieved_older_sequences, expected_relevant_sequences)
+    false_inclusions = MapSet.difference(retrieved_older_sequences, expected_relevant_sequences)
+    expected_decoys = MapSet.difference(older_candidates, expected_relevant_sequences)
+
+    precision = MapSet.size(true_positives) / max(MapSet.size(retrieved_older_sequences), 1)
+    recall = MapSet.size(true_positives) / MapSet.size(expected_relevant_sequences)
+
+    assert MapSet.size(expected_decoys) >= 200
+    assert Enum.all?(expected_relevant_sequences, &MapSet.member?(older_candidates, &1))
+    assert MapSet.intersection(hard_decoy_candidates, older_candidates) == hard_decoy_candidates
+    assert MapSet.size(true_positives) == MapSet.size(expected_relevant_sequences)
+    assert false_inclusions == MapSet.new()
+    assert MapSet.intersection(retrieved_older_sequences, hard_decoy_candidates) == MapSet.new()
+    assert precision == 1.0
+    assert recall == 1.0
     assert Enum.any?(long_compiled.history, &(&1["sequence"] == 240))
     assert long_compiled.world == long_context.world
     assert long_compiled.inventory == long_context.inventory
@@ -672,12 +762,42 @@ defmodule Storyteller.GM.ContextBudgetTest do
   defp synthetic_history(count) do
     Enum.map(1..count, fn sequence ->
       text =
-        if sequence == 5 do
-          "At the Bodega, Marisol promised the Finca staff would stay in place until the harvest work was complete. " <>
-            String.duplicate("This old commitment remains relevant. ", 10)
-        else
-          "Unrelated accounting report #{sequence}. " <>
-            String.duplicate("Wheat prices changed in the regional market. ", 10)
+        case sequence do
+          5 ->
+            "At the Bodega, Marisol promised the Finca staff would stay in place until harvest work was complete. " <>
+              String.duplicate("This old commitment remains relevant. ", 10)
+
+          73 ->
+            "At the Finca, Marisol said she could not join cellar pressing at the Bodega before harvest ended. " <>
+              String.duplicate("This old commitment remains relevant. ", 10)
+
+          157 ->
+            "Marisol's harvest duty at the Finca ends before she can make the forty-minute trip to the Bodega. " <>
+              String.duplicate("This old commitment remains relevant. ", 10)
+
+          193 ->
+            "At the Bodega, a broken roof tile was replaced after a spring storm."
+
+          199 ->
+            "At the Finca, the public notice board was repainted before dawn."
+
+          211 ->
+            "Marisol labels a kitchen basket for the market."
+
+          217 ->
+            "A Bodega-side bridge toll announcement repeated last week's rates."
+
+          223 ->
+            "An old machine pressing demonstration ran at the county fair."
+
+          225 ->
+            "At the Bodega print shop, a poster was made for a town festival."
+
+          227 ->
+            "Marisol described the Finca fountain's new stonework; no staff matter was discussed."
+
+          _ ->
+            unrelated_history_text(sequence)
         end
 
       %{
@@ -689,6 +809,36 @@ defmodule Storyteller.GM.ContextBudgetTest do
         "payload" => %{"text" => text}
       }
     end)
+  end
+
+  defp unrelated_history_text(sequence) do
+    detail =
+      case rem(sequence, 4) do
+        0 -> "Wheat prices changed in the regional market."
+        1 -> "The town bridge toll waiver remains in force through midsummer."
+        2 -> "The traveling theater troupe moved its opening performance indoors."
+        3 -> "Quarterly bond yields shifted after the central bank announcement."
+      end
+
+    "Unrelated record #{sequence}: #{detail} " <> String.duplicate("Archived report. ", 10)
+  end
+
+  # Play keeps its policy private and action mode adds no extra guidance.
+  # Read the policy literal so this context-size comparison follows the shipped text.
+  defp production_gm_policy do
+    source_path = Path.expand("../../../lib/storyteller/play.ex", __DIR__)
+    source = File.read!(source_path)
+
+    case Regex.run(~r/@gm_policy\s+"""\r?\n(.*?)\r?\n([ ]+)"""/s, source) do
+      [_, policy, indentation] ->
+        policy
+        |> String.split("\n")
+        |> Enum.map(&String.replace_prefix(&1, indentation, ""))
+        |> Enum.join("\n")
+
+      _ ->
+        flunk("Could not find the production GM policy heredoc in #{source_path}")
+    end
   end
 
   defp request_bytes(context, instructions) do

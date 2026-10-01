@@ -329,6 +329,17 @@ defmodule StorytellerWeb.CampaignLive.New do
           number: number
         )
 
+      [number, "active duty duration must be a positive whole number up to 525600 minutes."] ->
+        gettext(
+          "GM character %{number} duty duration must be between 1 and 525600 in-world minutes.",
+          number: number
+        )
+
+      [number, "needs an active duty before setting its duration."] ->
+        gettext("GM character %{number} needs a duty before you can set its duration.",
+          number: number
+        )
+
       [number, "needs a starting place for an active duty."] ->
         gettext("GM character %{number} needs a starting place for an active duty.",
           number: number

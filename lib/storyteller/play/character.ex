@@ -18,6 +18,7 @@ defmodule Storyteller.Play.Character do
     field :current_place_id, :string
     field :duty_name, :string
     field :duty_place_id, :string
+    field :duty_release_at_world_minute, :integer
 
     belongs_to :campaign, Campaign
 
@@ -37,7 +38,8 @@ defmodule Storyteller.Play.Character do
       :visible_activity,
       :current_place_id,
       :duty_name,
-      :duty_place_id
+      :duty_place_id,
+      :duty_release_at_world_minute
     ])
     |> validate_required([:campaign_id, :speaker_id, :name, :role])
     |> validate_length(:speaker_id, min: 1, max: 100)
@@ -50,6 +52,7 @@ defmodule Storyteller.Play.Character do
     |> validate_length(:current_place_id, max: 100)
     |> validate_format(:current_place_id, ~r/\A[a-zA-Z0-9:_-]+\z/)
     |> validate_active_duty()
+    |> validate_number(:duty_release_at_world_minute, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:campaign_id)
     |> foreign_key_constraint(:current_place_id,
       name: :play_characters_campaign_current_place_fkey
@@ -58,6 +61,9 @@ defmodule Storyteller.Play.Character do
       name: :play_characters_campaign_duty_place_fkey
     )
     |> check_constraint(:duty_name, name: :play_characters_active_duty_check)
+    |> check_constraint(:duty_release_at_world_minute,
+      name: :play_characters_duty_release_check
+    )
     |> unique_constraint([:campaign_id, :speaker_id])
     |> unique_constraint(:campaign_id, name: :one_player_character_per_campaign)
     |> check_constraint(:role, name: :play_characters_role_check)
@@ -80,9 +86,10 @@ defmodule Storyteller.Play.Character do
   defp validate_active_duty(changeset) do
     duty_name = get_field(changeset, :duty_name)
     duty_place_id = get_field(changeset, :duty_place_id)
+    release_at = get_field(changeset, :duty_release_at_world_minute)
 
     cond do
-      is_nil(duty_name) and is_nil(duty_place_id) ->
+      is_nil(duty_name) and is_nil(duty_place_id) and is_nil(release_at) ->
         changeset
 
       get_field(changeset, :role) != :gm ->
@@ -93,10 +100,10 @@ defmodule Storyteller.Play.Character do
         add_error(changeset, :duty_name, "must be a name up to 160 characters")
 
       not is_binary(duty_place_id) or String.trim(duty_place_id) == "" ->
-        add_error(changeset, :duty_place_id, "must name the character's current place")
+        add_error(changeset, :duty_place_id, "must name the place where the duty was assigned")
 
-      get_field(changeset, :current_place_id) != duty_place_id ->
-        add_error(changeset, :duty_place_id, "must match the character's current place")
+      not is_nil(release_at) and (not is_integer(release_at) or release_at < 0) ->
+        add_error(changeset, :duty_release_at_world_minute, "must be a non-negative world minute")
 
       true ->
         changeset

@@ -130,18 +130,18 @@ defmodule StorytellerWeb.LocaleLiveTest do
             "es",
             "Tarea activa",
             "Cuidar las cubas",
-            "Se requiere un lugar de inicio.",
-            "Borra el campo para liberar la tarea.",
-            "Una tarea activa necesita un nombre de hasta 160 caracteres y un personaje con un lugar actual conocido.",
+            "se requiere un lugar inicial.",
+            "Borra el nombre de la tarea para liberarla.",
+            "Una tarea activa requiere un nombre de hasta 160 caracteres, un lugar actual conocido y una duración expresada en minutos enteros entre 0 y 525600.",
             "necesita un lugar de inicio para una tarea activa"
           },
           {
             "fr",
             "Tâche active",
             "Surveiller les cuves",
-            "Un lieu de départ est requis.",
-            "Effacez le champ pour libérer la tâche.",
-            "Une tâche active nécessite un nom de 160 caractères maximum et un personnage dont le lieu actuel est connu.",
+            "un lieu de départ est requis.",
+            "Effacez le nom de la tâche pour la libérer.",
+            "Une tâche active exige un nom de 160 caractères maximum, un lieu actuel connu et une durée exprimée en minutes entières de 0 à 525600.",
             "doit avoir un lieu de départ pour une tâche active"
           }
         ] do

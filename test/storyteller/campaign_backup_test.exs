@@ -285,7 +285,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 9
+    assert document["schema_version"] == 10
     assert length(document["canon_corrections"]) == 1
     assert hd(document["canon_corrections"])["after_state"]["value"] == 7
     assert document["campaign"]["title"] == campaign.title
@@ -471,29 +471,35 @@ defmodule Storyteller.CampaignBackupTest do
                "expected_revision" => state.revision,
                "correction_reason" => "Assign the keeper's cellar rounds.",
                "character_active_duties" => %{
-                 "npc:keeper" => %{"duty_name" => "Check the reserve casks"}
+                 "npc:keeper" => %{
+                   "duty_name" => "Check the reserve casks",
+                   "duty_duration_minutes" => "30"
+                 }
                }
              })
 
     assert {:ok, json} = CampaignBackup.export(campaign.id)
     document = Jason.decode!(json)
-    assert document["schema_version"] == 9
+    assert document["schema_version"] == 10
 
     exported_keeper = Enum.find(document["characters"], &(&1["speaker_id"] == "npc:keeper"))
     assert exported_keeper["duty_name"] == "Check the reserve casks"
     assert exported_keeper["duty_place_id"] == finca.place_id
+    assert exported_keeper["duty_release_at_world_minute"] == 30
 
     [correction] = document["authoring_corrections"]
     assert correction["contains_private_changes"]
 
     assert correction["before_state"]["gm_characters"]["npc:keeper"]["active_duty"] == %{
              "name" => nil,
-             "place_id" => nil
+             "place_id" => nil,
+             "release_at_world_minute" => nil
            }
 
     assert correction["after_state"]["gm_characters"]["npc:keeper"]["active_duty"] == %{
              "name" => "Check the reserve casks",
-             "place_id" => finca.place_id
+             "place_id" => finca.place_id,
+             "release_at_world_minute" => "30"
            }
 
     imported_count = Repo.aggregate(Storyteller.Campaigns.Campaign, :count, :id)
@@ -514,6 +520,7 @@ defmodule Storyteller.CampaignBackupTest do
     imported_keeper = Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "npc:keeper")
     assert imported_keeper.duty_name == "Check the reserve casks"
     assert imported_keeper.duty_place_id == finca.place_id
+    assert imported_keeper.duty_release_at_world_minute == 30
 
     imported_correction = Repo.get_by!(AuthoringCorrection, campaign_id: imported.id)
     assert imported_correction.before_state == correction["before_state"]
@@ -541,6 +548,30 @@ defmodule Storyteller.CampaignBackupTest do
     assert is_nil(imported_character.duty_place_id)
   end
 
+  test "version nine backups keep indefinite duties without fabricating a release threshold" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "Finca",
+        gm_characters: [
+          %{
+            speaker_id: "npc:keeper",
+            name: "Keeper",
+            starting_place: "Finca",
+            active_duty_name: "Remain at the press"
+          }
+        ]
+      })
+
+    assert {:ok, json} = CampaignBackup.export(campaign.id)
+    legacy = Jason.decode!(json) |> pre_active_duties(9)
+    assert {:ok, imported} = CampaignBackup.import(Jason.encode!(legacy))
+
+    imported_keeper = Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "npc:keeper")
+    assert imported_keeper.duty_name == "Remain at the press"
+    assert imported_keeper.duty_place_id == imported_keeper.current_place_id
+    assert is_nil(imported_keeper.duty_release_at_world_minute)
+  end
+
   test "rejects unknown versions, secret-bearing extra fields, and dangling references before writing" do
     campaign = campaign_fixture(%{starting_location: "The west terrace"})
     [session] = campaign.sessions
@@ -564,7 +595,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 10),
+          Map.put(decoded, "schema_version", 11),
           Map.put(decoded, "canon_corrections", [%{"sequence" => 1}]),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
@@ -733,7 +764,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 9
+    assert document["schema_version"] == 10
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -799,10 +830,38 @@ defmodule Storyteller.CampaignBackupTest do
   end
 
   defp pre_active_duties(document, version) do
+    character_keys =
+      if version >= 9,
+        do: ["duty_release_at_world_minute"],
+        else: ["duty_name", "duty_place_id", "duty_release_at_world_minute"]
+
     document
     |> Map.put("schema_version", version)
     |> Map.update!("characters", fn characters ->
-      Enum.map(characters, &Map.drop(&1, ["duty_name", "duty_place_id"]))
+      Enum.map(characters, &Map.drop(&1, character_keys))
+    end)
+    |> Map.update("authoring_corrections", [], fn corrections ->
+      Enum.map(corrections, fn correction ->
+        Enum.reduce(["before_state", "after_state"], correction, fn state_key, row ->
+          Map.update!(row, state_key, fn state ->
+            Map.update(state, "gm_characters", %{}, fn characters ->
+              Enum.reduce(characters, %{}, fn {speaker_id, sections}, acc ->
+                sections =
+                  if version >= 9,
+                    do:
+                      Map.update(sections, "active_duty", nil, fn duty ->
+                        Map.drop(duty, ["release_at_world_minute"])
+                      end),
+                    else: Map.delete(sections, "active_duty")
+
+                if map_size(sections) == 0,
+                  do: acc,
+                  else: Map.put(acc, speaker_id, sections)
+              end)
+            end)
+          end)
+        end)
+      end)
     end)
   end
 

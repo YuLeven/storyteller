@@ -2502,6 +2502,140 @@ defmodule Storyteller.PlayTest do
     refute Jason.encode!(events_after_move) =~ "Morning cellar checks"
   end
 
+  test "finite duties use the persisted pre-turn clock and release after accepted time" do
+    {campaign, session} = play_campaign("The Timed Cellar Assignment")
+    finca = establish_starting_place!(campaign, "Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "timed-bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    insert_travel_connection!(campaign.id, finca.place_id, bodega.place_id, 40)
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    assert {:ok, before_assignment} = Play.public_projection(campaign.id)
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Lyra is on cellar duty for one hour.",
+               "expected_revision" => before_assignment.revision,
+               "character_active_duties" => %{
+                 "npc:lyra" => %{
+                   "duty_name" => "One-hour cellar checks",
+                   "duty_duration_minutes" => "60"
+                 }
+               }
+             })
+
+    assigned_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert Repo.get_by!(Character, id: lyra.id).duty_release_at_world_minute == 60
+
+    attempted_departure =
+      ordinary_proposal(%{
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => bodega.place_id,
+            "reason" => "Lyra tries to leave during her assigned hour."
+          }
+        ],
+        "time_advance_minutes" => 60
+      })
+
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "finite-duty-cannot-advance-first",
+               "Lyra leaves for the bodega.",
+               provider: fn _request -> {:ok, Jason.encode!(attempted_departure)} end,
+               model: "test-model"
+             )
+
+    state_after_rejection = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state_after_rejection.elapsed_world_minutes == assigned_state.elapsed_world_minutes
+    assert state_after_rejection.revision == assigned_state.revision
+    assert Repo.get_by!(Character, id: lyra.id).current_place_id == finca.place_id
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "finite-duty-time-passes",
+               "I wait while Lyra finishes her one-hour duty.",
+               intent: :time_passage,
+               provider:
+                 ordinary_provider(%{
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [],
+                   "location_changes" => [],
+                   "time_advance_minutes" => 60
+                 }),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 60
+
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    departure =
+      ordinary_proposal(%{
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => bodega.place_id,
+            "reason" => "The duty is complete, so Lyra travels to the bodega."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "finite-duty-canonical-departure",
+               "Lyra is free to go to the bodega now.",
+               provider: fn request ->
+                 Agent.update(captured_context, fn _ -> decode_request(request) end)
+                 {:ok, Jason.encode!(departure)}
+               end,
+               model: "test-model"
+             )
+
+    gm_lyra =
+      captured_context
+      |> Agent.get(& &1)
+      |> then(
+        &Enum.find(&1["characters"], fn character -> character["speaker_id"] == "npc:lyra" end)
+      )
+
+    assert gm_lyra["active_duty"]["status"] == "completed"
+    assert gm_lyra["active_duty"]["available"]
+    assert gm_lyra["active_duty"]["release_at_world_minute"] == 60
+    assert Repo.get_by!(Character, id: lyra.id).current_place_id == bodega.place_id
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 100
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    refute Jason.encode!(projection) =~ "One-hour cellar checks"
+  end
+
   test "an existing NPC with unknown location cannot be placed in-scene to speak for free" do
     {campaign, session} = play_campaign("The Unplaced Messenger")
     finca = establish_starting_place!(campaign, "Finca")
@@ -5231,6 +5365,7 @@ defmodule Storyteller.PlayTest do
     {request, context} = Agent.get(captured, & &1)
     history = context["history"]
 
+    assert length(history) <= 20
     assert Enum.any?(history, &(&1["sequence"] == bodega_fact.sequence))
     assert Enum.any?(history, &(&1["sequence"] == speaker_fact.sequence))
     assert Enum.all?([bodega_fact, speaker_fact], &(&1.session_id == first_session.id))

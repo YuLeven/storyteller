@@ -39,7 +39,8 @@ defmodule Storyteller.CampaignBackup do
   @player_memories_version 7
   @world_label_corrections_version 8
   @active_duties_version 9
-  @version @active_duties_version
+  @finite_duties_version 10
+  @version @finite_duties_version
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -261,6 +262,7 @@ defmodule Storyteller.CampaignBackup do
       "current_place_id" => character.current_place_id,
       "duty_name" => character.duty_name,
       "duty_place_id" => character.duty_place_id,
+      "duty_release_at_world_minute" => character.duty_release_at_world_minute,
       "inserted_at" => encode_datetime(character.inserted_at),
       "updated_at" => encode_datetime(character.updated_at)
     }
@@ -420,7 +422,8 @@ defmodule Storyteller.CampaignBackup do
              @canon_corrections_version,
              @player_memories_version,
              @world_label_corrections_version,
-             @active_duties_version
+             @active_duties_version,
+             @finite_duties_version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
@@ -431,10 +434,16 @@ defmodule Storyteller.CampaignBackup do
          {campaign, characters} <- normalize_player_character_name(campaign, characters),
          {:ok, places} <- validate_places(backup["places"]),
          :ok <- validate_character_places(characters, places),
-         :ok <- validate_character_duties(characters, places),
          {:ok, place_connections} <-
            validate_place_connections(Map.get(backup, "place_connections", []), places),
          {:ok, state} <- validate_state(backup["state"], characters, backup["schema_version"]),
+         :ok <-
+           validate_character_duties(
+             characters,
+             places,
+             backup["schema_version"],
+             state.elapsed_world_minutes
+           ),
          {:ok, panels} <- validate_panels(backup["panels"]),
          {:ok, objectives} <- validate_objectives(backup["objectives"]),
          {:ok, turns} <- validate_turns(backup["turns"], sessions, backup["schema_version"]),
@@ -497,7 +506,8 @@ defmodule Storyteller.CampaignBackup do
               @canon_corrections_version,
               @player_memories_version,
               @world_label_corrections_version,
-              @active_duties_version
+              @active_duties_version,
+              @finite_duties_version
             ],
        do:
          root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
@@ -696,14 +706,18 @@ defmodule Storyteller.CampaignBackup do
     with {:ok, characters} <-
            map_rows(rows, fn map ->
              character_keys =
-               if version >= @active_duties_version do
-                 ~w(speaker_id name role visible_facts gm_private_facts voice_guidance visible_activity current_place_id duty_name duty_place_id inserted_at updated_at)
-               else
-                 if Map.has_key?(map, "voice_guidance"),
-                   do:
-                     ~w(speaker_id name role visible_facts gm_private_facts voice_guidance visible_activity current_place_id inserted_at updated_at),
-                   else:
-                     ~w(speaker_id name role visible_facts gm_private_facts visible_activity current_place_id inserted_at updated_at)
+               cond do
+                 version >= @finite_duties_version ->
+                   ~w(speaker_id name role visible_facts gm_private_facts voice_guidance visible_activity current_place_id duty_name duty_place_id duty_release_at_world_minute inserted_at updated_at)
+
+                 version >= @active_duties_version ->
+                   ~w(speaker_id name role visible_facts gm_private_facts voice_guidance visible_activity current_place_id duty_name duty_place_id inserted_at updated_at)
+
+                 Map.has_key?(map, "voice_guidance") ->
+                   ~w(speaker_id name role visible_facts gm_private_facts voice_guidance visible_activity current_place_id inserted_at updated_at)
+
+                 true ->
+                   ~w(speaker_id name role visible_facts gm_private_facts visible_activity current_place_id inserted_at updated_at)
                end
 
              with :ok <-
@@ -727,6 +741,16 @@ defmodule Storyteller.CampaignBackup do
                       do: optional_stable_id(map["duty_place_id"], 100),
                       else: {:ok, nil}
                     ),
+                  {:ok, duty_release_at} <-
+                    if(version >= @finite_duties_version,
+                      do:
+                        optional_integer_range(
+                          map["duty_release_at_world_minute"],
+                          0,
+                          2_147_483_647
+                        ),
+                      else: {:ok, nil}
+                    ),
                   {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
                   {:ok, updated_at} <- parse_datetime(map["updated_at"], false) do
                {:ok,
@@ -741,6 +765,7 @@ defmodule Storyteller.CampaignBackup do
                   current_place_id: place_id,
                   duty_name: duty_name,
                   duty_place_id: duty_place_id,
+                  duty_release_at_world_minute: duty_release_at,
                   inserted_at: inserted_at,
                   updated_at: updated_at
                 }}
@@ -862,28 +887,58 @@ defmodule Storyteller.CampaignBackup do
        else: {:error, :invalid_backup}
   end
 
-  defp validate_character_duties(characters, places) do
+  defp validate_character_duties(characters, places, version, elapsed_world_minutes) do
     place_ids = MapSet.new(places, & &1.place_id)
 
     if Enum.all?(characters, fn
-         %{duty_name: nil, duty_place_id: nil} ->
+         %{
+           duty_name: nil,
+           duty_place_id: nil,
+           duty_release_at_world_minute: nil
+         } ->
            true
 
          %{
            role: :gm,
            duty_name: name,
            duty_place_id: place_id,
-           current_place_id: place_id
+           current_place_id: current_place_id,
+           duty_release_at_world_minute: release_at
          }
          when is_binary(name) and is_binary(place_id) ->
            String.trim(name) != "" and String.length(name) <= 160 and
-             MapSet.member?(place_ids, place_id)
+             MapSet.member?(place_ids, place_id) and
+             duty_location_matches?(
+               version,
+               current_place_id,
+               place_id,
+               release_at,
+               elapsed_world_minutes
+             ) and
+             (version >= @finite_duties_version or is_nil(release_at)) and
+             valid_duty_release_at?(release_at)
 
          _character ->
            false
        end),
        do: :ok,
        else: {:error, :invalid_backup}
+  end
+
+  defp valid_duty_release_at?(nil), do: true
+
+  defp valid_duty_release_at?(minute),
+    do: is_integer(minute) and minute in 0..2_147_483_647
+
+  defp duty_location_matches?(
+         version,
+         current_place_id,
+         duty_place_id,
+         release_at,
+         elapsed_minutes
+       ) do
+    (version >= @finite_duties_version and is_integer(release_at) and
+       release_at <= elapsed_minutes) or current_place_id == duty_place_id
   end
 
   defp validate_panels(rows) when is_list(rows) and length(rows) <= 1_000 do
@@ -1040,7 +1095,8 @@ defmodule Storyteller.CampaignBackup do
               @canon_corrections_version,
               @player_memories_version,
               @world_label_corrections_version,
-              @active_duties_version
+              @active_duties_version,
+              @finite_duties_version
             ],
        do: turn_backup_keys(@current_previous_version)
 
@@ -1554,11 +1610,23 @@ defmodule Storyteller.CampaignBackup do
              Enum.all?(sections, fn {section, fields} ->
                allowed_fields =
                  case section do
-                   "visible_facts" -> ["description"]
-                   "gm_private_facts" -> ["notes"]
-                   "voice_guidance" -> Storyteller.Play.VoiceGuidance.fields()
-                   "active_duty" when version >= @active_duties_version -> ["name", "place_id"]
-                   _ -> []
+                   "visible_facts" ->
+                     ["description"]
+
+                   "gm_private_facts" ->
+                     ["notes"]
+
+                   "voice_guidance" ->
+                     Storyteller.Play.VoiceGuidance.fields()
+
+                   "active_duty" when version >= @finite_duties_version ->
+                     ["name", "place_id", "release_at_world_minute"]
+
+                   "active_duty" when version >= @active_duties_version ->
+                     ["name", "place_id"]
+
+                   _ ->
+                     []
                  end
 
                is_map(fields) and map_size(fields) > 0 and
@@ -1937,6 +2005,9 @@ defmodule Storyteller.CampaignBackup do
     do: {:ok, value}
 
   defp integer_range(_, _, _), do: {:error, :invalid_backup}
+
+  defp optional_integer_range(nil, _min, _max), do: {:ok, nil}
+  defp optional_integer_range(value, min, max), do: integer_range(value, min, max)
 
   defp optional_text(nil, _max), do: {:ok, nil}
   defp optional_text(value, max), do: text(value, 0, max)
