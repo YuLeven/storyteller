@@ -2574,16 +2574,16 @@ defmodule StorytellerWeb.SessionLiveTest do
   } do
     test_pid = self()
 
-    for {locale, guidance, saved_label, resume_label, retry_label, recovery_copy} <- [
+    for {locale, guidance, saved_label, resume_label, retry_label, post_resume_reason} <- [
           {"en", "ChatGPT reported an account usage limit.", "Your turn is saved",
            "Resume requests", "Retry this turn",
-           "Your action is saved below. Retry continues this same turn."},
+           "ChatGPT reported an account usage limit before the GM could respond."},
           {"es", "ChatGPT informó de un límite de uso de esta cuenta.", "Tu turno está guardado",
            "Reanudar solicitudes", "Reintentar este turno",
-           "Tu acción está guardada abajo. Reintentar continúa este mismo turno."},
+           "ChatGPT informó de un límite de uso de la cuenta antes de que el director de juego pudiera responder."},
           {"fr", "ChatGPT a signalé une limite d’utilisation de ce compte.",
            "Votre tour est enregistré", "Reprendre les requêtes", "Réessayer ce tour",
-           "Votre action est enregistrée ci-dessous. Réessayer poursuit ce même tour."}
+           "ChatGPT a signalé une limite d’utilisation du compte avant que le maître du jeu ne puisse répondre."}
         ] do
       campaign = campaign_fixture()
       [session] = campaign.sessions
@@ -2612,11 +2612,19 @@ defmodule StorytellerWeb.SessionLiveTest do
       assert has_element?(view, "#plan-usage-paused a[href='https://chatgpt.com/settings/usage']")
       assert has_element?(view, "#turn-error", saved_label)
       refute has_element?(view, "#turn-error", guidance)
-      assert has_element?(view, "#turn-error", recovery_copy)
-      assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
-      assert recovery_copy_count(view, recovery_copy) == 1
 
-      refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
+      assert has_element?(
+               view,
+               "#turn-error button[phx-click='retry-turn'][disabled]",
+               retry_label
+             )
+
+      refute has_element?(view, "#turn-error", "Your action is saved below")
+      assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
+      assert has_element?(view, "#turn-announcement", saved_label)
+      refute has_element?(view, "#composer-plan-status")
+      assert text_count(view, guidance) == 1
+
       turn_id = Play.public_current_turn(campaign.id).id
 
       view
@@ -2634,7 +2642,8 @@ defmodule StorytellerWeb.SessionLiveTest do
              ) ==
                1
 
-      assert recovery_copy_count(view, recovery_copy) == 1
+      refute has_element?(view, "#turn-error button[disabled]")
+      assert has_element?(view, "#turn-error", post_resume_reason)
       assert Play.public_current_turn(campaign.id).id == turn_id
       assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
       refute_receive :fake_usage_limit_call, 50
@@ -2672,7 +2681,13 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(view, "#plan-usage-paused", "ChatGPT reported an account usage limit")
     refute has_element?(view, "#turn-error", "ChatGPT reported an account usage limit")
-    refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
+
+    assert has_element?(
+             view,
+             "#turn-error button[phx-click='retry-turn'][disabled]",
+             "Retry opening scene"
+           )
+
     assert Play.public_current_turn(campaign.id).id == opening_turn.id
     assert has_element?(view, "#turn-input[disabled]")
 
@@ -2918,19 +2933,15 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert wait_until(fn ->
              has_element?(view, "#turn-error", "D20 result: 17") and
                has_element?(view, "#turn-error", "Your D20 result is saved.") and
-               has_element?(view, "#turn-announcement", "This turn needs attention") and
+               has_element?(view, "#turn-announcement", "Your turn is saved") and
                has_element?(view, "#turn-announcement", "D20 result: 17")
            end)
 
     refute has_element?(view, "#turn-error[aria-live]")
 
-    assert has_element?(
-             view,
-             "#turn-announcement",
-             "ChatGPT reported an account usage limit"
-           )
+    refute has_element?(view, "#turn-announcement", "ChatGPT reported an account usage limit")
 
-    assert has_element?(view, "#turn-error[class~='border-amber-300']")
+    assert has_element?(view, "#turn-error[class~='border-stone-200']")
 
     assert has_element?(
              view,
@@ -3532,12 +3543,9 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
   end
 
-  defp recovery_copy_count(view, recovery_copy) do
-    view
-    |> render()
-    |> Floki.parse_document!()
-    |> Floki.find("#turn-error p")
-    |> Enum.count(&String.contains?(Floki.text(&1), recovery_copy))
+  defp text_count(view, text) do
+    text_content = view |> render() |> Floki.parse_document!() |> Floki.text()
+    length(String.split(text_content, text, trim: false)) - 1
   end
 
   defp live_play(conn, campaign, session) do

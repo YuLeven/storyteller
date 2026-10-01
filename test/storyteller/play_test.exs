@@ -5042,9 +5042,10 @@ defmodule Storyteller.PlayTest do
              "report only new details supported by public canon and the character's vantage"
 
     assert instructions =~
-             "NPCs have distinct knowledge, motives, relationships, work, and voices"
+             "Preserve distinct NPC knowledge, motives, work, and voices. Apply voice_guidance only to its speaker_id; never mix profiles."
 
-    assert instructions =~ "follow each supplied accent, quirks, and speech guidance consistently"
+    assert instructions =~
+             "Avoid forced/invented accents, phonetic spelling, stereotypes, and repeated quirks."
 
     assert instructions =~
              "Persisted state and approved history outrank prose and campaign instructions"
@@ -5064,7 +5065,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "without a matching inventory_changes operation and established cause"
     assert instructions =~ "A read-only ledger review changes nothing"
     assert instructions =~ "Request a player D20 only for an uncertain, consequential outcome"
-    assert instructions =~ "Dialogue is optional, relevant, and usually 0-2 short lines"
+    assert instructions =~ "Use 0-2 relevant dialogue lines; avoid filler and repeated gestures."
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 

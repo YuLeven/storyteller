@@ -1293,7 +1293,8 @@ defmodule StorytellerWeb.SessionLive.Show do
                 turn_announcement(
                   socket.assigns.current_turn,
                   socket.assigns.current_turn_roll,
-                  turn_id
+                  turn_id,
+                  socket.assigns.plan_usage_paused?
                 )
             )
           else
@@ -1673,12 +1674,17 @@ defmodule StorytellerWeb.SessionLive.Show do
         assign(
           socket,
           turn_announcement:
-            turn_announcement(current_turn, current_turn_roll, socket.assigns.worker_turn_id)
+            turn_announcement(
+              current_turn,
+              current_turn_roll,
+              socket.assigns.worker_turn_id,
+              socket.assigns.plan_usage_paused?
+            )
         )
     end
   end
 
-  defp turn_announcement(%{status: status} = turn, result, worker_turn_id)
+  defp turn_announcement(%{status: status} = turn, result, worker_turn_id, _plan_usage_paused?)
        when status in [:pending, :resolving] do
     if worker_turn_id == turn.id do
       responding_announcement(turn, result)
@@ -1690,7 +1696,8 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp turn_announcement(
          %{status: :awaiting_roll, roll_request: request},
          _result,
-         _worker_turn_id
+         _worker_turn_id,
+         _plan_usage_paused?
        ) do
     if valid_roll_request?(request) do
       test = request["test"] || request[:test]
@@ -1705,18 +1712,23 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
-  defp turn_announcement(%{status: :failed} = turn, result, worker_turn_id) do
+  defp turn_announcement(%{status: :failed} = turn, result, worker_turn_id, plan_usage_paused?) do
     prefix =
-      if worker_turn_id == turn.id do
-        gettext("Retrying…")
-      else
-        gettext("This turn needs attention") <> ". " <> failure_message(turn.failure_code)
+      cond do
+        worker_turn_id == turn.id ->
+          gettext("Retrying…")
+
+        turn.failure_code == "usage_limit" and plan_usage_paused? ->
+          gettext("Your turn is saved")
+
+        true ->
+          gettext("This turn needs attention") <> ". " <> failure_message(turn.failure_code)
       end
 
     append_roll_result(prefix, result)
   end
 
-  defp turn_announcement(_turn, _result, _worker_turn_id), do: ""
+  defp turn_announcement(_turn, _result, _worker_turn_id, _plan_usage_paused?), do: ""
 
   defp responding_announcement(%{resolution_phase: :after_roll}, result) when not is_nil(result),
     do: append_roll_result(gettext("The game master is responding"), result)

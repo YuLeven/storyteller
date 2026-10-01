@@ -22,6 +22,12 @@
 - Updated the UX acceptance contract and kept the GM's concise instruction to offer alternatives for multiple matching memories within the existing prompt-size gate. English, Spanish, and French recovery copy, the GM-first opening flow, and retry behavior have LiveView coverage.
 - **Checks:** full WSL suite **334 tests, 0 failures**; three targeted LiveView scenarios **3 tests, 0 failures**; test-environment formatting, Gettext freshness, warnings-as-errors compilation, and `git diff --check` passed. Automated tests used isolated data and fake providers. Browser inspection was read-only; no resume, retry, or real provider request was performed.
 
+## 2026-10-01 — Give account-limit recovery one clear owner
+
+- The global account-pause banner is the only visible explanation of a ChatGPT usage limit. Removed the duplicate composer warning and repeated limit copy from the saved-turn status announcement; the retained action remains visible in the story without an extra warning card.
+- Keep the same-turn Retry control beside the saved turn while the account pause is active, visibly disabled until the player resumes requests. Resume still only clears the pause; the player separately retries the saved turn or opening scene. A saved D20 result stays with that turn. When no global pause exists, the normal failure explanation and enabled retry behavior remain.
+- LiveView behavior checks cover English, Spanish, and French; one visible limit explanation; preserved action; disabled and then enabled retry; no provider call on resume; opening-scene recovery; and saved-roll recovery. **Checks:** SessionLive **48 tests, 0 failures**; full WSL suite **338 tests, 0 failures**. Formatting, Gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. Tests use fake providers and isolated fixtures. No real provider request or live account action was performed.
+
 ## 2026-10-01 — Benchmark long-campaign context against full history
 
 - This iteration operationalizes the product thesis reinforced by market research and captured in `IMPLEMENTATION_PLAN.md`: Storyteller owns durable campaign canon, while each GM request receives only relevant bounded context. Coherence and context cost are co-equal MVP acceptance goals.
@@ -55,6 +61,12 @@
 - Added a context-budget regression with two colocated GM characters that have different quirks, accents, cadence, vocabulary, and mannerisms. When forced compaction runs, each present character keeps their own full voice profile while an unmentioned remote character's profile is omitted to conserve context.
 - This proves the configured voice reaches the bounded prompt without being merged or discarded. It does not prove the model performs the voices distinctly; that still needs human evaluation in play with separate characters and several turns.
 - **Checks:** context-budget suite **12 tests, 0 failures**; format check and `git diff --check` passed. Synthetic contexts and no provider call.
+
+## 2026-10-01 — Keep character voice notes distinct and natural in GM context
+
+- The GM policy now treats each `voice_guidance` as belonging to its character's speaker ID and name, forbids blending or swapping profiles, and asks for a few situational cues in natural dialogue. It explicitly discourages forced accents, phonetic spelling, stereotyped dialect, repeated catchphrases, and invented accents; GM narration keeps its own voice.
+- A forced-compaction regression uses the shipped GM policy and verifies that two present characters retain their own names and full, distinct authored voice profiles, while an unrelated remote character's detailed profile is omitted. This validates prompt/context construction, not whether a model will perform distinct voices in generated play.
+- **Checks:** ContextBudget **15 tests, 0 failures**; the ordinary observation prompt remains below the existing **10,000-byte** behavior ceiling. Full WSL suite: **338 tests, 0 failures**; formatting, Gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. No live provider or campaign data used.
 
 ## 2026-10-01 — Clarify time-passage turns and usage-limit recovery
 

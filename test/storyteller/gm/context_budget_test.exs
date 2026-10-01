@@ -385,16 +385,32 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     context = context |> Map.put(:characters, characters) |> Map.put(:history, history)
 
+    policy = production_gm_policy()
+
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
-               context_input_token_budget: 20_000
+             ContextBudget.compile(context, policy, "gpt-6-astra",
+               context_input_token_budget: 24_000
              )
 
     assert metrics.compacted?
+    assert metrics.conservative_input_token_upper_bound <= 24_000
+
+    policy = String.replace(policy, ~r/\s+/, " ")
+    assert policy =~ "Apply voice_guidance only to its speaker_id"
+    assert policy =~ "never mix profiles"
+    assert policy =~ "Avoid forced/invented accents, phonetic spelling"
+    assert policy =~ "stereotypes, and repeated quirks"
 
     compacted_characters = Map.new(compacted.characters, &{&1.speaker_id, &1})
-    assert compacted_characters["marisol"].voice_guidance == marisol_voice
-    assert compacted_characters["keeper"].voice_guidance == keeper_voice
+
+    assert {compacted_characters["marisol"].name, compacted_characters["marisol"].voice_guidance} ==
+             {"Marisol", marisol_voice}
+
+    assert {compacted_characters["keeper"].name, compacted_characters["keeper"].voice_guidance} ==
+             {"Iria", keeper_voice}
+
+    refute compacted_characters["marisol"].voice_guidance == keeper_voice
+    refute compacted_characters["keeper"].voice_guidance == marisol_voice
     refute Map.has_key?(compacted_characters["tomas"], :voice_guidance)
   end
 
