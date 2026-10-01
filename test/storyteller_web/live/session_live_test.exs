@@ -544,7 +544,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute render(view) =~ "A hidden passage lies behind the shelves."
   end
 
-  test "Ask the GM persists its intent and cannot change canonical campaign state", %{
+  test "Ask GM answers stay in the timeline without replacing the current situation", %{
     conn: conn
   } do
     campaign = campaign_fixture()
@@ -646,6 +646,14 @@ defmodule StorytellerWeb.SessionLiveTest do
                "The northern road is visible beyond the orchard."
              )
            end)
+
+    assert has_element?(view, "#current-place #current-situation", "The scene takes shape")
+
+    refute has_element?(
+             view,
+             "#current-place #current-situation",
+             "The northern road is visible beyond the orchard."
+           )
 
     turn = Play.get_turn(campaign.id, idempotency_key)
     assert turn.intent == :question

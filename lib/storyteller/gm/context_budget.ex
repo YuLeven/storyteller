@@ -16,6 +16,23 @@ defmodule Storyteller.GM.ContextBudget do
   @relevant_event_text_chars 900
   @memory_summary_chars 1_500
   @detailed_continuity_count 12
+  @memory_stopwords MapSet.new(~w(
+    a about above after again against all am an and any are as at be because been before being
+    below between both but by can could did do does doing down during each few for from further
+    had has have having he her here hers herself him himself his how i if in into is it its
+    itself just me more most my myself no nor not of off on once only or other our ours ourselves
+    out over own same she should so some such than that the their theirs them themselves then
+    there these they this those through to too under until up very was we were what when where
+    which while who whom why with would you your
+    a al algo algunas algunos ante antes como con contra cual cuando de del desde donde durante
+    e el ella ellas ellos en entre era erais eran eras eres es esa esas ese eso esos esta estaba
+    estaban estado estas este esto estos fue fueron ha habia hacia han hasta hay la las le les lo
+    los mas me mi mis mucho muy nada ni no nos o otra otras otro otros para pero poco por porque
+    que quien se sin sobre su sus te tiene todo tu tus un una unas uno unos y ya
+    au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me meme mes
+    moi mon ne nos notre nous on ou par pas pour qu que quelle qui sa se ses son sur ta te tes toi
+    ton tu un une vos votre vous y
+  ))
 
   @measured_sections [
     :campaign,
@@ -51,15 +68,37 @@ defmodule Storyteller.GM.ContextBudget do
   def compile(context, instructions, model, opts)
       when is_map(context) and is_binary(instructions) do
     budget = token_budget(model, opts)
-    full = measure(context, instructions, budget, false, [])
+    {selected_context, retrieval_omitted?} = retrieve_player_managed_memory(context)
+
+    selected_context =
+      if retrieval_omitted? do
+        context_with_completeness(selected_context, %{
+          player_managed_memory_details_omitted: true
+        })
+      else
+        selected_context
+      end
+
+    retrieval_omissions =
+      if retrieval_omitted?, do: [:player_managed_memory_details], else: []
+
+    full =
+      measure(
+        selected_context,
+        instructions,
+        budget,
+        retrieval_omitted?,
+        retrieval_omissions
+      )
 
     cond do
       full.conservative_input_token_upper_bound <= budget ->
-        {:ok, %{context: context, metrics: full}}
+        {:ok, %{context: selected_context, metrics: full}}
 
       true ->
-        compacted = compact_context(context)
-        metrics = measure(compacted.context, instructions, budget, true, compacted.omissions)
+        compacted = compact_context(selected_context)
+        omissions = Enum.uniq(retrieval_omissions ++ compacted.omissions)
+        metrics = measure(compacted.context, instructions, budget, true, omissions)
 
         if metrics.conservative_input_token_upper_bound <= budget do
           {:ok, %{context: compacted.context, metrics: metrics}}
@@ -205,7 +244,79 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp context_with_completeness(context, completeness),
-    do: Map.put(context, :context_completeness, completeness)
+    do:
+      Map.update(
+        context,
+        :context_completeness,
+        completeness,
+        &Map.merge(&1, completeness)
+      )
+
+  # Player-managed public story notes are deliberately opt-in by relevance.
+  # Keep only stable identity/status metadata in context, and omit unrelated
+  # note content even when the whole request fits under the size ceiling. The
+  # campaign board remains the complete, player-visible source of these notes.
+  defp retrieve_player_managed_memory(context) do
+    continuity = value(context, :continuity)
+
+    if is_map(continuity) do
+      terms = query_terms(context)
+      public_key = if Map.has_key?(continuity, "public"), do: "public", else: :public
+      entries = Map.get(continuity, public_key)
+
+      if is_list(entries) do
+        {selected, omitted?} =
+          Enum.map_reduce(entries, false, fn entry, any_omitted? ->
+            player_managed? = value(entry, :player_managed) == true
+            relevant? = memory_relevant?(entry, terms)
+
+            if player_managed? and not relevant? and is_map(entry) do
+              {Map.take(
+                 entry,
+                 [
+                   :entry_id,
+                   :kind,
+                   :status,
+                   :visibility,
+                   :player_managed,
+                   "entry_id",
+                   "kind",
+                   "status",
+                   "visibility",
+                   "player_managed"
+                 ]
+               ), true}
+            else
+              {entry, any_omitted?}
+            end
+          end)
+
+        continuity = put_context_value(continuity, Atom.to_string(public_key), selected)
+        {put_context_value(context, "continuity", continuity), omitted?}
+      else
+        {context, false}
+      end
+    else
+      {context, false}
+    end
+  end
+
+  defp memory_relevant?(entry, query_terms) do
+    meaningful_query_terms = MapSet.difference(query_terms, @memory_stopwords)
+    note_terms = meaningful_terms(entry_text(entry))
+    not MapSet.disjoint?(meaningful_query_terms, note_terms)
+  end
+
+  defp meaningful_terms(text) when is_binary(text) do
+    text
+    |> String.downcase()
+    |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
+    |> List.flatten()
+    |> Enum.reject(&MapSet.member?(@memory_stopwords, &1))
+    |> MapSet.new()
+  end
+
+  defp meaningful_terms(_text), do: MapSet.new()
 
   defp compact_history(history, terms) when is_list(history) do
     story_events = Enum.filter(history, &conversation_event?/1)

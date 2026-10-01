@@ -113,7 +113,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert compacted.travel_connections == context.travel_connections
   end
 
-  test "keeps eight bounded player-authored memories inside the default context budget" do
+  test "retrieves relevant player memories without resending unrelated details under budget" do
     context = base_context()
 
     player_memories =
@@ -121,42 +121,101 @@ defmodule Storyteller.GM.ContextBudgetTest do
         %{
           entry_id: "player-memory-#{number}",
           kind: "commitment",
-          title: "Player memory #{number}",
+          title:
+            if(number == 1,
+              do: "Bodega harvest agreement",
+              else: "Player memory #{number}"
+            ),
           details:
-            String.pad_trailing("A public promise that remains canonical. #{number}", 300, " "),
+            if(number == 1,
+              do: "Marisol checks the harvest at the Bodega before dawn.",
+              else: String.pad_trailing("Unrelated public promise #{number}.", 300, " ")
+            ),
           status: "active",
           visibility: "public",
-          source_sequence: nil
-        }
-      end)
-
-    history =
-      Enum.map(1..45, fn sequence ->
-        %{
-          "sequence" => sequence,
-          "session_id" => 1,
-          "event_type" => "gm_narration",
-          "visibility" => "public",
-          "speaker_id" => nil,
-          "payload" => %{"text" => String.duplicate("Unrelated scene detail. ", 35)}
+          source_sequence: nil,
+          player_managed: true
         }
       end)
 
     context =
       context
       |> Map.put(:continuity, %{public: player_memories, gm_private: []})
-      |> Map.put(:history, history)
+
+    assert byte_size(Jason.encode!(context)) + byte_size("Short GM policy") + 512 < 24_000
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
 
     assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.compacted?
+    assert metrics.omissions == [:player_managed_memory_details]
 
-    assert Enum.map(compiled.continuity.public, & &1.details) ==
-             Enum.map(player_memories, & &1.details)
+    [relevant | unrelated] = compiled.continuity.public
+    assert relevant.details == hd(player_memories).details
 
-    assert Enum.all?(compiled.continuity.public, &(&1.source_sequence == nil))
-    assert compiled.context_completeness.history_compacted
+    assert Enum.all?(unrelated, fn entry ->
+             Enum.all?([:title, :details], &(not Map.has_key?(entry, &1)))
+           end)
+
+    assert Enum.map(compiled.continuity.public, & &1.entry_id) ==
+             Enum.map(player_memories, & &1.entry_id)
+
+    assert compiled.context_completeness.player_managed_memory_details_omitted
+    refute Map.get(compiled.context_completeness, :history_compacted, false)
+
+    assert metrics.context_json_bytes < byte_size(Jason.encode!(context))
+  end
+
+  test "uses exact meaningful word matches and leaves GM-authored or private continuity intact" do
+    context = base_context()
+
+    context =
+      put_in(context, [:continuity], %{
+        public: [
+          %{
+            entry_id: "player-note",
+            title: "A distant plan",
+            details: "The harvesters tend the western orchard row.",
+            status: "active",
+            player_managed: true
+          },
+          %{
+            entry_id: "gm-note",
+            title: "An established public fact",
+            details: "The harbor toll is waived for the autumn boats.",
+            status: "active",
+            player_managed: false
+          }
+        ],
+        gm_private: [
+          %{
+            entry_id: "private-note",
+            title: "Hidden plan",
+            details: "The hidden orchard cache is under the western row.",
+            status: "active",
+            player_managed: true
+          }
+        ]
+      })
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Policy", "gpt-6-astra")
+
+    assert metrics.compacted?
+
+    assert Enum.find(compiled.continuity.public, &(&1.entry_id == "player-note")) ==
+             Map.take(hd(context.continuity.public), [
+               :entry_id,
+               :kind,
+               :status,
+               :player_managed
+             ])
+
+    assert Enum.find(compiled.continuity.public, &(&1.entry_id == "gm-note")) ==
+             Enum.at(context.continuity.public, 1)
+
+    assert compiled.continuity.gm_private == context.continuity.gm_private
   end
 
   test "fails recoverably when active continuity canon alone cannot fit" do

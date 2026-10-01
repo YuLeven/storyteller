@@ -289,7 +289,17 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     public_entry =
       Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Lyra's dawn delivery")
 
-    assert Repo.get_by!(State, campaign_id: campaign.id).revision == created.revision
+    assert {:ok, _unrelated_created} =
+             memory_correction(campaign, first_session, created.revision, "add", nil, %{
+               "kind" => "fact",
+               "title" => "Finca pruning plan",
+               "details" => "The western row will be pruned at the end of the month."
+             })
+
+    unrelated_entry =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Finca pruning plan")
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).revision == created.revision + 1
 
     {:ok, next_session} = Campaigns.start_session(campaign)
     captured = Agent.start_link(fn -> nil end) |> elem(1)
@@ -302,17 +312,29 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
                "What was Lyra supposed to bring?",
                provider: fn request ->
                  context = decode_request(request)
-                 Agent.update(captured, fn _ -> context end)
+                 Agent.update(captured, fn _ -> {context, request.local_context_metrics} end)
                  {:ok, Jason.encode!(proposal())}
                end
              )
 
-    context = Agent.get(captured, & &1)
+    {context, metrics} = Agent.get(captured, & &1)
+
+    assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.omissions == [:player_managed_memory_details]
 
     assert Enum.any?(context["continuity"]["public"], fn entry ->
              entry["entry_id"] == public_entry.entry_id and
-               entry["details"] == "Lyra promised to bring the eastern star chart before dawn."
+               entry["details"] == "Lyra promised to bring the eastern star chart before dawn." and
+               entry["player_managed"]
            end)
+
+    assert Enum.any?(context["continuity"]["public"], fn entry ->
+             entry["entry_id"] == unrelated_entry.entry_id and
+               entry["player_managed"] and not Map.has_key?(entry, "title") and
+               not Map.has_key?(entry, "details")
+           end)
+
+    assert context["context_completeness"]["player_managed_memory_details_omitted"]
 
     refute Jason.encode!(context["continuity"]["public"]) =~ "secretly changed"
 
@@ -323,6 +345,11 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
     assert Enum.any?(projection.continuity_entries, &(&1.entry_id == public_entry.entry_id))
+
+    assert Enum.any?(projection.continuity_entries, fn entry ->
+             entry.entry_id == unrelated_entry.entry_id and
+               entry.details == "The western row will be pruned at the end of the month."
+           end)
 
     assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
              state.elapsed_world_minutes

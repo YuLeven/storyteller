@@ -4724,6 +4724,78 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
+  test "a follow-up look-around question gets vantage guidance without changing the scene" do
+    {campaign, session} = play_campaign("The Glass Observatory Follow-up")
+    assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
+
+    opening_proposal =
+      ordinary_proposal(%{
+        "narration" => "You find yourself in the Glass Observatory.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => move_player_to("glass-dome", "The Glass Observatory")
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.retry_turn(opening_turn.id,
+               provider: fn _request -> {:ok, Jason.encode!(opening_proposal)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, before} = Play.public_projection(campaign.id)
+    before_clock = Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes
+    owner = self()
+    question = "What can I see from here that I haven't noticed yet?"
+
+    provider = fn request ->
+      send(owner, {:look_around_request, request, decode_request(request)})
+
+      answer =
+        "From here, nothing else stands out. You could inspect one detail more closely or choose your next move."
+
+      {:ok, Jason.encode!(ordinary_proposal(%{"narration" => answer}))}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "look-around-follow-up", question,
+               intent: :question,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:look_around_request, request, context}, 1_000
+    instructions = String.replace(request.instructions, ~r/\s+/, " ")
+
+    metrics = request.local_context_metrics
+    assert metrics.instructions_bytes == byte_size(request.instructions)
+    assert metrics.conservative_input_token_upper_bound <= metrics.budget_tokens
+    assert context["interaction_mode"] == "question"
+    assert context["player_action"] == question
+    assert context["world"]["public"]["location"] == "The Glass Observatory"
+    assert instructions =~ "Treat the board and recent narration as known"
+
+    assert instructions =~
+             "answer the exact question from the character's current, public vantage"
+
+    assert instructions =~ "For a follow-up look-around, add at most one supported new detail"
+    assert instructions =~ "say briefly that nothing else stands out from here"
+
+    assert instructions =~
+             "Never invent a clue, object, sound, person, or event to fill the answer"
+
+    assert {:ok, after_projection} = Play.public_projection(campaign.id)
+    assert after_projection.world == before.world
+
+    assert Enum.map(after_projection.characters, &{&1.speaker_id, &1.current_place_id}) ==
+             Enum.map(before.characters, &{&1.speaker_id, &1.current_place_id})
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == before_clock
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.map(Enum.take(timeline, -2), & &1.event_type) == [:player_question, :gm_narration]
+  end
+
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
     {first, first_session} = play_campaign("The Glass Observatory")
     {second, second_session} = play_campaign("The Copper Archive")

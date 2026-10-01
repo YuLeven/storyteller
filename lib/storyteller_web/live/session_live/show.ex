@@ -1114,12 +1114,20 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp latest_public_narration(events) do
+    question_turn_ids =
+      events
+      |> Enum.filter(&(&1.event_type == :player_question))
+      |> Enum.map(& &1.turn_id)
+      |> MapSet.new()
+
     events
     |> Enum.reverse()
     |> Enum.find_value(fn
-      %{event_type: :gm_narration, payload: %{"text" => text}}
+      %{event_type: :gm_narration, turn_id: turn_id, payload: %{"text" => text}}
       when is_binary(text) ->
-        if String.trim(text) == "", do: nil, else: text
+        if String.trim(text) == "" or MapSet.member?(question_turn_ids, turn_id),
+          do: nil,
+          else: text
 
       _event ->
         nil

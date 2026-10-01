@@ -1,5 +1,19 @@
 # Feature log
 
+## 2026-10-01 — Spend context on relevant memory and avoid duplicate scene answers
+
+- A context-budget review found that public player-managed memories were sent in full whenever an ordinary request fit the byte ceiling, even if a note had nothing to do with the current action. The deterministic compiler now includes note details only when meaningful words overlap with the player's action, present characters, or current place. Unrelated notes keep stable identity/status metadata and are marked in `context_completeness`; the full note remains visible on the campaign board. GM-authored public continuity and GM-private canon are not altered. This lexical selection is a low-cost baseline; synonym-heavy and implicit-reference retrieval still needs scenario coverage.
+- The same change adds a fake-provider cross-session regression: an asked-about note reaches the GM with complete detail, an unrelated note's title/details stay out of context while remaining on the board, and an under-budget request remains within the conservative input bound. A companion compiler case proves unrelated detail is filtered even when the unfiltered request already fits.
+- The product benchmark in `docs/PRODUCT_BENCHMARK.md` compares the public descriptions of Friends & Fables and LegendKeeper and applies Apple's feedback/progressive-disclosure/motion guidance. It labels vendor claims separately from Storyteller's isolated QA observation and does not claim hands-on competitor testing. The near-term gameplay action is useful, non-repetitive look-around answers; general maps, tactical grids and multiplayer are deferred.
+- **Checks:** full WSL suite **302 tests, 0 failures**; `mix format --check-formatted`, `mix gettext.extract --check-up-to-date`, `MIX_ENV=test mix compile --warnings-as-errors`, and `git diff --check` passed. No live provider request or Vineyard campaign access was used for this iteration.
+
+## 2026-10-01 — Make follow-up scene questions useful without replaying the board
+
+- Read-only review of the separate fictional QA campaign found a follow-up question answered with a repeated world-bar detail and a near-copy of the current-situation panel. Ask GM now instructs the GM to treat the board and recent narration as already known, answer the precise question from the character's current public vantage, and avoid echoing the scene or its previous answer.
+- For another look-around, give at most one supported new detail. If none is grounded in context, say so briefly and return choice with a low-pressure invitation to inspect something specific or choose a next move. Do not manufacture clues, objects, sounds, people, or events for color. A direct question still leaves time and canon unchanged.
+- Added a fake-provider regression that opens a canonical scene, asks the same follow-up from it, checks the question-specific instructions and supplied location/question context, and verifies the world, presence, and clock remain unchanged. No live provider request or Vineyard campaign access was used.
+- **Checks:** `PlayTest` **72 tests, 0 failures**; the changed Elixir files are formatted and `git diff --check` passed. The later repository-wide formatter check passed after the concurrent context-budget test was formatted. The regression uses only a fake provider.
+
 ## 2026-10-01 — Keep durable public story memory within the token budget
 
 - The defining product idea is now captured as an MVP gate: the application owns durable campaign canon and plausibility; the LLM narrates and proposes changes but cannot replace structured world state or be expected to recall a growing transcript. The Finca–Bodega example remains the concrete acceptance test for presence and travel.

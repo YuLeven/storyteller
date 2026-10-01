@@ -4308,7 +4308,14 @@ defmodule Storyteller.Play do
 
     This is a direct out-of-character question from the player to you as GM, not
     an action or dialogue spoken by the player's character. Answer it plainly
-    and briefly as GM narration. Do not advance fictional time or change any
+    and briefly as GM narration. Treat the board and recent narration as known;
+    answer the exact question from the character's current, public vantage
+    instead of repeating the situation panel, timeline, or an earlier answer.
+    For a follow-up look-around, add at most one supported new detail. If none
+    is evident, say briefly that nothing else stands out from here and offer a
+    low-pressure invitation to inspect something specific or choose what to do.
+    Never invent a clue, object, sound, person, or event to fill the answer.
+    Do not advance fictional time or change any
     canonical world, character, inventory, location, objective, continuity,
     memory, or tracked-resource data; set time_advance_minutes to 0. Do not create NPC dialogue, activities,
     rolls, or other events; only narration is used for this answer.
