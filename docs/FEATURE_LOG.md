@@ -1,5 +1,22 @@
 # Feature log
 
+## 2026-10-01 — Retrieve indirect employment details without broadening toll matches
+
+- Job-memory retrieval now covers bounded English, Spanish, and French schedule/terms questions and promise/agreement references. The matcher requires a work or acceptance cue alongside schedule terms, and both commitment and work cues for a promise, so generic bridge hours or toll-payment questions do not pull in the employment note.
+- Tests include positive indirect phrasings in all three languages and same-topic bridge-hour/toll decoys. This is still a curated lexical relation system, not general semantic search; open-ended paraphrases without a mapped cue can still miss.
+- **Checks:** ContextBudget **16 tests, 0 failures**; full WSL suite **340 tests, 0 failures**; retry/account-pause LiveView selection **3 tests, 0 failures**; formatting, Gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. The JavaScript suite passes **13/13**.
+
+## 2026-10-01 — Stress-test continuity across 100 synthetic sessions
+
+- Added a 2,400-event synthetic history spanning 100 sessions. The compiler preserves the old Finca/Bodega route-and-duty fact, the latest 12 turns, and canonical character locations, duties, route, and inventory, while dropping unrelated older events.
+- The bounded request stays within the configured input ceiling, within 2 KB of a 12-event baseline, and at least 5× smaller than the full-history request. This verifies scale and context economy for the labeled fixture; it does not establish general semantic recall or replace multi-session play testing.
+- **Checks:** focused long-campaign regression **1 test, 0 failures**; full WSL suite **340 tests, 0 failures**. No campaign database or provider request was used.
+
+## 2026-10-01 — Confirm retry gating during an active account usage pause
+
+- Read-only inspection of separate QA campaign 35/session 36 found its current saved action visible while the account-wide ChatGPT usage pause is active. The retry control is present but disabled, and the pause notice offers the explicit resume path. No retry, resume, or provider request was made during this inspection.
+- The state matches the designed pause gate. Fake-provider LiveView coverage verifies resume makes no provider call and makes the same saved turn retryable; the live account remains unverified until its usage pause ends.
+
 ## 2026-10-01 — Preserve safe scene atmosphere without inventing canon
 
 - A read-only QA review found the canon-first look-around rule could leave a sparse room feeling like a missing record. The GM may now add one short, source-free ambient cue consistent with the known place, time, and weather. People, items, routes, exits, hazards, clues, services, and other actionable facts still require accepted canon; people also require accepted presence. If a player action depends on something untracked, the GM should ask or state uncertainty.

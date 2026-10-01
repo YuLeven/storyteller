@@ -41,5 +41,6 @@ In one later live turn in the fictional QA campaign, the player asked about job 
 
 - Competitor statements above are public vendor documentation reviewed on the date shown; no account-based feature was hands-on tested.
 - The Storyteller observation is from the fictional QA campaign only. It is a qualitative issue report, not a comparative score.
+- Current synthetic continuity evidence includes a labeled 240-event retrieval fixture, a 2,400-event/100-session scale stress case, and selected English, Spanish, and French schedule/promise queries with bridge-hour and toll-payment decoys. These tests do not establish general semantic recall or live-GM quality.
 - Use the same tasks for future hands-on comparisons: find current location and present characters, inspect inventory/resources, retrieve one old commitment, distinguish public knowledge from GM secrets, and recover after a failed turn.
 - Judge coherence, time-to-understanding, player agency and context use. Do not compare feature counts or treat vendor marketing as measured performance.

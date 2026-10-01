@@ -98,6 +98,40 @@ defmodule Storyteller.GM.ContextBudget do
     "employeurs" => "employment:work",
     "poste" => "employment:work",
     "postes" => "employment:work",
+    "hour" => "employment:terms",
+    "hours" => "employment:terms",
+    "working" => "employment:terms",
+    "shift" => "employment:terms",
+    "shifts" => "employment:terms",
+    "schedule" => "employment:terms",
+    "schedules" => "employment:terms",
+    "timetable" => "employment:terms",
+    "condition" => "employment:terms",
+    "conditions" => "employment:terms",
+    "term" => "employment:terms",
+    "terms" => "employment:terms",
+    "hora" => "employment:terms",
+    "horas" => "employment:terms",
+    "horario" => "employment:terms",
+    "horarios" => "employment:terms",
+    "jornada" => "employment:terms",
+    "jornadas" => "employment:terms",
+    "turno" => "employment:terms",
+    "turnos" => "employment:terms",
+    "condición" => "employment:terms",
+    "condiciones" => "employment:terms",
+    "condicion" => "employment:terms",
+    "término" => "employment:terms",
+    "términos" => "employment:terms",
+    "termino" => "employment:terms",
+    "terminos" => "employment:terms",
+    "heure" => "employment:terms",
+    "heures" => "employment:terms",
+    "horaire" => "employment:terms",
+    "horaires" => "employment:terms",
+    "planning" => "employment:terms",
+    "terme" => "employment:terms",
+    "termes" => "employment:terms",
     "accept" => "employment:acceptance",
     "accepts" => "employment:acceptance",
     "accepted" => "employment:acceptance",
@@ -122,6 +156,40 @@ defmodule Storyteller.GM.ContextBudget do
     "acceptons" => "employment:acceptance",
     "acceptant" => "employment:acceptance",
     "acceptation" => "employment:acceptance",
+    "promise" => "employment:commitment",
+    "promises" => "employment:commitment",
+    "promised" => "employment:commitment",
+    "promising" => "employment:commitment",
+    "agree" => "employment:commitment",
+    "agrees" => "employment:commitment",
+    "agreed" => "employment:commitment",
+    "agreement" => "employment:commitment",
+    "promesa" => "employment:commitment",
+    "promesas" => "employment:commitment",
+    "prometer" => "employment:commitment",
+    "prometí" => "employment:commitment",
+    "prometi" => "employment:commitment",
+    "prometió" => "employment:commitment",
+    "prometio" => "employment:commitment",
+    "prometimos" => "employment:commitment",
+    "prometieron" => "employment:commitment",
+    "prometido" => "employment:commitment",
+    "prometida" => "employment:commitment",
+    "acordar" => "employment:commitment",
+    "acordé" => "employment:commitment",
+    "acorde" => "employment:commitment",
+    "acordó" => "employment:commitment",
+    "acordo" => "employment:commitment",
+    "acordamos" => "employment:commitment",
+    "acordaron" => "employment:commitment",
+    "promesse" => "employment:commitment",
+    "promesses" => "employment:commitment",
+    "promettre" => "employment:commitment",
+    "promis" => "employment:commitment",
+    "promet" => "employment:commitment",
+    "convenir" => "employment:commitment",
+    "convenu" => "employment:commitment",
+    "convenue" => "employment:commitment",
     "pay" => "employment:compensation",
     "pays" => "employment:compensation",
     "paid" => "employment:compensation",
@@ -156,7 +224,9 @@ defmodule Storyteller.GM.ContextBudget do
   @employment_memory_concepts MapSet.new([
                                 "employment:work",
                                 "employment:acceptance",
-                                "employment:compensation"
+                                "employment:compensation",
+                                "employment:terms",
+                                "employment:commitment"
                               ])
   @ambiguous_compensation_terms MapSet.new([
                                   "pay",
@@ -483,7 +553,9 @@ defmodule Storyteller.GM.ContextBudget do
          (MapSet.disjoint?(raw_query_terms, @ambiguous_compensation_terms) or
             employment_work_or_acceptance?)) or
         (MapSet.member?(employment_matches, "employment:work") and
-           MapSet.member?(employment_matches, "employment:acceptance"))
+           MapSet.member?(employment_matches, "employment:acceptance")) or
+        employment_terms_relevant?(employment_matches) or
+        employment_commitment_relevant?(employment_matches)
 
     query_support = MapSet.intersection(meaningful_query_terms, @seasonal_supporting_concepts)
     note_support = MapSet.intersection(note_terms, @seasonal_supporting_concepts)
@@ -511,6 +583,21 @@ defmodule Storyteller.GM.ContextBudget do
       true ->
         true
     end
+  end
+
+  # Terms/schedule questions and a character's promise can refer to an older
+  # job offer without repeating the note's original wording. Require an
+  # employment-domain cue on both sides of each relation so generic bridge
+  # hours, toll payments, and unrelated promises do not pull in job memories.
+  defp employment_terms_relevant?(employment_matches) do
+    MapSet.member?(employment_matches, "employment:terms") and
+      (MapSet.member?(employment_matches, "employment:work") or
+         MapSet.member?(employment_matches, "employment:acceptance"))
+  end
+
+  defp employment_commitment_relevant?(employment_matches) do
+    MapSet.member?(employment_matches, "employment:commitment") and
+      MapSet.member?(employment_matches, "employment:work")
   end
 
   # A broad "fall event" query should retrieve distinct event candidates. A

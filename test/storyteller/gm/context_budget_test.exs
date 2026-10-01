@@ -532,6 +532,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
         title: "Stone bridge repair",
         details:
           "The mason repaired the old stone bridge after the spring flood. " <>
+            "Its opening hours are posted by the gate, and bridge tolls are paid at dawn. " <>
             String.duplicate(
               "Repair notes describe the damaged arch and replacement stones. ",
               20
@@ -566,6 +567,12 @@ defmodule Storyteller.GM.ContextBudgetTest do
     for action <- [
           "Antes de aceptar el trabajo, ¿qué debo aclarar sobre la oferta?",
           "Avant d'accepter le poste, quels points dois-je clarifier ?",
+          "What hours were part of that position?",
+          "¿Qué horario tenía ese puesto?",
+          "Quels horaires étaient prévus pour le poste ?",
+          "What did I promise about the position?",
+          "¿Qué había prometido sobre ese puesto?",
+          "Qu'avais-je promis au sujet du poste ?",
           "What does the employer pay?",
           "¿Cuánto paga el empleador?",
           "Combien l'employeur paie-t-il ?"
@@ -597,7 +604,16 @@ defmodule Storyteller.GM.ContextBudgetTest do
       assert compiled.context_completeness.player_managed_memory_details_omitted
     end
 
-    for action <- ["Should I accept it?", "Where is the employer?"] do
+    for action <- [
+          "Should I accept it?",
+          "Where is the employer?",
+          "What are the bridge opening hours?",
+          "¿A qué hora abre el puente?",
+          "Quels sont les horaires d'ouverture du pont ?",
+          "Who pays the bridge toll?",
+          "¿Quién paga el peaje del puente?",
+          "Qui paie le péage du pont ?"
+        ] do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
@@ -606,7 +622,16 @@ defmodule Storyteller.GM.ContextBudgetTest do
                )
 
       assert metrics.conservative_input_token_upper_bound <= 24_000
-      assert Enum.all?(compiled.continuity.public, &(not Map.has_key?(&1, :details)))
+
+      employment =
+        Enum.find(compiled.continuity.public, &(&1.entry_id == employment_memory.entry_id))
+
+      refute Map.has_key?(employment, :details)
+
+      if action in ["What are the bridge opening hours?", "Who pays the bridge toll?"] do
+        bridge = Enum.find(compiled.continuity.public, &(&1.entry_id == "stone-bridge-repair"))
+        assert bridge.details =~ "opening hours"
+      end
     end
 
     toll_context = Map.put(context, :player_action, "I paid the bridge toll.")
