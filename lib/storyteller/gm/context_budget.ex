@@ -369,7 +369,12 @@ defmodule Storyteller.GM.ContextBudget do
           active? = value(entry, :status) in ["active", :active]
           mentioned? = relevance_score(entry_text(entry), terms) > 0
 
-          if MapSet.member?(detailed_ids, value(entry, :entry_id)) or (active? and mentioned?) do
+          # Active continuity is canonical state, not optional history. Keep
+          # its complete details even when old and lexically unrelated to the
+          # current action; compacting it could silently erase durable facts.
+          # Closed entries can safely lose old detail because their summary
+          # identity/status remains present.
+          if active? or MapSet.member?(detailed_ids, value(entry, :entry_id)) or mentioned? do
             entry
           else
             Map.drop(entry, [:details, "details"])

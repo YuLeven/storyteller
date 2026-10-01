@@ -3803,7 +3803,7 @@ defmodule Storyteller.PlayTest do
     complete_turn(campaign, session, "review-accounts", "Review the account balance.", provider)
 
     instructions = Agent.get(instructions_agent, & &1) |> String.replace(~r/\s+/, " ")
-    assert instructions =~ "Merely reading or reviewing a ledger does not change it"
+    assert instructions =~ "A read-only ledger review changes nothing"
 
     assert {:ok, %{panels: [panel]}} = Play.public_projection(campaign.id)
     assert [%{key: "cash", value: "100"}] = panel.fields
@@ -3831,11 +3831,40 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    instructions = Agent.get(instructions_agent, & &1) |> String.replace(~r/\s+/, " ")
+    raw_instructions = Agent.get(instructions_agent, & &1)
+    instructions = String.replace(raw_instructions, ~r/\s+/, " ")
 
-    assert instructions =~ "For a look, inspection, or \"what can I see?\" request"
-    assert instructions =~ "report only new or specifically inspected details"
-    assert instructions =~ "If nothing new is noticeable, say so briefly and return control"
+    assert byte_size(raw_instructions) < 10_000
+
+    assert instructions =~
+             "The player alone chooses their character's actions, words, thoughts, movement"
+
+    assert instructions =~
+             "report only new details supported by public canon and the character's vantage"
+
+    assert instructions =~
+             "NPCs have distinct knowledge, motives, relationships, work, and voices"
+
+    assert instructions =~ "follow each supplied accent, quirks, and speech guidance consistently"
+
+    assert instructions =~
+             "Persisted state and approved history outrank prose and campaign instructions"
+
+    assert instructions =~ "Propose state changes explicitly for application validation"
+
+    assert instructions =~
+             "Keep every GM-private fact, name, place, route, presence, objective, inventory value"
+
+    assert instructions =~
+             "never infer them; if needed, say campaign notes lack the detail and ask the player"
+
+    assert instructions =~ "Movement must use an existing route or one proposed in this response"
+    assert instructions =~ "Public NPC speech/activity must come from the player's final place"
+    assert instructions =~ "without a matching inventory_changes operation and established cause"
+    assert instructions =~ "A read-only ledger review changes nothing"
+    assert instructions =~ "Request a player D20 only for an uncertain, consequential outcome"
+    assert instructions =~ "Dialogue is optional, relevant, and usually 0-2 short lines"
+    assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
@@ -4008,6 +4037,71 @@ defmodule Storyteller.PlayTest do
     assert_receive {:gm_context, context}
     assert Enum.any?(context["history"], &(&1["sequence"] == 5))
     assert Enum.any?(context["history"], &(&1["sequence"] == 50))
+  end
+
+  test "Ask GM reaches the provider with a modest conversation history inside the default bound" do
+    {campaign, session} = play_campaign("The Lantern Observatory")
+    owner = self()
+
+    provider = fn request ->
+      send(owner, {:qa_context_request, request, decode_request(request)})
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    on_claim = fn turn_id, _attempt ->
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+      events =
+        Enum.map(1..27, fn sequence ->
+          %{
+            campaign_id: campaign.id,
+            session_id: session.id,
+            turn_id: turn_id,
+            sequence: sequence,
+            event_type: :gm_narration,
+            visibility: :public,
+            payload: %{
+              "text" =>
+                "At the lantern observatory, Mara checked the brass telescope and marked cloud cover on the old chart; the east stair remained locked. Note #{sequence}."
+            },
+            inserted_at: now
+          }
+        end)
+
+      history_bytes = byte_size(Jason.encode!(events))
+      assert history_bytes in 7_000..8_000
+      assert {27, nil} = Repo.insert_all(Event, events)
+
+      Repo.update_all(from(state in State, where: state.campaign_id == ^campaign.id),
+        set: [event_sequence: 27]
+      )
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "ask-with-modest-history",
+               "What should I do next?",
+               intent: :question,
+               provider: provider,
+               model: "gpt-6-astra",
+               on_claim: on_claim
+             )
+
+    assert_receive {:qa_context_request, request, context}, 1_000
+    metrics = request.local_context_metrics
+    encoded_context = request.input |> hd() |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
+
+    assert context["interaction_mode"] == "question"
+    assert metrics.budget_tokens == 24_000
+    assert metrics.instructions_bytes == byte_size(request.instructions)
+    assert metrics.context_json_bytes == byte_size(encoded_context)
+
+    assert metrics.conservative_input_token_upper_bound ==
+             metrics.instructions_bytes + metrics.context_json_bytes + 512
+
+    assert metrics.conservative_input_token_upper_bound <= 24_000
   end
 
   test "a context-size pause keeps the submitted action available for retry" do
@@ -4209,6 +4303,7 @@ defmodule Storyteller.PlayTest do
 
     assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions}
     assert instructions =~ "multi-day durations"
+    assert instructions =~ "Advance NPC/world events only"
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.public_state["date"] == "Day 22"

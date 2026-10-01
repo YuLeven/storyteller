@@ -46,6 +46,105 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "finca"
   end
 
+  test "keeps every active continuity detail while compacting history and closed entries" do
+    context = base_context()
+
+    continuity_entries =
+      [
+        %{
+          entry_id: "closed-old",
+          kind: "fact",
+          title: "Closed legacy",
+          details: String.duplicate("dormant relic custodian ", 12),
+          status: "completed",
+          visibility: "public"
+        }
+      ] ++
+        Enum.map(1..13, fn number ->
+          %{
+            entry_id: "active-#{number}",
+            kind: "fact",
+            title: "Active canon #{number}",
+            details:
+              "Unmentioned durable canon #{number}: " <>
+                String.duplicate("keepsake stewardship ", 12),
+            status: "active",
+            visibility: "public"
+          }
+        end)
+
+    history =
+      Enum.map(1..40, fn sequence ->
+        %{
+          "sequence" => sequence,
+          "session_id" => 1,
+          "event_type" => "gm_narration",
+          "visibility" => "public",
+          "speaker_id" => nil,
+          "payload" => %{"text" => String.duplicate("Harbor ships arrive today. ", 45)}
+        }
+      end)
+
+    context =
+      context
+      |> Map.put(:continuity, %{public: continuity_entries, gm_private: []})
+      |> Map.put(:history, history)
+
+    assert {:ok, %{context: compacted, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
+               context_input_token_budget: 24_000
+             )
+
+    assert metrics.compacted?
+    assert metrics.conservative_input_token_upper_bound <= 24_000
+
+    compacted_entries = compacted.continuity.public
+
+    assert Enum.find(compacted_entries, &(&1.entry_id == "active-1")) ==
+             Enum.find(continuity_entries, &(&1.entry_id == "active-1"))
+
+    assert Enum.all?(Enum.filter(compacted_entries, &(&1.status == "active")), fn entry ->
+             String.starts_with?(entry.details, "Unmentioned durable canon")
+           end)
+
+    refute Map.has_key?(Enum.find(compacted_entries, &(&1.entry_id == "closed-old")), :details)
+    assert compacted.world == context.world
+    assert compacted.inventory == context.inventory
+    assert compacted.travel_connections == context.travel_connections
+  end
+
+  test "fails recoverably when active continuity canon alone cannot fit" do
+    context =
+      update_in(base_context(), [:continuity], fn _continuity ->
+        %{
+          public: [
+            %{
+              entry_id: "active-large",
+              kind: "fact",
+              title: "A required durable fact",
+              details: String.duplicate("active canon ", 3_000),
+              status: "active",
+              visibility: "public"
+            },
+            %{
+              entry_id: "closed-large",
+              kind: "fact",
+              title: "Closed arc",
+              details: String.duplicate("closed prose ", 3_000),
+              status: "completed",
+              visibility: "public"
+            }
+          ],
+          gm_private: []
+        }
+      end)
+
+    assert {:error, :context_budget_exceeded} =
+             ContextBudget.compile(context, "Policy", "gpt-6-astra",
+               context_input_token_budget: 5_000
+             )
+  end
+
   test "keeps the full context unchanged when it fits and records only sizes" do
     context = Map.put(base_context(), :private_test_value, "Hidden cellar key")
 

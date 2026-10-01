@@ -556,7 +556,9 @@
               class="mt-2 block w-full resize-y rounded-xl border-stone-300 bg-white shadow-sm placeholder:text-stone-400 focus:border-amber-700 focus:ring-amber-700 disabled:bg-stone-100"
             >{@draft}</textarea>
             <p
-              :if={@turn_announcement != ""}
+              :if={
+                @turn_announcement != "" && (!@current_turn || @current_turn.status != :failed)
+              }
               id="composer-turn-status"
               role="status"
               aria-live="off"

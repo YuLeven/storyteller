@@ -335,7 +335,12 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     set_handler(fn request ->
       context = provider_context(request)
-      send(test_pid, {:question_context, context["interaction_mode"], context["player_action"]})
+
+      send(
+        test_pid,
+        {:question_context, context["interaction_mode"], context["player_action"],
+         request.instructions}
+      )
 
       {:ok,
        %{
@@ -402,8 +407,14 @@ defmodule StorytellerWeb.SessionLiveTest do
     )
     |> render_submit()
 
-    assert_receive {:question_context, "question", "What can I see from the northern road?"},
+    assert_receive {:question_context, "question", "What can I see from the northern road?",
+                    question_instructions},
                    1_000
+
+    question_instructions = String.replace(question_instructions, ~r/\s+/, " ")
+    assert question_instructions =~ "Ask is a direct out-of-character question to the GM"
+    assert question_instructions =~ "Answer it plainly and briefly as GM narration"
+    assert question_instructions =~ "Do not advance fictional time or change any"
 
     assert wait_until(fn ->
              match?(%{status: :completed}, Play.get_turn(campaign.id, idempotency_key))
@@ -592,6 +603,83 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 0
     assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
     Agent.stop(attempts)
+  end
+
+  test "failed action guidance appears in the recovery card without a duplicate composer alert",
+       %{
+         conn: conn
+       } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    attempts = start_supervised!({Agent, fn -> 0 end})
+
+    set_handler(fn _request ->
+      attempt = Agent.get_and_update(attempts, fn count -> {count, count + 1} end)
+      send(test_pid, {:failed_action_provider_attempt, attempt})
+
+      if attempt == 0 do
+        {:error, :provider_error}
+      else
+        {:ok,
+         %{
+           narration: "The keeper points toward the bodega road.",
+           dialogue: [],
+           activities: [],
+           public_changes: %{},
+           private_changes: %{},
+           character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
+           roll_request: nil
+         }}
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert wait_until(fn ->
+             has_element?(view, "#current-place #current-situation", "The scene takes shape")
+           end)
+
+    action = "I ask the keeper about the distant bodega."
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:failed_action_provider_attempt, 0}, 1_000
+
+    assert wait_until(fn ->
+             has_element?(view, "#turn-error", "The game master could not resolve this turn") and
+               has_element?(view, "#story-pending-action", action)
+           end)
+
+    assert has_element?(
+             view,
+             "#turn-error",
+             "Your saved action is still unresolved. Retry continues this same turn."
+           )
+
+    failed_turn = Play.public_current_turn(campaign.id)
+    assert failed_turn.status == :failed
+
+    assert has_element?(view, "#turn-error button[phx-click='retry-turn']", "Retry this turn")
+    refute has_element?(view, "#composer-turn-status")
+
+    view
+    |> element("#turn-error button[phx-click='retry-turn']")
+    |> render_click()
+
+    assert_receive {:failed_action_provider_attempt, 1}, 1_000
+
+    assert wait_until(fn ->
+             match?(
+               %Turn{status: :completed},
+               Repo.get!(Turn, failed_turn.id)
+             ) and
+               has_element?(view, "#story-timeline", "The keeper points toward the bodega road.")
+           end),
+           "retry did not complete: #{inspect(Repo.get!(Turn, failed_turn.id))}"
   end
 
   test "a paused plan leaves the opening scene saved until requests resume", %{conn: conn} do
