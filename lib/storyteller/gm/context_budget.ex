@@ -12,6 +12,8 @@ defmodule Storyteller.GM.ContextBudget do
   @framing_allowance 512
   @recent_history_count 12
   @relevant_history_count 8
+  @max_history_scene_speakers 32
+  @max_history_connected_places 24
   @recent_event_text_chars 1_600
   @relevant_event_text_chars 900
   @memory_summary_chars 1_500
@@ -558,7 +560,7 @@ defmodule Storyteller.GM.ContextBudget do
     action = value(context, :player_action) || ""
     player_place_id = player_place_id(context)
 
-    scene_text =
+    scene_characters =
       context
       |> value(:characters)
       |> List.wrap()
@@ -566,9 +568,17 @@ defmodule Storyteller.GM.ContextBudget do
         value(character, :speaker_id) == "player" or
           (is_binary(player_place_id) and value(character, :current_place_id) == player_place_id)
       end)
+      |> Enum.sort_by(&value(&1, :speaker_id))
+      |> Enum.take(@max_history_scene_speakers)
+
+    scene_text =
+      scene_characters
       |> Enum.map(&value(&1, :name))
       |> Enum.filter(&is_binary/1)
       |> Enum.join(" ")
+
+    connected_place_ids = connected_place_ids(context, player_place_id)
+    relevant_place_ids = MapSet.new([player_place_id | connected_place_ids])
 
     place_text =
       context
@@ -577,13 +587,49 @@ defmodule Storyteller.GM.ContextBudget do
         map when is_map(map) -> Map.values(map) |> List.flatten()
         _ -> []
       end
-      |> Enum.filter(&(value(&1, :place_id) == player_place_id))
+      |> Enum.filter(&MapSet.member?(relevant_place_ids, value(&1, :place_id)))
       |> Enum.map(&value(&1, :name))
       |> Enum.filter(&is_binary/1)
       |> Enum.join(" ")
 
-    text = String.downcase([action, scene_text, place_text] |> Enum.join(" "))
-    Regex.scan(~r/[\p{L}\p{N}]{3,}/u, text) |> List.flatten() |> MapSet.new()
+    word_terms =
+      String.downcase([action, scene_text, place_text] |> Enum.join(" "))
+      |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
+      |> List.flatten()
+      |> Enum.reject(&MapSet.member?(@memory_stopwords, &1))
+      |> MapSet.new()
+
+    speaker_terms =
+      scene_characters
+      |> Enum.reject(&(value(&1, :speaker_id) == "player"))
+      |> Enum.map(&value(&1, :speaker_id))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.downcase/1)
+      |> MapSet.new()
+
+    MapSet.union(word_terms, speaker_terms)
+  end
+
+  defp connected_place_ids(_context, nil), do: []
+
+  defp connected_place_ids(context, player_place_id) do
+    edges = context |> value(:travel_connections) |> all_edges()
+
+    edges
+    |> Enum.filter(fn edge ->
+      value(edge, :place_a_id) == player_place_id or
+        value(edge, :place_b_id) == player_place_id
+    end)
+    |> Enum.sort_by(fn edge ->
+      {value(edge, :travel_minutes) || 0, value(edge, :place_a_id), value(edge, :place_b_id)}
+    end)
+    |> Enum.take(@max_history_connected_places)
+    |> Enum.map(fn edge ->
+      if value(edge, :place_a_id) == player_place_id,
+        do: value(edge, :place_b_id),
+        else: value(edge, :place_a_id)
+    end)
+    |> Enum.uniq()
   end
 
   defp player_place_id(context) do

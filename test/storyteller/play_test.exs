@@ -4900,72 +4900,126 @@ defmodule Storyteller.PlayTest do
              Play.public_timeline_page(campaign.id, before_sequence: 0)
   end
 
-  test "GM context retrieves an older relevant event beyond the recent history window" do
-    {campaign, session} = play_campaign("The Bodega Journey")
-    owner = self()
+  test "GM context retrieves old connected-place and scene-speaker facts across sessions" do
+    {campaign, first_session} = play_campaign("The Bodega Journey")
+    finca = establish_starting_place!(campaign, "The Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{"purpose" => "wine cellar"}
+        })
+      )
+
+    insert_travel_connection!(campaign.id, finca.place_id, bodega.place_id, 40)
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    assert {:ok, %{status: :completed, id: old_turn_id}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "seed-old-bodega-fact",
+               "We review the day's work.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" =>
+                     "At the Bodega, a cask of reserve wine is held for the autumn tasting.",
+                   "dialogue" => [
+                     %{
+                       "speaker_id" => "npc:lyra",
+                       "text" => "I promised to set the reserve aside for you."
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    {:ok, original_events} = Play.public_timeline(campaign.id)
+
+    bodega_fact =
+      Enum.find(
+        original_events,
+        &String.contains?(Map.get(&1.payload, "text", ""), "At the Bodega")
+      )
+
+    speaker_fact =
+      Enum.find(original_events, fn event ->
+        event.speaker_id == "npc:lyra" and
+          String.contains?(Map.get(event.payload, "text", ""), "promised to set the reserve")
+      end)
+
+    assert bodega_fact
+    assert speaker_fact
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    first_unrelated_sequence = state.event_sequence + 1
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    unrelated_events =
+      Enum.map(1..100, fn offset ->
+        %{
+          campaign_id: campaign.id,
+          session_id: first_session.id,
+          turn_id: old_turn_id,
+          sequence: first_unrelated_sequence + offset - 1,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{
+            "text" =>
+              "The unrelated market ledger entry #{offset}. " <>
+                String.duplicate("The unrelated market ledger detail. ", 16)
+          },
+          inserted_at: now
+        }
+      end)
+
+    assert {100, nil} = Repo.insert_all(Event, unrelated_events)
+    last_unrelated_sequence = first_unrelated_sequence + 99
+
+    Repo.update!(State.changeset(state, %{event_sequence: last_unrelated_sequence}))
+
+    {:ok, next_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+    captured = Agent.start_link(fn -> nil end) |> elem(1)
 
     provider = fn request ->
-      [message] = request.input
-      [%{text: encoded_context}] = message.content
-      send(owner, {:gm_context, Jason.decode!(encoded_context)})
+      Agent.update(captured, fn _ -> {request, decode_request(request)} end)
       {:ok, Jason.encode!(ordinary_proposal())}
-    end
-
-    on_claim = fn turn_id, _attempt ->
-      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-
-      events =
-        Enum.map(1..50, fn sequence ->
-          text =
-            if sequence == 5 do
-              "The bodega is forty minutes from the Finca. Lyra is still at the Finca."
-            else
-              "An unrelated ledger entry #{sequence}."
-            end
-
-          %{
-            campaign_id: campaign.id,
-            session_id: session.id,
-            turn_id: turn_id,
-            sequence: sequence,
-            event_type: :gm_narration,
-            visibility: :public,
-            payload: %{"text" => text},
-            inserted_at: now
-          }
-        end)
-
-      assert {50, nil} = Repo.insert_all(Event, events)
-      conversation_types = [:gm_narration]
-
-      assert Repo.all(
-               from event in Event,
-                 where:
-                   event.campaign_id == ^campaign.id and event.sequence < 11 and
-                     event.event_type in ^conversation_types and
-                     fragment("?->>'text' ILIKE ?", event.payload, "%bodega%"),
-                 select: event.sequence
-             ) == [5]
-
-      Repo.update_all(from(state in State, where: state.campaign_id == ^campaign.id),
-        set: [event_sequence: 50]
-      )
     end
 
     assert {:ok, %{status: :completed}} =
              Play.submit_turn(
                campaign.id,
-               session.id,
-               "retrieve-old-bodega-fact",
-               "Return to the bodega and ask about the wine.",
+               next_session.id,
+               "implicit-bodega-follow-up",
+               "I ask what needs doing before we close for the evening.",
                provider: provider,
-               model: "test-model",
-               on_claim: on_claim
+               model: "test-model"
              )
 
-    assert_receive {:gm_context, context}
-    assert Enum.any?(context["history"], &(&1["sequence"] == 5))
-    assert Enum.any?(context["history"], &(&1["sequence"] == 50))
+    {request, context} = Agent.get(captured, & &1)
+    history = context["history"]
+
+    assert Enum.any?(history, &(&1["sequence"] == bodega_fact.sequence))
+    assert Enum.any?(history, &(&1["sequence"] == speaker_fact.sequence))
+    assert Enum.all?([bodega_fact, speaker_fact], &(&1.session_id == first_session.id))
+
+    recent_start = last_unrelated_sequence - 11
+
+    refute Enum.any?(history, fn event ->
+             event["sequence"] >= first_unrelated_sequence and
+               event["sequence"] < recent_start
+           end)
+
+    metrics = request.local_context_metrics
+    assert metrics.compacted?
+    assert metrics.conservative_input_token_upper_bound <= metrics.budget_tokens
+    assert metrics.budget_tokens == 24_000
   end
 
   test "Ask GM reaches the provider with a modest conversation history inside the default bound" do

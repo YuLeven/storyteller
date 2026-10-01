@@ -49,6 +49,25 @@ defmodule Storyteller.Play do
   @max_history_events 40
   @max_relevant_older_events 40
   @max_history_search_terms 8
+  @max_history_entity_terms 24
+  @max_history_scene_speakers 32
+  @max_history_connected_places 24
+  @history_search_stopwords MapSet.new(~w(
+    a about above after again against all am an and any are as at be because been before being below
+    between both but by can could did do does doing down during each few for from further had has
+    have having he her here hers herself him himself his how i if in into is it its itself just me
+    more most my myself no nor not of off on once only or other our ours ourselves out over own same
+    she should so some such than that the their theirs them themselves then there these they this
+    those through to too under until up very was we were what when where which while who whom why
+    with would you your a al algo algunas algunos ante antes como con contra cual cuando de del desde
+    donde durante e el ella ellas ellos en entre era erais eran eras eres es esa esas ese eso esos
+    esta estaba estaban estado estas este esto estos fue fueron ha habia hacia han hasta hay la las
+    le les lo los mas me mi mis mucho muy nada ni no nos o otra otras otro otros para pero poco por
+    porque que quien se sin sobre su sus te tiene todo tu tus un una unas uno unos y ya au aux avec
+    ce ces dans de des du elle en et eux il je la le leur lui ma mais me meme mes moi mon ne nos notre
+    nous on ou par pas pour qu que quelle qui sa se ses son sur ta te tes toi ton tu un une vos votre
+    vous y
+  ))
   @max_history_summary_chars 6_000
   @max_turn_elapsed_minutes 5_256_000_000
   @max_active_continuity_entries 80
@@ -4370,6 +4389,14 @@ defmodule Storyteller.Play do
       )
 
     places_by_id = Map.new(places, &{&1.place_id, &1})
+
+    connections =
+      Repo.all(
+        from edge in PlaceConnection,
+          where: edge.campaign_id == ^turn.campaign_id,
+          order_by: [asc: edge.travel_minutes, asc: edge.place_a_id, asc: edge.place_b_id]
+      )
+
     player_place_id = current_player_place_id(turn.campaign_id)
     panels = Panels.list_fields(turn.campaign_id)
 
@@ -4388,7 +4415,8 @@ defmodule Storyteller.Play do
         recent_events,
         characters,
         places_by_id,
-        player_place_id
+        player_place_id,
+        connections
       )
 
     roll = Repo.get_by(Roll, turn_id: turn.id, kind: :player_click)
@@ -4425,7 +4453,7 @@ defmodule Storyteller.Play do
           Enum.filter(places, &(&1.visibility == :gm_private)) |> Enum.map(&place_context/1)
       },
       travel_connections:
-        travel_graph_context(turn.campaign_id, player_place_id, characters, places_by_id),
+        travel_graph_context(player_place_id, characters, places_by_id, connections),
       objectives: %{
         public: objective_context(turn.campaign_id, :public),
         gm_private: objective_context(turn.campaign_id, :gm_private)
@@ -4480,21 +4508,31 @@ defmodule Storyteller.Play do
     }
   end
 
-  defp retrieve_relevant_older_events(_turn, [], _characters, _places_by_id, _player_place_id),
-    do: []
+  defp retrieve_relevant_older_events(
+         _turn,
+         [],
+         _characters,
+         _places_by_id,
+         _player_place_id,
+         _connections
+       ),
+       do: []
 
   defp retrieve_relevant_older_events(
          turn,
          recent_events,
          characters,
          places_by_id,
-         player_place_id
+         player_place_id,
+         connections
        ) do
     oldest_recent_sequence = hd(recent_events).sequence
-    search_terms = history_search_terms(turn, characters, places_by_id, player_place_id)
+
+    {search_terms, speaker_ids} =
+      history_search_anchors(turn, characters, places_by_id, player_place_id, connections)
 
     older_events =
-      if search_terms == [] do
+      if search_terms == [] and speaker_ids == [] do
         []
       else
         search_patterns = Enum.map(search_terms, &"%#{&1}%")
@@ -4505,11 +4543,11 @@ defmodule Storyteller.Play do
               event.campaign_id == ^turn.campaign_id and
                 event.sequence < ^oldest_recent_sequence and
                 event.event_type in ^@context_history_event_types and
-                fragment(
-                  "?->>'text' ILIKE ANY(?)",
-                  event.payload,
-                  type(^search_patterns, {:array, :string})
-                ),
+                (fragment(
+                   "?->>'text' ILIKE ANY(?)",
+                   event.payload,
+                   type(^search_patterns, {:array, :string})
+                 ) or event.speaker_id in ^speaker_ids),
             order_by: [desc: event.sequence],
             limit: ^@max_relevant_older_events
         )
@@ -4521,16 +4559,17 @@ defmodule Storyteller.Play do
     |> Enum.sort_by(& &1.sequence)
   end
 
-  defp history_search_terms(turn, characters, places_by_id, player_place_id) do
-    scene_names =
+  defp history_search_anchors(turn, characters, places_by_id, player_place_id, connections) do
+    scene_characters =
       characters
       |> Enum.filter(fn character ->
-        character.speaker_id == "player" or
-          (is_binary(player_place_id) and character.current_place_id == player_place_id)
+        character.speaker_id != "player" and is_binary(player_place_id) and
+          character.current_place_id == player_place_id
       end)
-      |> Enum.map(fn character ->
-        if character.speaker_id == "player", do: nil, else: character.name
-      end)
+      |> Enum.sort_by(& &1.speaker_id)
+      |> Enum.take(@max_history_scene_speakers)
+
+    scene_speaker_ids = Enum.map(scene_characters, & &1.speaker_id)
 
     current_place_name =
       case Map.get(places_by_id, player_place_id) do
@@ -4538,18 +4577,50 @@ defmodule Storyteller.Play do
         _ -> nil
       end
 
-    [turn.player_input, current_place_name | scene_names]
-    |> Enum.filter(&is_binary/1)
-    |> Enum.flat_map(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
-    |> List.flatten()
-    |> Enum.map(&String.downcase/1)
-    |> Enum.reject(
-      &(&1 in ~w(the and for from with that this what where when can you are was were how why tell show about please does did has have into then next time days day let))
-    )
-    |> Enum.uniq()
-    |> Enum.sort_by(fn term -> {-String.length(term), term} end)
-    |> Enum.take(@max_history_search_terms)
+    connected_place_names =
+      connections
+      |> Enum.filter(fn edge ->
+        edge.place_a_id == player_place_id or edge.place_b_id == player_place_id
+      end)
+      |> Enum.take(@max_history_connected_places)
+      |> Enum.map(fn edge ->
+        connected_place_id =
+          if edge.place_a_id == player_place_id, do: edge.place_b_id, else: edge.place_a_id
+
+        case Map.get(places_by_id, connected_place_id) do
+          %Place{name: name} -> name
+          _ -> nil
+        end
+      end)
+
+    entity_terms =
+      [current_place_name | connected_place_names ++ Enum.map(scene_characters, & &1.name)]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.flat_map(&history_tokens/1)
+      |> Enum.uniq()
+      |> Enum.reject(&MapSet.member?(@history_search_stopwords, &1))
+      |> Enum.take(@max_history_entity_terms)
+
+    action_terms =
+      turn.player_input
+      |> history_tokens()
+      |> Enum.reject(&MapSet.member?(@history_search_stopwords, &1))
+      |> Enum.reject(&(&1 in ~w(tell show please then next time days day let)))
+      |> Enum.uniq()
+      |> Enum.sort_by(fn term -> {-String.length(term), term} end)
+      |> Enum.take(@max_history_search_terms)
+
+    {Enum.uniq(entity_terms ++ action_terms), scene_speaker_ids}
   end
+
+  defp history_tokens(text) when is_binary(text) do
+    text
+    |> String.downcase()
+    |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
+    |> List.flatten()
+  end
+
+  defp history_tokens(_text), do: []
 
   defp voice_guidance_context(%Character{role: :gm, voice_guidance: guidance}) do
     case VoiceGuidance.normalize(guidance) do
@@ -4823,14 +4894,7 @@ defmodule Storyteller.Play do
     }
   end
 
-  defp travel_graph_context(campaign_id, player_place_id, characters, places_by_id) do
-    connections =
-      Repo.all(
-        from edge in PlaceConnection,
-          where: edge.campaign_id == ^campaign_id,
-          order_by: [asc: edge.travel_minutes, asc: edge.place_a_id, asc: edge.place_b_id]
-      )
-
+  defp travel_graph_context(player_place_id, characters, places_by_id, connections) do
     relevant_place_ids =
       characters
       |> Enum.map(& &1.current_place_id)

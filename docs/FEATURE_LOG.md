@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-01 — Anchor older context to the current scene
+
+- Older-event retrieval now considers the current place's nearest connected-place names and stable speaker IDs for up to 32 GM-controlled characters in the scene, alongside a separately capped set of player-action terms. Common English, Spanish, and French function words are filtered from search and ranking so names such as “The Copper Stag,” “La Casa,” or “Les Cèdres” do not match unrelated history. It uses only the existing local campaign graph and event store; no provider or external search call was added. Candidate older events remain capped at 40, and the compiler still selects at most eight relevant older conversation events within the existing context byte ceiling.
+- The context compiler now uses the same connected-place names and scene speaker IDs when ranking older events after database retrieval. A fake-provider cross-session behavior test establishes older Bodega narration and a scene NPC promise, asks about next steps indirectly from the Finca, and verifies both facts arrive while older unrelated history is omitted and the request stays within its configured bound.
+- This is deterministic lexical/entity-anchor retrieval, not general semantic or synonym search. It only reaches a Bodega fact when the canonical graph connects that place to the current scene and the old event text names the place, or when a scene NPC authored the event. Facts still need structured canon or discoverable stored evidence; availability/routine constraints are not added here.
+- **Checks:** full WSL suite **311 tests, 0 failures**, including the focused Play and context-budget suites (**81 tests, 0 failures**); warnings-as-errors test compilation, formatting, Gettext freshness, and `git diff --check` passed. The regression uses a fake provider and synthetic cross-session events only; there was no live provider request and no real campaign was accessed.
+
 ## 2026-10-01 — Correct the current world's date, time, or weather in place
 
 - Extended **Campaign care** with a correction path for the currently visible public date, time, and weather, so a setup typo can be repaired after a campaign has begun. Each correction is reasoned and revision-checked, updates the player board and future GM context, and remains separate from narration and the in-world event timeline.
