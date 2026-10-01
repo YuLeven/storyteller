@@ -6,6 +6,8 @@ auth_test_dir =
 config :storyteller, Storyteller.Auth.TokenStore,
   path: Path.join(auth_test_dir, "credentials.json")
 
+config :storyteller, :gm_model_catalog, Storyteller.TestGMModelCatalog
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used

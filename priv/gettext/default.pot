@@ -166,7 +166,7 @@ msgstr ""
 msgid "Campaigns"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:217
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:245
 #: lib/storyteller_web/live/campaign_live/new.html.heex:774
 #: lib/storyteller_web/live/session_live/show.html.heex:932
 #, elixir-autogen, elixir-format
@@ -211,7 +211,7 @@ msgstr ""
 msgid "Characters"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:88
+#: lib/storyteller_web/controllers/auth_controller.ex:194
 #, elixir-autogen, elixir-format
 msgid "ChatGPT identity could not be verified. Your current connection is unchanged."
 msgstr ""
@@ -221,22 +221,22 @@ msgstr ""
 msgid "ChatGPT plan usage is connected."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:100
+#: lib/storyteller_web/controllers/auth_controller.ex:206
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in could not be completed. Your current connection is unchanged."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:77
+#: lib/storyteller_web/controllers/auth_controller.ex:183
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in is temporarily unavailable. Your current connection is unchanged."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:79
+#: lib/storyteller_web/controllers/auth_controller.ex:185
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in was cancelled."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:39
+#: lib/storyteller_web/controllers/auth_controller.ex:104
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in was cancelled. Your current connection is unchanged."
 msgstr ""
@@ -274,12 +274,12 @@ msgstr ""
 msgid "Connect ChatGPT"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:29
+#: lib/storyteller_web/controllers/auth_controller.ex:94
 #, elixir-autogen, elixir-format
 msgid "Connected to the ChatGPT account %{email}."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:33
+#: lib/storyteller_web/controllers/auth_controller.ex:98
 #, elixir-autogen, elixir-format
 msgid "Connected to your ChatGPT account."
 msgstr ""
@@ -370,7 +370,7 @@ msgstr ""
 msgid "Disconnect ChatGPT"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:53
+#: lib/storyteller_web/controllers/auth_controller.ex:118
 #, elixir-autogen, elixir-format
 msgid "Disconnected. Local ChatGPT credentials were cleared."
 msgstr ""
@@ -446,7 +446,7 @@ msgstr ""
 msgid "GM-controlled characters"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:95
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:101
 #: lib/storyteller_web/live/campaign_live/new.html.heex:519
 #: lib/storyteller_web/live/campaign_live/new.html.heex:937
 #: lib/storyteller_web/live/campaign_live/new.html.heex:942
@@ -517,12 +517,12 @@ msgstr ""
 msgid "Late evening, just after moonrise"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:68
+#: lib/storyteller_web/controllers/auth_controller.ex:133
 #, elixir-autogen, elixir-format
 msgid "Local credentials could not be cleared. Please retry disconnecting."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:59
+#: lib/storyteller_web/controllers/auth_controller.ex:124
 #, elixir-autogen, elixir-format
 msgid "Local credentials were cleared, but ChatGPT did not confirm revocation. You can also disconnect Storyteller in ChatGPT Settings."
 msgstr ""
@@ -627,7 +627,7 @@ msgstr ""
 msgid "Panel name"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:199
+#: lib/storyteller_web/live/campaign_live/edit.ex:236
 #: lib/storyteller_web/live/campaign_live/show.html.heex:51
 #, elixir-autogen, elixir-format
 msgid "Player character"
@@ -656,7 +656,7 @@ msgstr ""
 msgid "Premise"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:80
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:140
 #, elixir-autogen, elixir-format
 msgid "Preview eligibility and usage"
 msgstr ""
@@ -740,7 +740,7 @@ msgstr ""
 msgid "Review session"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:93
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:153
 #, elixir-autogen, elixir-format
 msgid "Review the current"
 msgstr ""
@@ -827,7 +827,7 @@ msgstr ""
 msgid "Setting and tone"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:82
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:142
 #, elixir-autogen, elixir-format
 msgid "Sign in with ChatGPT plan usage is a preview for eligible open-source, locally hosted apps. Storyteller is released under the MIT license and is intended to run on this computer at %{address}."
 msgstr ""
@@ -1055,12 +1055,12 @@ msgstr ""
 msgid "The session title must be 1 to 100 characters."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:95
+#: lib/storyteller_web/controllers/auth_controller.ex:201
 #, elixir-autogen, elixir-format
 msgid "The sign-in response did not match the saved ChatGPT registration. Your current connection is unchanged."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:91
+#: lib/storyteller_web/controllers/auth_controller.ex:197
 #, elixir-autogen, elixir-format
 msgid "The sign-in response was incomplete or expired. Please start again."
 msgstr ""
@@ -1075,7 +1075,7 @@ msgstr ""
 msgid "There is no validated D20 request to roll right now."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:83
+#: lib/storyteller_web/controllers/auth_controller.ex:189
 #, elixir-autogen, elixir-format
 msgid "This ChatGPT account did not grant plan usage access. Your current connection is unchanged."
 msgstr ""
@@ -1231,7 +1231,7 @@ msgstr ""
 msgid "Your worlds"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:100
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:160
 #, elixir-autogen, elixir-format
 msgid "and confirm your app is eligible before connecting."
 msgstr ""
@@ -1257,7 +1257,7 @@ msgstr ""
 msgid "optional"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:99
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:159
 #, elixir-autogen, elixir-format
 msgid "preview limitations"
 msgstr ""
@@ -1787,7 +1787,7 @@ msgstr ""
 msgid "The account-wide pause could not be cleared. Please try again."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:88
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:148
 #, elixir-autogen, elixir-format
 msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. When ChatGPT reports a plan usage limit, Storyteller pauses game-master requests across all sessions. Check ChatGPT Usage settings, then resume from a session when you believe requests are available and retry the saved turn."
 msgstr ""
@@ -2062,7 +2062,7 @@ msgstr ""
 msgid "Character voice guidance"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:135
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:163
 #: lib/storyteller_web/live/campaign_live/new.html.heex:534
 #, elixir-autogen
 msgid "optional, GM only"
@@ -2073,35 +2073,35 @@ msgstr ""
 msgid "Keep delivery notes separate from character facts. Each field allows up to 280 characters; all notes together allow 1,200."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:144
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:172
 #: lib/storyteller_web/live/campaign_live/new.ex:495
 #: lib/storyteller_web/live/campaign_live/new.html.heex:546
 #, elixir-autogen
 msgid "Quirks"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:153
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:181
 #: lib/storyteller_web/live/campaign_live/new.ex:496
 #: lib/storyteller_web/live/campaign_live/new.html.heex:559
 #, elixir-autogen
 msgid "Accent or dialect"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:162
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:190
 #: lib/storyteller_web/live/campaign_live/new.ex:497
 #: lib/storyteller_web/live/campaign_live/new.html.heex:572
 #, elixir-autogen
 msgid "Cadence"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:171
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:199
 #: lib/storyteller_web/live/campaign_live/new.ex:498
 #: lib/storyteller_web/live/campaign_live/new.html.heex:585
 #, elixir-autogen
 msgid "Vocabulary"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:180
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:208
 #: lib/storyteller_web/live/campaign_live/new.ex:499
 #: lib/storyteller_web/live/campaign_live/new.html.heex:598
 #, elixir-autogen
@@ -2113,17 +2113,17 @@ msgstr ""
 msgid "Voice notes must be 280 characters or fewer per field and 1,200 characters total."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:90
+#: lib/storyteller_web/live/campaign_live/edit.ex:95
 #, elixir-autogen
 msgid "Character voice notes must use the listed fields and stay within the length limits."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:168
+#: lib/storyteller_web/live/campaign_live/edit.ex:179
 #, elixir-autogen
 msgid "Campaign changes could not be saved. Review the fields and try again."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:218
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:246
 #, elixir-autogen
 msgid "Save campaign changes"
 msgstr ""
@@ -2137,7 +2137,7 @@ msgstr ""
 msgid "Revise the current player-visible summary or GM-only notes. Other character facts and the story timeline are preserved."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:108
+#: lib/storyteller_web/live/campaign_live/edit.ex:114
 #, elixir-autogen
 msgid "Character details must use the listed fields and stay within the length limits."
 msgstr ""
@@ -2305,12 +2305,12 @@ msgstr ""
 msgid "GM character setup"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:138
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:166
 #, elixir-autogen, elixir-format
 msgid "Keep delivery notes with this character's setup. Each field allows 280 characters; all notes together allow 1,200."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:134
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:162
 #, elixir-autogen, elixir-format
 msgid "Voice and mannerisms"
 msgstr ""
@@ -2341,38 +2341,38 @@ msgstr ""
 msgid "ChatGPT reported an account usage limit. The GM cannot respond until account usage is available."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:206
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:234
 #, elixir-autogen, elixir-format
 msgid "A reason is required when a setup value changes. Saving unchanged setup does not create a correction."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:160
+#: lib/storyteller_web/live/campaign_live/edit.ex:170
 #, elixir-autogen, elixir-format
 msgid "Add a reason for changing the campaign setup."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:198
-#: lib/storyteller_web/live/campaign_live/edit.ex:202
+#: lib/storyteller_web/live/campaign_live/edit.ex:235
+#: lib/storyteller_web/live/campaign_live/edit.ex:239
 #, elixir-autogen, elixir-format
 msgid "Campaign setup"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:200
+#: lib/storyteller_web/live/campaign_live/edit.ex:237
 #, elixir-autogen, elixir-format
 msgid "Character details"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:238
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:266
 #, elixir-autogen, elixir-format
 msgid "No public setup corrections have been recorded."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:233
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:261
 #, elixir-autogen, elixir-format
 msgid "Public setup corrections are listed here. Corrections that include GM-private changes are omitted."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:229
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:257
 #, elixir-autogen, elixir-format
 msgid "Setup correction history"
 msgstr ""
@@ -2393,12 +2393,12 @@ msgstr ""
 msgid "Wait here for the next development. Advance time only until a decision is needed."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:195
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:223
 #, elixir-autogen, elixir-format
 msgid "Why are you changing the setup?"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:58
+#: lib/storyteller_web/live/campaign_live/edit.ex:60
 #, elixir-autogen, elixir-format
 msgid "Campaign changes saved."
 msgstr ""
@@ -2968,7 +2968,7 @@ msgstr ""
 msgid "Active duty (GM only)"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:104
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:116
 #: lib/storyteller_web/live/campaign_live/new.html.heex:475
 #, elixir-autogen, elixir-format
 msgid "Active duty (GM only, optional)"
@@ -2989,12 +2989,12 @@ msgstr ""
 msgid "Tending the cellar"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:133
+#: lib/storyteller_web/live/campaign_live/edit.ex:141
 #, elixir-autogen, elixir-format
 msgid "The campaign changed while this setup was open. Review the current state and try again."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:143
+#: lib/storyteller_web/live/campaign_live/edit.ex:152
 #, elixir-autogen, elixir-format
 msgid "Wait for the game master to finish the turn before changing an active duty."
 msgstr ""
@@ -3004,7 +3004,7 @@ msgstr ""
 msgid "Your action is saved below. Retry continues this same turn."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:128
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:156
 #, elixir-autogen, elixir-format
 msgid "A blank duration keeps the duty ongoing; a number is in-world minutes remaining, and 0 means it is complete. Clear the duty name to release it. This rule is hidden from the player board."
 msgstr ""
@@ -3029,7 +3029,7 @@ msgstr ""
 msgid "GM character %{number} needs a duty before you can set its duration."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.html.heex:115
+#: lib/storyteller_web/live/campaign_live/edit.html.heex:135
 #, elixir-autogen, elixir-format
 msgid "Minutes until available (in-world)"
 msgstr ""
@@ -3039,7 +3039,64 @@ msgstr ""
 msgid "Minutes until available (in-world, optional)"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:118
+#: lib/storyteller_web/live/campaign_live/edit.ex:125
 #, elixir-autogen, elixir-format
 msgid "An active duty needs a name up to 160 characters, a known current place, and a whole-number duration from 0 to 525600 minutes."
+msgstr ""
+
+#: lib/storyteller_web/components/layouts/app.html.heex:54
+#, elixir-autogen, elixir-format
+msgid "Account and GM model"
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_controller.ex:172
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:105
+#, elixir-autogen, elixir-format
+msgid "Automatic"
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_controller.ex:67
+#, elixir-autogen, elixir-format
+msgid "Choose a model from the connected account's available models."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:87
+#, elixir-autogen, elixir-format
+msgid "Choose which available account model resolves new turns. Automatic keeps Storyteller's current account-catalog selection behavior."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_controller.ex:34
+#, elixir-autogen, elixir-format
+msgid "GM model preference reset to automatic."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_controller.ex:60
+#, elixir-autogen, elixir-format
+msgid "GM model preference updated."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:82
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:98
+#, elixir-autogen, elixir-format
+msgid "Game master model"
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:118
+#, elixir-autogen, elixir-format
+msgid "Save model"
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_controller.ex:142
+#, elixir-autogen, elixir-format
+msgid "The GM model preference could not be saved. Please retry."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:130
+#, elixir-autogen, elixir-format
+msgid "The account model list is unavailable right now. Reopen this page to try again."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:124
+#, elixir-autogen, elixir-format
+msgid "Your saved model is no longer listed. Choose another model or return to Automatic."
 msgstr ""

@@ -14,6 +14,7 @@ defmodule Storyteller.Play do
   alias Storyteller.GM.ContextBudget
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
+  alias Storyteller.Settings
 
   alias Storyteller.Play.{
     Character,
@@ -4357,7 +4358,13 @@ defmodule Storyteller.Play do
 
   defp provider_request(context, opts, intent) do
     instructions = @gm_policy <> interaction_mode_guidance(intent)
-    model = Keyword.get(opts, :model)
+
+    model =
+      case Keyword.fetch(opts, :model) do
+        {:ok, explicit_model} -> explicit_model
+        :error -> Settings.preferred_gm_model()
+      end
+
     request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
 
     with {:ok, %{context: compiled_context, metrics: metrics}} <-

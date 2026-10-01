@@ -164,6 +164,54 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert detail_html =~ "A patient harbor courier who knows every island path."
   end
 
+  test "campaign editor keeps voice edits through validation and reload", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        player_character_name: "Ilya",
+        player_character: "A patient courier.",
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            voice_guidance: %{"cadence" => "Slow and deliberate."}
+          }
+        ]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    attrs = %{
+      correction_reason: "Clarify Elin's delivery.",
+      title: campaign.title,
+      premise: campaign.premise,
+      setting: campaign.setting,
+      tone: campaign.tone,
+      narration_language: campaign.narration_language,
+      player_character_name: campaign.player_character_name,
+      player_character: campaign.player_character,
+      character_voice_guidance: %{
+        "keeper-elin" => %{
+          cadence: "Pauses before every answer.",
+          mannerisms: "Turns the brass key while she thinks."
+        }
+      }
+    }
+
+    view |> form("#campaign-edit-form", campaign: attrs) |> render_change()
+
+    assert render(view) =~ "Pauses before every answer."
+    assert render(view) =~ "Turns the brass key while she thinks."
+
+    view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
+
+    {:ok, reopened_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    reopened_html = render(reopened_view)
+    assert reopened_html =~ "Pauses before every answer."
+    assert reopened_html =~ "Turns the brass key while she thinks."
+  end
+
   test "campaign editor authors a private active duty and rejects stale or in-flight changes", %{
     conn: conn
   } do

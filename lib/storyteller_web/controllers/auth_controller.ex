@@ -2,10 +2,75 @@ defmodule StorytellerWeb.AuthController do
   use StorytellerWeb, :controller
 
   alias Storyteller.Auth.OAuth
+  alias Storyteller.Settings
 
   def connect(conn, _params) do
-    render(conn, :connect, status: OAuth.status())
+    status = OAuth.status()
+    preferred_model = Settings.preferred_gm_model()
+
+    {models, catalog_available?} =
+      if status.connected? do
+        case model_catalog() do
+          {:ok, models} -> {models, true}
+          {:error, _reason} -> {[], false}
+        end
+      else
+        {[], false}
+      end
+
+    render(conn, :connect,
+      status: status,
+      models: models,
+      catalog_available?: catalog_available?,
+      preferred_model: preferred_model,
+      preferred_model_name: model_display_name(preferred_model, models)
+    )
   end
+
+  def update_model(conn, %{"model" => "automatic"}) do
+    case Settings.set_preferred_gm_model(nil) do
+      {:ok, _preference} ->
+        conn
+        |> put_flash(:info, gettext("GM model preference reset to automatic."))
+        |> redirect(to: ~p"/auth/connect")
+
+      {:error, _changeset} ->
+        model_update_error(conn)
+    end
+  end
+
+  def update_model(conn, %{"model" => model_slug}) when is_binary(model_slug) do
+    status = OAuth.status()
+
+    result =
+      if status.connected? do
+        with {:ok, models} <- model_catalog(),
+             true <- Enum.any?(models, &(&1.slug == model_slug)) do
+          Settings.set_preferred_gm_model(model_slug)
+        else
+          _ -> {:error, :model_unavailable}
+        end
+      else
+        {:error, :account_disconnected}
+      end
+
+    case result do
+      {:ok, _preference} ->
+        conn
+        |> put_flash(:info, gettext("GM model preference updated."))
+        |> redirect(to: ~p"/auth/connect")
+
+      {:error, _reason} ->
+        conn
+        |> put_flash(
+          :error,
+          gettext("Choose a model from the connected account's available models.")
+        )
+        |> redirect(to: ~p"/auth/connect")
+    end
+  end
+
+  def update_model(conn, _params), do: model_update_error(conn)
 
   def authorize(conn, _params) do
     case OAuth.start_authorization() do
@@ -70,6 +135,47 @@ defmodule StorytellerWeb.AuthController do
       end
 
     redirect(conn, to: ~p"/auth/connect")
+  end
+
+  defp model_update_error(conn) do
+    conn
+    |> put_flash(:error, gettext("The GM model preference could not be saved. Please retry."))
+    |> redirect(to: ~p"/auth/connect")
+  end
+
+  defp model_catalog do
+    provider = Application.get_env(:storyteller, :gm_model_catalog, Storyteller.GM.OpenAI)
+
+    case provider.models() do
+      {:ok, models} when is_list(models) ->
+        models =
+          Enum.filter(models, fn
+            %{slug: slug, display_name: display_name} ->
+              is_binary(slug) and slug != "" and is_binary(display_name) and display_name != ""
+
+            _ ->
+              false
+          end)
+
+        if models == [], do: {:error, :model_unavailable}, else: {:ok, models}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _ ->
+        {:error, :invalid_response}
+    end
+  rescue
+    _error -> {:error, :provider_error}
+  end
+
+  defp model_display_name(nil, _models), do: gettext("Automatic")
+
+  defp model_display_name(model_slug, models) do
+    case Enum.find(models, &(&1.slug == model_slug)) do
+      %{display_name: display_name} -> display_name
+      nil -> model_slug
+    end
   end
 
   defp auth_message(:identity_provider_unavailable),

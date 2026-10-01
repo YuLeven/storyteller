@@ -26,6 +26,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            campaign: campaign,
            state_revision: revision,
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
+           authoring_draft: %{},
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
@@ -42,6 +43,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
     {:noreply,
      assign(socket,
        form: to_form(%{changeset | action: :validate}, as: :campaign),
+       authoring_draft: authoring_draft(attrs),
        correction_reason: Map.get(attrs, "correction_reason", ""),
        save_error: nil
      )}
@@ -60,6 +62,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            campaign: Campaigns.get_campaign!(campaign.id),
            state_revision: revision,
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
+           authoring_draft: %{},
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
@@ -70,6 +73,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
         {:noreply,
          assign(socket,
            form: to_form(%{changeset | action: :validate}, as: :campaign),
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error: nil
          )}
@@ -85,6 +89,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
                ),
                as: :campaign
              ),
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
@@ -103,6 +108,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
                ),
                as: :campaign
              ),
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
@@ -113,6 +119,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       {:error, :invalid_active_duty} ->
         {:noreply,
          assign(socket,
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
@@ -128,6 +135,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            state_revision: revision,
            gm_characters:
              gm_characters_with_duty_time(socket.assigns.campaign.id, elapsed_minutes),
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
@@ -138,6 +146,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       {:error, :authoring_turn_in_progress} ->
         {:noreply,
          assign(socket,
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
@@ -156,6 +165,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
                ),
                as: :campaign
              ),
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error: gettext("Add a reason for changing the campaign setup.")
          )}
@@ -163,6 +173,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       {:error, _reason} ->
         {:noreply,
          assign(socket,
+           authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext("Campaign changes could not be saved. Review the fields and try again.")
@@ -170,8 +181,34 @@ defmodule StorytellerWeb.CampaignLive.Edit do
     end
   end
 
-  defp voice_value(character, field), do: Map.get(character.voice_guidance || %{}, field, "")
+  defp voice_value(character, field, draft) do
+    draft_value(
+      draft,
+      "character_voice_guidance",
+      character.speaker_id,
+      field,
+      Map.get(character.voice_guidance || %{}, field, "")
+    )
+  end
+
   defp fact_value(facts, key), do: Map.get(facts || %{}, key, "")
+
+  defp draft_value(draft, category, speaker_id, field, default) do
+    draft
+    |> draft_attr(category, %{})
+    |> draft_attr(speaker_id, %{})
+    |> draft_attr(field, default)
+  end
+
+  defp draft_attr(map, key, default) when is_map(map) do
+    Map.get(map, key, Map.get(map, to_string(key), default))
+  end
+
+  defp draft_attr(_map, _key, default), do: default
+
+  defp authoring_draft(attrs) do
+    Map.take(attrs, ["gm_character_setup", "character_active_duties", "character_voice_guidance"])
+  end
 
   defp campaign_clock(campaign_id) do
     case Play.public_projection(campaign_id) do

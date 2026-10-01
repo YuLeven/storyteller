@@ -89,7 +89,13 @@
             maxlength="5000"
             rows="3"
             class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-          >{fact_value(character.visible_facts, "description")}</textarea>
+          >{draft_value(
+            @authoring_draft,
+            "gm_character_setup",
+            character.speaker_id,
+            "visible_facts_text",
+            fact_value(character.visible_facts, "description")
+          )}</textarea>
         </label>
         <label class="block text-sm font-medium text-stone-700">
           {gettext("GM-only notes")}
@@ -98,14 +104,28 @@
             maxlength="5000"
             rows="3"
             class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-          >{fact_value(character.gm_private_facts, "notes")}</textarea>
+          >{draft_value(
+            @authoring_draft,
+            "gm_character_setup",
+            character.speaker_id,
+            "private_notes",
+            fact_value(character.gm_private_facts, "notes")
+          )}</textarea>
         </label>
         <label class="block text-sm font-medium text-stone-700">
           {gettext("Active duty (GM only, optional)")}
           <input
             type="text"
             name={"campaign[character_active_duties][#{character.speaker_id}][duty_name]"}
-            value={character.duty_name || ""}
+            value={
+              draft_value(
+                @authoring_draft,
+                "character_active_duties",
+                character.speaker_id,
+                "duty_name",
+                character.duty_name || ""
+              )
+            }
             maxlength="160"
             autocomplete="off"
             class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
@@ -116,7 +136,15 @@
           <input
             type="number"
             name={"campaign[character_active_duties][#{character.speaker_id}][duty_duration_minutes]"}
-            value={character.duty_duration_minutes}
+            value={
+              draft_value(
+                @authoring_draft,
+                "character_active_duties",
+                character.speaker_id,
+                "duty_duration_minutes",
+                character.duty_duration_minutes
+              )
+            }
             min="0"
             max="525600"
             step="1"
@@ -147,7 +175,7 @@
                 maxlength="280"
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              >{voice_value(character, "quirks")}</textarea>
+              >{voice_value(character, "quirks", @authoring_draft)}</textarea>
             </label>
             <label class="block text-sm font-medium text-stone-700">
               {gettext("Accent or dialect")}
@@ -156,7 +184,7 @@
                 maxlength="280"
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              >{voice_value(character, "accent_dialect")}</textarea>
+              >{voice_value(character, "accent_dialect", @authoring_draft)}</textarea>
             </label>
             <label class="block text-sm font-medium text-stone-700">
               {gettext("Cadence")}
@@ -165,7 +193,7 @@
                 maxlength="280"
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              >{voice_value(character, "cadence")}</textarea>
+              >{voice_value(character, "cadence", @authoring_draft)}</textarea>
             </label>
             <label class="block text-sm font-medium text-stone-700">
               {gettext("Vocabulary")}
@@ -174,7 +202,7 @@
                 maxlength="280"
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              >{voice_value(character, "vocabulary")}</textarea>
+              >{voice_value(character, "vocabulary", @authoring_draft)}</textarea>
             </label>
             <label class="block text-sm font-medium text-stone-700 sm:col-span-2">
               {gettext("Mannerisms")}
@@ -183,7 +211,7 @@
                 maxlength="280"
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
-              >{voice_value(character, "mannerisms")}</textarea>
+              >{voice_value(character, "mannerisms", @authoring_draft)}</textarea>
             </label>
           </div>
         </details>

@@ -57,6 +57,54 @@ defmodule StorytellerWeb.AuthControllerTest do
     assert html =~ "Manage usage"
     assert html =~ "Reconnect ChatGPT"
     assert html =~ "action=\"/auth/authorize\""
+    assert html =~ "Game master model"
+    assert html =~ "Fixture Model (fixture-model)"
+    assert html =~ "Choose which available account model"
+    assert html =~ "value=\"automatic\" selected"
+  end
+
+  test "preferred model can be saved from the connected catalog and reset to automatic", %{
+    conn: conn
+  } do
+    credentials = %Credentials{
+      client_id: "test-client",
+      subject: "test-account",
+      email: "player@example.test",
+      host_id: TokenStore.host_id(),
+      access_token: "test-access-token",
+      refresh_token: "test-refresh-token",
+      expires_at: System.system_time(:second) + 3_600,
+      scopes: ["openid", "chatgpt.tokens.use.direct"]
+    }
+
+    assert :ok = TokenStore.put_credentials(credentials)
+
+    on_exit(fn ->
+      _ = TokenStore.sign_out(fn _credentials -> :ok end)
+    end)
+
+    assert conn |> post("/auth/model", model: "fixture-model") |> redirected_to() ==
+             "/auth/connect"
+
+    assert Settings.preferred_gm_model() == "fixture-model"
+
+    conn = recycle(conn)
+    html = conn |> get("/auth/connect") |> html_response(200)
+    assert html =~ "value=\"fixture-model\" selected"
+
+    conn = recycle(conn)
+
+    assert conn |> post("/auth/model", model: "not-listed") |> redirected_to() ==
+             "/auth/connect"
+
+    assert Settings.preferred_gm_model() == "fixture-model"
+
+    conn = recycle(conn)
+
+    assert conn |> post("/auth/model", model: "automatic") |> redirected_to() ==
+             "/auth/connect"
+
+    assert is_nil(Settings.preferred_gm_model())
   end
 
   test "OAuth routes use the required loopback callback path and browser post endpoints" do
@@ -64,6 +112,7 @@ defmodule StorytellerWeb.AuthControllerTest do
 
     assert has_route?(routes, :get, "/auth/connect", :connect)
     assert has_route?(routes, :post, "/auth/authorize", :authorize)
+    assert has_route?(routes, :post, "/auth/model", :update_model)
     assert has_route?(routes, :get, "/auth/callback", :callback)
     assert has_route?(routes, :post, "/auth/disconnect", :disconnect)
   end

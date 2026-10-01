@@ -20,6 +20,7 @@ defmodule StorytellerWeb.Router do
 
     get "/connect", AuthController, :connect
     post "/authorize", AuthController, :authorize
+    post "/model", AuthController, :update_model
     get "/callback", AuthController, :callback
     post "/disconnect", AuthController, :disconnect
   end

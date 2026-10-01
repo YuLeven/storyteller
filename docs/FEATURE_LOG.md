@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-01 — Preserve character voice edits in the campaign editor
+
+- Campaign editor validation rerendered GM character cards from the last persisted values, so voice and mannerism text could disappear before the owner saved it. The editor now retains submitted character setup, duty, and voice drafts through validation and save errors, clears them after a successful save, and reloads the committed values on a fresh visit.
+- Added a LiveView regression that changes voice fields, triggers validation, saves, and reopens the editor. Existing campaign-authoring behavior verifies saved guidance reaches future GM context without rewriting earlier dialogue.
+- **Checks:** campaign editor LiveView **5 tests, 0 failures**; campaign authoring **13 tests, 0 failures**; full WSL suite **346 tests, 0 failures**. Formatting, Gettext freshness, warnings-as-errors compilation, and `git diff --check` passed. No live campaign data or provider request was used.
+
+## 2026-10-01 — Let the operator choose the GM model
+
+- Added a local installation-wide GM model preference. New installations keep the existing automatic account-catalog selection; a saved choice is passed into turn compilation and the Responses request, so the same listed model is requested on subsequent turns.
+- The collapsed Account and GM model settings show the current preference and the connected account's available models. The selector is outside the play board, accepts only models in the current catalog, and offers a return to Automatic. Existing OAuth connection and disconnect behavior remains unchanged.
+- Added fake-catalog account-page coverage, local preference persistence coverage, and a fake-provider play regression asserting the saved model reaches turn resolution. No live account/API request or production campaign data was accessed.
+- **Checks:** Settings/account controller tests **7/7**; saved-model Play regression **1 selected, 0 failures**; OpenAI adapter tests **16/16**; full WSL suite **346 tests, 0 failures**. Formatting, Gettext POT freshness, warnings-as-errors compilation, and `git diff --check` passed. Tests used `storyteller_test` and a fake model catalog/provider.
+
 ## 2026-10-01 — Bound GM context across every continuity-memory source
 
 - The context compiler now selects relevant details from both GM-authored and player-managed continuity entries in public and GM-private scopes, with an eight-detail cap per scope. Other entries retain stable identity, type, and status metadata, while a completeness marker tells the GM that omitted detail is unknown. Full records remain persisted and visible only through their correct campaign views; a relevant canon item that still exceeds the hard input bound continues to fail recoverably.

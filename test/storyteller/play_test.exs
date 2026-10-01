@@ -7,6 +7,7 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
+  alias Storyteller.Settings
 
   alias Storyteller.Play.{
     CanonCorrection,
@@ -21,6 +22,23 @@ defmodule Storyteller.PlayTest do
     State,
     Turn
   }
+
+  test "a saved GM model is passed into turn resolution when no call override is supplied" do
+    {campaign, session} = play_campaign("The Model Preference Observatory")
+    assert {:ok, _preference} = Settings.set_preferred_gm_model("fixture-model")
+
+    test_pid = self()
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "preferred-model-turn", "Look around.",
+               provider: fn request ->
+                 send(test_pid, {:resolved_model, Map.get(request, :model)})
+                 {:ok, Jason.encode!(ordinary_proposal())}
+               end
+             )
+
+    assert_received {:resolved_model, "fixture-model"}
+  end
 
   test "opening scene needs a public player place and presence for its speaking characters" do
     {campaign, session} = play_campaign("The Unplaced Observatory")

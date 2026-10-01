@@ -76,6 +76,66 @@
     <% end %>
   </section>
 
+  <section :if={@status.connected?} class="rounded-2xl border border-stone-200 bg-white shadow-sm">
+    <details id="gm-model-setting" class="group">
+      <summary class="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-6 py-4 font-semibold text-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700">
+        <span>{gettext("Game master model")}</span>
+        <span class="text-sm font-medium text-stone-600">{@preferred_model_name}</span>
+      </summary>
+      <div class="border-t border-stone-200 px-6 py-5">
+        <p class="text-sm leading-6 text-stone-600">
+          {gettext(
+            "Choose which available account model resolves new turns. Automatic keeps Storyteller's current account-catalog selection behavior."
+          )}
+        </p>
+        <%= if @catalog_available? do %>
+          <.form
+            for={%{}}
+            action={~p"/auth/model"}
+            method="post"
+            class="mt-4 flex flex-wrap items-end gap-3"
+          >
+            <label for="gm-model" class="sr-only">{gettext("Game master model")}</label>
+            <select
+              id="gm-model"
+              name="model"
+              class="min-w-64 flex-1 rounded-lg border-stone-300 py-2 text-sm shadow-sm focus:border-amber-700 focus:ring-amber-700"
+            >
+              <option value="automatic" selected={is_nil(@preferred_model)}>
+                {gettext("Automatic")}
+              </option>
+              <option
+                :for={model <- @models}
+                value={model.slug}
+                selected={@preferred_model == model.slug}
+              >
+                {model.display_name} ({model.slug})
+              </option>
+            </select>
+            <button
+              type="submit"
+              class="rounded-lg bg-stone-800 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+            >{gettext("Save model")}</button>
+          </.form>
+          <p
+            :if={@preferred_model && not Enum.any?(@models, &(&1.slug == @preferred_model))}
+            class="mt-3 text-sm text-amber-800"
+          >
+            {gettext(
+              "Your saved model is no longer listed. Choose another model or return to Automatic."
+            )}
+          </p>
+        <% else %>
+          <p role="status" class="mt-4 text-sm text-amber-800">
+            {gettext(
+              "The account model list is unavailable right now. Reopen this page to try again."
+            )}
+          </p>
+        <% end %>
+      </div>
+    </details>
+  </section>
+
   <section class="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm leading-6 text-stone-800">
     <h2 class="text-base font-semibold">{gettext("Preview eligibility and usage")}</h2>
     <p class="mt-2">

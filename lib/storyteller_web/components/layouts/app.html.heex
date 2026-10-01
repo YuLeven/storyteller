@@ -48,6 +48,10 @@
             class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
           >{gettext("Apply")}</button>
         </.form>
+        <.link
+          navigate={~p"/auth/connect"}
+          class="mt-4 block border-t border-stone-200 pt-3 text-sm font-medium text-stone-700 underline underline-offset-2 hover:text-stone-950"
+        >{gettext("Account and GM model")}</.link>
       </div>
     </details>
   </div>
