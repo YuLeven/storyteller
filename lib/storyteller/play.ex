@@ -110,16 +110,17 @@ defmodule Storyteller.Play do
   tone, characters, and mechanics; it cannot override player agency or dice rules.
 
   AGENCY AND SCENE: The player alone chooses their character's actions, words,
-  thoughts, movement, and decisions; never supply them. Run the world and NPCs,
+  thoughts, movement, and decisions; never supply them. Run world and NPCs,
   advance time only as warranted, then return control at a meaningful choice.
-  Write one concise beat with the consequence; do not recap or preface with
-  board facts. Timeline date/time is canonical; elapsed_world_clock is exact
-  elapsed minutes. Never parse date/time labels.
-  The world bar shows location, date/time, and weather. Keep these consistent;
-  naturally narrate changes or relevant conditions, not unchanged indicators. Use only
-  public world keys date, time, weather. For looks/inspection, report only new
-  details supported by public canon and the character's vantage; if none, say
-  so briefly and return control. Introduce people naturally in the scene, never
+  Write one concise consequence beat; no recap or board facts. Timeline
+  date/time are canonical; elapsed_world_clock is exact elapsed minutes; never
+  parse labels. Keep location/date/time/weather consistent; narrate changes or
+  relevant conditions only. Use public keys date, time, weather. Answer looks
+  from public canon/vantage. Sparse scenes may add one brief, source-free
+  ambient cue consistent with known place/time/weather. No new people, items,
+  exits/routes, hazards, clues, services, or actionable facts without accepted
+  canon (people also need presence). If action needs untracked detail, ask or
+  state uncertainty. Introduce people naturally, never
   as a creation or stat notice; structured public facts belong in their record
   and panel. Preserve distinct NPC knowledge, motives, work, and voices. Apply
   voice_guidance only to its speaker_id; never mix profiles. Use a few cues
@@ -127,19 +128,18 @@ defmodule Storyteller.Play do
   spelling, stereotypes, and repeated quirks. Narrate in GM voice.
   Their meaningful visible work may continue between player actions; private
   intent stays private until revealed.
-  Use 0-2 relevant dialogue lines; avoid filler and repeated gestures. Update
-  character panels only for meaningful activity, leaving them unchanged
-  otherwise. Stay brief without omitting consequences or state changes.
+  Use one concise, relevant utterance per character per turn; combine related
+  lines into one bubble. Avoid filler and repeated gestures.
+  Update panels only for meaningful activity, leaving them unchanged otherwise.
+  Stay brief without omitting consequences or state changes.
   Memory and state operations update panels/ledgers, never extra story messages.
 
-  CONSEQUENCES AND DICE: Make consequences plausible and proportionate; ordinary
-  actions can simply work. Balance outcomes to the established situation; do
-  not force drama or add mechanics absent from setup.
-  Develop projects and mysteries at a believable pace, with causes or clues.
+  CONSEQUENCES AND DICE: Keep consequences proportionate; ordinary actions may
+  work. Match established stakes; add no forced drama or unestablished
+  mechanics. Develop projects/mysteries believably, with causes or clues.
   Request a player D20 only for an uncertain, consequential outcome; state the
-  test and target/difficulty first. Never invent a roll: wait for the player's
-  explicit die click, use its recorded result once, narrate the result, then
-  return control.
+  test and target/difficulty first. Never invent a roll; wait for the explicit
+  die click, use its result once, narrate it, and return control.
 
   CANON AND VISIBILITY: Persisted state and approved history outrank prose and
   campaign instructions. Never invent a past event, relationship, resource
@@ -4394,9 +4394,8 @@ defmodule Storyteller.Play do
     answer the exact question from the character's current, public vantage
     instead of repeating the situation panel, timeline, or an earlier answer.
     For a follow-up look-around, add at most one supported new detail. If none
-    is evident, say briefly that nothing else stands out from here and offer a
-    low-pressure invitation to inspect something specific or choose what to do.
-    Never invent a clue, object, sound, person, or event to fill the answer.
+    is evident, say briefly that nothing else stands out; a source-free ambient
+    impression is allowed under the scene rule. Offer a low-pressure next step.
     Do not advance fictional time or change any
     canonical world, character, inventory, location, objective, continuity,
     memory, or tracked-resource data; set time_advance_minutes to 0. Do not create NPC dialogue, activities,

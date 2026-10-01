@@ -3,6 +3,10 @@
 **Reviewed:** 2026-10-01  
 **Evidence boundary:** This combines a first-party public-documentation review with one live GM turn in a separate fictional QA campaign. It is not a hands-on competitor trial or a broad campaign-quality result. The Vineyard campaign was not opened. No campaign text, prompt, or private context is reproduced here.
 
+## Owner-provided market-research hypothesis
+
+The owner identified a continuity failure in LLM-led TTRPG play: a model can retain a character's personality while a long or compressed conversation loses logistical canon, such as the forty-minute journey between the Finca and Bodega. It may then place familiar characters together for convenient dialogue even when their established location makes that impossible. Storyteller's product hypothesis is that the app should own durable world state and validate proposed changes, while the GM model supplies expressive narration. This is a research input and design hypothesis, not a verified claim about every competing product. The MVP should test it in play and measure continuity together with bounded context use: retain the full canon locally, send only relevant facts, and never trim required state to meet a prompt budget.
+
 ## What comparable products teach us
 
 | Area | AI-native reference: Friends & Fables | System-agnostic reference: LegendKeeper | Storyteller decision |
@@ -22,13 +26,13 @@ Apple's Human Interface Guidelines recommend matching feedback to the importance
 
 ## Storyteller hands-on finding and next actions
 
-The QA session supports a useful fiction-first loop: the player can ask what they notice or explicitly pass time; travel updates the game-time label; the current location and situation remain on the board. An earlier read-only pass found a look-around answer that repeated the board and did not offer a grounded next cue. GM guidance and fake-provider regression coverage have since been updated to keep follow-up answers concise, tied to the character's vantage, and non-duplicative.
+The QA session supports a useful fiction-first loop: the player can ask what they notice or explicitly pass time; travel updates the game-time label; the current location and situation remain on the board. Earlier read-only passes found look-around answers that repeated the board or offered no grounded cue. Current inspection shows the canon-first instruction can go too far: it avoids inventing people or objects, but can make a sparse scene feel like a missing database record instead of a place. The next product refinement is to allow brief, non-actionable sensory atmosphere consistent with established place, time, and weather, while keeping people, items, exits, routes, clues, and hazards under canonical validation.
 
 In one later live turn in the fictional QA campaign, the player asked about job terms at a tavern bar. The GM introduced an employer through narration and dialogue, and the scene roster then showed her at the current location with the existing companion. The saved player action remained visible while the GM responded. This is a single-turn observation, not proof of cross-session recall, overall consistency, or context-cost savings. The accessibility tree included the visually hidden `New story` screen-reader announcement; it was not a visible card or chat message and belongs with the deferred V1 accessibility review. Broader multi-session play testing remains necessary.
 
 | Priority | Product action | Evidence of success |
 | --- | --- | --- |
-| Now | Extend the scene-anchor regression across more indirect phrasing and long-session patterns; keep canon authoritative and retrieve only bounded supporting evidence. | Old facts tied to connected places or present characters survive varied paraphrases and unrelated-history noise; private facts remain protected and the compiled request stays within the conservative bound. |
+| Now | Extend the scene-anchor regression across more indirect phrasing and long-session patterns, and keep look-around answers imaginative without creating actionable canon. | Old facts tied to connected places or present characters survive varied paraphrases and unrelated-history noise; a sparse scene still gets safe sensory texture; people, items, routes, clues, and hazards remain grounded; private facts stay protected and requests stay within the conservative bound. |
 | MVP | Reduce dependence on player-maintained memory for durable, unstructured details while preserving typed canon and a deliberate context budget. | Across several sessions, the GM recalls relevant older commitments and facts even when the player does not repeat exact wording or manually save a note; unrelated history remains omitted and ordinary requests stay bounded. |
 | MVP | Validate several genres with the same play contract: a vineyard/resource campaign, a location-constrained exploration campaign, and a social or historical scene. | Each scenario can track only the state its genre needs, preserve character presence and commitments, and keep the GM's replies coherent without importing another game's mechanics. |
 | Defer | General-purpose maps/wiki authoring, tactical combat grids, party collaboration and broad provider integrations. | Revisit only after single-player narrative play is coherent and the current board proves insufficient in actual play. |

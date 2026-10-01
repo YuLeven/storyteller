@@ -209,7 +209,9 @@ defmodule Storyteller.Play.GenreFlexibilityTest do
 
     assert request.instructions
            |> String.replace(~r/\s+/, " ")
-           |> String.contains?("do not force drama or add mechanics absent from setup")
+           |> String.contains?(
+             "Match established stakes; add no forced drama or unestablished mechanics."
+           )
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
     assert projection.inventory == []

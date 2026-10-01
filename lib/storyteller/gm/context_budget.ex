@@ -73,7 +73,77 @@ defmodule Storyteller.GM.ContextBudget do
     "reservada" => "allocation:set-aside",
     "réserver" => "allocation:set-aside",
     "réservé" => "allocation:set-aside",
-    "réservée" => "allocation:set-aside"
+    "réservée" => "allocation:set-aside",
+    "job" => "employment:work",
+    "jobs" => "employment:work",
+    "work" => "employment:work",
+    "employment" => "employment:work",
+    "employer" => "employment:work",
+    "employers" => "employment:work",
+    "position" => "employment:work",
+    "role" => "employment:work",
+    "trabajo" => "employment:work",
+    "trabajos" => "employment:work",
+    "empleo" => "employment:work",
+    "empleos" => "employment:work",
+    "empleador" => "employment:work",
+    "empleadora" => "employment:work",
+    "empleadores" => "employment:work",
+    "puesto" => "employment:work",
+    "puestos" => "employment:work",
+    "travail" => "employment:work",
+    "emploi" => "employment:work",
+    "emplois" => "employment:work",
+    "employeur" => "employment:work",
+    "employeurs" => "employment:work",
+    "poste" => "employment:work",
+    "postes" => "employment:work",
+    "accept" => "employment:acceptance",
+    "accepts" => "employment:acceptance",
+    "accepted" => "employment:acceptance",
+    "accepting" => "employment:acceptance",
+    "acceptance" => "employment:acceptance",
+    "aceptar" => "employment:acceptance",
+    "acepto" => "employment:acceptance",
+    "aceptas" => "employment:acceptance",
+    "acepta" => "employment:acceptance",
+    "aceptamos" => "employment:acceptance",
+    "aceptan" => "employment:acceptance",
+    "aceptado" => "employment:acceptance",
+    "aceptada" => "employment:acceptance",
+    "aceptacion" => "employment:acceptance",
+    "aceptación" => "employment:acceptance",
+    "accepter" => "employment:acceptance",
+    "accepte" => "employment:acceptance",
+    "accepté" => "employment:acceptance",
+    "acceptée" => "employment:acceptance",
+    "acceptes" => "employment:acceptance",
+    "acceptez" => "employment:acceptance",
+    "acceptons" => "employment:acceptance",
+    "acceptant" => "employment:acceptance",
+    "acceptation" => "employment:acceptance",
+    "pay" => "employment:compensation",
+    "pays" => "employment:compensation",
+    "paid" => "employment:compensation",
+    "wage" => "employment:compensation",
+    "wages" => "employment:compensation",
+    "salary" => "employment:compensation",
+    "salaries" => "employment:compensation",
+    "paga" => "employment:compensation",
+    "pagas" => "employment:compensation",
+    "pagamos" => "employment:compensation",
+    "pagan" => "employment:compensation",
+    "salario" => "employment:compensation",
+    "salarios" => "employment:compensation",
+    "sueldo" => "employment:compensation",
+    "sueldos" => "employment:compensation",
+    "paie" => "employment:compensation",
+    "paies" => "employment:compensation",
+    "payer" => "employment:compensation",
+    "salaire" => "employment:compensation",
+    "salaires" => "employment:compensation",
+    "rémunération" => "employment:compensation",
+    "rémunérations" => "employment:compensation"
   }
 
   @autumn_terms MapSet.new(["fall", "autumn", "otoño", "automne"])
@@ -83,6 +153,23 @@ defmodule Storyteller.GM.ContextBudget do
                                   "allocation:set-aside"
                                 ])
   @event_subconcepts MapSet.new(["occasion:tasting"])
+  @employment_memory_concepts MapSet.new([
+                                "employment:work",
+                                "employment:acceptance",
+                                "employment:compensation"
+                              ])
+  @ambiguous_compensation_terms MapSet.new([
+                                  "pay",
+                                  "pays",
+                                  "paid",
+                                  "paga",
+                                  "pagas",
+                                  "pagamos",
+                                  "pagan",
+                                  "paie",
+                                  "paies",
+                                  "payer"
+                                ])
   @history_broad_action_terms MapSet.new(~w(
     ask asks asked asking request requests requesting
     do does did doing need needs needed needing happen happens happened happening
@@ -381,6 +468,22 @@ defmodule Storyteller.GM.ContextBudget do
       |> MapSet.difference(@memory_stopwords)
 
     matched_concepts = MapSet.intersection(meaningful_query_terms, note_terms)
+    other_matched_concepts = MapSet.difference(matched_concepts, @employment_memory_concepts)
+
+    employment_matches = MapSet.intersection(matched_concepts, @employment_memory_concepts)
+
+    raw_query_terms = MapSet.new(query_terms)
+
+    employment_work_or_acceptance? =
+      MapSet.member?(employment_matches, "employment:work") or
+        MapSet.member?(employment_matches, "employment:acceptance")
+
+    employment_relevant? =
+      (MapSet.member?(employment_matches, "employment:compensation") and
+         (MapSet.disjoint?(raw_query_terms, @ambiguous_compensation_terms) or
+            employment_work_or_acceptance?)) or
+        (MapSet.member?(employment_matches, "employment:work") and
+           MapSet.member?(employment_matches, "employment:acceptance"))
 
     query_support = MapSet.intersection(meaningful_query_terms, @seasonal_supporting_concepts)
     note_support = MapSet.intersection(note_terms, @seasonal_supporting_concepts)
@@ -392,10 +495,13 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
     cond do
-      MapSet.size(matched_concepts) == 0 ->
+      employment_relevant? ->
+        true
+
+      MapSet.size(other_matched_concepts) == 0 ->
         false
 
-      MapSet.member?(matched_concepts, "season:autumn") ->
+      MapSet.member?(other_matched_concepts, "season:autumn") ->
         if MapSet.size(query_support) == 0 do
           exact_season_match?
         else

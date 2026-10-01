@@ -5038,8 +5038,18 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "The player alone chooses their character's actions, words, thoughts, movement"
 
+    assert instructions =~ "Answer looks from public canon/vantage"
+
+    assert instructions =~ "one brief, source-free ambient cue"
+
+    assert instructions =~ "consistent with known place/time/weather"
+
     assert instructions =~
-             "report only new details supported by public canon and the character's vantage"
+             "No new people, items, exits/routes, hazards, clues, services, or actionable facts"
+
+    assert instructions =~ "accepted canon (people also need presence)"
+
+    assert instructions =~ "If action needs untracked detail, ask or state uncertainty."
 
     assert instructions =~
              "Preserve distinct NPC knowledge, motives, work, and voices. Apply voice_guidance only to its speaker_id; never mix profiles."
@@ -5065,12 +5075,49 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "without a matching inventory_changes operation and established cause"
     assert instructions =~ "A read-only ledger review changes nothing"
     assert instructions =~ "Request a player D20 only for an uncertain, consequential outcome"
-    assert instructions =~ "Use 0-2 relevant dialogue lines; avoid filler and repeated gestures."
+
+    assert instructions =~ "Use one concise, relevant utterance per character per turn"
+
+    assert instructions =~ "combine related lines into one bubble."
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
   test "a follow-up look-around question gets vantage guidance without changing the scene" do
     {campaign, session} = play_campaign("The Glass Observatory Follow-up")
+
+    known_public_item = %{
+      "id" => "field-notes",
+      "name" => "Field notes",
+      "quantity" => 1,
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{}
+    }
+
+    known_private_item = %{
+      "id" => "hidden-ledger-key",
+      "name" => "Hidden ledger key",
+      "quantity" => 1,
+      "owner_id" => "npc:lyra",
+      "visibility" => "gm_private",
+      "properties" => %{}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          state.public_state
+          |> Map.delete("world_time")
+          |> Map.put("time", "Late afternoon")
+          |> Map.put("weather", "Overcast")
+          |> Map.put("inventory", [known_public_item]),
+        gm_private_state: Map.put(state.gm_private_state, "inventory", [known_private_item]),
+        elapsed_world_anchor: %{"time" => "Late afternoon"}
+      })
+    )
+
     assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
 
     opening_proposal =
@@ -5089,16 +5136,16 @@ defmodule Storyteller.PlayTest do
              )
 
     assert {:ok, before} = Play.public_projection(campaign.id)
-    before_clock = Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes
+    before_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert {:ok, before_timeline} = Play.public_timeline(campaign.id)
     owner = self()
     question = "What can I see from here that I haven't noticed yet?"
 
+    answer =
+      "Overcast late-afternoon light leaves the room in a soft gray wash. A faint, clean scent and a low, indistinct hush lend the air a still, quiet feel. You can ask about a specific feature or choose what to do next."
+
     provider = fn request ->
       send(owner, {:look_around_request, request, decode_request(request)})
-
-      answer =
-        "From here, nothing else stands out. You could inspect one detail more closely or choose your next move."
-
       {:ok, Jason.encode!(ordinary_proposal(%{"narration" => answer}))}
     end
 
@@ -5118,27 +5165,38 @@ defmodule Storyteller.PlayTest do
     assert context["interaction_mode"] == "question"
     assert context["player_action"] == question
     assert context["world"]["public"]["location"] == "The Glass Observatory"
+    assert context["world"]["public"]["time"] == "Late afternoon"
+    assert context["world"]["public"]["weather"] == "Overcast"
     assert instructions =~ "Treat the board and recent narration as known"
 
     assert instructions =~
              "answer the exact question from the character's current, public vantage"
 
     assert instructions =~ "For a follow-up look-around, add at most one supported new detail"
-    assert instructions =~ "say briefly that nothing else stands out from here"
 
-    assert instructions =~
-             "Never invent a clue, object, sound, person, or event to fill the answer"
+    assert instructions =~ "a source-free ambient impression is allowed under the scene rule"
 
     assert {:ok, after_projection} = Play.public_projection(campaign.id)
     assert after_projection.world == before.world
+    assert after_projection.inventory == before.inventory
 
     assert Enum.map(after_projection.characters, &{&1.speaker_id, &1.current_place_id}) ==
              Enum.map(before.characters, &{&1.speaker_id, &1.current_place_id})
 
-    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == before_clock
+    after_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert after_state.public_state == before_state.public_state
+    assert after_state.gm_private_state == before_state.gm_private_state
+    assert after_state.elapsed_world_minutes == before_state.elapsed_world_minutes
+    assert after_state.elapsed_world_anchor == before_state.elapsed_world_anchor
+    assert after_state.revision == before_state.revision
+    assert after_state.event_sequence == before_state.event_sequence + 2
 
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
-    assert Enum.map(Enum.take(timeline, -2), & &1.event_type) == [:player_question, :gm_narration]
+    assert Enum.take(timeline, length(before_timeline)) == before_timeline
+
+    new_events = Enum.drop(timeline, length(before_timeline))
+    assert Enum.map(new_events, & &1.event_type) == [:player_question, :gm_narration]
+    assert Enum.map(new_events, & &1.payload["text"]) == [question, answer]
   end
 
   test "campaign snapshots stay isolated and campaign history continues across sessions" do

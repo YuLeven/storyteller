@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-01 — Preserve safe scene atmosphere without inventing canon
+
+- A read-only QA review found the canon-first look-around rule could leave a sparse room feeling like a missing record. The GM may now add one short, source-free ambient cue consistent with the known place, time, and weather. People, items, routes, exits, hazards, clues, services, and other actionable facts still require accepted canon; people also require accepted presence. If a player action depends on something untracked, the GM should ask or state uncertainty.
+- The GM now prefers one concise utterance per character per turn, combining related statements into one bubble. This reduces chat noise while preserving direct character dialogue and the paced timeline.
+- The Ask GM regression uses a vivid ambient answer and verifies the public/private world state, inventory, character locations, elapsed clock, revision, and prior events remain unchanged; only the player question and GM narration are appended. The ordinary prompt remains under its **10,000-byte** behavior ceiling.
+- **Checks:** focused Play tests **2 selected, 0 failures**; ContextBudget **16 tests, 0 failures**; full WSL suite **339 tests, 0 failures**. Formatting, Gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. The separate QA account remained usage-paused; no live provider request or campaign edit was made.
+
+## 2026-10-01 — Retrieve employment commitments across English, Spanish, and French
+
+- A durable English memory that records a promise to clarify an employer's offer now survives later Spanish or French paraphrases, as well as direct pay questions in all three languages. Retrieval uses an explicit, reviewed employment/acceptance/compensation vocabulary; it does not claim general semantic search.
+- Long, unrelated bridge and harvest notes retain only summary metadata and are omitted from each compiled request. The relevant note is preserved, and both serialized context reduction and the configured conservative input bound are checked.
+- **Checks:** ContextBudget **16 tests, 0 failures**; full WSL suite **339 tests, 0 failures**. Tests use synthetic context and fake providers; no live provider or campaign data was used.
+
 ## 2026-10-01 — Let persisted world time complete GM-character duties
 
 - Finite owner-authored duties now store an absolute `release_at_world_minute`, anchored to the campaign's persisted elapsed minute at assignment or edit. An indefinite assignment still blocks departure until owner release. The edit form accepts remaining in-world minutes, including 0 to complete an existing duty at the current stored minute; clearing the duty name releases it even if a stale duration value remains in the form. New setup accepts finite durations from 1 to 525600 minutes.

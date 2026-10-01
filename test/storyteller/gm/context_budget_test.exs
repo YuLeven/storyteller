@@ -512,6 +512,118 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
+  test "retrieves an older employment promise from Spanish and French paraphrases" do
+    employment_memory = %{
+      entry_id: "apothecary-offer",
+      kind: "commitment",
+      title: "Rosa's apothecary offer",
+      details:
+        "Before accepting the job at the apothecary, Rosa promised to ask the employer about wages, working hours, and terms.",
+      status: "active",
+      visibility: "public",
+      source_sequence: 4,
+      player_managed: true
+    }
+
+    unrelated_memories = [
+      %{
+        entry_id: "stone-bridge-repair",
+        kind: "fact",
+        title: "Stone bridge repair",
+        details:
+          "The mason repaired the old stone bridge after the spring flood. " <>
+            String.duplicate(
+              "Repair notes describe the damaged arch and replacement stones. ",
+              20
+            ),
+        status: "active",
+        visibility: "public",
+        player_managed: true
+      },
+      %{
+        entry_id: "wheat-harvest-plan",
+        kind: "plan",
+        title: "Wheat harvest plan",
+        details:
+          "The fields are scheduled for the late summer harvest. " <>
+            String.duplicate("The plan records the cutting order and storage needs. ", 20),
+        status: "active",
+        visibility: "public",
+        player_managed: true
+      }
+    ]
+
+    memories = [employment_memory | unrelated_memories]
+
+    context =
+      base_context()
+      |> Map.put(:campaign, %{
+        title: "Northgate",
+        premise: "A small town with shared work and obligations."
+      })
+      |> Map.put(:continuity, %{public: memories, gm_private: []})
+
+    for action <- [
+          "Antes de aceptar el trabajo, ¿qué debo aclarar sobre la oferta?",
+          "Avant d'accepter le poste, quels points dois-je clarifier ?",
+          "What does the employer pay?",
+          "¿Cuánto paga el empleador?",
+          "Combien l'employeur paie-t-il ?"
+        ] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_token_budget: 24_000
+               )
+
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+
+      assert metrics.section_bytes.section_continuity_bytes <
+               byte_size(Jason.encode!(context.continuity))
+
+      assert metrics.context_json_bytes < byte_size(Jason.encode!(request_context))
+
+      [retrieved | unrelated] = compiled.continuity.public
+      assert retrieved.entry_id == employment_memory.entry_id
+      assert retrieved.details == employment_memory.details
+
+      assert Enum.map(unrelated, & &1.entry_id) == Enum.map(unrelated_memories, & &1.entry_id)
+
+      assert Enum.all?(unrelated, fn entry ->
+               not Map.has_key?(entry, :title) and not Map.has_key?(entry, :details)
+             end)
+
+      assert compiled.context_completeness.player_managed_memory_details_omitted
+    end
+
+    for action <- ["Should I accept it?", "Where is the employer?"] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_token_budget: 24_000
+               )
+
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert Enum.all?(compiled.continuity.public, &(not Map.has_key?(&1, :details)))
+    end
+
+    toll_context = Map.put(context, :player_action, "I paid the bridge toll.")
+
+    assert {:ok, %{context: toll_compiled}} =
+             ContextBudget.compile(toll_context, "Short GM policy", "gpt-6-astra",
+               context_input_token_budget: 24_000
+             )
+
+    toll_details =
+      Map.new(toll_compiled.continuity.public, &{&1.entry_id, Map.has_key?(&1, :details)})
+
+    assert toll_details["stone-bridge-repair"]
+    refute toll_details["apothecary-offer"]
+    refute toll_details["wheat-harvest-plan"]
+  end
+
   test "bounds broad seasonal event retrieval to the newest eight matching notes" do
     player_memories =
       Enum.map(1..10, fn number ->
