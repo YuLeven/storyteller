@@ -44,7 +44,19 @@ defmodule Storyteller.GM.ContextBudget do
     "vino" => "wine",
     "vinos" => "wine",
     "vin" => "wine",
-    "vins" => "wine"
+    "vins" => "wine",
+    "fall" => "season:autumn",
+    "autumn" => "season:autumn",
+    "otoño" => "season:autumn",
+    "automne" => "season:autumn",
+    "event" => "occasion:tasting",
+    "events" => "occasion:tasting",
+    "tasting" => "occasion:tasting",
+    "tastings" => "occasion:tasting",
+    "evento" => "occasion:tasting",
+    "eventos" => "occasion:tasting",
+    "événement" => "occasion:tasting",
+    "événements" => "occasion:tasting"
   }
 
   @measured_sections [
@@ -315,27 +327,51 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp memory_relevant?(entry, query_terms) do
+    text = entry_text(entry)
+
+    directly_mentioned? =
+      not MapSet.disjoint?(
+        MapSet.difference(query_terms, @memory_stopwords),
+        raw_meaningful_terms(text)
+      )
+
     meaningful_query_terms =
       query_terms
       |> Enum.map(&memory_term_alias/1)
       |> MapSet.new()
       |> MapSet.difference(@memory_stopwords)
 
-    note_terms = meaningful_terms(entry_text(entry))
-    not MapSet.disjoint?(meaningful_query_terms, note_terms)
+    matched_concepts = MapSet.intersection(meaningful_query_terms, meaningful_terms(text))
+
+    cond do
+      directly_mentioned? -> true
+      MapSet.size(matched_concepts) == 0 -> false
+      # Season words are broad on their own; require a second shared concept
+      # such as an occasion before treating a translated season as relevant.
+      MapSet.member?(matched_concepts, "season:autumn") -> MapSet.size(matched_concepts) > 1
+      true -> true
+    end
   end
 
   defp meaningful_terms(text) when is_binary(text) do
     text
-    |> String.downcase()
-    |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
-    |> List.flatten()
+    |> raw_meaningful_terms()
     |> Enum.map(&memory_term_alias/1)
-    |> Enum.reject(&MapSet.member?(@memory_stopwords, &1))
     |> MapSet.new()
   end
 
   defp meaningful_terms(_text), do: MapSet.new()
+
+  defp raw_meaningful_terms(text) when is_binary(text) do
+    text
+    |> String.downcase()
+    |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
+    |> List.flatten()
+    |> Enum.reject(&MapSet.member?(@memory_stopwords, &1))
+    |> MapSet.new()
+  end
+
+  defp raw_meaningful_terms(_text), do: MapSet.new()
 
   defp memory_term_alias(term), do: Map.get(@memory_term_aliases, term, term)
 

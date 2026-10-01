@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-01 — Retrieve seasonal campaign memories across paraphrased questions
+
+- A player could preserve a commitment on the campaign board, then ask about it later using another season's common name (“fall” vs. “autumn”) and have the detail omitted from GM context. The local relevance vocabulary now connects fall/autumn, otoño, and automne with tasting/event phrasing. A season match alone is too broad, so autumn questions need a second shared occasion concept unless the note uses the exact season word.
+- Added a fake-provider, later-session behavior test for the autumn bottle reserve. The note reaches the GM when asked in English, Spanish, or French, while unrelated bridge-toll and same-season roof-repair notes stay out of context; each request remains within the configured input bound.
+- The vocabulary remains curated and deterministic; this does not claim general semantic understanding. Broader paraphrase recall and false-inclusion coverage remain open MVP work.
+- **Checks:** context-budget and story-memory suites **18 tests, 0 failures**; full WSL suite **331 tests, 0 failures**; format, Gettext freshness, warnings-as-errors test compilation, and `git diff --check` passed. Automated tests use isolated data and fake providers; no live provider or existing campaign was used.
+
 ## 2026-10-01 — Keep character voice guidance open while editing
 
 - Browser testing exposed that entering one character voice note collapsed the nested voice section after LiveView updated, hiding the other fields while the user was still configuring the character. The section now stays expanded once any voice note has content, so quirks, accent/dialect, cadence, vocabulary, and mannerisms can be entered together. Empty optional sections remain collapsed.

@@ -359,6 +359,97 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
            |> Enum.all?(&(&1.event_type != :state_change))
   end
 
+  test "retrieves a seasonal commitment from paraphrased questions in each supported language" do
+    campaign = campaign_fixture()
+    first_session = hd(campaign.sessions)
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, relevant} =
+             memory_correction(campaign, first_session, state.revision, "add", nil, %{
+               "kind" => "commitment",
+               "title" => "Autumn tasting reserve",
+               "details" => "Keep six bottles aside for the autumn tasting."
+             })
+
+    relevant_entry =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Autumn tasting reserve")
+
+    assert {:ok, toll} =
+             memory_correction(campaign, first_session, relevant.revision, "add", nil, %{
+               "kind" => "fact",
+               "title" => "Bridge toll agreement",
+               "details" => "The bridge toll is waived until summer."
+             })
+
+    unrelated_entry =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Bridge toll agreement")
+
+    assert {:ok, _same_season_but_unrelated} =
+             memory_correction(campaign, first_session, toll.revision, "add", nil, %{
+               "kind" => "fact",
+               "title" => "Autumn roof repair",
+               "details" => "Autumn rain delayed repairs to the north gate roof."
+             })
+
+    same_season_entry =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Autumn roof repair")
+
+    {:ok, later_session} = Campaigns.start_session(campaign)
+    captured = Agent.start_link(fn -> [] end) |> elem(1)
+
+    questions = [
+      "What quantity did we earmark for the fall event?",
+      "¿Qué cantidad reservamos para el evento de otoño?",
+      "Quelle quantité avons-nous réservée pour l'événement d'automne ?"
+    ]
+
+    questions
+    |> Enum.with_index()
+    |> Enum.each(fn {question, index} ->
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 later_session.id,
+                 "seasonal-memory-recall-#{index}",
+                 question,
+                 provider: fn request ->
+                   captured_request = %{
+                     context: decode_request(request),
+                     metrics: request.local_context_metrics
+                   }
+
+                   Agent.update(captured, &[captured_request | &1])
+                   {:ok, Jason.encode!(proposal())}
+                 end
+               )
+    end)
+
+    requests = Agent.get(captured, & &1)
+    assert length(requests) == length(questions)
+
+    Enum.each(requests, fn %{context: context, metrics: metrics} ->
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+
+      assert Enum.any?(context["continuity"]["public"], fn entry ->
+               entry["entry_id"] == relevant_entry.entry_id and
+                 entry["details"] == "Keep six bottles aside for the autumn tasting." and
+                 entry["player_managed"]
+             end)
+
+      refute Enum.any?(context["continuity"]["public"], fn entry ->
+               entry["entry_id"] == unrelated_entry.entry_id and
+                 (Map.has_key?(entry, "title") or Map.has_key?(entry, "details"))
+             end)
+
+      refute Enum.any?(context["continuity"]["public"], fn entry ->
+               entry["entry_id"] == same_season_entry.entry_id and
+                 (Map.has_key?(entry, "title") or Map.has_key?(entry, "details"))
+             end)
+
+      assert context["context_completeness"]["player_managed_memory_details_omitted"]
+    end)
+  end
+
   defp memory_correction(campaign, session, revision, action, target_id, values) do
     CanonCorrections.correct(campaign.id, session.id, %{
       "kind" => "memory",
