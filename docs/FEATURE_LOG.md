@@ -1,5 +1,23 @@
 # Feature log
 
+## 2026-10-01 — Set GM characters' starting places in campaign setup
+
+- The optional GM-character setup card now accepts a canonical starting place, and the review step shows it separately from character description and voice notes. Using the exact opening-location name colocates someone with the player; another name creates a separate public place without assuming a route. Leaving it blank keeps their location unknown instead of placing every NPC together.
+- The starting place is persisted through the existing character/place initialization path, appears on the player board and in later-session GM context, and requires no schema change. Setup guidance and the field-specific length error are translated into Spanish and French.
+- **Checks:** combined Play, campaign setup, SessionLive, and locale tests passed (**146 tests, 0 failures**) in WSL; the full WSL suite passed (**317 tests, 0 failures**). Warnings-as-errors compilation, format check, Gettext freshness, asset build, and `git diff --check` also passed. Coverage includes review/edit persistence, distinct vs omitted locations, visible location labels, later-session context, no fabricated route, and translated guidance. New behavior assertions use fake providers and isolated test data.
+
+## 2026-10-01 — Show game time once per turn
+
+- The story timeline now labels canonical date/time on the first public event of each turn, then repeats the label only if the canonical clock changes within that turn. This keeps fictional chronology available without repeating the same date and time on every GM or character bubble; real-world timestamps remain absent.
+- The marker is computed across the accumulated timeline before splitting recent and earlier story, so session boundaries and loading older pages keep the correct first marker.
+- **Checks:** focused SessionLive tests passed (**47 tests, 0 failures**), the combined Play, setup, SessionLive, and locale run passed (**146 tests, 0 failures**), and the full WSL suite passed (**317 tests, 0 failures**). Warnings-as-errors compilation, format check, Gettext freshness, asset build, and `git diff --check` passed.
+
+## 2026-10-01 — Repair public characters with an unknown location
+
+- Campaign care can now select a public GM-controlled character whose canonical location is missing, so players can repair an incomplete starting state without allowing the GM to invent a zero-time move from an unknown origin. The existing location correction still requires a known public destination and a reason, is revision-checked, records before/after audit snapshots, and does not create a story event or advance game time.
+- Characters located in GM-private places remain excluded from correction targets, and non-nil locations that are not public are not treated as unknown. After correction, the assigned public place is included in later-session GM context.
+- **Checks:** `MIX_ENV=test mix test test/storyteller/play_test.exs --max-cases 16` passed (**73 tests, 0 failures**); `MIX_ENV=test mix test test/storyteller_web/live/session_live_test.exs --max-cases 8` passed (**45 tests, 0 failures**); warnings-as-errors compilation, `mix format --check-formatted`, and `git diff --check` passed in WSL. Only isolated fixtures and fake providers are used; no live campaign or provider is accessed.
+
 ## 2026-10-01 — Reject free placement from an unknown origin
 
 - Tightened canonical movement validation so an established character whose current place is unknown cannot move to any destination at zero minutes. The same-proposal character-creation IDs are explicitly authorized for first placement; the trusted opening-scene intent also authorizes initially unplaced setup characters (including the player). Known same-place moves remain zero-minute no-ops, while known cross-place moves still require a graph route and add its computed time.

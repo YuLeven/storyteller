@@ -337,6 +337,17 @@ defmodule Storyteller.PlayTest do
       })
     )
 
+    unplaced =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:unplaced",
+          name: "Unplaced cooper",
+          role: :gm,
+          current_place_id: nil
+        })
+      )
+
     state = Repo.get_by!(State, campaign_id: campaign.id)
 
     Repo.update!(
@@ -357,7 +368,7 @@ defmodule Storyteller.PlayTest do
 
     assert {:ok, options} = CanonCorrections.options(campaign.id, session.id)
     assert Enum.map(options.places, & &1.id) == ["bodega", finca.place_id]
-    assert Enum.map(options.characters, & &1.id) == ["player", "npc:lyra"]
+    assert Enum.map(options.characters, & &1.id) == ["player", "npc:lyra", "npc:unplaced"]
     refute Jason.encode!(options) =~ "Hidden ledger key"
     refute Jason.encode!(options) =~ "sealed-room"
 
@@ -375,19 +386,42 @@ defmodule Storyteller.PlayTest do
     assert {:ok, receipt} =
              CanonCorrections.correct(campaign.id, session.id, %{
                "kind" => "location",
-               "target_id" => "npc:lyra",
+               "target_id" => "npc:unplaced",
                "expected_revision" => options.revision,
+               "reason" => "The cooper's last known stop was the Bodega.",
+               "values" => %{"place_id" => bodega.place_id}
+             })
+
+    unplaced_audit =
+      Repo.get_by!(CanonCorrection, campaign_id: campaign.id, sequence: receipt.sequence)
+
+    assert unplaced_audit.reason == "The cooper's last known stop was the Bodega."
+    assert unplaced_audit.before_state["place_id"] == nil
+    assert unplaced_audit.before_state["place_name"] == nil
+    assert unplaced_audit.after_state["place_id"] == bodega.place_id
+    assert unplaced_audit.after_state["place_name"] == "Bodega"
+    assert Repo.get_by!(Character, id: unplaced.id).current_place_id == bodega.place_id
+
+    assert {:ok, updated_options} = CanonCorrections.options(campaign.id, session.id)
+
+    assert {:ok, lyra_receipt} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "location",
+               "target_id" => "npc:lyra",
+               "expected_revision" => updated_options.revision,
                "reason" => "The keeper remained at the Finca.",
                "values" => %{"place_id" => bodega.place_id}
              })
 
-    audit = Repo.get_by!(CanonCorrection, campaign_id: campaign.id, sequence: receipt.sequence)
+    audit =
+      Repo.get_by!(CanonCorrection, campaign_id: campaign.id, sequence: lyra_receipt.sequence)
+
     assert audit.before_state["place_id"] == finca.place_id
     assert audit.after_state["place_id"] == bodega.place_id
     assert Repo.get_by!(Character, id: lyra.id).current_place_id == bodega.place_id
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
-    assert state.revision == before_state.revision + 1
+    assert state.revision == before_state.revision + 2
     assert state.event_sequence == before_state.event_sequence
     assert state.elapsed_world_minutes == before_state.elapsed_world_minutes
     assert {:ok, []} = Play.public_timeline(campaign.id)
@@ -420,7 +454,12 @@ defmodule Storyteller.PlayTest do
 
     context = Agent.get(captured_context, & &1)
     corrected_character = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:lyra"))
+
+    corrected_unplaced =
+      Enum.find(context["characters"], &(&1["speaker_id"] == "npc:unplaced"))
+
     assert corrected_character["current_place_id"] == bodega.place_id
+    assert corrected_unplaced["current_place_id"] == bodega.place_id
   end
 
   test "canon corrections reject stale forms and any unresolved game master turn" do

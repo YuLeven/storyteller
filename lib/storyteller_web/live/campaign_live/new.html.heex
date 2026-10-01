@@ -445,6 +445,28 @@
                 />
               </label>
             </div>
+            <div>
+              <label
+                for={"gm-starting-place-#{index}"}
+                class="block text-sm font-medium text-stone-700"
+              >
+                {gettext("Starting place")}
+                <input
+                  id={"gm-starting-place-#{index}"}
+                  name={"campaign[gm_characters][#{index}][starting_place]"}
+                  value={row_value(row, "starting_place")}
+                  placeholder={gettext("The river bodega")}
+                  maxlength="300"
+                  autocomplete="off"
+                  class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </label>
+              <p class="mt-1 text-sm text-stone-500">
+                {gettext(
+                  "Leave blank if unknown. To start with the player, use the same name as the campaign's starting location. A different name creates a separate public place with no travel route."
+                )}
+              </p>
+            </div>
             <label for={"gm-facts-#{index}"} class="block text-sm font-medium text-stone-700">
               {gettext("Player-visible facts")}
               <textarea
@@ -826,6 +848,12 @@
           class="rounded-xl border border-stone-200 bg-stone-50 p-4"
         >
           <h4 class="font-semibold text-stone-900">{character.name}</h4>
+          <dl class="mt-3 border-t border-stone-200 pt-3 text-sm">
+            <dt class="font-medium text-stone-500">{gettext("Starting place")}</dt>
+            <dd class="mt-0.5 whitespace-pre-wrap text-stone-800">
+              {review_value(character.initial_location)}
+            </dd>
+          </dl>
           <div class="mt-4 grid gap-4 md:grid-cols-2">
             <section>
               <h5 class="text-sm font-semibold text-stone-700">

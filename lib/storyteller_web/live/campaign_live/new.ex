@@ -317,6 +317,18 @@ defmodule StorytellerWeb.CampaignLive.New do
     gettext("Starting inventory must be a list.")
   end
 
+  defp setup_error_message("GM character " <> details) do
+    case String.split(details, " ", parts: 2) do
+      [number, "starting place must be 300 characters or fewer."] ->
+        gettext("GM character %{number} starting place must be 300 characters or fewer.",
+          number: number
+        )
+
+      _details ->
+        gettext("Campaign setup could not be validated. Review the fields and try again.")
+    end
+  end
+
   defp setup_error_message(
          "Voice notes need up to 280 characters per field and 1,200 characters total."
        ) do

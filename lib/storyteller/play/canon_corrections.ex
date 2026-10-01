@@ -58,7 +58,8 @@ defmodule Storyteller.Play.CanonCorrections do
             order_by: [asc: character.inserted_at, asc: character.id]
         )
         |> Enum.filter(fn character ->
-          character.role == :player or MapSet.member?(place_ids, character.current_place_id)
+          character.role == :player or is_nil(character.current_place_id) or
+            MapSet.member?(place_ids, character.current_place_id)
         end)
         |> Enum.map(fn character ->
           %{
@@ -781,7 +782,8 @@ defmodule Storyteller.Play.CanonCorrections do
 
     Repo.all(from character in Character, where: character.campaign_id == ^campaign_id)
     |> Enum.filter(fn character ->
-      character.role == :player or MapSet.member?(place_ids, character.current_place_id)
+      character.role == :player or is_nil(character.current_place_id) or
+        MapSet.member?(place_ids, character.current_place_id)
     end)
   end
 

@@ -90,6 +90,24 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Santé, compétences ou rôle"
   end
 
+  test "GM starting-place setup guidance is translated", %{conn: conn} do
+    assert {:ok, _preference} = Settings.set_ui_locale("es")
+    {:ok, spanish_view, _html} = live(conn, ~p"/campaigns/new")
+    spanish_html = spanish_view |> element("button[phx-click=add-character]") |> render_click()
+
+    assert spanish_html =~ "Lugar de inicio"
+    assert spanish_html =~ "Para empezar con el jugador"
+    assert spanish_html =~ "lugar público separado"
+
+    assert {:ok, _preference} = Settings.set_ui_locale("fr")
+    {:ok, french_view, _html} = live(conn, ~p"/campaigns/new")
+    french_html = french_view |> element("button[phx-click=add-character]") |> render_click()
+
+    assert french_html =~ "Lieu de départ"
+    assert french_html =~ "Pour commencer avec le joueur"
+    assert french_html =~ "lieu public distinct"
+  end
+
   test "inventory board labels are translated while campaign items remain unchanged", %{
     conn: conn
   } do

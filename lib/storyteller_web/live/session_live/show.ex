@@ -663,6 +663,7 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   attr :event, :map, required: true
   attr :earlier_session?, :boolean, required: true
+  attr :show_game_time?, :boolean, required: true
   attr :characters_by_id, :map, required: true
   attr :projection, :map, required: true
 
@@ -709,7 +710,10 @@ defmodule StorytellerWeb.SessionLive.Show do
               :state_change -> state_change_label(@event, @characters_by_id)
             end}
           </h3>
-          <p :if={game_time_label(@event.game_time)} class="text-[11px] text-stone-400">
+          <p
+            :if={@show_game_time? and game_time_label(@event.game_time)}
+            class="game-time-label text-[11px] text-stone-400"
+          >
             <span class="sr-only">{gettext("Game time")}: </span>
             {game_time_label(@event.game_time)}
           </p>
@@ -1190,19 +1194,31 @@ defmodule StorytellerWeb.SessionLive.Show do
         _ -> nil
       end
 
-    {indexed_events, _previous_session_id} =
+    {indexed_events, _previous_story_time} =
       socket.assigns.timeline
       |> Enum.with_index()
-      |> Enum.map_reduce(nil, fn {event, index}, previous_session_id ->
-        earlier_session? =
-          event.session_id != socket.assigns.session.id and
-            (index == 0 or previous_session_id != event.session_id)
+      |> Enum.map_reduce(%{session_id: nil, turn_id: nil, game_time: nil}, fn
+        {event, index}, previous_story_time ->
+          earlier_session? =
+            event.session_id != socket.assigns.session.id and
+              (index == 0 or previous_story_time.session_id != event.session_id)
 
-        {{event, earlier_session?}, event.session_id}
+          show_game_time? =
+            not is_nil(game_time_label(event.game_time)) and
+              (event.turn_id != previous_story_time.turn_id or
+                 event.game_time != previous_story_time.game_time)
+
+          current_story_time = %{
+            session_id: event.session_id,
+            turn_id: event.turn_id,
+            game_time: event.game_time
+          }
+
+          {{event, earlier_session?, show_game_time?}, current_story_time}
       end)
 
     {history, live} =
-      Enum.split_with(indexed_events, fn {event, _earlier_session?} ->
+      Enum.split_with(indexed_events, fn {event, _earlier_session?, _show_game_time?} ->
         is_nil(live_from_sequence) or event.sequence < live_from_sequence
       end)
 

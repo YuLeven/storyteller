@@ -450,9 +450,10 @@
               class="story-timeline space-y-4 px-4 py-5 sm:px-7"
             >
               <.timeline_entry
-                :for={{event, earlier_session?} <- @timeline_history}
+                :for={{event, earlier_session?, show_game_time?} <- @timeline_history}
                 event={event}
                 earlier_session?={earlier_session?}
+                show_game_time?={show_game_time?}
                 characters_by_id={@characters_by_id}
                 projection={@projection}
               />
@@ -466,9 +467,10 @@
               class="story-timeline space-y-4 px-4 py-5 sm:px-7"
             >
               <.timeline_entry
-                :for={{event, earlier_session?} <- @timeline_live}
+                :for={{event, earlier_session?, show_game_time?} <- @timeline_live}
                 event={event}
                 earlier_session?={earlier_session?}
+                show_game_time?={show_game_time?}
                 characters_by_id={@characters_by_id}
                 projection={@projection}
               />

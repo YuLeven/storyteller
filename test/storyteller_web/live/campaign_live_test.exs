@@ -158,6 +158,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
       gm_characters: %{
         "0" => %{
           name: "Marcel",
+          starting_place: "The river bodega",
           visible_facts_text: "A warm, observant beaver cook from Lyon.",
           private_notes: "Secret: he altered the cellar ledger.",
           voice_guidance: %{
@@ -167,6 +168,10 @@ defmodule StorytellerWeb.CampaignLiveTest do
             vocabulary: "Uses kitchen and river words.",
             mannerisms: "Taps the spoon when thinking."
           }
+        },
+        "1" => %{
+          name: "Perrin",
+          visible_facts_text: "A quiet cooper who tends the barrels."
         }
       }
     }
@@ -182,12 +187,15 @@ defmodule StorytellerWeb.CampaignLiveTest do
     submit_wizard_step(view, world_and_inventory, "continue")
 
     view |> element("button[phx-click=add-character]") |> render_click()
+    view |> element("button[phx-click=add-character]") |> render_click()
 
     attrs = Map.merge(world_and_inventory, gm_character)
     submit_wizard_step(view, attrs, "continue")
 
     review_html = render(view)
     assert review_html =~ "Marcel"
+    assert review_html =~ "Starting place"
+    assert review_html =~ "The river bodega"
     assert review_html =~ "The west cellar"
     assert review_html =~ "Second day of harvest"
     assert review_html =~ "Late evening"
@@ -213,15 +221,36 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert review_html =~ "Taps the spoon when thinking."
     assert Campaigns.list_campaigns() == []
 
+    view |> element("button[phx-click=edit]") |> render_click()
+    assert has_element?(view, "#gm-starting-place-0[value='The river bodega']")
+    assert has_element?(view, "#gm-starting-place-1[value='']")
+    submit_wizard_step(view, attrs, "continue")
+
     view |> element("button[phx-click=create]") |> render_click()
     campaign = hd(Campaigns.list_campaigns())
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
     [session] = campaign.sessions
 
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    marcel = Enum.find(projection.characters, &(&1.speaker_id == "marcel"))
+    perrin = Enum.find(projection.characters, &(&1.speaker_id == "perrin"))
+    bodega = Enum.find(projection.places, &(&1.name == "The river bodega"))
+
+    assert marcel.current_place_id == bodega.place_id
+    assert marcel.current_place == Map.take(bodega, [:place_id, :name, :description, :facts])
+    assert is_nil(perrin.current_place_id)
+    assert is_nil(perrin.current_place)
+    assert Enum.map(projection.places, & &1.name) == ["The river bodega", "The west cellar"]
+
     {:ok, _campaign_view, campaign_html} = live(conn, ~p"/campaigns/#{campaign.id}")
 
     {:ok, _session_view, session_html} =
       live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert session_html =~ "Marcel"
+    assert session_html =~ "The river bodega"
+    assert session_html =~ "Perrin"
+    assert session_html =~ "No known location"
 
     for private_text <- [
           "Secret: he altered the cellar ledger.",
@@ -274,6 +303,92 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert render(view) =~ "The northern coast"
   end
 
+  test "GM starting places stay distinct in the next session's GM context and character board", %{
+    conn: _conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Finca",
+        gm_characters: [
+          %{
+            speaker_id: "npc:marcel",
+            name: "Marcel",
+            starting_place: "The river bodega",
+            visible_facts: %{"description" => "The cellar's careful keeper."}
+          },
+          %{
+            speaker_id: "npc:perrin",
+            name: "Perrin",
+            visible_facts: %{"description" => "A quiet cooper."}
+          }
+        ]
+      })
+
+    {:ok, initial_projection} = Play.public_projection(campaign.id)
+    marcel = Enum.find(initial_projection.characters, &(&1.speaker_id == "npc:marcel"))
+    perrin = Enum.find(initial_projection.characters, &(&1.speaker_id == "npc:perrin"))
+    bodega = Enum.find(initial_projection.places, &(&1.name == "The river bodega"))
+    finca = Enum.find(initial_projection.places, &(&1.name == "The Finca"))
+
+    assert marcel.current_place_id == bodega.place_id
+    assert Enum.any?(initial_projection.places, &(&1.place_id == marcel.current_place_id))
+    assert perrin.current_place_id == nil
+    assert perrin.current_place == nil
+    refute bodega.place_id == finca.place_id
+
+    {:ok, session} = Campaigns.start_session(campaign)
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    proposal = %{
+      "narration" => "Morning light settles over the vineyard.",
+      "dialogue" => [],
+      "activities" => [],
+      "public_changes" => %{},
+      "private_changes" => %{},
+      "panel_changes" => [],
+      "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+      "time_advance_minutes" => 0,
+      "character_updates" => [],
+      "location_changes" => [],
+      "continuity_changes" => [],
+      "roll_request" => nil
+    }
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "inspect-starting-places",
+               "I check on the winery.",
+               provider: fn request ->
+                 context = request |> decode_request()
+                 Agent.update(captured_context, fn _ -> context end)
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(captured_context, & &1)
+    context_marcel = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:marcel"))
+    context_perrin = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:perrin"))
+
+    assert context_marcel["current_place_id"] == bodega.place_id
+    assert context_marcel["current_place"]["name"] == "The river bodega"
+    assert context_perrin["current_place_id"] == nil
+    assert context_perrin["current_place"] == nil
+    assert Enum.any?(context["places"]["public"], &(&1["place_id"] == bodega.place_id))
+
+    refute Enum.any?(context["travel_connections"]["public_routes"], fn route ->
+             bodega.place_id in route["place_ids"] and finca.place_id in route["place_ids"]
+           end)
+
+    {:ok, board_projection} = Play.public_projection(campaign.id)
+    board_marcel = Enum.find(board_projection.characters, &(&1.speaker_id == "npc:marcel"))
+    board_perrin = Enum.find(board_projection.characters, &(&1.speaker_id == "npc:perrin"))
+    assert board_marcel.current_place.name == "The river bodega"
+    assert board_perrin.current_place == nil
+  end
+
   test "review validation returns the player to the step containing invalid fields", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/campaigns/new")
 
@@ -294,6 +409,48 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
     assert has_element?(view, "#campaign-setup-step-1:not([hidden])")
     assert html =~ "should be at least 2 character(s)"
+    assert Campaigns.list_campaigns() == []
+  end
+
+  test "forged GM starting places over the length limit get a field-specific setup error", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    story = %{
+      title: "The River Cellar",
+      premise: "A late harvest brings a visitor.",
+      setting: "A riverside vineyard",
+      tone: "Grounded and warm",
+      narration_language: "English"
+    }
+
+    player = %{
+      player_character_name: "Mira",
+      player_character: "The vineyard's keeper."
+    }
+
+    opening = %{starting_location: "The Finca"}
+    submit_wizard_step(view, story, "continue")
+    submit_wizard_step(view, Map.merge(story, player), "continue")
+    submit_wizard_step(view, Map.merge(Map.merge(story, player), opening), "continue")
+    view |> element("button[phx-click=add-character]") |> render_click()
+
+    forged_attrs =
+      story
+      |> Map.merge(player)
+      |> Map.merge(opening)
+      |> Map.put(:gm_characters, %{
+        "0" => %{
+          name: "Marcel",
+          starting_place: String.duplicate("x", 301),
+          visible_facts_text: "A careful cellar keeper."
+        }
+      })
+
+    html = submit_wizard_step(view, forged_attrs, "continue")
+
+    assert html =~ "GM character 1 starting place must be 300 characters or fewer."
     assert Campaigns.list_campaigns() == []
   end
 
@@ -671,5 +828,14 @@ defmodule StorytellerWeb.CampaignLiveTest do
     |> form("#campaign-form", campaign: attrs)
     |> put_submitter("button[name=direction][value=#{direction}]")
     |> render_submit()
+  end
+
+  defp decode_request(request) do
+    request.input
+    |> hd()
+    |> Map.fetch!(:content)
+    |> hd()
+    |> Map.fetch!(:text)
+    |> Jason.decode!()
   end
 end

@@ -783,6 +783,7 @@ defmodule Storyteller.Campaigns do
         |> Enum.reduce_while({:ok, []}, fn {row_index, attrs}, {:ok, acc} ->
           supplied_speaker_id = attrs |> attr(:speaker_id, "") |> trim_string()
           name = attrs |> attr(:name, "") |> trim_string()
+          starting_place = attrs |> attr(:starting_place, "") |> trim_string()
           visible = character_facts(attrs, :visible_facts, :visible_facts_text, "description")
           private = character_facts(attrs, :gm_private_facts, :private_notes, "notes")
           voice_guidance = attr(attrs, :voice_guidance, %{})
@@ -801,6 +802,12 @@ defmodule Storyteller.Campaigns do
               {:halt,
                {:error,
                 {:setup, "GM character #{row_index + 1} needs a name up to 300 characters."}}}
+
+            String.length(starting_place) > 300 ->
+              {:halt,
+               {:error,
+                {:setup,
+                 "GM character #{row_index + 1} starting place must be 300 characters or fewer."}}}
 
             not valid_speaker_id?(speaker_id) ->
               {:halt,
@@ -835,6 +842,7 @@ defmodule Storyteller.Campaigns do
                     %{
                       speaker_id: speaker_id,
                       name: name,
+                      initial_location: clean_optional(starting_place),
                       visible_facts: visible,
                       gm_private_facts: private,
                       voice_guidance: elem(normalized_voice_guidance, 1)

@@ -4838,7 +4838,8 @@ defmodule Storyteller.Play do
             visible_facts: without_character_location_facts(visible),
             gm_private_facts: without_character_location_facts(private),
             voice_guidance: elem(voice_guidance, 1),
-            initial_location: initial_character_location(visible),
+            initial_location:
+              attr(attrs, :initial_location) || initial_character_location(visible),
             visible_activity: attr(attrs, :visible_activity)
           }
 

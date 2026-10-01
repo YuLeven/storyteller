@@ -1392,6 +1392,105 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute reloaded_html =~ "A stale world location"
   end
 
+  test "game time appears once per turn and repeats only when the clock changes", %{conn: conn} do
+    campaign = campaign_fixture()
+    [first_session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+    {:ok, _view, _html} = live_play(conn, campaign, first_session)
+
+    {:ok, next_session} = Storyteller.Campaigns.start_session(campaign)
+    first_turn = completed_turn_fixture(campaign.id, first_session.id, "clock-first-turn")
+    second_turn = completed_turn_fixture(campaign.id, first_session.id, "clock-second-turn")
+    third_turn = completed_turn_fixture(campaign.id, next_session.id, "clock-third-turn")
+
+    first_time = %{"date" => "Year 1", "time" => "21:00"}
+    later_time = %{"date" => "Year 1", "time" => "22:00"}
+
+    rows = [
+      {first_session.id, first_turn.id, first_time},
+      {first_session.id, first_turn.id, first_time},
+      {first_session.id, first_turn.id, later_time},
+      {first_session.id, second_turn.id, later_time},
+      {first_session.id, second_turn.id, later_time},
+      {next_session.id, third_turn.id, later_time},
+      {next_session.id, third_turn.id, first_time}
+    ]
+
+    first_sequence = (Repo.aggregate(Event, :max, :sequence) || 0) + 1
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    events =
+      rows
+      |> Enum.with_index(first_sequence)
+      |> Enum.map(fn {{session_id, turn_id, game_time}, sequence} ->
+        %{
+          campaign_id: campaign.id,
+          session_id: session_id,
+          turn_id: turn_id,
+          sequence: sequence,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{"text" => "Clock marker #{sequence}"},
+          game_time: game_time,
+          inserted_at: now
+        }
+      end)
+
+    assert {7, nil} = Repo.insert_all(Event, events)
+
+    {:ok, view, _html} = live_play(conn, campaign, next_session)
+    final_sequence = first_sequence + length(rows) - 1
+    assert wait_until(fn -> has_element?(view, "#event-#{final_sequence}", "Clock marker") end)
+
+    assert has_element?(view, "#event-#{first_sequence} .game-time-label", "Year 1 · 21:00")
+    refute has_element?(view, "#event-#{first_sequence + 1} .game-time-label")
+    assert has_element?(view, "#event-#{first_sequence + 2} .game-time-label", "Year 1 · 22:00")
+    assert has_element?(view, "#event-#{first_sequence + 3} .game-time-label", "Year 1 · 22:00")
+    refute has_element?(view, "#event-#{first_sequence + 4} .game-time-label")
+    assert has_element?(view, "#event-#{first_sequence + 5} .game-time-label", "Year 1 · 22:00")
+    assert has_element?(view, "#event-#{final_sequence} .game-time-label", "Year 1 · 21:00")
+    refute render(view) =~ "UTC"
+  end
+
+  test "loading earlier story moves a repeated turn-time marker to the turn's first event", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+    {:ok, turn} = Play.submit_turn(campaign.id, session.id, "paginated-clock", "Seed history")
+    Repo.update_all(from(turn in Turn, where: turn.id == ^turn.id), set: [status: :completed])
+
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    events =
+      Enum.map(1..501, fn sequence ->
+        %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          turn_id: turn.id,
+          sequence: sequence,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{"text" => "Clock history marker #{sequence}"},
+          game_time: %{"date" => "Day 1", "time" => "08:00"},
+          inserted_at: now
+        }
+      end)
+
+    assert {501, nil} = Repo.insert_all(Event, events)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    assert has_element?(view, "#event-2 .game-time-label", "Day 1 · 08:00")
+    refute has_element?(view, "#event-3 .game-time-label")
+
+    view |> element("#load-earlier-story") |> render_click()
+
+    assert has_element?(view, "#event-1 .game-time-label", "Day 1 · 08:00")
+    refute has_element?(view, "#event-2 .game-time-label")
+    refute has_element?(view, "#event-501 .game-time-label")
+  end
+
   test "campaign story is a keyboard-scrollable independent timeline", %{conn: conn} do
     campaign = campaign_fixture()
     session = hd(campaign.sessions)
@@ -3209,6 +3308,24 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   defp session_path(campaign, session),
     do: ~p"/campaigns/#{campaign.id}/sessions/#{session.id}"
+
+  defp completed_turn_fixture(campaign_id, session_id, idempotency_key) do
+    request_hash = :crypto.hash(:sha256, idempotency_key) |> Base.encode16(case: :lower)
+
+    Repo.insert!(
+      Turn.changeset(%Turn{}, %{
+        campaign_id: campaign_id,
+        session_id: session_id,
+        idempotency_key: idempotency_key,
+        request_hash: request_hash,
+        player_input: "Seed clock history",
+        intent: :action,
+        status: :completed,
+        resolution_phase: :initial,
+        attempts: 0
+      })
+    )
+  end
 
   defp seed_action_items(campaign_id, player_properties \\ %{}) do
     state = Repo.get_by!(State, campaign_id: campaign_id)
