@@ -113,6 +113,52 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert compacted.travel_connections == context.travel_connections
   end
 
+  test "keeps eight bounded player-authored memories inside the default context budget" do
+    context = base_context()
+
+    player_memories =
+      Enum.map(1..8, fn number ->
+        %{
+          entry_id: "player-memory-#{number}",
+          kind: "commitment",
+          title: "Player memory #{number}",
+          details:
+            String.pad_trailing("A public promise that remains canonical. #{number}", 300, " "),
+          status: "active",
+          visibility: "public",
+          source_sequence: nil
+        }
+      end)
+
+    history =
+      Enum.map(1..45, fn sequence ->
+        %{
+          "sequence" => sequence,
+          "session_id" => 1,
+          "event_type" => "gm_narration",
+          "visibility" => "public",
+          "speaker_id" => nil,
+          "payload" => %{"text" => String.duplicate("Unrelated scene detail. ", 35)}
+        }
+      end)
+
+    context =
+      context
+      |> Map.put(:continuity, %{public: player_memories, gm_private: []})
+      |> Map.put(:history, history)
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+
+    assert metrics.conservative_input_token_upper_bound <= 24_000
+
+    assert Enum.map(compiled.continuity.public, & &1.details) ==
+             Enum.map(player_memories, & &1.details)
+
+    assert Enum.all?(compiled.continuity.public, &(&1.source_sequence == nil))
+    assert compiled.context_completeness.history_compacted
+  end
+
   test "fails recoverably when active continuity canon alone cannot fit" do
     context =
       update_in(base_context(), [:continuity], fn _continuity ->

@@ -2748,3 +2748,173 @@ msgstr "Antes"
 #, elixir-autogen, elixir-format
 msgid "Unrecorded location"
 msgstr "Ubicación no registrada"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "%{count} / 300 characters"
+msgstr "%{count} / 300 caracteres"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "%{title}: %{details} (%{status})"
+msgstr "%{title}: %{details} (%{status})"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Add a short reason for keeping or changing this detail."
+msgstr "Añade un motivo breve para conservar o cambiar este detalle."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Add a title and details within the shown length limits."
+msgstr "Añade un título y detalles dentro de los límites indicados."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Campaign memory saved for future scenes."
+msgstr "La memoria de campaña se guardó para futuras escenas."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Detail to remember"
+msgstr "Detalle que recordar"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Edit detail"
+msgstr "Editar detalle"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Edit this story detail"
+msgstr "Editar este detalle de la historia"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Fact"
+msgstr "Hecho"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Keep a detail"
+msgstr "Guardar un detalle"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Keep a story detail"
+msgstr "Guardar un detalle de la historia"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Kind"
+msgstr "Tipo"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Memory removed from the active campaign board."
+msgstr "El recuerdo se quitó del tablero activo de la campaña."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Promise or commitment"
+msgstr "Promesa o compromiso"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Relationship"
+msgstr "Relación"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Remove from active memory"
+msgstr "Quitar de la memoria activa"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Removed"
+msgstr "Retirado"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Removing a note hides it from the board and future GM context; its audit history remains."
+msgstr "Al quitar una nota, desaparece del tablero y del contexto futuro del director de juego, pero se conserva su historial de cambios."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Removing…"
+msgstr "Quitando…"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Save memory"
+msgstr "Guardar memoria"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Saved outside the story timeline. It will guide relevant future scenes."
+msgstr "Se guarda fuera de la historia y orientará las futuras escenas pertinentes."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Saving…"
+msgstr "Guardando…"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Short title"
+msgstr "Título breve"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "The campaign changed while this note was open. Review the current details and try again."
+msgstr "La campaña cambió mientras esta nota estaba abierta. Revisa los detalles actuales e inténtalo de nuevo."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "The campaign memory could not be saved."
+msgstr "No se pudo guardar la memoria de la campaña."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "The campaign memory could not be saved. Refresh and try again."
+msgstr "No se pudo guardar la memoria de la campaña. Actualiza la página e inténtalo de nuevo."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "This note already has those details. Change something before saving."
+msgstr "Esta nota ya tiene esos detalles. Cambia algo antes de guardarla."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "This public note is no longer available to change."
+msgstr "Esta nota pública ya no se puede cambiar."
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Wait for the game master to finish this turn before changing campaign memory."
+msgstr "Espera a que el director de juego termine este turno antes de cambiar la memoria de campaña."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Why should this stay in the campaign record?"
+msgstr "¿Por qué debería conservarse en el registro de la campaña?"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your kept notes: %{count} of %{limit}"
+msgstr "Tus notas guardadas: %{count} de %{limit}"
+
+#: lib/storyteller_web/live/session_live/show.ex
+#, elixir-autogen, elixir-format
+msgid "Your lasting-note space is full. Edit or remove a note before adding another."
+msgstr "Ya no hay espacio para notas duraderas. Edita o quita una antes de añadir otra."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Keep editing"
+msgstr "Seguir editando"
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Remove memory"
+msgstr "Quitar recuerdo"

@@ -30,13 +30,14 @@ defmodule Storyteller.CampaignBackup do
   alias Storyteller.Repo
 
   @format "storyteller.campaign-backup"
-  @version 6
   @legacy_version 1
   @previous_version 2
   @current_previous_version 3
   @place_connections_version 4
   @elapsed_world_clock_version 5
   @canon_corrections_version 6
+  @player_memories_version 7
+  @version @player_memories_version
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -187,8 +188,8 @@ defmodule Storyteller.CampaignBackup do
               |> Enum.map(fn entry ->
                 export_continuity(
                   entry,
-                  Map.fetch!(events_by_id, entry.introduced_by_event_id),
-                  Map.fetch!(events_by_id, entry.source_event_id)
+                  maybe_event_sequence(events_by_id, entry.introduced_by_event_id),
+                  maybe_event_sequence(events_by_id, entry.source_event_id)
                 )
               end)
           }
@@ -370,6 +371,9 @@ defmodule Storyteller.CampaignBackup do
     }
   end
 
+  defp maybe_event_sequence(_events_by_id, nil), do: nil
+  defp maybe_event_sequence(events_by_id, event_id), do: Map.fetch!(events_by_id, event_id)
+
   defp export_authoring_correction(correction) do
     %{
       "sequence" => correction.sequence,
@@ -409,6 +413,7 @@ defmodule Storyteller.CampaignBackup do
              @current_previous_version,
              @place_connections_version,
              @elapsed_world_clock_version,
+             @canon_corrections_version,
              @version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
@@ -430,7 +435,8 @@ defmodule Storyteller.CampaignBackup do
          {:ok, events} <- validate_events(backup["events"], sessions, turns),
          :ok <- validate_event_sequence(state, events),
          {:ok, rolls} <- validate_rolls(backup["rolls"], turns),
-         {:ok, continuity} <- validate_continuity(backup["continuity_entries"], events),
+         {:ok, continuity} <-
+           validate_continuity(backup["continuity_entries"], events, backup["schema_version"]),
          {:ok, corrections} <-
            validate_authoring_corrections(Map.get(backup, "authoring_corrections", [])),
          {:ok, canon_corrections} <-
@@ -438,7 +444,9 @@ defmodule Storyteller.CampaignBackup do
              Map.get(backup, "canon_corrections", []),
              characters,
              places,
-             panels
+             panels,
+             continuity,
+             backup["schema_version"]
            ) do
       {:ok,
        %{
@@ -474,8 +482,10 @@ defmodule Storyteller.CampaignBackup do
        when version in [@place_connections_version, @elapsed_world_clock_version],
        do: root_backup_keys() ++ ["authoring_corrections", "place_connections"]
 
-  defp root_backup_keys(@canon_corrections_version),
-    do: root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
+  defp root_backup_keys(version)
+       when version in [@canon_corrections_version, @player_memories_version],
+       do:
+         root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
 
   defp root_backup_keys(_), do: []
 
@@ -971,7 +981,12 @@ defmodule Storyteller.CampaignBackup do
     do: turn_backup_keys(@previous_version) ++ ["failure_stage"]
 
   defp turn_backup_keys(version)
-       when version in [@place_connections_version, @elapsed_world_clock_version, @version],
+       when version in [
+              @place_connections_version,
+              @elapsed_world_clock_version,
+              @canon_corrections_version,
+              @player_memories_version
+            ],
        do: turn_backup_keys(@current_previous_version)
 
   defp optional_enum(nil, _allowed), do: {:ok, nil}
@@ -1071,7 +1086,7 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_rolls(_, _), do: {:error, :invalid_backup}
 
-  defp validate_continuity(rows, events) when is_list(rows) and length(rows) <= 100 do
+  defp validate_continuity(rows, events, version) when is_list(rows) and length(rows) <= 100 do
     sequences = MapSet.new(events, & &1.sequence)
 
     with {:ok, entries} <-
@@ -1088,12 +1103,15 @@ defmodule Storyteller.CampaignBackup do
                   {:ok, details} <- text(map["details"], 1, 500),
                   {:ok, status} <- enum(map["status"], ~w(active resolved retracted)),
                   {:ok, visibility} <- enum(map["visibility"], ~w(public gm_private)),
-                  introduced when is_integer(introduced) and introduced > 0 <-
-                    map["introduced_event_sequence"],
-                  source when is_integer(source) and source > 0 <- map["source_event_sequence"],
+                  {:ok, introduced} <-
+                    optional_event_sequence(map["introduced_event_sequence"], sequences),
+                  {:ok, source} <-
+                    optional_event_sequence(map["source_event_sequence"], sequences),
+                  true <- is_nil(introduced) == is_nil(source),
+                  true <- is_integer(introduced) or version >= @player_memories_version,
                   true <-
-                    MapSet.member?(sequences, introduced) and MapSet.member?(sequences, source),
-                  true <- source >= introduced,
+                    visibility == :public or (is_integer(introduced) and is_integer(source)),
+                  true <- is_nil(source) or source >= introduced,
                   {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
                   {:ok, updated_at} <- parse_datetime(map["updated_at"], false) do
                {:ok,
@@ -1111,12 +1129,28 @@ defmodule Storyteller.CampaignBackup do
                 }}
              end
            end),
-         :ok <- unique_by(entries, & &1.entry_id) do
+         :ok <- unique_by(entries, & &1.entry_id),
+         true <-
+           Enum.count(
+             entries,
+             &(&1.visibility == :public and &1.status == :active and
+                 is_nil(&1.introduced_event_sequence))
+           ) <=
+             8 do
       {:ok, entries}
     end
   end
 
-  defp validate_continuity(_, _), do: {:error, :invalid_backup}
+  defp validate_continuity(_, _, _), do: {:error, :invalid_backup}
+
+  defp optional_event_sequence(nil, _sequences), do: {:ok, nil}
+
+  defp optional_event_sequence(sequence, sequences)
+       when is_integer(sequence) and sequence > 0 do
+    if MapSet.member?(sequences, sequence), do: {:ok, sequence}, else: {:error, :invalid_backup}
+  end
+
+  defp optional_event_sequence(_sequence, _sequences), do: {:error, :invalid_backup}
 
   defp validate_authoring_corrections(rows) when is_list(rows) and length(rows) <= 100_000 do
     with {:ok, corrections} <-
@@ -1157,7 +1191,7 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_authoring_corrections(_), do: {:error, :invalid_backup}
 
-  defp validate_canon_corrections(rows, characters, places, _panels)
+  defp validate_canon_corrections(rows, characters, places, _panels, continuity, version)
        when is_list(rows) and length(rows) <= 100_000 do
     character_ids = MapSet.new(characters, & &1.speaker_id)
     owner_ids = ["party" | Enum.map(characters, & &1.speaker_id)]
@@ -1177,7 +1211,8 @@ defmodule Storyteller.CampaignBackup do
                     ),
                   sequence when is_integer(sequence) and sequence in 1..1_000_000 <-
                     map["sequence"],
-                  {:ok, kind} <- choice(map["kind"], ~w(inventory resource location)),
+                  {:ok, kind} <-
+                    choice(map["kind"], canon_correction_kinds(version)),
                   {:ok, target_id} <- stable_id(map["target_id"], 100),
                   {:ok, expected_revision} <-
                     integer_range(map["expected_revision"], 0, 2_147_483_647),
@@ -1194,7 +1229,8 @@ defmodule Storyteller.CampaignBackup do
                       after_state,
                       character_ids,
                       owner_ids,
-                      public_places
+                      public_places,
+                      continuity
                     ),
                   {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false) do
                {:ok,
@@ -1215,7 +1251,12 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp validate_canon_corrections(_, _, _, _), do: {:error, :invalid_backup}
+  defp validate_canon_corrections(_, _, _, _, _, _), do: {:error, :invalid_backup}
+
+  defp canon_correction_kinds(version) when version >= @player_memories_version,
+    do: ~w(inventory resource location memory)
+
+  defp canon_correction_kinds(_version), do: ~w(inventory resource location)
 
   defp validate_canon_correction_states(
          "inventory",
@@ -1224,7 +1265,8 @@ defmodule Storyteller.CampaignBackup do
          after_map,
          _character_ids,
          owners,
-         _places
+         _places,
+         _continuity
        ) do
     with :ok <- exact_keys(before_map, ["item"], :inventory_correction_state),
          :ok <- exact_keys(after_map, ["item"], :inventory_correction_state),
@@ -1247,7 +1289,8 @@ defmodule Storyteller.CampaignBackup do
          after_map,
          _ids,
          _owners,
-         _places
+         _places,
+         _continuity
        ) do
     with :ok <- validate_resource_correction_state(before_map, target_id),
          :ok <- validate_resource_correction_state(after_map, target_id),
@@ -1265,7 +1308,8 @@ defmodule Storyteller.CampaignBackup do
          after_map,
          character_ids,
          _owners,
-         places
+         places,
+         _continuity
        ) do
     with true <- MapSet.member?(character_ids, target_id),
          :ok <- validate_location_correction_state(before_map, places),
@@ -1277,8 +1321,60 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp validate_canon_correction_states(_, _, _, _, _, _, _),
+  defp validate_canon_correction_states(
+         "memory",
+         target_id,
+         before_map,
+         after_map,
+         _character_ids,
+         _owners,
+         _places,
+         continuity
+       ) do
+    public_memory_ids =
+      continuity
+      |> Enum.filter(&(&1.visibility == :public))
+      |> MapSet.new(& &1.entry_id)
+
+    with true <- MapSet.member?(public_memory_ids, target_id),
+         :ok <- validate_memory_correction_state(before_map, target_id),
+         :ok <- validate_memory_correction_state(after_map, target_id),
+         true <- before_map != after_map do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_canon_correction_states(_, _, _, _, _, _, _, _),
     do: {:error, :invalid_backup}
+
+  defp validate_memory_correction_state(%{"entry" => nil} = state, _target_id),
+    do: exact_keys(state, ["entry"], :memory_correction_state)
+
+  defp validate_memory_correction_state(%{"entry" => entry} = state, target_id)
+       when is_map(entry) do
+    with :ok <- exact_keys(state, ["entry"], :memory_correction_state),
+         :ok <-
+           exact_keys(
+             entry,
+             ~w(entry_id kind title details status visibility),
+             :memory_correction_entry
+           ),
+         true <- entry["entry_id"] == target_id,
+         {:ok, _entry_id} <- stable_id(entry["entry_id"], 100),
+         {:ok, _kind} <- choice(entry["kind"], ~w(fact relationship commitment)),
+         {:ok, _title} <- text(entry["title"], 1, 120),
+         {:ok, _details} <- text(entry["details"], 1, 500),
+         {:ok, _status} <- choice(entry["status"], ~w(active retracted)),
+         true <- entry["visibility"] == "public" do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_memory_correction_state(_, _target_id), do: {:error, :invalid_backup}
 
   defp correction_inventory_item(nil, _owners), do: {:ok, nil}
 
@@ -1620,8 +1716,8 @@ defmodule Storyteller.CampaignBackup do
         status: entry.status,
         visibility: entry.visibility,
         introduced_by_event_id:
-          Map.fetch!(events_by_sequence, entry.introduced_event_sequence).id,
-        source_event_id: Map.fetch!(events_by_sequence, entry.source_event_sequence).id
+          event_id_by_sequence(events_by_sequence, entry.introduced_event_sequence),
+        source_event_id: event_id_by_sequence(events_by_sequence, entry.source_event_sequence)
       }
 
       %ContinuityEntry{inserted_at: entry.inserted_at, updated_at: entry.updated_at}
@@ -1629,6 +1725,11 @@ defmodule Storyteller.CampaignBackup do
       |> insert_or_rollback!()
     end)
   end
+
+  defp event_id_by_sequence(_events_by_sequence, nil), do: nil
+
+  defp event_id_by_sequence(events_by_sequence, sequence),
+    do: Map.fetch!(events_by_sequence, sequence).id
 
   defp insert_or_rollback!(changeset) do
     case Repo.insert(changeset) do

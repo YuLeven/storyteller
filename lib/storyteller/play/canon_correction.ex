@@ -44,7 +44,7 @@ defmodule Storyteller.Play.CanonCorrection do
       :after_state,
       :inserted_at
     ])
-    |> validate_inclusion(:kind, ~w(inventory resource location))
+    |> validate_inclusion(:kind, ~w(inventory resource location memory))
     |> validate_number(:sequence, greater_than: 0)
     |> validate_number(:expected_revision, greater_than_or_equal_to: 0)
     |> validate_length(:target_id, min: 1, max: 100)

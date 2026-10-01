@@ -42,9 +42,7 @@ defmodule Storyteller.Play.ContinuityEntry do
       :title,
       :details,
       :status,
-      :visibility,
-      :introduced_by_event_id,
-      :source_event_id
+      :visibility
     ])
     |> validate_length(:entry_id, min: 1, max: 100)
     |> validate_format(:entry_id, ~r/\A[a-zA-Z0-9:_-]+\z/)
@@ -61,5 +59,6 @@ defmodule Storyteller.Play.ContinuityEntry do
     |> check_constraint(:kind, name: :play_continuity_entries_kind_check)
     |> check_constraint(:status, name: :play_continuity_entries_status_check)
     |> check_constraint(:visibility, name: :play_continuity_entries_visibility_check)
+    |> check_constraint(:source_event_id, name: :play_continuity_entries_source_pair_check)
   end
 end

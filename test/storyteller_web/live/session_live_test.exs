@@ -78,7 +78,18 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.Play
-  alias Storyteller.Play.{CanonCorrections, Character, Event, Objective, Place, State, Turn}
+
+  alias Storyteller.Play.{
+    CanonCorrections,
+    Character,
+    ContinuityEntry,
+    Event,
+    Objective,
+    Place,
+    State,
+    Turn
+  }
+
   alias Storyteller.Repo
   alias Storyteller.Settings
   alias StorytellerWeb.SessionLiveTest.FakeProvider
@@ -176,6 +187,126 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence) ==
              before_events
+  end
+
+  test "player can keep, edit, and remove public story memory without changing the story timeline",
+       %{
+         conn: conn
+       } do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+    before_events = Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence)
+    before_clock = Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes
+
+    view
+    |> element("#campaign-memory button[phx-value-entry_id='new']")
+    |> render_click()
+
+    assert has_element?(view, "#story-memory-form", "Keep a story detail")
+
+    add_memory = %{
+      "submit" => "save",
+      "kind" => "commitment",
+      "title" => "Lyra's morning promise",
+      "details" => "Lyra will bring the cellar key before the first bell.",
+      "reason" => "Keep this agreement available in the next session.",
+      "expected_revision" => Integer.to_string(options.revision)
+    }
+
+    view
+    |> form("#story-memory-form", %{"memory" => add_memory})
+    |> render_submit()
+
+    entry =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, title: "Lyra's morning promise")
+
+    assert has_element?(
+             view,
+             "#campaign-memory",
+             "Lyra will bring the cellar key before the first bell."
+           )
+
+    assert has_element?(view, "#campaign-memory", "Campaign memory saved for future scenes.")
+
+    assert has_element?(
+             view,
+             "#recent-canon-corrections",
+             "Keep this agreement available in the next session."
+           )
+
+    refute has_element?(
+             view,
+             "#story-live-timeline",
+             "Keep this agreement available in the next session."
+           )
+
+    view
+    |> element("#campaign-memory button[phx-value-entry_id='#{entry.entry_id}']")
+    |> render_click()
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    edit_memory = %{
+      "submit" => "save",
+      "kind" => "commitment",
+      "title" => "Updated morning promise",
+      "details" => "Lyra will bring the cellar key before dawn.",
+      "reason" => "The agreement is for before dawn, not the first bell.",
+      "expected_revision" => Integer.to_string(state.revision)
+    }
+
+    view
+    |> form("#story-memory-form", %{"memory" => edit_memory})
+    |> render_submit()
+
+    assert Repo.get!(ContinuityEntry, entry.id).details ==
+             "Lyra will bring the cellar key before dawn."
+
+    view
+    |> element("#campaign-memory button[phx-value-entry_id='#{entry.entry_id}']")
+    |> render_click()
+
+    view
+    |> element("#story-memory-form button[phx-value-action='retract']")
+    |> render_click()
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    retract_memory = %{
+      "submit" => "retract",
+      "kind" => "commitment",
+      "title" => "Updated morning promise",
+      "details" => "Lyra will bring the cellar key before dawn.",
+      "reason" => "This promise no longer applies.",
+      "expected_revision" => Integer.to_string(state.revision)
+    }
+
+    view
+    |> form("#story-memory-form", %{"memory" => retract_memory})
+    |> render_submit()
+
+    assert Repo.get!(ContinuityEntry, entry.id).status == :retracted
+
+    assert has_element?(
+             view,
+             "#campaign-memory",
+             "Memory removed from the active campaign board."
+           )
+
+    assert has_element?(view, "#recent-canon-corrections", "This promise no longer applies.")
+
+    refute has_element?(
+             view,
+             "#story-live-timeline",
+             "Lyra will bring the cellar key before dawn."
+           )
+
+    assert Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence) ==
+             before_events
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == before_clock
   end
 
   test "campaign premise stays available as a collapsed in-play reference", %{conn: conn} do

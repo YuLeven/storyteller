@@ -703,7 +703,7 @@
           phx-hook="PanelPulse"
           data-panel-change-message={gettext("Campaign memory updated")}
           tabindex="-1"
-          class="scroll-mt-20 rounded-2xl border border-violet-200 bg-violet-50/50 p-4 shadow-sm"
+          class="scroll-mt-20 rounded-2xl border border-violet-900/70 bg-violet-950/50 p-4 shadow-sm"
         >
           <p
             class="sr-only"
@@ -714,29 +714,54 @@
           >
           </p>
           <details>
-            <summary class="cursor-pointer list-none rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-700">
+            <summary class="cursor-pointer list-none rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-300">
               <span class="flex items-center justify-between gap-3">
                 <span>
-                  <span class="block text-xs font-semibold uppercase tracking-[0.16em] text-violet-800">
+                  <span class="block text-xs font-semibold uppercase tracking-[0.16em] text-violet-300">
                     {gettext("Campaign memory")}
                   </span>
-                  <span class="mt-1 block text-sm font-semibold text-stone-950">
+                  <span class="mt-1 block text-sm font-semibold text-stone-100">
                     {gettext("Known story details")}
                   </span>
                 </span>
                 <span
                   data-panel-watch="memory-count"
-                  class="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-violet-900"
+                  class="shrink-0 rounded-full bg-stone-900 px-2.5 py-1 text-xs font-semibold text-violet-100"
                 >
                   {length(@projection.continuity_entries)}
                   <span class="sr-only">{gettext("recorded details")}</span>
                 </span>
               </span>
             </summary>
-            <p class="mt-3 text-sm leading-6 text-stone-600">
+            <p class="mt-3 text-sm leading-6 text-stone-300">
               {gettext(
                 "Public facts, relationships, and promises that the game remembers across sessions."
               )}
+            </p>
+            <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p :if={@correction_options} class="text-xs font-medium text-violet-200">
+                {gettext("Your kept notes: %{count} of %{limit}",
+                  count: @correction_options.player_memory_count,
+                  limit: @correction_options.player_memory_limit
+                )}
+              </p>
+              <button
+                :if={playable?(@session) and not is_nil(@correction_options)}
+                type="button"
+                phx-click="open-story-memory"
+                phx-value-entry_id="new"
+                disabled={
+                  blocking_turn?(@current_turn) or
+                    @correction_options.player_memory_count >=
+                      @correction_options.player_memory_limit
+                }
+                class="rounded-full border border-violet-600 bg-violet-900/80 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {gettext("Keep a detail")}
+              </button>
+            </div>
+            <p :if={@memory_status} class="mt-2 text-sm font-medium text-violet-200">
+              {@memory_status}
             </p>
             <ul
               :if={@projection.continuity_entries != []}
@@ -746,20 +771,172 @@
                 :for={entry <- Enum.reverse(@projection.continuity_entries)}
                 id={"campaign-memory-#{entry.entry_id}"}
                 data-panel-watch={"memory-#{entry.entry_id}"}
-                class="rounded-xl border border-violet-100 bg-white/85 px-3 py-2.5"
+                class="rounded-xl border border-violet-800 bg-violet-950/40 px-3 py-2.5"
               >
-                <h3 class="text-sm font-semibold text-stone-900">{entry.title}</h3>
-                <p class="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-700">
+                <h3 class="text-sm font-semibold text-stone-100">{entry.title}</h3>
+                <span class="mt-1 inline-flex rounded-full bg-violet-950 px-2 py-0.5 text-[0.6875rem] font-medium text-violet-200">
+                  {story_memory_kind_label(entry.kind)}
+                </span>
+                <p class="mt-1 whitespace-pre-wrap text-sm leading-6 text-stone-200">
                   {entry.details}
                 </p>
+                <button
+                  :if={playable?(@session) and not is_nil(@correction_options)}
+                  type="button"
+                  phx-click="open-story-memory"
+                  phx-value-entry_id={entry.entry_id}
+                  disabled={blocking_turn?(@current_turn)}
+                  class="mt-2 rounded-full px-2.5 py-1 text-xs font-semibold text-violet-200 hover:bg-violet-900/60 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {gettext("Edit detail")}
+                </button>
               </li>
             </ul>
             <p
               :if={@projection.continuity_entries == []}
-              class="mt-3 text-sm leading-6 text-stone-500"
+              class="mt-3 text-sm leading-6 text-stone-400"
             >
               {gettext("No lasting story details have been recorded yet.")}
             </p>
+            <.form
+              :if={@memory_editor}
+              for={%{}}
+              as={:memory}
+              id="story-memory-form"
+              phx-change="change-story-memory-form"
+              phx-submit="save-story-memory"
+              class="mt-4 space-y-3 rounded-xl border border-violet-700 bg-violet-950/40 p-3"
+            >
+              <input
+                type="hidden"
+                name="memory[expected_revision]"
+                value={@correction_options.revision}
+              />
+              <input type="hidden" name="memory[submit]" value={@memory_submit} />
+              <h3 class="text-sm font-semibold text-stone-100">
+                {if @memory_editor == :new,
+                  do: gettext("Keep a story detail"),
+                  else: gettext("Edit this story detail")}
+              </h3>
+              <div>
+                <label for="memory-kind" class="block text-sm font-medium text-stone-200">
+                  {gettext("Kind")}
+                </label>
+                <select
+                  id="memory-kind"
+                  name="memory[kind]"
+                  class="mt-1 block w-full rounded-lg border-violet-800 bg-stone-950 text-sm text-stone-100 focus:border-violet-400 focus:ring-violet-400"
+                >
+                  <option value="fact" selected={@memory_form["kind"] == "fact"}>
+                    {gettext("Fact")}
+                  </option>
+                  <option value="relationship" selected={@memory_form["kind"] == "relationship"}>
+                    {gettext("Relationship")}
+                  </option>
+                  <option value="commitment" selected={@memory_form["kind"] == "commitment"}>
+                    {gettext("Promise or commitment")}
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label for="memory-title" class="block text-sm font-medium text-stone-200">
+                  {gettext("Short title")}
+                </label>
+                <input
+                  id="memory-title"
+                  name="memory[title]"
+                  value={@memory_form["title"]}
+                  maxlength="120"
+                  required
+                  class="mt-1 block w-full rounded-lg border-violet-800 bg-stone-950 text-sm text-stone-100 focus:border-violet-400 focus:ring-violet-400"
+                />
+              </div>
+              <div>
+                <label for="memory-details" class="block text-sm font-medium text-stone-200">
+                  {gettext("Detail to remember")}
+                </label>
+                <textarea
+                  id="memory-details"
+                  name="memory[details]"
+                  rows="3"
+                  maxlength="300"
+                  required
+                  class="mt-1 block w-full rounded-lg border-violet-800 bg-stone-950 text-sm text-stone-100 focus:border-violet-400 focus:ring-violet-400"
+                >{@memory_form["details"]}</textarea>
+                <p class="mt-1 text-right text-xs text-stone-400">
+                  {gettext("%{count} / 300 characters",
+                    count: String.length(@memory_form["details"])
+                  )}
+                </p>
+              </div>
+              <div>
+                <label for="memory-reason" class="block text-sm font-medium text-stone-200">
+                  {gettext("Why should this stay in the campaign record?")}
+                </label>
+                <textarea
+                  id="memory-reason"
+                  name="memory[reason]"
+                  rows="2"
+                  maxlength="1000"
+                  required
+                  class="mt-1 block w-full rounded-lg border-violet-800 bg-stone-950 text-sm text-stone-100 focus:border-violet-400 focus:ring-violet-400"
+                >{@memory_form["reason"]}</textarea>
+              </div>
+              <p :if={@memory_error} role="alert" class="text-sm font-medium text-rose-700">
+                {@memory_error}
+              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={blocking_turn?(@current_turn)}
+                  phx-disable-with={
+                    if @memory_submit == "retract",
+                      do: gettext("Removing…"),
+                      else: gettext("Saving…")
+                  }
+                  class="rounded-full bg-violet-900 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {if @memory_submit == "retract",
+                    do: gettext("Remove memory"),
+                    else: gettext("Save memory")}
+                </button>
+                <button
+                  :if={@memory_editor != :new and @memory_submit == "save"}
+                  type="button"
+                  phx-click="set-story-memory-action"
+                  phx-value-action="retract"
+                  class="rounded-full border border-rose-700 px-3 py-2 text-sm font-medium text-rose-200 hover:bg-rose-950/60 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {gettext("Remove from active memory")}
+                </button>
+                <button
+                  :if={@memory_editor != :new and @memory_submit == "retract"}
+                  type="button"
+                  phx-click="set-story-memory-action"
+                  phx-value-action="save"
+                  class="rounded-full px-3 py-2 text-sm font-medium text-stone-300 hover:bg-stone-800"
+                >
+                  {gettext("Keep editing")}
+                </button>
+                <button
+                  type="button"
+                  phx-click="cancel-story-memory"
+                  class="rounded-full px-3 py-2 text-sm font-medium text-stone-300 hover:bg-stone-800"
+                >
+                  {gettext("Cancel")}
+                </button>
+              </div>
+              <p :if={@memory_submit == "retract"} class="text-xs leading-5 text-stone-400">
+                {gettext(
+                  "Removing a note hides it from the board and future GM context; its audit history remains."
+                )}
+              </p>
+              <p :if={@memory_submit == "save"} class="text-xs leading-5 text-stone-400">
+                {gettext(
+                  "Saved outside the story timeline. It will guide relevant future scenes."
+                )}
+              </p>
+            </.form>
           </details>
         </section>
 

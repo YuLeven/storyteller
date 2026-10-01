@@ -285,7 +285,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 6
+    assert document["schema_version"] == 7
     assert length(document["canon_corrections"]) == 1
     assert hd(document["canon_corrections"])["after_state"]["value"] == 7
     assert document["campaign"]["title"] == campaign.title
@@ -463,7 +463,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 7),
+          Map.put(decoded, "schema_version", 8),
           Map.put(decoded, "canon_corrections", [%{"sequence" => 1}]),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
@@ -626,7 +626,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 6
+    assert document["schema_version"] == 7
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -714,6 +714,76 @@ defmodule Storyteller.CampaignBackupTest do
 
     assert Repo.aggregate(Storyteller.Campaigns.Campaign, :count, :id) == 1
     assert Repo.aggregate(from(state in State), :count, :id) == 1
+  end
+
+  test "round-trips player-authored public memory without inventing event provenance" do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, _receipt} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "memory",
+               "expected_revision" => state.revision,
+               "reason" => "The player preserves an important promise.",
+               "values" => %{
+                 "action" => "add",
+                 "kind" => "commitment",
+                 "title" => "Lyra's promise",
+                 "details" => "Lyra will bring the star chart before dawn."
+               }
+             })
+
+    assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
+    backup = Jason.decode!(backup_json)
+    assert hd(backup["canon_corrections"])["kind"] == "memory"
+    memory = Enum.find(backup["continuity_entries"], &(&1["title"] == "Lyra's promise"))
+    assert memory["visibility"] == "public"
+    assert memory["introduced_event_sequence"] == nil
+    assert memory["source_event_sequence"] == nil
+
+    assert {:ok, imported} = CampaignBackup.import(backup_json)
+
+    imported_memory =
+      Repo.get_by!(ContinuityEntry, campaign_id: imported.id, entry_id: memory["entry_id"])
+
+    assert imported_memory.visibility == :public
+    assert is_nil(imported_memory.introduced_by_event_id)
+    assert is_nil(imported_memory.source_event_id)
+    assert imported_memory.details == "Lyra will bring the star chart before dawn."
+
+    imported_correction = Repo.get_by!(CanonCorrection, campaign_id: imported.id)
+    assert imported_correction.kind == "memory"
+    assert imported_correction.before_state == %{"entry" => nil}
+    assert imported_correction.after_state["entry"]["entry_id"] == memory["entry_id"]
+  end
+
+  test "keeps v6 backups importable while requiring v7 for player-authored memory" do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    assert {:ok, ordinary_backup} = CampaignBackup.export(campaign.id)
+    v6_backup = ordinary_backup |> Jason.decode!() |> Map.put("schema_version", 6)
+    assert {:ok, _imported_v6} = CampaignBackup.import(Jason.encode!(v6_backup))
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, _receipt} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "memory",
+               "expected_revision" => state.revision,
+               "reason" => "Keep the promise in the campaign record.",
+               "values" => %{
+                 "action" => "add",
+                 "kind" => "commitment",
+                 "title" => "A remembered promise",
+                 "details" => "The keeper will return before dawn."
+               }
+             })
+
+    assert {:ok, memory_backup} = CampaignBackup.export(campaign.id)
+    invalid_v6 = memory_backup |> Jason.decode!() |> Map.put("schema_version", 6)
+    assert {:error, :invalid_backup} = CampaignBackup.import(Jason.encode!(invalid_v6))
   end
 
   defp fake_provider(narration) do

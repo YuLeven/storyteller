@@ -12,11 +12,25 @@ defmodule Storyteller.Play.CanonCorrections do
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
-  alias Storyteller.Play.{CanonCorrection, Character, Inventory, Place, State, Turn}
+
+  alias Storyteller.Play.{
+    CanonCorrection,
+    Character,
+    ContinuityEntry,
+    Inventory,
+    Place,
+    State,
+    Turn
+  }
+
   alias Storyteller.Repo
 
   @active_turn_statuses [:pending, :resolving, :awaiting_roll]
   @max_corrections 20
+  @max_player_memory_entries 8
+  @max_active_continuity_entries 80
+  @max_total_continuity_entries 100
+  @max_player_memory_details_chars 300
 
   @doc "Returns only correction choices already visible to the player."
   def options(campaign_id, session_id) do
@@ -80,6 +94,17 @@ defmodule Storyteller.Play.CanonCorrections do
           end)
         end)
 
+      player_memory_count =
+        Repo.aggregate(
+          from(entry in ContinuityEntry,
+            where:
+              entry.campaign_id == ^campaign_id and entry.visibility == :public and
+                entry.status == :active and is_nil(entry.introduced_by_event_id)
+          ),
+          :count,
+          :id
+        )
+
       {:ok,
        %{
          revision: state.revision,
@@ -87,7 +112,9 @@ defmodule Storyteller.Play.CanonCorrections do
          owners: [%{id: "party", name: "Party"} | characters],
          resources: resources,
          characters: characters,
-         places: Enum.map(places, &%{id: &1.place_id, name: &1.name})
+         places: Enum.map(places, &%{id: &1.place_id, name: &1.name}),
+         player_memory_count: player_memory_count,
+         player_memory_limit: @max_player_memory_entries
        }}
     else
       _ -> {:error, :unavailable}
@@ -132,11 +159,25 @@ defmodule Storyteller.Play.CanonCorrections do
     %{character_name: snapshot["character_name"], place_name: snapshot["place_name"]}
   end
 
+  defp receipt_snapshot("memory", %{"entry" => nil}), do: nil
+
+  defp receipt_snapshot("memory", %{"entry" => entry}) when is_map(entry) do
+    %{
+      title: entry["title"],
+      details: entry["details"],
+      kind: entry["kind"],
+      status: entry["status"]
+    }
+  end
+
+  defp receipt_snapshot("memory", _snapshot), do: nil
+
   defp receipt_snapshot(_kind, _snapshot), do: nil
 
   defp receipt_target_label("inventory", %{name: name}), do: name
   defp receipt_target_label("resource", %{label: label}), do: label
   defp receipt_target_label("location", %{character_name: name}), do: name
+  defp receipt_target_label("memory", %{title: title}), do: title
   defp receipt_target_label(_kind, _snapshot), do: nil
 
   @doc "Applies one explicit correction, rejecting stale or in-flight campaign state."
@@ -297,8 +338,206 @@ defmodule Storyteller.Play.CanonCorrections do
     end
   end
 
+  defp plan_correction(:memory, target_id, values, campaign_id, _state) do
+    action = attr(values, :action)
+
+    case action do
+      "add" ->
+        add_player_memory(values, campaign_id)
+
+      "update" ->
+        update_player_memory(target_id, values, campaign_id)
+
+      "retract" ->
+        retract_player_memory(target_id, campaign_id)
+
+      _ ->
+        {:error, :invalid_correction}
+    end
+  end
+
   defp plan_correction(_kind, _target_id, _values, _campaign_id, _state),
     do: {:error, :invalid_correction}
+
+  defp add_player_memory(values, campaign_id) do
+    active_count = active_continuity_count(campaign_id)
+    total_count = continuity_count(campaign_id)
+
+    player_memory_count =
+      Repo.aggregate(
+        from(entry in ContinuityEntry,
+          where:
+            entry.campaign_id == ^campaign_id and entry.visibility == :public and
+              entry.status == :active and is_nil(entry.introduced_by_event_id)
+        ),
+        :count,
+        :id
+      )
+
+    entry_id = "player-memory-" <> Ecto.UUID.generate()
+
+    with true <- player_memory_count < @max_player_memory_entries,
+         true <- active_count < @max_active_continuity_entries,
+         true <- total_count < @max_total_continuity_entries,
+         {:ok, attrs} <- normalize_player_memory(values, @max_player_memory_details_chars) do
+      before_state = %{"entry" => nil}
+
+      after_state =
+        %{
+          "entry" =>
+            memory_snapshot(
+              Map.merge(attrs, %{entry_id: entry_id, status: :active, visibility: :public})
+            )
+        }
+
+      update = fn state ->
+        entry_attrs =
+          attrs
+          |> Map.merge(%{
+            campaign_id: campaign_id,
+            entry_id: entry_id,
+            status: :active,
+            visibility: :public,
+            introduced_by_event_id: nil,
+            source_event_id: nil
+          })
+
+        case Repo.insert(ContinuityEntry.changeset(%ContinuityEntry{}, entry_attrs)) do
+          {:ok, _entry} -> {:ok, state}
+          {:error, _changeset} -> {:error, :invalid_correction}
+        end
+      end
+
+      {:ok, entry_id, before_state, after_state, update}
+    else
+      false -> {:error, :memory_limit_reached}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp update_player_memory(target_id, values, campaign_id) do
+    with %ContinuityEntry{} = entry <- public_active_memory(campaign_id, target_id),
+         {:ok, attrs} <- normalize_player_memory(values, @max_player_memory_details_chars) do
+      before_state = %{"entry" => memory_snapshot(entry)}
+      after_state = %{"entry" => memory_snapshot(Map.merge(entry, attrs))}
+
+      if before_state == after_state do
+        {:error, :no_change}
+      else
+        update = fn state ->
+          case entry |> ContinuityEntry.changeset(attrs) |> Repo.update() do
+            {:ok, _entry} -> {:ok, state}
+            {:error, _changeset} -> {:error, :invalid_correction}
+          end
+        end
+
+        {:ok, entry.entry_id, before_state, after_state, update}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp retract_player_memory(target_id, campaign_id) do
+    case public_active_memory(campaign_id, target_id) do
+      %ContinuityEntry{} = entry ->
+        before_state = %{"entry" => memory_snapshot(entry)}
+        after_entry = Map.put(entry, :status, :retracted)
+        after_state = %{"entry" => memory_snapshot(after_entry)}
+
+        update = fn state ->
+          case entry |> ContinuityEntry.changeset(%{status: :retracted}) |> Repo.update() do
+            {:ok, _entry} -> {:ok, state}
+            {:error, _changeset} -> {:error, :invalid_correction}
+          end
+        end
+
+        {:ok, entry.entry_id, before_state, after_state, update}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  defp public_active_memory(campaign_id, entry_id) when is_binary(entry_id) do
+    Repo.one(
+      from entry in ContinuityEntry,
+        where:
+          entry.campaign_id == ^campaign_id and entry.entry_id == ^entry_id and
+            entry.visibility == :public and entry.status == :active,
+        lock: "FOR UPDATE"
+    )
+  end
+
+  defp public_active_memory(_campaign_id, _entry_id), do: nil
+
+  defp normalize_player_memory(values, max_details_chars) do
+    kind = normalize_memory_kind(attr(values, :kind))
+    title = normalize_memory_text(attr(values, :title), 120)
+    details = normalize_memory_text(attr(values, :details), max_details_chars)
+
+    if kind && title && details do
+      {:ok, %{kind: kind, title: title, details: details}}
+    else
+      {:error, :invalid_memory}
+    end
+  end
+
+  defp normalize_memory_kind("fact"), do: :fact
+  defp normalize_memory_kind(:fact), do: :fact
+  defp normalize_memory_kind("relationship"), do: :relationship
+  defp normalize_memory_kind(:relationship), do: :relationship
+  defp normalize_memory_kind("commitment"), do: :commitment
+  defp normalize_memory_kind(:commitment), do: :commitment
+  defp normalize_memory_kind(_), do: nil
+
+  defp normalize_memory_text(value, max_length) when is_binary(value) do
+    value = String.trim(value)
+
+    if value != "" and String.length(value) <= max_length and String.valid?(value),
+      do: value
+  end
+
+  defp normalize_memory_text(_value, _max_length), do: nil
+
+  defp memory_snapshot(entry) do
+    %{
+      "entry_id" => attr(entry, :entry_id),
+      "kind" => entry_kind_string(attr(entry, :kind)),
+      "title" => attr(entry, :title),
+      "details" => attr(entry, :details),
+      "status" => entry_status_string(attr(entry, :status)),
+      "visibility" => entry_visibility_string(attr(entry, :visibility))
+    }
+  end
+
+  defp entry_kind_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp entry_kind_string(value), do: value
+
+  defp entry_status_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp entry_status_string(value), do: value
+
+  defp entry_visibility_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp entry_visibility_string(value), do: value
+
+  defp active_continuity_count(campaign_id) do
+    Repo.aggregate(
+      from(entry in ContinuityEntry,
+        where: entry.campaign_id == ^campaign_id and entry.status == :active
+      ),
+      :count,
+      :id
+    )
+  end
+
+  defp continuity_count(campaign_id) do
+    Repo.aggregate(
+      from(entry in ContinuityEntry, where: entry.campaign_id == ^campaign_id),
+      :count,
+      :id
+    )
+  end
 
   defp add_item(inventory, values, owners) do
     if length(inventory) >= 200 do
@@ -493,6 +732,8 @@ defmodule Storyteller.Play.CanonCorrections do
   defp normalize_kind(:resource), do: :resource
   defp normalize_kind("location"), do: :location
   defp normalize_kind(:location), do: :location
+  defp normalize_kind("memory"), do: :memory
+  defp normalize_kind(:memory), do: :memory
   defp normalize_kind(_), do: nil
 
   defp normalize_reason(value) when is_binary(value) do

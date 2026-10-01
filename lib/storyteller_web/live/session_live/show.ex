@@ -61,7 +61,12 @@ defmodule StorytellerWeb.SessionLive.Show do
             correction_options: nil,
             correction_receipts: [],
             correction_form: %{"kind" => "inventory", "action" => "add", "owner_id" => "player"},
-            correction_error: nil
+            correction_error: nil,
+            memory_editor: nil,
+            memory_form: default_story_memory_form(),
+            memory_submit: "save",
+            memory_error: nil,
+            memory_status: nil
           )
 
         case Play.initialize_campaign(session.campaign) do
@@ -150,6 +155,160 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   def handle_event("save-canon-correction", _params, socket) do
     {:noreply, assign(socket, correction_error: gettext("The correction could not be saved."))}
+  end
+
+  def handle_event("open-story-memory", %{"entry_id" => "new"}, socket) do
+    if memory_changes_allowed?(socket) do
+      {:noreply,
+       assign(socket,
+         memory_editor: :new,
+         memory_form: default_story_memory_form(),
+         memory_submit: "save",
+         memory_error: nil,
+         memory_status: nil
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("open-story-memory", %{"entry_id" => entry_id}, socket)
+      when is_binary(entry_id) do
+    entry =
+      socket.assigns.projection.continuity_entries
+      |> Enum.find(&(&1.entry_id == entry_id))
+
+    if entry && memory_changes_allowed?(socket) do
+      {:noreply,
+       assign(socket,
+         memory_editor: entry,
+         memory_form: %{
+           "kind" => Atom.to_string(entry.kind),
+           "title" => entry.title,
+           "details" => entry.details,
+           "reason" => ""
+         },
+         memory_submit: "save",
+         memory_error: nil,
+         memory_status: nil
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("open-story-memory", _params, socket), do: {:noreply, socket}
+
+  def handle_event("change-story-memory-form", %{"memory" => params}, socket)
+      when is_map(params) do
+    {:noreply,
+     assign(socket,
+       memory_form:
+         Map.merge(default_story_memory_form(), Map.take(params, ~w(kind title details reason))),
+       memory_error: nil
+     )}
+  end
+
+  def handle_event("change-story-memory-form", _params, socket), do: {:noreply, socket}
+
+  def handle_event("set-story-memory-action", %{"action" => "retract"}, socket) do
+    if is_map(socket.assigns.memory_editor) do
+      {:noreply, assign(socket, memory_submit: "retract", memory_error: nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("set-story-memory-action", %{"action" => "save"}, socket) do
+    {:noreply, assign(socket, memory_submit: "save", memory_error: nil)}
+  end
+
+  def handle_event("set-story-memory-action", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel-story-memory", _params, socket) do
+    {:noreply,
+     assign(socket,
+       memory_editor: nil,
+       memory_form: default_story_memory_form(),
+       memory_submit: "save",
+       memory_error: nil
+     )}
+  end
+
+  def handle_event("save-story-memory", %{"memory" => params}, socket) when is_map(params) do
+    submit_kind = socket.assigns.memory_submit
+
+    {action, target_id, values} =
+      case {socket.assigns.memory_editor, submit_kind} do
+        {:new, "save"} ->
+          {"add", nil, Map.take(params, ~w(kind title details))}
+
+        {%{entry_id: entry_id}, "save"} ->
+          {"update", entry_id, Map.take(params, ~w(kind title details))}
+
+        {%{entry_id: entry_id}, "retract"} ->
+          {"retract", entry_id, %{}}
+
+        _ ->
+          {nil, nil, %{}}
+      end
+
+    if action && memory_changes_allowed?(socket) do
+      values = Map.put(values, "action", action)
+
+      attrs = %{
+        "kind" => "memory",
+        "target_id" => target_id,
+        "expected_revision" => Map.get(params, "expected_revision"),
+        "reason" => Map.get(params, "reason"),
+        "values" => values
+      }
+
+      case CanonCorrections.correct(
+             socket.assigns.session.campaign_id,
+             socket.assigns.session.id,
+             attrs
+           ) do
+        {:ok, _receipt} ->
+          message =
+            if action == "retract",
+              do: gettext("Memory removed from the active campaign board."),
+              else: gettext("Campaign memory saved for future scenes.")
+
+          socket =
+            socket
+            |> assign(
+              memory_editor: nil,
+              memory_form: default_story_memory_form(),
+              memory_submit: "save",
+              memory_error: nil,
+              memory_status: message
+            )
+            |> refresh_game()
+
+          {:noreply, socket}
+
+        {:error, reason} ->
+          socket =
+            assign(socket,
+              memory_form:
+                Map.merge(
+                  default_story_memory_form(),
+                  Map.take(params, ~w(kind title details reason))
+                ),
+              memory_error: story_memory_error_message(reason)
+            )
+
+          socket = if reason == :stale_correction, do: refresh_game(socket), else: socket
+          {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("save-story-memory", _params, socket) do
+    {:noreply, assign(socket, memory_error: gettext("The campaign memory could not be saved."))}
   end
 
   def handle_event("select-mode", %{"mode" => mode}, socket) do
@@ -1172,6 +1331,15 @@ defmodule StorytellerWeb.SessionLive.Show do
     %{"kind" => "inventory", "action" => "add", "owner_id" => "player"}
   end
 
+  defp default_story_memory_form do
+    %{"kind" => "fact", "title" => "", "details" => "", "reason" => ""}
+  end
+
+  defp memory_changes_allowed?(socket) do
+    playable?(socket.assigns.session) and not is_nil(socket.assigns.correction_options) and
+      not blocking_turn?(socket.assigns.current_turn)
+  end
+
   defp maybe_fill_correction_default(params, previous, options) do
     inventory_item_changed? =
       params["kind"] == "inventory" and params["action"] == "set" and
@@ -1231,10 +1399,42 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp correction_error_message(_reason),
     do: gettext("The correction could not be saved. Refresh and try again.")
 
+  defp story_memory_error_message(:stale_correction),
+    do:
+      gettext(
+        "The campaign changed while this note was open. Review the current details and try again."
+      )
+
+  defp story_memory_error_message(:turn_in_progress),
+    do: gettext("Wait for the game master to finish this turn before changing campaign memory.")
+
+  defp story_memory_error_message(:invalid_reason),
+    do: gettext("Add a short reason for keeping or changing this detail.")
+
+  defp story_memory_error_message(:invalid_memory),
+    do: gettext("Add a title and details within the shown length limits.")
+
+  defp story_memory_error_message(:memory_limit_reached),
+    do: gettext("Your lasting-note space is full. Edit or remove a note before adding another.")
+
+  defp story_memory_error_message(:no_change),
+    do: gettext("This note already has those details. Change something before saving.")
+
+  defp story_memory_error_message(:not_found),
+    do: gettext("This public note is no longer available to change.")
+
+  defp story_memory_error_message(_reason),
+    do: gettext("The campaign memory could not be saved. Refresh and try again.")
+
   defp correction_kind_label("inventory"), do: gettext("Inventory")
   defp correction_kind_label("resource"), do: gettext("Tracked resource")
   defp correction_kind_label("location"), do: gettext("Character location")
+  defp correction_kind_label("memory"), do: gettext("Campaign memory")
   defp correction_kind_label(kind), do: kind
+
+  defp story_memory_kind_label(:fact), do: gettext("Fact")
+  defp story_memory_kind_label(:relationship), do: gettext("Relationship")
+  defp story_memory_kind_label(:commitment), do: gettext("Promise or commitment")
 
   defp correction_receipt_value("inventory", %{name: name, quantity: quantity, unit: unit}) do
     inventory_correction_label(%{name: name, quantity: quantity, unit: unit})
@@ -1249,7 +1449,21 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp correction_receipt_value("location", %{place_name: name}) when is_binary(name), do: name
   defp correction_receipt_value("location", _place), do: gettext("Unrecorded location")
+
+  defp correction_receipt_value("memory", %{title: title, details: details, status: status}) do
+    gettext("%{title}: %{details} (%{status})",
+      title: title,
+      details: details,
+      status: story_memory_status_label(status)
+    )
+  end
+
+  defp correction_receipt_value("memory", _entry), do: gettext("Not recorded")
   defp correction_receipt_value(_kind, _snapshot), do: gettext("Not recorded")
+
+  defp story_memory_status_label("active"), do: gettext("Active")
+  defp story_memory_status_label("retracted"), do: gettext("Removed")
+  defp story_memory_status_label(status), do: status
 
   defp correction_owner_label(%{id: "party"}), do: gettext("Party")
   defp correction_owner_label(%{name: name}), do: name

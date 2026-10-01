@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-01 — Keep durable public story memory within the token budget
+
+- The defining product idea is now captured as an MVP gate: the application owns durable campaign canon and plausibility; the LLM narrates and proposes changes but cannot replace structured world state or be expected to recall a growing transcript. The Finca–Bodega example remains the concrete acceptance test for presence and travel.
+- A read-only review of the separate QA campaign found the campaign-memory board empty even though the story had established durable facts. Added a player-managed public-memory path as a small backstop for facts that lack typed ledger fields. Notes can be added, edited, and retracted out of character; each change is revision-checked and reasoned, with before/after audit history. It creates no fictional timeline event and does not advance the in-world clock.
+- Player-managed entries are immutable to GM continuity proposals. The prompt identifies them as protected, and proposal validation rejects edits/retractions algorithmically. They persist on the board and in relevant GM context across sessions even when a fake provider returns no continuity changes. The board limits the player to eight active notes of at most 300 characters; the context-budget regression keeps all eight under the default 24,000-byte preflight bound.
+- Added the cross-session Finca/Bodega behavior test: a 40-minute route connects the distinct places, the employee remains at the Finca when the player arrives at the Bodega, and remote dialogue/activity are rejected until the employee travels.
+- Campaign backup schema v7 exports/imports player-memory entries and their nullable event provenance. v1-v6 backups remain supported; a v6 file cannot claim v7-only player-memory features. The additive migration `20261001000400` is applied to the local development database without rewriting campaign rows. QA browser review opened the editor read-only; no note or GM turn was submitted, and the Vineyard campaign was not accessed.
+- **Checks:** full WSL suite **300 tests, 0 failures**; focused memory/context/backup/LiveView suites **66 tests, 0 failures**; post-contrast SessionLive rerun **44 tests, 0 failures**; `mix format --check-formatted`, `mix gettext.extract --check-up-to-date`, `MIX_ENV=test mix compile --warnings-as-errors`, and `git diff --check` passed. A development-environment warnings-as-errors invocation collided with the intentionally running local Phoenix server's loaded modules; the isolated test-environment check passed.
+
 ## 2026-10-01 — Correct tracked public canon without rewriting play
 
 - Added an out-of-character correction panel to the active session for repairing a public inventory item, a typed public campaign resource, or a character's known public location. Each change requires a reason and shows a concise receipt outside the story timeline with its target and before/after values.

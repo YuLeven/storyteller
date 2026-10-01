@@ -169,7 +169,8 @@ defmodule Storyteller.Play do
   fresh entry_id and kind fact/relationship/commitment; update with its stable
   ID, one operation per entry per turn. Kind/visibility never change; resolved
   or retracted entries stay closed in history and cannot be recreated under
-  another ID.
+  another ID. Never update or retract player_managed entries; only the player
+  can edit or remove them.
   Keep private content/reasons private. Return concise public_summary and
   gm_private_summary updates with supported durable facts, relationships,
   commitments, and work in progress; preserve correct facts, remove resolved
@@ -2431,7 +2432,15 @@ defmodule Storyteller.Play do
                 lock: "FOR UPDATE"
             )
 
-          attrs = Map.put(change.attrs, :source_event_id, source_event_id)
+          attrs =
+            change.attrs
+            |> Map.put(:source_event_id, source_event_id)
+            |> then(fn attrs ->
+              if is_nil(entry.introduced_by_event_id),
+                do: Map.put(attrs, :introduced_by_event_id, source_event_id),
+                else: attrs
+            end)
+
           update_or_rollback!(ContinuityEntry.changeset(entry, attrs))
       end
     end)
@@ -3700,6 +3709,9 @@ defmodule Storyteller.Play do
     case Map.fetch(entries, change.entry_id) do
       :error ->
         {:error, :unknown_continuity_entry}
+
+      {:ok, %{player_managed: true}} ->
+        {:error, :player_managed_continuity_entry}
 
       {:ok, %{status: status}} when status != :active ->
         {:error, :closed_continuity_entry}
@@ -5084,7 +5096,7 @@ defmodule Storyteller.Play do
     entries =
       Repo.all(
         from entry in ContinuityEntry,
-          join: source in Event,
+          left_join: source in Event,
           on: source.id == entry.source_event_id and source.campaign_id == entry.campaign_id,
           where: entry.campaign_id == ^campaign_id,
           order_by: [asc: entry.inserted_at, asc: entry.entry_id],
@@ -5115,7 +5127,8 @@ defmodule Storyteller.Play do
       title: field(entry, :title),
       details: field(entry, :details),
       status: field(entry, :status),
-      visibility: field(entry, :visibility)
+      visibility: field(entry, :visibility),
+      player_managed: is_nil(field(entry, :introduced_by_event_id))
     }
   end
 

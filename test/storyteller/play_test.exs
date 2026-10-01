@@ -2167,6 +2167,186 @@ defmodule Storyteller.PlayTest do
            end)
   end
 
+  test "a finca employee cannot speak or act at the bodega until canonical travel moves them across sessions" do
+    {campaign, first_session} = play_campaign("The Finca and Bodega Presence")
+    finca = establish_starting_place!(campaign, "Finca")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    arrive_at_bodega =
+      ordinary_proposal(%{
+        "narration" => "The road winds for forty minutes before the bodega comes into view.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "bodega",
+              "name" => "Bodega",
+              "visibility" => "public",
+              "facts" => %{"kind" => "winery"}
+            },
+            "reason" => "The bodega is established as a distinct place from the Finca."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "bodega",
+            "reason" => "The player travels from the Finca to the bodega."
+          }
+        ],
+        "travel_changes" => [
+          %{
+            "type" => "create_connection",
+            "place_a_id" => finca.place_id,
+            "place_b_id" => "bodega",
+            "travel_minutes" => 40,
+            "scene_relevance" =>
+              "The winding road between the Finca and the bodega takes forty minutes.",
+            "visibility" => "public",
+            "reason" => "The bodega is forty minutes from the Finca."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "player-travels-to-bodega",
+               "I travel from the Finca to the bodega.",
+               provider: fn _request -> {:ok, Jason.encode!(arrive_at_bodega)} end,
+               model: "test-model"
+             )
+
+    bodega = Repo.get_by!(Place, campaign_id: campaign.id, place_id: "bodega")
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    lyra = Repo.get_by!(Character, id: lyra.id)
+    assert player.current_place_id == bodega.place_id
+    assert lyra.current_place_id == finca.place_id
+
+    connection =
+      Repo.get_by!(PlaceConnection,
+        campaign_id: campaign.id,
+        place_a_id: Enum.min([finca.place_id, bodega.place_id]),
+        place_b_id: Enum.max([finca.place_id, bodega.place_id])
+      )
+
+    assert connection.travel_minutes == 40
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 40
+
+    assert {:ok, later_session} =
+             Campaigns.start_session(Campaigns.get_campaign!(campaign.id), %{
+               title: "The next visit"
+             })
+
+    captured_contexts = Agent.start_link(fn -> [] end) |> elem(1)
+
+    later_context_provider = fn request, proposal ->
+      Agent.update(captured_contexts, fn contexts -> [decode_request(request) | contexts] end)
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    remote_actions = [
+      {"remote-dialogue",
+       %{
+         "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The ferment is steady."}],
+         "activities" => []
+       }},
+      {"remote-activity",
+       %{
+         "dialogue" => [],
+         "activities" => [%{"speaker_id" => "npc:lyra", "text" => "She checks a barrel."}]
+       }}
+    ]
+
+    for {key, remote_lines} <- remote_actions do
+      proposal =
+        ordinary_proposal(
+          Map.merge(
+            %{
+              "narration" => "At the bodega, the player waits for news from the Finca.",
+              "character_updates" => [],
+              "location_changes" => [],
+              "travel_changes" => []
+            },
+            remote_lines
+          )
+        )
+
+      assert {:ok, %{status: :failed, failure_stage: :proposal_validation} = failed} =
+               Play.submit_turn(
+                 campaign.id,
+                 later_session.id,
+                 key,
+                 "Ask Lyra for an update.",
+                 provider: fn request -> later_context_provider.(request, proposal) end,
+                 model: "test-model"
+               )
+
+      assert Repo.get_by!(Character, id: lyra.id).current_place_id == finca.place_id
+      assert {:ok, events} = Play.public_timeline(campaign.id)
+
+      refute Enum.any?(events, fn event ->
+               event.turn_id == failed.id and
+                 event.event_type in [:npc_dialogue, :character_activity]
+             end)
+    end
+
+    later_context = Agent.get(captured_contexts, &hd/1)
+    context_lyra = Enum.find(later_context["characters"], &(&1["speaker_id"] == "npc:lyra"))
+    context_player = Enum.find(later_context["characters"], &(&1["speaker_id"] == "player"))
+    assert context_lyra["current_place"]["place_id"] == finca.place_id
+    assert context_player["current_place"]["place_id"] == bodega.place_id
+
+    assert Enum.any?(later_context["travel_connections"]["public_routes"], fn route ->
+             route["travel_minutes"] == 40 and finca.place_id in route["place_ids"] and
+               bodega.place_id in route["place_ids"]
+           end)
+
+    arrival =
+      ordinary_proposal(%{
+        "narration" => "After the forty-minute trip, Lyra joins the player at the bodega.",
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The ferment is steady."}],
+        "activities" => [%{"speaker_id" => "npc:lyra", "text" => "She checks a barrel."}],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => bodega.place_id,
+            "reason" => "Lyra makes the journey from the Finca to the bodega."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :completed} = arrived} =
+             Play.submit_turn(
+               campaign.id,
+               later_session.id,
+               "lyra-travels-to-bodega",
+               "Ask Lyra to come to the bodega before giving her update.",
+               provider: fn request -> later_context_provider.(request, arrival) end,
+               model: "test-model"
+             )
+
+    lyra = Repo.get_by!(Character, id: lyra.id)
+    assert lyra.current_place_id == bodega.place_id
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+
+    lyra_movement =
+      events
+      |> Enum.flat_map(&Map.get(&1.payload, "location_changes", []))
+      |> Enum.find(&(&1["speaker_id"] == "npc:lyra" and &1["place_id"] == bodega.place_id))
+
+    assert lyra_movement["travel_minutes"] == 40
+    assert Enum.any?(events, &(&1.turn_id == arrived.id and &1.event_type == :npc_dialogue))
+    assert Enum.any?(events, &(&1.turn_id == arrived.id and &1.event_type == :character_activity))
+  end
+
   test "elapsed time sums each character's sequential route legs and takes the max across concurrent trips" do
     {campaign, session} = play_campaign("The Orchard Road")
     finca = establish_starting_place!(campaign, "Finca")
