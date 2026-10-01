@@ -627,7 +627,7 @@ msgstr ""
 msgid "Panel name"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:248
+#: lib/storyteller_web/live/campaign_live/edit.ex:284
 #: lib/storyteller_web/live/campaign_live/show.html.heex:51
 #, elixir-autogen, elixir-format
 msgid "Player character"
@@ -2113,12 +2113,12 @@ msgstr ""
 msgid "Voice notes must be 280 characters or fewer per field and 1,200 characters total."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:95
+#: lib/storyteller_web/live/campaign_live/edit.ex:97
 #, elixir-autogen
 msgid "Character voice notes must use the listed fields and stay within the length limits."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:179
+#: lib/storyteller_web/live/campaign_live/edit.ex:181
 #, elixir-autogen
 msgid "Campaign changes could not be saved. Review the fields and try again."
 msgstr ""
@@ -2137,7 +2137,7 @@ msgstr ""
 msgid "Revise the current player-visible summary or GM-only notes. Other character facts and the story timeline are preserved."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:114
+#: lib/storyteller_web/live/campaign_live/edit.ex:116
 #, elixir-autogen
 msgid "Character details must use the listed fields and stay within the length limits."
 msgstr ""
@@ -2346,18 +2346,18 @@ msgstr ""
 msgid "A reason is required when a setup value changes. Saving unchanged setup does not create a correction."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:170
+#: lib/storyteller_web/live/campaign_live/edit.ex:172
 #, elixir-autogen, elixir-format
 msgid "Add a reason for changing the campaign setup."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:247
-#: lib/storyteller_web/live/campaign_live/edit.ex:251
+#: lib/storyteller_web/live/campaign_live/edit.ex:283
+#: lib/storyteller_web/live/campaign_live/edit.ex:287
 #, elixir-autogen, elixir-format
 msgid "Campaign setup"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:249
+#: lib/storyteller_web/live/campaign_live/edit.ex:285
 #, elixir-autogen, elixir-format
 msgid "Character details"
 msgstr ""
@@ -2398,7 +2398,7 @@ msgstr ""
 msgid "Why are you changing the setup?"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:60
+#: lib/storyteller_web/live/campaign_live/edit.ex:62
 #, elixir-autogen, elixir-format
 msgid "Campaign changes saved."
 msgstr ""
@@ -2989,12 +2989,12 @@ msgstr ""
 msgid "Tending the cellar"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:141
+#: lib/storyteller_web/live/campaign_live/edit.ex:143
 #, elixir-autogen, elixir-format
 msgid "The campaign changed while this setup was open. Review the current state and try again."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:152
+#: lib/storyteller_web/live/campaign_live/edit.ex:154
 #, elixir-autogen, elixir-format
 msgid "Wait for the game master to finish the turn before changing an active duty."
 msgstr ""
@@ -3039,7 +3039,7 @@ msgstr ""
 msgid "Minutes until available (in-world, optional)"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:125
+#: lib/storyteller_web/live/campaign_live/edit.ex:127
 #, elixir-autogen, elixir-format
 msgid "An active duty needs a name up to 160 characters, a known current place, and a whole-number duration from 0 to 525600 minutes."
 msgstr ""

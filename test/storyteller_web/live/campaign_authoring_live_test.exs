@@ -217,6 +217,48 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert reopened_html =~ "Turns the brass key while she thinks."
   end
 
+  test "campaign editor saves voice guidance retained from change events", %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [
+          %{speaker_id: "npc:cellar-keeper", name: "Marcel", voice_guidance: %{}}
+        ]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    validated_attrs = %{
+      "correction_reason" => "Clarify how Marcel speaks and moves.",
+      "character_voice_guidance" => %{
+        "npc:cellar-keeper" => %{
+          "accent_dialect" => "Warm French vowels.",
+          "mannerisms" => "Taps the wine thief against the barrel before speaking."
+        }
+      }
+    }
+
+    render_change(view, "validate", %{"campaign" => validated_attrs})
+
+    html =
+      render_submit(view, "save", %{
+        "campaign" => %{"correction_reason" => validated_attrs["correction_reason"]}
+      })
+
+    assert html =~ "Campaign changes saved."
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:cellar-keeper")
+
+    assert character.voice_guidance == %{
+             "accent_dialect" => "Warm French vowels.",
+             "mannerisms" => "Taps the wine thief against the barrel before speaking."
+           }
+
+    {:ok, reopened_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    reopened_html = render(reopened_view)
+    assert reopened_html =~ "Warm French vowels."
+    assert reopened_html =~ "Taps the wine thief against the barrel before speaking."
+  end
+
   test "campaign editor authors a private active duty and rejects stale or in-flight changes", %{
     conn: conn
   } do

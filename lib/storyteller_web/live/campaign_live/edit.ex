@@ -51,6 +51,8 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   @impl true
   def handle_event("save", %{"campaign" => attrs}, socket) do
+    attrs = merge_authoring_draft(attrs, socket.assigns.authoring_draft)
+
     case Campaigns.update_campaign_authoring(socket.assigns.campaign, attrs) do
       {:ok, campaign} ->
         {revision, elapsed_minutes} = campaign_clock(campaign.id)
@@ -221,6 +223,40 @@ defmodule StorytellerWeb.CampaignLive.Edit do
   defp authoring_draft(attrs) do
     Map.take(attrs, ["gm_character_setup", "character_active_duties", "character_voice_guidance"])
   end
+
+  defp merge_authoring_draft(attrs, draft) do
+    Enum.reduce(
+      [
+        {"gm_character_setup", :gm_character_setup},
+        {"character_active_duties", :character_active_duties},
+        {"character_voice_guidance", :character_voice_guidance}
+      ],
+      attrs,
+      fn {key, atom_key}, merged ->
+        submitted = attrs |> draft_attr(key, %{}) |> stringify_nested_keys()
+        validated = draft |> draft_attr(key, %{}) |> stringify_nested_keys()
+        combined = deep_merge(validated, submitted)
+
+        merged
+        |> Map.delete(atom_key)
+        |> Map.put(key, combined)
+      end
+    )
+  end
+
+  defp stringify_nested_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_nested_keys(value)} end)
+  end
+
+  defp stringify_nested_keys(value), do: value
+
+  defp deep_merge(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _key, left_value, right_value ->
+      deep_merge(left_value, right_value)
+    end)
+  end
+
+  defp deep_merge(_left, right), do: right
 
   defp campaign_clock(campaign_id) do
     case Play.public_projection(campaign_id) do

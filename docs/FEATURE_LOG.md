@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 — Preserve validated voice edits on save
+
+- The campaign editor now combines the latest validated character setup, duty, and voice drafts with the final save payload, so character voice or mannerism edits are not dropped if their nested fields are missing from that submit event. Explicitly submitted field values, including cleared values, take precedence.
+- Added a LiveView regression for a colon-bearing NPC ID that edits accent and mannerisms, submits without the nested voice map, and verifies the values persist after reopening the editor.
+- **Checks:** campaign-authoring LiveView suite passed (**6 tests, 0 failures**); full WSL suite passed (**352 tests, 0 failures**); `mix format --check-formatted`, Gettext freshness, test-environment warnings-as-errors compilation, and `git diff --check` passed. All tests used isolated fixtures; no live campaign or provider request was used.
+
 ## 2026-10-01 — Retrieve social commitments from indirect multilingual cues
 
 - Added a small deterministic alias vocabulary for future meetings and replies across English, Spanish, and French. The new relation retrieves details only for typed commitments; same-topic facts stay compact, and unrelated commitments remain omitted.
