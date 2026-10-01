@@ -1284,6 +1284,9 @@ defmodule Storyteller.PlayTest do
 
   test "public projections separate private world and character facts" do
     {campaign, session} = play_campaign("The Glass Observatory")
+    upper_dome = establish_starting_place!(campaign, "Upper dome")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: upper_dome.place_id}))
 
     request_context = Agent.start_link(fn -> nil end) |> elem(1)
 
@@ -1294,16 +1297,7 @@ defmodule Storyteller.PlayTest do
       {:ok,
        Jason.encode!(
          ordinary_proposal(%{
-           "location_changes" =>
-             move_player_to("upper-dome", "Upper dome") ++
-               [
-                 %{
-                   "type" => "move_character",
-                   "speaker_id" => "npc:lyra",
-                   "place_id" => "upper-dome",
-                   "reason" => "The keeper is present at the dome."
-                 }
-               ]
+           "location_changes" => []
          })
        )}
     end
@@ -2347,6 +2341,49 @@ defmodule Storyteller.PlayTest do
     assert Enum.any?(events, &(&1.turn_id == arrived.id and &1.event_type == :character_activity))
   end
 
+  test "an existing NPC with unknown location cannot be placed in-scene to speak for free" do
+    {campaign, session} = play_campaign("The Unplaced Messenger")
+    finca = establish_starting_place!(campaign, "Finca")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: nil}))
+
+    before_elapsed_minutes = Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" => "Lyra suddenly appears beside the player.",
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "I have news."}],
+        "activities" => [%{"speaker_id" => "npc:lyra", "text" => "Lyra waves from the doorway."}],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => finca.place_id,
+            "reason" => "Lyra joins the player."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation} = failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "unplaced-npc-teleport",
+               "Ask Lyra for news.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(Character, id: lyra.id).current_place_id == nil
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
+             before_elapsed_minutes
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    refute Enum.any?(events, &(&1.turn_id == failed.id))
+  end
+
   test "elapsed time sums each character's sequential route legs and takes the max across concurrent trips" do
     {campaign, session} = play_campaign("The Orchard Road")
     finca = establish_starting_place!(campaign, "Finca")
@@ -2864,15 +2901,22 @@ defmodule Storyteller.PlayTest do
 
   test "the final player movement in one proposal determines canonical world location" do
     {campaign, session} = play_campaign("The Quiet Vineyard")
+    orchard_gate = establish_starting_place!(campaign, "Orchard gate")
 
     location_changes =
-      move_player_to("orchard-gate", "Orchard gate") ++
-        move_player_to("press-house", "Press house")
+      [
+        %{
+          "type" => "move_character",
+          "speaker_id" => "player",
+          "place_id" => orchard_gate.place_id,
+          "reason" => "The player remains at the orchard gate before continuing."
+        }
+      ] ++ move_player_to("press-house", "Press house")
 
     travel_changes = [
       %{
         "type" => "create_connection",
-        "place_a_id" => "orchard-gate",
+        "place_a_id" => orchard_gate.place_id,
         "place_b_id" => "press-house",
         "travel_minutes" => 12,
         "visibility" => "public",
@@ -2925,6 +2969,7 @@ defmodule Storyteller.PlayTest do
 
   test "introduces a new GM character who can speak, act, carry an item, and be publicly present immediately" do
     {campaign, session} = play_campaign("The Amber Orchard")
+    south_gate = establish_starting_place!(campaign, "South Gate")
 
     creation = %{
       "speaker_id" => "npc:orin",
@@ -2935,25 +2980,15 @@ defmodule Storyteller.PlayTest do
 
     location_changes = [
       %{
-        "type" => "create_place",
-        "place" => %{
-          "place_id" => "south-gate",
-          "name" => "South Gate",
-          "visibility" => "public",
-          "facts" => %{"surroundings" => "A low stone wall borders the road."}
-        },
-        "reason" => "The scene establishes the meeting place."
-      },
-      %{
         "type" => "move_character",
         "speaker_id" => "player",
-        "place_id" => "south-gate",
+        "place_id" => south_gate.place_id,
         "reason" => "The player waits at the south gate."
       },
       %{
         "type" => "move_character",
         "speaker_id" => "npc:orin",
-        "place_id" => "south-gate",
+        "place_id" => south_gate.place_id,
         "reason" => "Orin meets the player at the gate."
       }
     ]
@@ -3264,16 +3299,9 @@ defmodule Storyteller.PlayTest do
 
   test "moving a character without new activity clears their stale public activity across sessions" do
     {campaign, session} = play_campaign("The Amber Orchard")
-
-    public_place = %{
-      "type" => "create_place",
-      "place" => %{
-        "place_id" => "orchard-walk",
-        "name" => "Orchard Walk",
-        "visibility" => "public"
-      },
-      "reason" => "The keeper is working along the orchard walk."
-    }
+    orchard_walk = establish_starting_place!(campaign, "Orchard Walk")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: orchard_walk.place_id}))
 
     assert {:ok, %{status: :completed}} =
              Play.submit_turn(
@@ -3286,15 +3314,7 @@ defmodule Storyteller.PlayTest do
                    "activities" => [
                      %{"speaker_id" => "npc:lyra", "text" => "She checks the irrigation gate."}
                    ],
-                   "location_changes" => [
-                     public_place,
-                     %{
-                       "type" => "move_character",
-                       "speaker_id" => "npc:lyra",
-                       "place_id" => "orchard-walk",
-                       "reason" => "Lyra is present on the orchard walk."
-                     }
-                   ]
+                   "location_changes" => []
                  }),
                model: "test-model"
              )
@@ -3336,7 +3356,7 @@ defmodule Storyteller.PlayTest do
                    "travel_changes" => [
                      %{
                        "type" => "create_connection",
-                       "place_a_id" => "orchard-walk",
+                       "place_a_id" => orchard_walk.place_id,
                        "place_b_id" => "hidden-cistern",
                        "travel_minutes" => 4,
                        "visibility" => "gm_private",
@@ -3396,12 +3416,26 @@ defmodule Storyteller.PlayTest do
                      },
                      %{
                        "type" => "move_character",
+                       "speaker_id" => "player",
+                       "place_id" => "north-trellis",
+                       "reason" => "The player follows the path to meet Lyra."
+                     },
+                     %{
+                       "type" => "move_character",
                        "speaker_id" => "npc:lyra",
                        "place_id" => "north-trellis",
                        "reason" => "Lyra moves to the north trellis."
                      }
                    ],
                    "travel_changes" => [
+                     %{
+                       "type" => "create_connection",
+                       "place_a_id" => orchard_walk.place_id,
+                       "place_b_id" => "north-trellis",
+                       "travel_minutes" => 6,
+                       "visibility" => "public",
+                       "reason" => "A path links the orchard walk to the north trellis."
+                     },
                      %{
                        "type" => "create_connection",
                        "place_a_id" => "hidden-cistern",
@@ -3779,19 +3813,24 @@ defmodule Storyteller.PlayTest do
       )
 
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
 
     Repo.update!(Character.changeset(lyra, %{current_place_id: old_place.place_id}))
+    Repo.update!(Character.changeset(player, %{current_place_id: old_place.place_id}))
 
-    Repo.insert!(
-      Character.changeset(%Character{}, %{
-        campaign_id: campaign.id,
-        speaker_id: "npc:orin",
-        name: "Orin Vale",
-        role: :gm,
-        visible_facts: %{},
-        gm_private_facts: %{}
-      })
-    )
+    orin =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:orin",
+          name: "Orin Vale",
+          role: :gm,
+          visible_facts: %{},
+          gm_private_facts: %{}
+        })
+      )
+
+    Repo.update!(Character.changeset(orin, %{current_place_id: old_place.place_id}))
 
     complete_turn(
       campaign,
@@ -3847,6 +3886,14 @@ defmodule Storyteller.PlayTest do
             "travel_minutes" => 8,
             "visibility" => "public",
             "reason" => "The coast path continues from the old quay."
+          },
+          %{
+            "type" => "create_connection",
+            "place_a_id" => "old-quay",
+            "place_b_id" => "saffron-vault",
+            "travel_minutes" => 3,
+            "visibility" => "gm_private",
+            "reason" => "A concealed passage leads from the quay into the vault."
           }
         ]
       })
@@ -3864,7 +3911,7 @@ defmodule Storyteller.PlayTest do
 
     assert %{
              "kind" => "character",
-             "before" => nil,
+             "before" => "Old quay",
              "after" => "Beacon road",
              "reason" => "You follow the path beyond the old quay.",
              "game_time" => %{"time" => "First watch"}
@@ -4799,6 +4846,8 @@ defmodule Storyteller.PlayTest do
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
     {first, first_session} = play_campaign("The Glass Observatory")
     {second, second_session} = play_campaign("The Copper Archive")
+    dome = establish_starting_place!(first, "Dome")
+    archive = establish_starting_place!(second, "Archive")
 
     complete_turn(
       first,
@@ -4808,7 +4857,14 @@ defmodule Storyteller.PlayTest do
       ordinary_provider(%{
         "dialogue" => [],
         "activities" => [],
-        "location_changes" => move_player_to("dome", "Dome")
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => dome.place_id,
+            "reason" => "The player studies the map from the dome."
+          }
+        ]
       })
     )
 
@@ -4820,7 +4876,14 @@ defmodule Storyteller.PlayTest do
       ordinary_provider(%{
         "dialogue" => [],
         "activities" => [],
-        "location_changes" => move_player_to("archive", "Archive")
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => archive.place_id,
+            "reason" => "The player opens the catalog in the archive."
+          }
+        ]
       })
     )
 
@@ -5603,6 +5666,7 @@ defmodule Storyteller.PlayTest do
 
   test "a reclaimed resolution attempt fences a late successful provider result" do
     {campaign, session} = play_campaign("The Glass Observatory")
+    fresh_place = establish_starting_place!(campaign, "Fresh worker")
 
     assert {:ok, pending} =
              Play.submit_turn(campaign.id, session.id, "fence-success", "Watch the sky.")
@@ -5639,7 +5703,14 @@ defmodule Storyteller.PlayTest do
                  ordinary_provider(%{
                    "dialogue" => [],
                    "activities" => [],
-                   "location_changes" => move_player_to("fresh", "Fresh worker")
+                   "location_changes" => [
+                     %{
+                       "type" => "move_character",
+                       "speaker_id" => "player",
+                       "place_id" => fresh_place.place_id,
+                       "reason" => "The player remains at the fresh worker's post."
+                     }
+                   ]
                  }),
                model: "test-model"
              )

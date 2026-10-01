@@ -1201,7 +1201,13 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, _state} =
       Play.initialize_campaign(campaign, %{
         public_state: %{"date" => "Day 3, June 10", "time" => "09:15", "weather" => "Cloudy"},
-        characters: [%{speaker_id: "rhea", name: "Rhea Vale"}]
+        characters: [
+          %{
+            speaker_id: "rhea",
+            name: "Rhea Vale",
+            visible_facts: %{"location" => "Observatory grounds"}
+          }
+        ]
       })
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
@@ -1782,7 +1788,12 @@ defmodule StorytellerWeb.SessionLiveTest do
     old_place = Repo.get_by!(Place, campaign_id: campaign.id, name: "Old quay")
 
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    orin = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:orin")
+
     Repo.update!(Character.changeset(lyra, %{current_place_id: old_place.place_id}))
+    Repo.update!(Character.changeset(player, %{current_place_id: old_place.place_id}))
+    Repo.update!(Character.changeset(orin, %{current_place_id: old_place.place_id}))
 
     set_handler(fn _request ->
       {:ok,
@@ -1850,6 +1861,14 @@ defmodule StorytellerWeb.SessionLiveTest do
              travel_minutes: 8,
              visibility: "public",
              reason: "The coast path continues from the old quay."
+           },
+           %{
+             type: "create_connection",
+             place_a_id: old_place.place_id,
+             place_b_id: "saffron-vault",
+             travel_minutes: 3,
+             visibility: "gm_private",
+             reason: "A concealed passage leads from the quay into the vault."
            }
          ],
          objective_changes: [],

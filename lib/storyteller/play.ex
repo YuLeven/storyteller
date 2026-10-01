@@ -2607,6 +2607,8 @@ defmodule Storyteller.Play do
            ),
          player_place_id = current_player_place_id(turn.campaign_id),
          movement_characters = known_characters ++ character_creations,
+         first_placement_ids =
+           first_placement_ids(turn.intent, movement_characters, character_creations),
          {:ok, location_changes} <-
            validate_location_changes(
              field(proposal, :location_changes, []),
@@ -2625,7 +2627,8 @@ defmodule Storyteller.Play do
              travel_changes,
              turn.campaign_id,
              movement_characters,
-             player_place_id
+             player_place_id,
+             first_placement_ids
            ),
          :ok <-
            validate_opening_scene_player_place(
@@ -3276,16 +3279,43 @@ defmodule Storyteller.Play do
   defp validate_travel_changes(_changes, _campaign_id, _location_changes),
     do: {:error, :invalid_response}
 
-  defp validate_movement_routes(changes, travel_changes, campaign_id, characters, player_place_id) do
+  defp validate_movement_routes(
+         changes,
+         travel_changes,
+         campaign_id,
+         characters,
+         player_place_id,
+         first_placement_ids
+       ) do
     connections =
       Repo.all(from edge in PlaceConnection, where: edge.campaign_id == ^campaign_id)
 
     with {:ok, graph} <- TravelGraph.merge_changes(connections, travel_changes),
          {:ok, routed, locations} <-
-           TravelGraph.validate_movements(changes, characters, graph, player_place_id) do
+           TravelGraph.validate_movements(
+             changes,
+             characters,
+             graph,
+             player_place_id,
+             first_placement_ids
+           ) do
       {:ok, routed, locations}
     else
       {:error, _reason} -> {:error, :invalid_response}
+    end
+  end
+
+  defp first_placement_ids(intent, characters, creations) do
+    created_ids = MapSet.new(creations, & &1.speaker_id)
+
+    if intent == :opening_scene do
+      Enum.reduce(characters, created_ids, fn character, allowed_ids ->
+        if is_nil(character.current_place_id),
+          do: MapSet.put(allowed_ids, character.speaker_id),
+          else: allowed_ids
+      end)
+    else
+      created_ids
     end
   end
 

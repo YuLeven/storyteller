@@ -43,8 +43,14 @@ defmodule Storyteller.Play.TravelGraph do
   def validate_changes(_changes, _places, _existing_connections),
     do: {:error, :invalid_connection_changes}
 
-  @doc "Adds a server-calculated shortest-route duration to each accepted movement."
-  def validate_movements(changes, characters, connections, player_place_id) do
+  @doc "Adds route durations and requires trusted authorization for first placement from an unknown origin."
+  def validate_movements(
+        changes,
+        characters,
+        connections,
+        player_place_id,
+        first_placement_ids \\ MapSet.new()
+      ) do
     with {:ok, graph} <- normalize_connections(connections),
          {:ok, locations} <- normalize_character_locations(characters) do
       Enum.reduce_while(changes, {:ok, [], locations}, fn
@@ -53,7 +59,14 @@ defmodule Storyteller.Play.TravelGraph do
           current_place_id = Map.get(current_locations, speaker_id)
           current_scene_id = Map.get(current_locations, "player", player_place_id)
 
-          case movement_duration(current_place_id, place_id, speaker_id, current_scene_id, graph) do
+          case movement_duration(
+                 current_place_id,
+                 place_id,
+                 speaker_id,
+                 current_scene_id,
+                 graph,
+                 first_placement_ids
+               ) do
             {:ok, minutes} ->
               normalized = Map.put(move, "travel_minutes", minutes)
 
@@ -125,13 +138,38 @@ defmodule Storyteller.Play.TravelGraph do
       else: {place_b_id, place_a_id}
   end
 
-  defp movement_duration(nil, _place_id, _speaker_id, _player_place_id, _graph), do: {:ok, 0}
+  defp movement_duration(
+         nil,
+         _place_id,
+         speaker_id,
+         _player_place_id,
+         _graph,
+         first_placement_ids
+       ) do
+    if MapSet.member?(first_placement_ids, speaker_id),
+      do: {:ok, 0},
+      else: {:error, :unknown_origin}
+  end
 
-  defp movement_duration(current_id, place_id, _speaker_id, _player_place_id, _graph)
+  defp movement_duration(
+         current_id,
+         place_id,
+         _speaker_id,
+         _player_place_id,
+         _graph,
+         _first_placement_ids
+       )
        when current_id == place_id,
        do: {:ok, 0}
 
-  defp movement_duration(current_id, place_id, "player", _player_place_id, graph) do
+  defp movement_duration(
+         current_id,
+         place_id,
+         "player",
+         _player_place_id,
+         graph,
+         _first_placement_ids
+       ) do
     public_graph =
       graph
       |> Map.values()
@@ -143,8 +181,15 @@ defmodule Storyteller.Play.TravelGraph do
     shortest_minutes_in_graph(current_id, place_id, public_graph)
   end
 
-  defp movement_duration(current_id, place_id, _speaker_id, _player_place_id, graph),
-    do: shortest_minutes_in_graph(current_id, place_id, graph)
+  defp movement_duration(
+         current_id,
+         place_id,
+         _speaker_id,
+         _player_place_id,
+         graph,
+         _first_placement_ids
+       ),
+       do: shortest_minutes_in_graph(current_id, place_id, graph)
 
   defp normalize_change(change, places, graph, touched) when is_map(change) do
     case get(change, :type) do

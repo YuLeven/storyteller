@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-01 — Reject free placement from an unknown origin
+
+- Tightened canonical movement validation so an established character whose current place is unknown cannot move to any destination at zero minutes. The same-proposal character-creation IDs are explicitly authorized for first placement; the trusted opening-scene intent also authorizes initially unplaced setup characters (including the player). Known same-place moves remain zero-minute no-ops, while known cross-place moves still require a graph route and add its computed time.
+- Added pure coverage distinguishing existing unknown-origin characters from same-proposal creations and a fake-provider behavior regression proving a pre-existing unplaced NPC cannot be moved into the player's scene to speak or act. The behavioral case asserts validation failure, unchanged canonical location and elapsed world time, and no timeline events for that turn.
+- Updated the MVP acceptance criteria to preserve the opening-scene exception and cover unknown-origin NPC movement explicitly. This does not add schedule, motive, or availability modeling; route-valid spontaneous movement remains a separate continuity limitation.
+- **Checks:** full WSL suite passed (**312 tests, 0 failures** with `--max-cases 16` to fit the local PostgreSQL connection limit); focused Play and TravelGraph suites also passed (**81 tests, 0 failures**); the 45-test LiveView suite passed; `MIX_ENV=test mix compile --warnings-as-errors`, `mix format --check-formatted`, and `git diff --check` passed. New behavior regressions use isolated test campaigns and fake providers. No development or live campaign was accessed, and no provider was called.
+
 ## 2026-10-01 — Anchor older context to the current scene
 
 - Older-event retrieval now considers the current place's nearest connected-place names and stable speaker IDs for up to 32 GM-controlled characters in the scene, alongside a separately capped set of player-action terms. Common English, Spanish, and French function words are filtered from search and ranking so names such as “The Copper Stag,” “La Casa,” or “Les Cèdres” do not match unrelated history. It uses only the existing local campaign graph and event store; no provider or external search call was added. Candidate older events remain capped at 40, and the compiler still selects at most eight relevant older conversation events within the existing context byte ceiling.

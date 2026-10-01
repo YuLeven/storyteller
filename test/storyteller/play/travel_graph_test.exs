@@ -76,7 +76,7 @@ defmodule Storyteller.Play.TravelGraphTest do
              )
   end
 
-  test "rejects known disconnected travel but allows an explicit first placement" do
+  test "rejects disconnected and unknown-origin moves unless first placement is authorized" do
     assert {:error, :unconnected_move} =
              TravelGraph.validate_movements(
                [%{"type" => "move_character", "speaker_id" => "player", "place_id" => "bodega"}],
@@ -85,33 +85,56 @@ defmodule Storyteller.Play.TravelGraphTest do
                "finca"
              )
 
-    assert {:ok, [%{"travel_minutes" => 0}], _locations} =
+    assert {:error, :unknown_origin} =
              TravelGraph.validate_movements(
-               [%{"type" => "move_character", "speaker_id" => "npc:new", "place_id" => "finca"}],
+               [
+                 %{
+                   "type" => "move_character",
+                   "speaker_id" => "npc:existing",
+                   "place_id" => "finca"
+                 }
+               ],
                [
                  %{speaker_id: "player", current_place_id: "finca"},
-                 %{speaker_id: "npc:new", current_place_id: "finca"}
+                 %{speaker_id: "npc:existing", current_place_id: nil}
                ],
                [],
                "finca"
              )
 
-    assert {:ok, [%{"travel_minutes" => 0}], remote_locations} =
+    assert {:ok, [%{"travel_minutes" => 0}], locations} =
              TravelGraph.validate_movements(
-               [%{"type" => "move_character", "speaker_id" => "npc:new", "place_id" => "bodega"}],
+               [%{"type" => "move_character", "speaker_id" => "npc:new", "place_id" => "finca"}],
                [
                  %{speaker_id: "player", current_place_id: "finca"},
                  %{speaker_id: "npc:new", current_place_id: nil}
                ],
                [],
+               "finca",
+               MapSet.new(["npc:new"])
+             )
+
+    assert locations["npc:new"] == "finca"
+    assert TravelGraph.public_lines_in_scene?([%{speaker_id: "npc:new"}], locations, "finca")
+
+    assert {:ok, [%{"travel_minutes" => 0}], same_place_locations} =
+             TravelGraph.validate_movements(
+               [
+                 %{
+                   "type" => "move_character",
+                   "speaker_id" => "npc:keeper",
+                   "place_id" => "finca"
+                 }
+               ],
+               [
+                 %{speaker_id: "player", current_place_id: "finca"},
+                 %{speaker_id: "npc:keeper", current_place_id: "finca"}
+               ],
+               [],
                "finca"
              )
 
-    refute TravelGraph.public_lines_in_scene?(
-             [%{speaker_id: "npc:new", text: "The wine is ready."}],
-             remote_locations,
-             "finca"
-           )
+    assert same_place_locations["npc:keeper"] == "finca"
   end
 
   test "computes each leg when one turn moves a character through several connected places" do
