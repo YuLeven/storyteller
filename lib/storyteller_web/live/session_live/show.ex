@@ -1606,6 +1606,12 @@ defmodule StorytellerWeb.SessionLive.Show do
         text: gettext("Let a quiet hour pass, stopping if a meaningful choice comes up.")
       },
       %{
+        id: "few-days",
+        label: gettext("Pass a few days"),
+        text:
+          gettext("Let a few days pass, stopping at the next meaningful decision I need to make.")
+      },
+      %{
         id: "until-morning",
         label: gettext("Advance to morning"),
         text: gettext("Advance to the next morning, stopping if I need to make a decision.")

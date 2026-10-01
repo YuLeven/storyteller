@@ -175,12 +175,13 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
           %{
             speaker_id: "keeper-elin",
             name: "Keeper Elin",
-            voice_guidance: %{"cadence" => "Slow and deliberate."}
+            voice_guidance: %{}
           }
         ]
       })
 
     {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    refute has_element?(view, "#facts-keeper-elin details[open]")
 
     attrs = %{
       correction_reason: "Clarify Elin's delivery.",
@@ -203,11 +204,15 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     assert render(view) =~ "Pauses before every answer."
     assert render(view) =~ "Turns the brass key while she thinks."
+    assert has_element?(view, "#facts-keeper-elin details[open]")
 
-    view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
+    html = view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
+    assert html =~ "Campaign changes saved."
+    assert has_element?(view, "#facts-keeper-elin details[open]")
 
     {:ok, reopened_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     reopened_html = render(reopened_view)
+    assert has_element?(reopened_view, "#facts-keeper-elin details[open]")
     assert reopened_html =~ "Pauses before every answer."
     assert reopened_html =~ "Turns the brass key while she thinks."
   end

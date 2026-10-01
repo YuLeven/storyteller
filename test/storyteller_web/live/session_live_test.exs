@@ -851,6 +851,85 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert is_nil(Play.public_current_turn(campaign.id))
   end
 
+  test "Pass a few days sends a time-passage request and returns at the next decision", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture(%{starting_location: "The orchard gate"})
+    [session] = campaign.sessions
+    test_pid = self()
+
+    requested_text =
+      "Let a few days pass, stopping at the next meaningful decision I need to make."
+
+    set_handler(fn request ->
+      context = provider_context(request)
+      send(test_pid, {:few_days_request, context["interaction_mode"], context["player_action"]})
+
+      {:ok,
+       %{
+         narration:
+           "Three days pass. At the orchard gate, a sudden knock calls for your attention; the next choice is yours.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         character_updates: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         time_advance_minutes: 4_320,
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    player_before = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    clock_before = Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes
+    assert clock_before == 0
+
+    view
+    |> element("#turn-composer button[phx-value-mode='time_passage']")
+    |> render_click()
+
+    view
+    |> element("#turn-composer button[phx-value-nudge_id='few-days']")
+    |> render_click()
+
+    assert render(view) =~ requested_text
+
+    view
+    |> form("#turn-composer")
+    |> render_submit()
+
+    assert_receive {:few_days_request, "time_passage", ^requested_text}, 1_000
+
+    assert wait_until(fn ->
+             has_element?(
+               view,
+               "#story-timeline",
+               "Three days pass. At the orchard gate, a sudden knock calls for your attention; the next choice is yours."
+             )
+           end)
+
+    assert has_element?(view, "#turn-input:not([disabled])")
+    assert is_nil(Play.public_current_turn(campaign.id))
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.elapsed_world_minutes == 4_320
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert projection.elapsed_world_clock.total_minutes == 4_320
+    assert projection.elapsed_world_clock.minutes_since_anchor == 4_320
+
+    player_after = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player_after.current_place_id == player_before.current_place_id
+    assert player_after.visible_facts == player_before.visible_facts
+    assert player_after.visible_activity == player_before.visible_activity
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.any?(timeline, &(&1.event_type == :time_passage))
+    assert Enum.any?(timeline, &(&1.event_type == :gm_narration))
+    refute Enum.any?(timeline, &(&1.event_type in [:player_action, :roll_request, :player_roll]))
+  end
+
   test "the first session opening scene is idempotent and recoverable before player actions", %{
     conn: conn
   } do

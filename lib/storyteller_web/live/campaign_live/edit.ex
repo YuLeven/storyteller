@@ -191,6 +191,18 @@ defmodule StorytellerWeb.CampaignLive.Edit do
     )
   end
 
+  defp voice_guidance_open?(character, draft) do
+    draft_guidance =
+      draft
+      |> draft_attr("character_voice_guidance", %{})
+      |> draft_attr(character.speaker_id, %{})
+
+    nonempty_map?(character.voice_guidance) or nonempty_map?(draft_guidance)
+  end
+
+  defp nonempty_map?(map) when is_map(map), do: map_size(map) > 0
+  defp nonempty_map?(_value), do: false
+
   defp fact_value(facts, key), do: Map.get(facts || %{}, key, "")
 
   defp draft_value(draft, category, speaker_id, field, default) do

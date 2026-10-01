@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-01 — Make multi-day time passage easy to request
+
+- Added a **Pass a few days** nudge in Let time pass mode. Its text asks the GM to stop at the next meaningful decision the player needs to make; the free-form duration path remains available. Spanish and French copy is included.
+- Added a fake-provider LiveView regression that submits the nudge as time_passage, advances the canonical clock by exactly three days, returns control with a new decision point, and confirms no player action, roll, or character movement is invented.
+- Updated the UX acceptance criteria for the contextual multi-day nudge and retained the existing time-passage agency contract.
+- **Checks:** campaign-authoring and session LiveView suites passed (**54 tests, 0 failures**); full WSL suite passed (**349 tests, 0 failures**); formatting, Gettext POT freshness, test-environment warnings-as-errors compilation, and `git diff --check` passed. Tests used isolated fixtures and fake providers.
+
+## 2026-10-01 — Keep edited character voices visible through save and reload
+
+- The campaign editor now keeps a character's voice and mannerism section expanded while it has draft edits or saved guidance. After a successful save, the newly persisted values remain visible instead of disappearing into a closed disclosure.
+- Strengthened the LiveView regression to start with no voice guidance, validate cadence and mannerism edits, verify the save confirmation and expanded state, then reopen the editor and confirm both saved notes remain visible.
+- **Checks:** campaign-authoring and session LiveView suites passed (**54 tests, 0 failures**); full WSL suite passed (**349 tests, 0 failures**); formatting, Gettext POT freshness, test-environment warnings-as-errors compilation, and `git diff --check` passed. Isolated fixtures only; no live campaign data or provider request.
+
 ## 2026-10-01 — Preserve character voice edits in the campaign editor
 
 - Campaign editor validation rerendered GM character cards from the last persisted values, so voice and mannerism text could disappear before the owner saved it. The editor now retains submitted character setup, duty, and voice drafts through validation and save errors, clears them after a successful save, and reloads the committed values on a fresh visit.
