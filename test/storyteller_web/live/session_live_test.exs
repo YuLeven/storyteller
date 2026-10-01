@@ -2392,6 +2392,88 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert Play.public_current_turn(campaign.id) == nil
   end
 
+  test "a duplicate retry event cannot replace an active retry worker", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    test_pid = self()
+
+    set_handler(fn _request ->
+      attempt = Agent.get_and_update(attempts, fn value -> {value, value + 1} end)
+      send(test_pid, {:idempotent_retry_attempt, attempt, self()})
+
+      case attempt do
+        0 ->
+          {:error, :provider_error}
+
+        1 ->
+          receive do
+            :release ->
+              {:ok,
+               %{
+                 narration: "The same saved action continues.",
+                 dialogue: [],
+                 activities: [],
+                 public_changes: %{},
+                 private_changes: %{},
+                 character_updates: [],
+                 memory_update: %{public_summary: "", gm_private_summary: ""},
+                 roll_request: nil
+               }}
+          end
+
+        _ ->
+          {:error, :unexpected_duplicate_provider_call}
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: "I test the old gate."})
+    |> render_submit()
+
+    assert_receive {:idempotent_retry_attempt, 0, _initial_worker}, 1_000
+    assert wait_until(fn -> Play.public_current_turn(campaign.id).status == :failed end)
+
+    failed_turn = Repo.get!(Turn, Play.public_current_turn(campaign.id).id)
+    assert failed_turn.attempts == 1
+
+    view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
+    assert_receive {:idempotent_retry_attempt, 1, retry_worker}, 1_000
+
+    on_exit(fn ->
+      if Process.alive?(retry_worker), do: send(retry_worker, :release)
+    end)
+
+    resolving_turn = Repo.get!(Turn, failed_turn.id)
+    assert resolving_turn.status == :resolving
+    assert resolving_turn.attempts == failed_turn.attempts + 1
+    assert Agent.get(attempts, & &1) == 2
+
+    # A retry button can still be rendered briefly after the click. Simulate the
+    # failure becoming visible before the monitored worker's DOWN is handled.
+    # A duplicate event in that window must leave the existing provider call alone.
+    Repo.update!(
+      Turn.changeset(resolving_turn, %{
+        status: :failed,
+        failure_code: "provider_error",
+        failure_stage: :provider,
+        resolution_started_at: nil
+      })
+    )
+
+    render_click(view, "retry-turn", %{"turn_id" => to_string(failed_turn.id)})
+
+    assert Process.alive?(retry_worker)
+    assert Repo.get!(Turn, failed_turn.id).attempts == failed_turn.attempts + 1
+    assert Agent.get(attempts, & &1) == 2
+
+    worker_monitor = Process.monitor(retry_worker)
+    send(retry_worker, :release)
+    assert_receive {:DOWN, ^worker_monitor, :process, ^retry_worker, :normal}, 1_000
+  end
+
   test "a same-view resolving turn can reclaim after its lease expires", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions

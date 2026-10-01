@@ -256,13 +256,16 @@ defmodule StorytellerWeb.SessionLive.Show do
 
       same_turn?(latest, turn_id) and latest.status == :failed and
         latest.session_id == socket.assigns.session.id and retryable?(latest) ->
-        socket =
-          socket
-          |> retire_resolution_worker(latest.id)
-          |> start_resolution(latest.id)
-          |> maybe_schedule_poll()
+        if socket.assigns.worker_turn_id == latest.id do
+          {:noreply, maybe_schedule_poll(socket)}
+        else
+          socket =
+            socket
+            |> start_resolution(latest.id)
+            |> maybe_schedule_poll()
 
-        {:noreply, socket}
+          {:noreply, socket}
+        end
 
       true ->
         {:noreply,
