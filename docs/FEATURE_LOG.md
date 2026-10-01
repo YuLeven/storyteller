@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-09-30 — Make algorithmic world consistency a core MVP goal
+
+- Storyteller's continuity should come from its durable, structured world model rather than expecting an LLM to remember every detail from prose. The MVP now explicitly calls for modeled place connections and travel durations, canonical character locations/presence, accepted movement, and relevant scene context for the GM.
+- Added the finca/bodega regression scenario: if travel takes forty minutes and employees remain at the finca, they cannot appear at the bodega without an accepted move or established way to communicate. Their presence must persist across turns and sessions.
+- Added a token-budget goal: construct a bounded, relevance-ranked prompt; retain the full canon/history in the database; retrieve relevant old facts by stable references; measure token counts by context section without logging prompts or private values. Large unrelated history must not cause unbounded prompt growth or hide important facts.
+- Updated `IMPLEMENTATION_PLAN.md` and `UX_ACCEPTANCE.md`. **Documentation-only product decision; implementation and behavioral tests are future MVP work.**
+
 ## 2026-09-30 — Recover abandoned GM turns and retain safe failure diagnostics
 
 - Each failed turn now retains one fixed diagnostic stage: context assembly, provider call, response decoding, proposal validation, or commit. The application stores no exception text, prompt, private context, credential, or raw model output in this field. Campaign backup schema version 3 preserves the stage while older v1/v2 backups remain importable.
