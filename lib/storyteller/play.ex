@@ -1253,18 +1253,25 @@ defmodule Storyteller.Play do
       include_action? = turn.resolution_phase == :initial
       proposal = prepare_panel_changes!(turn.campaign_id, proposal)
 
+      # Resolve character visibility from the canonical locations and proposed
+      # moves before persisting new facts. Facts learned while a GM character is
+      # hidden stay GM-private when that character later returns to public view.
+      speaker_visibility =
+        character_visibility_after_changes(turn.campaign_id, proposal.location_changes)
+
       # Create new speaker records before appending dialogue/activity events so
       # their names and visible activity resolve inside this same transaction.
-      apply_character_creations!(turn.campaign_id, proposal.character_creations)
+      apply_character_creations!(
+        turn.campaign_id,
+        proposal.character_creations,
+        speaker_visibility
+      )
 
       clear_moved_character_activities!(
         turn.campaign_id,
         proposal.location_changes,
         proposal.activities
       )
-
-      speaker_visibility =
-        character_visibility_after_changes(turn.campaign_id, proposal.location_changes)
 
       clear_private_character_activities!(turn.campaign_id, speaker_visibility)
 
@@ -1300,7 +1307,7 @@ defmodule Storyteller.Play do
 
       updated_state =
         if state_changes? or proposal.memory_update do
-          apply_proposed_state!(state, turn.campaign_id, proposal)
+          apply_proposed_state!(state, turn.campaign_id, proposal, speaker_visibility)
         else
           state
         end
@@ -2049,16 +2056,33 @@ defmodule Storyteller.Play do
 
   defp has_character_location_facts?(_facts), do: false
 
-  defp apply_character_creations!(_campaign_id, []), do: :ok
+  defp apply_character_creations!(_campaign_id, [], _speaker_visibility), do: :ok
 
-  defp apply_character_creations!(campaign_id, creations) do
+  defp apply_character_creations!(campaign_id, creations, speaker_visibility) do
     Enum.each(creations, fn character ->
-      attrs = Map.put(character, :campaign_id, campaign_id)
+      attrs =
+        character
+        |> Map.put(:campaign_id, campaign_id)
+        |> privatize_character_facts_if_hidden(character.speaker_id, speaker_visibility)
+
       insert_or_rollback!(Character.changeset(%Character{}, attrs))
     end)
   end
 
-  defp apply_proposed_state!(state, campaign_id, proposal) do
+  defp privatize_character_facts_if_hidden(attrs, speaker_id, speaker_visibility) do
+    if Map.get(speaker_visibility, speaker_id, :public) == :gm_private do
+      visible_facts = Map.get(attrs, :visible_facts, %{})
+      gm_private_facts = Map.get(attrs, :gm_private_facts, %{})
+
+      attrs
+      |> Map.put(:visible_facts, %{})
+      |> Map.put(:gm_private_facts, deep_merge(visible_facts, gm_private_facts))
+    else
+      attrs
+    end
+  end
+
+  defp apply_proposed_state!(state, campaign_id, proposal, speaker_visibility) do
     public_state =
       state.public_state
       |> canonical_public_world(campaign_id)
@@ -2117,17 +2141,25 @@ defmodule Storyteller.Play do
             lock: "FOR UPDATE"
         )
 
-      changes = %{visible_facts: deep_merge(character.visible_facts, update.visible_facts)}
-
       changes =
-        if update.role == :gm do
-          Map.put(
-            changes,
-            :gm_private_facts,
-            deep_merge(character.gm_private_facts, update.gm_private_facts)
-          )
-        else
-          changes
+        case {update.role, Map.get(speaker_visibility, update.speaker_id, :public)} do
+          {:gm, :gm_private} ->
+            %{
+              visible_facts: character.visible_facts,
+              gm_private_facts:
+                character.gm_private_facts
+                |> deep_merge(update.visible_facts)
+                |> deep_merge(update.gm_private_facts)
+            }
+
+          {:gm, _visibility} ->
+            %{
+              visible_facts: deep_merge(character.visible_facts, update.visible_facts),
+              gm_private_facts: deep_merge(character.gm_private_facts, update.gm_private_facts)
+            }
+
+          {:player, _visibility} ->
+            %{visible_facts: deep_merge(character.visible_facts, update.visible_facts)}
         end
 
       case Repo.update(Character.changeset(character, changes)) do
@@ -2612,10 +2644,20 @@ defmodule Storyteller.Play do
       Enum.flat_map(proposal.character_creations, &private_json_values(&1.gm_private_facts)) ++
       Enum.flat_map(proposal.character_creations, fn character ->
         if Map.get(speaker_visibility, character.speaker_id, :public) == :gm_private,
+          do: private_json_values(character.visible_facts),
+          else: []
+      end) ++
+      Enum.flat_map(proposal.character_creations, fn character ->
+        if Map.get(speaker_visibility, character.speaker_id, :public) == :gm_private,
           do: [{character.name, :name}],
           else: []
       end) ++
       Enum.flat_map(proposal.character_updates, &private_json_values(&1.gm_private_facts)) ++
+      Enum.flat_map(proposal.character_updates, fn update ->
+        if Map.get(speaker_visibility, update.speaker_id, :public) == :gm_private,
+          do: private_json_values(update.visible_facts),
+          else: []
+      end) ++
       Enum.flat_map(proposal.location_changes, fn
         %{"type" => "create_place", "visibility" => "gm_private", "place" => place} ->
           [{place["name"], :name}, place["description"]] ++ private_json_values(place["facts"])

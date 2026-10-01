@@ -1917,6 +1917,16 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
+    stored_elira = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:elira")
+    assert stored_elira.visible_facts == %{}
+
+    assert stored_elira.gm_private_facts == %{
+             "trade" => "herbalist",
+             "fear" => "the flooded passage",
+             "plan" => "hide the silver key",
+             "met_at" => "Flooded Passage"
+           }
+
     assert {:ok, projection} = Play.public_projection(campaign.id)
     refute Enum.any?(projection.characters, &(&1.speaker_id == "npc:elira"))
     refute Enum.any?(projection.places, &(&1.place_id == "flooded-passage"))
@@ -1958,12 +1968,15 @@ defmodule Storyteller.PlayTest do
     context = Agent.get(captured_context, & &1)
     context_elira = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:elira"))
 
-    assert context_elira["visible_facts"] == %{
+    assert context_elira["visible_facts"] == %{}
+
+    assert context_elira["gm_private_facts"] == %{
              "trade" => "herbalist",
+             "fear" => "the flooded passage",
+             "plan" => "hide the silver key",
              "met_at" => "Flooded Passage"
            }
 
-    assert context_elira["gm_private_facts"] == creation["gm_private_facts"]
     assert context_elira["current_place"]["place_id"] == "flooded-passage"
     assert context_elira["visible_activity"] == nil
     assert Enum.any?(context["places"]["gm_private"], &(&1["place_id"] == "flooded-passage"))
@@ -1977,6 +1990,97 @@ defmodule Storyteller.PlayTest do
              event["visibility"] == "gm_private" and event["event_type"] == "character_activity" and
                event["payload"]["text"] == "Elira watches the hidden passage."
            end)
+
+    leaking_exit = %{
+      "type" => "move_character",
+      "speaker_id" => "npc:elira",
+      "place_id" => "orchard-road",
+      "reason" => "Elira leaves the Flooded Passage."
+    }
+
+    public_road = %{
+      "type" => "create_place",
+      "place" => %{
+        "place_id" => "orchard-road",
+        "name" => "Orchard road",
+        "visibility" => "public"
+      },
+      "reason" => "The road continues beyond the trees."
+    }
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "elira-leaks-private-exit",
+               "Wait for Elira to return.",
+               provider:
+                 ordinary_provider(%{
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [],
+                   "location_changes" => [public_road, leaking_exit]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "elira-returns-to-public-road",
+               "Wait for Elira to return.",
+               provider:
+                 ordinary_provider(%{
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [],
+                   "location_changes" => [
+                     public_road,
+                     Map.put(leaking_exit, "reason", "Elira returns to the road.")
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    projected_elira = Enum.find(projection.characters, &(&1.speaker_id == "npc:elira"))
+    assert projected_elira.visible_facts == %{}
+    refute Jason.encode!(projection) =~ "Flooded Passage"
+    refute Jason.encode!(projection.latest_character_changes) =~ "met_at"
+
+    assert {:ok, public_events} = Play.public_timeline(campaign.id)
+    public_json = Jason.encode!(public_events)
+    refute public_json =~ "Flooded Passage"
+    refute public_json =~ "met_at"
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "elira-explicitly-discloses-meeting-place",
+               "Ask Elira where you met.",
+               provider:
+                 ordinary_provider(%{
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [
+                     %{
+                       "speaker_id" => "npc:elira",
+                       "visible_facts" => %{"met_at" => "Flooded Passage"}
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    projected_elira = Enum.find(projection.characters, &(&1.speaker_id == "npc:elira"))
+    assert projected_elira.visible_facts["met_at"] == "Flooded Passage"
+
+    assert projection.latest_character_changes["npc:elira"]["after"] == %{
+             "met_at" => "Flooded Passage"
+           }
   end
 
   test "moving a character without new activity clears their stale public activity across sessions" do

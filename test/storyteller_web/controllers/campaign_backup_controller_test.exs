@@ -34,6 +34,8 @@ defmodule StorytellerWeb.CampaignBackupControllerTest do
 
     {:ok, view, html} = live(conn, ~p"/")
     assert html =~ "Import creates a separate campaign"
+    assert has_element?(view, "#campaign-persistence-import summary", "Campaign persistence")
+    refute has_element?(view, "#campaign-persistence-import[open]")
 
     upload =
       file_input(view, "#campaign-backup-form", :campaign_backup, [

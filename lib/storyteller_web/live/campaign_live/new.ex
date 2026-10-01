@@ -417,6 +417,47 @@ defmodule StorytellerWeb.CampaignLive.New do
   defp panel_type_label(:status), do: gettext("Status")
   defp panel_type_label(:date), do: gettext("Date")
 
+  defp review_fact_rows(facts, excluded_keys) when is_map(facts) do
+    facts
+    |> Enum.map(fn {key, value} -> {to_string(key), value} end)
+    |> Enum.reject(fn {key, _value} -> key in excluded_keys end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp review_fact_rows(_facts, _excluded_keys), do: []
+
+  defp review_fact(facts, key) when is_map(facts) do
+    case Enum.find(facts, fn {fact_key, _value} -> to_string(fact_key) == key end) do
+      {_fact_key, value} -> value
+      nil -> nil
+    end
+  end
+
+  defp review_fact(_facts, _key), do: nil
+
+  defp review_value(nil), do: gettext("Not set")
+
+  defp review_value(value) when is_binary(value) do
+    if String.trim(value) == "", do: gettext("Not set"), else: value
+  end
+
+  defp review_value(value) do
+    case Jason.encode(value) do
+      {:ok, encoded} -> encoded
+      {:error, _reason} -> inspect(value)
+    end
+  end
+
+  defp review_voice_guidance(guidance) do
+    [
+      {gettext("Quirks"), Map.get(guidance, "quirks")},
+      {gettext("Accent or dialect"), Map.get(guidance, "accent_dialect")},
+      {gettext("Cadence"), Map.get(guidance, "cadence")},
+      {gettext("Vocabulary"), Map.get(guidance, "vocabulary")},
+      {gettext("Mannerisms"), Map.get(guidance, "mannerisms")}
+    ]
+  end
+
   defp setup_steps do
     [
       {1, gettext("Story")},

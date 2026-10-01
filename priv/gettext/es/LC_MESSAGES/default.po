@@ -113,7 +113,7 @@ msgid "Campaign details"
 msgstr "Detalles de la campaña"
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:554
-#: lib/storyteller_web/live/campaign_live/new.html.heex:826
+#: lib/storyteller_web/live/campaign_live/new.html.heex:890
 #: lib/storyteller_web/live/campaign_live/show.html.heex:113
 #, elixir-autogen, elixir-format
 msgid "Campaign panels"
@@ -180,6 +180,7 @@ msgstr "Nombre del personaje"
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:58
 #: lib/storyteller_web/live/campaign_live/new.html.heex:124
 #: lib/storyteller_web/live/campaign_live/new.html.heex:787
+#: lib/storyteller_web/live/campaign_live/new.html.heex:836
 #: lib/storyteller_web/live/campaign_live/show.html.heex:59
 #, elixir-autogen, elixir-format
 msgid "Character description"
@@ -303,7 +304,7 @@ msgstr "Crear una campaña"
 msgid "Create a campaign to save its setting, characters, and sessions."
 msgstr "Crea una campaña para guardar su ambientación, personajes y sesiones."
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:856
+#: lib/storyteller_web/live/campaign_live/new.html.heex:920
 #, elixir-autogen, elixir-format
 msgid "Create campaign"
 msgstr "Crear campaña"
@@ -373,7 +374,7 @@ msgstr "Cada campaña conserva su propia historia y sus sesiones en tu archivo l
 msgid "Earlier session"
 msgstr "Sesión anterior"
 
-#: lib/storyteller_web/live/campaign_live/new.html.heex:855
+#: lib/storyteller_web/live/campaign_live/new.html.heex:919
 #, elixir-autogen, elixir-format
 msgid "Edit setup"
 msgstr "Editar configuración"
@@ -421,19 +422,23 @@ msgid "GM character"
 msgstr "Personaje del director de juego"
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:682
-#: lib/storyteller_web/live/campaign_live/new.html.heex:832
+#: lib/storyteller_web/live/campaign_live/new.html.heex:854
+#: lib/storyteller_web/live/campaign_live/new.html.heex:875
+#: lib/storyteller_web/live/campaign_live/new.html.heex:896
 #, elixir-autogen, elixir-format
 msgid "GM only"
 msgstr "Solo para el director de juego"
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:398
-#: lib/storyteller_web/live/campaign_live/new.html.heex:818
+#: lib/storyteller_web/live/campaign_live/new.html.heex:822
 #, elixir-autogen, elixir-format
 msgid "GM-controlled characters"
 msgstr "Personajes controlados por el director de juego"
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:94
 #: lib/storyteller_web/live/campaign_live/new.html.heex:458
+#: lib/storyteller_web/live/campaign_live/new.html.heex:853
+#: lib/storyteller_web/live/campaign_live/new.html.heex:858
 #, elixir-autogen, elixir-format
 msgid "GM-only notes"
 msgstr "Notas solo para el director de juego"
@@ -588,8 +593,10 @@ msgstr "No encontrado"
 msgid "Not recorded"
 msgstr "Sin registrar"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:432
-#: lib/storyteller_web/live/campaign_live/new.ex:439
+#: lib/storyteller_web/live/campaign_live/new.ex:438
+#: lib/storyteller_web/live/campaign_live/new.ex:441
+#: lib/storyteller_web/live/campaign_live/new.ex:473
+#: lib/storyteller_web/live/campaign_live/new.ex:480
 #: lib/storyteller_web/live/campaign_live/show.ex:88
 #, elixir-autogen, elixir-format
 msgid "Not set"
@@ -612,13 +619,14 @@ msgid "Player character"
 msgstr "Personaje del jugador"
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:676
-#: lib/storyteller_web/live/campaign_live/new.html.heex:831
+#: lib/storyteller_web/live/campaign_live/new.html.heex:895
 #, elixir-autogen, elixir-format
 msgid "Player-visible"
 msgstr "Visible para el jugador"
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:85
 #: lib/storyteller_web/live/campaign_live/new.html.heex:449
+#: lib/storyteller_web/live/campaign_live/new.html.heex:832
 #, elixir-autogen, elixir-format
 msgid "Player-visible facts"
 msgstr "Datos visibles para el jugador"
@@ -1173,7 +1181,7 @@ msgstr "Tú"
 msgid "Your action could not be saved. Please try again."
 msgstr "No se pudo guardar tu acción. Inténtalo de nuevo."
 
-#: lib/storyteller_web/live/campaign_live/new.ex:423
+#: lib/storyteller_web/live/campaign_live/new.ex:464
 #: lib/storyteller_web/live/campaign_live/new.html.heex:109
 #: lib/storyteller_web/live/session_live/show.ex:495
 #: lib/storyteller_web/live/session_live/show.html.heex:968
@@ -1337,7 +1345,7 @@ msgid "Potion, tool, or keepsake"
 msgstr "Poción, herramienta o recuerdo"
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:259
-#: lib/storyteller_web/live/campaign_live/new.html.heex:838
+#: lib/storyteller_web/live/campaign_live/new.html.heex:902
 #, elixir-autogen, elixir-format
 msgid "Starting inventory"
 msgstr "Inventario inicial"
@@ -1930,12 +1938,7 @@ msgstr "El director de juego puede presentar a estos personajes durante la parti
 msgid "Last changed"
 msgstr "Último cambio"
 
-#: lib/storyteller_web/live/campaign_live/index.html.heex:115
-#, elixir-autogen, elixir-format
-msgid "A backup contains the full campaign history and GM-only notes. Keep the file private. Import creates a separate campaign and never replaces an existing one."
-msgstr "Una copia de seguridad contiene todo el historial de la campaña y las notas exclusivas del director de juego. Mantén el archivo en privado. Al importar, se crea una campaña independiente; ninguna existente se reemplaza."
-
-#: lib/storyteller_web/live/campaign_live/show.html.heex:186
+#: lib/storyteller_web/live/campaign_live/show.html.heex:189
 #, elixir-autogen, elixir-format
 msgid "Back up this campaign"
 msgstr "Crear una copia de seguridad de esta campaña"
@@ -1955,33 +1958,22 @@ msgstr "Elige un archivo JSON de copia de seguridad."
 msgid "Choose one completed JSON backup file to import."
 msgstr "Elige un archivo JSON de copia de seguridad y espera a que termine de cargarse."
 
-#: lib/storyteller_web/live/campaign_live/show.html.heex:197
+#: lib/storyteller_web/live/campaign_live/show.html.heex:199
 #, elixir-autogen, elixir-format
 msgid "Download sensitive backup"
 msgstr "Descargar copia de seguridad privada"
 
-#: lib/storyteller_web/live/campaign_live/index.html.heex:135
+#: lib/storyteller_web/live/campaign_live/index.html.heex:127
 #, elixir-autogen, elixir-format
 msgid "Import as a new campaign"
 msgstr "Importar como nueva campaña"
-
-#: lib/storyteller_web/live/campaign_live/index.html.heex:112
-#, elixir-autogen, elixir-format
-msgid "Restore a campaign copy"
-msgstr "Restaurar una copia de campaña"
-
-#: lib/storyteller_web/live/campaign_live/index.html.heex:109
-#: lib/storyteller_web/live/campaign_live/show.html.heex:184
-#, elixir-autogen, elixir-format
-msgid "Sensitive file"
-msgstr "Archivo confidencial"
 
 #: lib/storyteller_web/live/campaign_live/index.ex:56
 #, elixir-autogen, elixir-format
 msgid "The backup could not be restored. No campaign was changed."
 msgstr "No se pudo restaurar la copia de seguridad. No se modificó ninguna campaña."
 
-#: lib/storyteller_web/live/campaign_live/show.html.heex:188
+#: lib/storyteller_web/live/campaign_live/show.html.heex:191
 #, elixir-autogen, elixir-format
 msgid "The backup includes every session, private GM context, and the full event history. Store it somewhere private."
 msgstr "La copia de seguridad incluye todas las sesiones, el contexto privado del director de juego y el historial completo de eventos. Guarda el archivo en un lugar privado."
@@ -2046,6 +2038,7 @@ msgid "No GM-controlled characters are set up yet."
 msgstr "Todavía no hay personajes controlados por el director de juego."
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:468
+#: lib/storyteller_web/live/campaign_live/new.html.heex:874
 #, elixir-autogen
 msgid "Character voice guidance"
 msgstr "Guía de voz del personaje"
@@ -2062,30 +2055,35 @@ msgid "Keep delivery notes separate from character facts. Each field allows up t
 msgstr "Mantén las indicaciones de interpretación separadas de los datos del personaje. Cada campo admite hasta 280 caracteres; todas las notas juntas admiten 1.200."
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:114
+#: lib/storyteller_web/live/campaign_live/new.ex:453
 #: lib/storyteller_web/live/campaign_live/new.html.heex:481
 #, elixir-autogen
 msgid "Quirks"
 msgstr "Particularidades"
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:123
+#: lib/storyteller_web/live/campaign_live/new.ex:454
 #: lib/storyteller_web/live/campaign_live/new.html.heex:494
 #, elixir-autogen
 msgid "Accent or dialect"
 msgstr "Acento o dialecto"
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:132
+#: lib/storyteller_web/live/campaign_live/new.ex:455
 #: lib/storyteller_web/live/campaign_live/new.html.heex:507
 #, elixir-autogen
 msgid "Cadence"
 msgstr "Ritmo al hablar"
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:141
+#: lib/storyteller_web/live/campaign_live/new.ex:456
 #: lib/storyteller_web/live/campaign_live/new.html.heex:520
 #, elixir-autogen
 msgid "Vocabulary"
 msgstr "Vocabulario"
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:150
+#: lib/storyteller_web/live/campaign_live/new.ex:457
 #: lib/storyteller_web/live/campaign_live/new.html.heex:533
 #, elixir-autogen
 msgid "Mannerisms"
@@ -2354,12 +2352,6 @@ msgstr "Se requiere un motivo cuando cambia un valor de la configuración. Guard
 msgid "Add a reason for changing the campaign setup."
 msgstr "Añade un motivo para cambiar la configuración de la campaña."
 
-#: lib/storyteller_web/live/campaign_live/index.html.heex:101
-#: lib/storyteller_web/live/campaign_live/show.html.heex:179
-#, elixir-autogen, elixir-format
-msgid "Backup and restore"
-msgstr "Copia de seguridad y restauración"
-
 #: lib/storyteller_web/live/campaign_live/edit.ex:134
 #: lib/storyteller_web/live/campaign_live/edit.ex:138
 #, elixir-autogen, elixir-format
@@ -2411,11 +2403,6 @@ msgstr "¿Por qué cambias la configuración?"
 #, elixir-autogen, elixir-format
 msgid "Campaign changes saved."
 msgstr "Se guardaron los cambios de la campaña."
-
-#: lib/storyteller_web/live/campaign_live/index.html.heex:103
-#, elixir-autogen, elixir-format
-msgid "Keep a private copy, or restore a separate campaign."
-msgstr "Guarda una copia privada o restaura una campaña independiente."
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:29
 #, elixir-autogen, elixir-format
@@ -2483,17 +2470,17 @@ msgstr "Revisa antes de crear"
 msgid "Review"
 msgstr "Revisar"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:422
+#: lib/storyteller_web/live/campaign_live/new.ex:463
 #, elixir-autogen, elixir-format
 msgid "Story"
 msgstr "Historia"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:424
+#: lib/storyteller_web/live/campaign_live/new.ex:465
 #, elixir-autogen, elixir-format
 msgid "Opening scene"
 msgstr "Escena inicial"
 
-#: lib/storyteller_web/live/campaign_live/new.ex:425
+#: lib/storyteller_web/live/campaign_live/new.ex:466
 #, elixir-autogen, elixir-format
 msgid "People and details"
 msgstr "Personajes y detalles"
@@ -2512,3 +2499,19 @@ msgstr "Atrás"
 #, elixir-autogen, elixir-format
 msgid "Set who you play and add any optional character details."
 msgstr "Define a quién interpretas y añade los detalles opcionales de tu personaje."
+
+#: lib/storyteller_web/live/campaign_live/index.html.heex:104
+#: lib/storyteller_web/live/campaign_live/show.html.heex:179
+#, elixir-autogen, elixir-format
+msgid "Campaign persistence"
+msgstr "Persistencia de la campaña"
+
+#: lib/storyteller_web/live/campaign_live/index.html.heex:108
+#, elixir-autogen, elixir-format
+msgid "Import creates a separate campaign and never replaces an existing one. Keep the backup file private."
+msgstr "La importación crea una campaña independiente y nunca reemplaza una existente. Mantén privado el archivo de copia de seguridad."
+
+#: lib/storyteller_web/live/campaign_live/show.html.heex:183
+#, elixir-autogen, elixir-format
+msgid "Backups contain GM-only notes and full campaign history. Keep downloaded files somewhere private."
+msgstr "Las copias de seguridad contienen notas exclusivas del GM y el historial completo de la campaña. Guarda los archivos descargados en un lugar privado."

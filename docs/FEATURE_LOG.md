@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-09-30 — Keep campaign backup tools in campaign persistence
+
+- Removed import and export controls from the campaign library. The library now stays focused on creating, opening, resuming, and archiving stories.
+- Moved import into a collapsed **Campaign persistence** section at the bottom of the library and kept export in the same collapsed section below sessions on campaign details. Restore remains available on a fresh install, while neither action competes with create/resume.
+- Kept the detail-page action labeled **Edit campaign**, so it describes the complete editor instead of emphasizing character voice guidance.
+- Prevented facts written for GM-controlled characters while they are in a GM-private place from later entering public character panels or receipts when they return to public play. The facts remain available in hidden GM context; an explicit structured public update can disclose a fact later.
+- Reordered the active MVP queue around complete play tasks and state trust. Backup is implemented maintenance with no further MVP feature work planned; accessibility hardening remains V1 and other AI providers remain V2.
+- **Checks:** latest campaign and backup placement tests **18 tests, 0 failures**; full suite **243 tests, 0 failures**; JavaScript tests **13/13**; formatting, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. The full suite uses fake providers and the isolated `storyteller_test` database.
+
 ## 2026-09-30 — Guide campaign setup and surface canonical change receipts
 
 - Campaign creation is now a four-step wizard for story, player character, starting scene, and optional people/details, followed by a review step. Backtracking preserves every entered value; validation returns to the step that needs attention. Optional setup groups remain skippable, and successful creation still opens the new campaign.
@@ -8,7 +17,7 @@
 
 ## 2026-09-30 — Keep campaign maintenance secondary and protect time-passage agency
 
-- The campaign detail action now says **Edit campaign**. Import/export now live in a collapsed **Backup and restore** section after the main campaign actions on both the campaign library and detail page; opening it explains backup sensitivity and separate-copy restore behavior.
+- The campaign detail action uses the broad **Edit campaign** label. Backup/restore hierarchy has since been refined; see the latest feature log entry.
 - Campaign setup corrections now save their reason and before/after state atomically, require a reason only for actual changes, and remain separate from prior story entries. Player-facing correction history lists safe categories and omits any correction containing GM-private facts or voice guidance. Backup format v2 carries this audit history and imports both v1 and v2 files.
 - A time-passage response is rejected if it speaks/acts for, moves, updates, or requests a roll from the player's character. Explicit multi-day duration remains intact. The **Wait here** nudge uses the current canonical location and asks the GM to stop at the next meaningful decision.
 - Additive migration `20260930001300_create_campaign_authoring_corrections` adds the correction-history table; it has been applied to the persistent development database without changing campaign rows.

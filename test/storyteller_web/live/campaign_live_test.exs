@@ -31,8 +31,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert html =~ "Campaigns"
     assert html =~ "Lantern Coast"
     assert html =~ "Copper Archive"
-    assert has_element?(view, "#campaign-backup-import summary", "Backup and restore")
-    refute has_element?(view, "#campaign-backup-import[open]")
+    assert has_element?(view, "#campaign-persistence-import summary", "Campaign persistence")
+    refute has_element?(view, "#campaign-persistence-import[open]")
     assert has_element?(view, "#campaign-backup-form")
 
     first_card =
@@ -58,6 +58,19 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
     assert ~p"/campaigns/#{first.id}/sessions/#{first_session.id}" in first_links
     assert ~p"/campaigns/#{second.id}/sessions/#{second_session.id}" in second_links
+  end
+
+  test "empty campaign library keeps backup restore available in its collapsed persistence section",
+       %{
+         conn: conn
+       } do
+    {:ok, view, html} = live(conn, ~p"/")
+
+    assert html =~ "Your next story starts here"
+    assert has_element?(view, "#campaign-persistence-import summary", "Campaign persistence")
+    refute has_element?(view, "#campaign-persistence-import[open]")
+    assert has_element?(view, "#campaign-backup-form")
+    refute html =~ "Download sensitive backup"
   end
 
   test "campaign setup is reviewed before creation and its first session is resumable", %{
@@ -103,6 +116,124 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert player.visible_facts["description"] == campaign.player_character
 
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
+  end
+
+  test "campaign review shows every GM character field before persistence and keeps private guidance off the board",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    story = %{
+      title: "The Saffron Kitchen",
+      premise: "A sealed recipe arrives with a warning.",
+      setting: "A riverside vineyard in southern France",
+      tone: "Warm, intimate, and mysterious",
+      narration_language: "English"
+    }
+
+    player_character = %{
+      player_character_name: "Luc Moreau",
+      player_character: "A patient cellar keeper."
+    }
+
+    opening = %{
+      starting_location: "The west cellar",
+      starting_date: "Second day of harvest",
+      world_time: "Late evening",
+      weather: "Cool mist from the river"
+    }
+
+    starting_inventory = %{
+      inventory: %{
+        "0" => %{
+          name: "Reserve bottles",
+          quantity: "3",
+          unit: "bottles",
+          category: "wine",
+          description: "Kept for the autumn gathering."
+        }
+      }
+    }
+
+    gm_character = %{
+      gm_characters: %{
+        "0" => %{
+          name: "Marcel",
+          visible_facts_text: "A warm, observant beaver cook from Lyon.",
+          private_notes: "Secret: he altered the cellar ledger.",
+          voice_guidance: %{
+            quirks: "Counts each ingredient twice.",
+            accent_dialect: "A soft French accent from Lyon.",
+            cadence: "Quick phrases that slow before a confession.",
+            vocabulary: "Uses kitchen and river words.",
+            mannerisms: "Taps the spoon when thinking."
+          }
+        }
+      }
+    }
+
+    submit_wizard_step(view, story, "continue")
+    submit_wizard_step(view, Map.merge(story, player_character), "continue")
+
+    view |> element("button[phx-click=add-starting-item]") |> render_click()
+
+    world_and_inventory =
+      Map.merge(Map.merge(Map.merge(story, player_character), opening), starting_inventory)
+
+    submit_wizard_step(view, world_and_inventory, "continue")
+
+    view |> element("button[phx-click=add-character]") |> render_click()
+
+    attrs = Map.merge(world_and_inventory, gm_character)
+    submit_wizard_step(view, attrs, "continue")
+
+    review_html = render(view)
+    assert review_html =~ "Marcel"
+    assert review_html =~ "The west cellar"
+    assert review_html =~ "Second day of harvest"
+    assert review_html =~ "Late evening"
+    assert review_html =~ "Cool mist from the river"
+    assert review_html =~ "Reserve bottles"
+    assert review_html =~ "· 3 bottles"
+    assert review_html =~ "· wine"
+    assert review_html =~ "Kept for the autumn gathering."
+    assert review_html =~ "Player-visible facts"
+    assert review_html =~ "A warm, observant beaver cook from Lyon."
+    assert review_html =~ "GM-only notes"
+    assert review_html =~ "Secret: he altered the cellar ledger."
+    assert review_html =~ "Character voice guidance"
+    assert review_html =~ "Quirks"
+    assert review_html =~ "Counts each ingredient twice."
+    assert review_html =~ "Accent or dialect"
+    assert review_html =~ "A soft French accent from Lyon."
+    assert review_html =~ "Cadence"
+    assert review_html =~ "Quick phrases that slow before a confession."
+    assert review_html =~ "Vocabulary"
+    assert review_html =~ "Uses kitchen and river words."
+    assert review_html =~ "Mannerisms"
+    assert review_html =~ "Taps the spoon when thinking."
+    assert Campaigns.list_campaigns() == []
+
+    view |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    assert_redirect(view, ~p"/campaigns/#{campaign.id}")
+    [session] = campaign.sessions
+
+    {:ok, _campaign_view, campaign_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+
+    {:ok, _session_view, session_html} =
+      live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    for private_text <- [
+          "Secret: he altered the cellar ledger.",
+          "Counts each ingredient twice.",
+          "A soft French accent from Lyon.",
+          "Quick phrases that slow before a confession.",
+          "Uses kitchen and river words.",
+          "Taps the spoon when thinking."
+        ] do
+      refute campaign_html =~ private_text
+      refute session_html =~ private_text
+    end
   end
 
   test "campaign setup moves through grouped steps and backtracking preserves entered values", %{
@@ -449,12 +580,13 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert html =~ first_session.title
     assert has_element?(view, "a", "Edit campaign")
     refute has_element?(view, "a", "Edit setup and character voices")
-    assert has_element?(view, "#campaign-backup-export summary", "Backup and restore")
-    refute has_element?(view, "#campaign-backup-export[open]")
+    assert has_element?(view, "#campaign-persistence summary", "Campaign persistence")
+    refute has_element?(view, "#campaign-persistence[open]")
+    refute has_element?(view, "#campaign-backup-form")
 
     assert has_element?(
              view,
-             "#campaign-backup-export a[href='/campaigns/#{campaign.id}/backup']"
+             "#campaign-persistence a[href='/campaigns/#{campaign.id}/backup']"
            )
 
     assert html =~ "Character name"
