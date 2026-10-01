@@ -468,6 +468,72 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.context_json_bytes < byte_size(Jason.encode!(context))
   end
 
+  test "generic promise questions retrieve bounded typed public commitments in all locales" do
+    commitments =
+      Enum.map(1..10, fn number ->
+        %{
+          entry_id: "typed-commitment-#{number}",
+          kind: "commitment",
+          title: "Arrangement #{number}",
+          details:
+            "Marisol will inspect fermentation barrels #{number} before the first frost. " <>
+              String.duplicate("The cellar plan remains part of the campaign. ", 4),
+          status: "active",
+          visibility: "public",
+          player_managed: true
+        }
+      end)
+
+    non_commitment_decoy = %{
+      entry_id: "promise-word-fact",
+      kind: "fact",
+      title: "An old weather saying",
+      details: "The village proverb promised the east wind would calm before sunrise.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    context =
+      base_context()
+      |> Map.put(:continuity, %{public: [non_commitment_decoy | commitments], gm_private: []})
+
+    for action <- [
+          "What did we agree to?",
+          "¿Qué acordamos?",
+          "Qu'avons-nous convenu ?"
+        ] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_token_budget: 24_000
+               )
+
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+
+      assert metrics.section_bytes.section_continuity_bytes <
+               byte_size(Jason.encode!(context.continuity))
+
+      detailed_ids =
+        compiled.continuity.public
+        |> Enum.filter(&Map.has_key?(&1, :details))
+        |> Enum.map(& &1.entry_id)
+
+      assert detailed_ids == Enum.map(3..10, &"typed-commitment-#{&1}")
+
+      assert Enum.map(compiled.continuity.public, & &1.entry_id) ==
+               Enum.map([non_commitment_decoy | commitments], & &1.entry_id)
+
+      assert compiled.context_completeness.player_managed_memory_details_omitted
+      assert :player_managed_memory_details in metrics.omissions
+
+      refute Enum.any?(compiled.continuity.public, fn entry ->
+               entry.entry_id == "promise-word-fact" and Map.has_key?(entry, :details)
+             end)
+    end
+  end
+
   test "retrieves a durable wine memory when the player asks in Spanish or French" do
     player_memory = %{
       entry_id: "wine-reserve",

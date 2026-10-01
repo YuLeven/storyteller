@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 — Retrieve typed commitments from broad promise questions
+
+- General “what did we agree?” questions now retrieve details from public campaign memories explicitly typed as commitments, even when the question omits the commitment's subject. English, Spanish, and French prompts are covered. Retrieval remains bounded to the eight-detail cap; omitted details are marked incomplete, and a non-commitment fact containing the word “promised” stays out of detailed context.
+- The product benchmark now spells out the end-to-end Finca/Bodega exercise: later-session character presence must follow canonical travel/contact state without requiring the player to restate or manually save the route, while unrelated history is excluded and context cost stays measurable.
+- **Checks:** ContextBudget **17 tests, 0 failures**; full WSL suite **341 tests, 0 failures**; formatting, warnings-as-errors compilation, and `git diff --check` pass. Automated coverage uses the isolated test database and synthetic campaign data; no live provider request or Vineyard data was used.
+
 ## 2026-10-01 — Retrieve indirect employment details without broadening toll matches
 
 - Job-memory retrieval now covers bounded English, Spanish, and French schedule/terms questions and promise/agreement references. The matcher requires a work or acceptance cue alongside schedule terms, and both commitment and work cues for a promise, so generic bridge hours or toll-payment questions do not pull in the employment note.

@@ -567,6 +567,9 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
     cond do
+      typed_commitment_relevant?(entry, meaningful_query_terms) ->
+        true
+
       employment_relevant? ->
         true
 
@@ -583,6 +586,15 @@ defmodule Storyteller.GM.ContextBudget do
       true ->
         true
     end
+  end
+
+  # A question about what was promised can refer to a campaign commitment even
+  # when neither the question nor the note uses the same subject words. Use the
+  # author's typed commitment kind for this bounded generic recall; an ordinary
+  # fact that happens to contain "promised" is not enough.
+  defp typed_commitment_relevant?(entry, query_terms) do
+    value(entry, :kind) in ["commitment", :commitment] and
+      MapSet.member?(query_terms, "employment:commitment")
   end
 
   # Terms/schedule questions and a character's promise can refer to an older
