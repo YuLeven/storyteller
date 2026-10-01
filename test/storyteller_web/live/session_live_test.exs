@@ -829,6 +829,18 @@ defmodule StorytellerWeb.SessionLiveTest do
              )
            end)
 
+    assert has_element?(
+             view,
+             "#story-live-timeline [data-event-type='time_passage'] h3",
+             "You"
+           )
+
+    refute has_element?(
+             view,
+             "#story-live-timeline [data-event-type='time_passage'] h3",
+             "Time passage requested"
+           )
+
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.public_state["time"] == "early evening"
 
@@ -2562,13 +2574,19 @@ defmodule StorytellerWeb.SessionLiveTest do
   } do
     test_pid = self()
 
-    for {locale, guidance, saved_label, resume_label, retry_label} <- [
+    for {locale, guidance, saved_label, resume_label, retry_label, recovery_copy} <- [
+          {"en",
+           "ChatGPT reported an account usage limit. The GM cannot respond until account usage is available.",
+           "Your turn is saved", "Resume requests", "Retry this turn",
+           "Your action is saved below. Retry continues this same turn."},
           {"es",
            "ChatGPT informó de un límite de uso de esta cuenta. El director de juego no puede responder hasta que haya uso disponible en la cuenta.",
-           "Tu turno está guardado", "Reanudar solicitudes", "Reintentar este turno"},
+           "Tu turno está guardado", "Reanudar solicitudes", "Reintentar este turno",
+           "Tu acción está guardada abajo. Reintentar continúa este mismo turno."},
           {"fr",
            "ChatGPT a signalé une limite d’utilisation du compte. Le maître du jeu ne peut pas répondre tant que le compte n’a pas de quota disponible.",
-           "Votre tour est enregistré", "Reprendre les requêtes", "Réessayer ce tour"}
+           "Votre tour est enregistré", "Reprendre les requêtes", "Réessayer ce tour",
+           "Votre action est enregistrée ci-dessous. Réessayer poursuit ce même tour."}
         ] do
       campaign = campaign_fixture()
       [session] = campaign.sessions
@@ -2596,7 +2614,9 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       assert has_element?(view, "#plan-usage-paused a[href='https://chatgpt.com/settings/usage']")
       assert has_element?(view, "#turn-error", saved_label)
+      assert has_element?(view, "#turn-error", recovery_copy)
       assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
+      assert recovery_copy_count(view, recovery_copy) == 1
 
       refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
       turn_id = Play.public_current_turn(campaign.id).id
@@ -2607,6 +2627,16 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       refute has_element?(view, "#plan-usage-paused")
       assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+
+      assert length(
+               Floki.find(
+                 Floki.parse_document!(render(view)),
+                 "#turn-error button[phx-click='retry-turn']"
+               )
+             ) ==
+               1
+
+      assert recovery_copy_count(view, recovery_copy) == 1
       assert Play.public_current_turn(campaign.id).id == turn_id
       assert has_element?(view, "#story-pending-action", "I check whether the road is open.")
       refute_receive :fake_usage_limit_call, 50
@@ -2833,6 +2863,12 @@ defmodule StorytellerWeb.SessionLiveTest do
              view,
              "#turn-error",
              "Retry continues this same turn with that result."
+           )
+
+    refute has_element?(
+             view,
+             "#turn-error",
+             "Your action is saved below. Retry continues this same turn."
            )
 
     assert Play.plan_usage_paused?(
@@ -3418,6 +3454,14 @@ defmodule StorytellerWeb.SessionLiveTest do
       Process.sleep(25)
       wait_until(fun, attempts - 1)
     end
+  end
+
+  defp recovery_copy_count(view, recovery_copy) do
+    view
+    |> render()
+    |> Floki.parse_document!()
+    |> Floki.find("#turn-error p")
+    |> Enum.count(&String.contains?(Floki.text(&1), recovery_copy))
   end
 
   defp live_play(conn, campaign, session) do

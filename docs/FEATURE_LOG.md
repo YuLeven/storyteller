@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-10-01 — Keep canonical continuity and context economy in one MVP gate
+
+- Elevated the market insight into an explicit MVP workstream: Storyteller owns and validates modeled campaign facts, while the GM model narrates and receives only the relevant bounded context for the turn. The Finca/Bodega example remains the player-value test; the broad comparison with other LLM TTRPGs is a hypothesis to validate through play, not an assumed market fact.
+- Made continuity and context cost a single acceptance goal. Remaining work is called out for routine NPC availability, indirect and cross-language memory recall without false inclusion, and long-campaign checks using provider-reported aggregate usage where available. Serialized bytes remain a conservative preflight proxy, not an exact token count; required canon is never silently dropped when a safe prompt cannot fit.
+- Documentation update only; no campaign state or application behavior changed in this entry.
+
+## 2026-10-01 — Clarify time-passage turns and usage-limit recovery
+
+- Time-passage timeline entries now use the player's “You” label, so a turn such as “An hour passes” reads as the player's action rather than a machine-generated request category. Stored event type and turn semantics are unchanged.
+- The usage-limit recovery card explains the saved action and same-turn retry once for an initial failed turn, keeps the pending action visible, and offers one retry control after account requests resume. After a saved D20 roll, the card keeps the roll-specific retry explanation without repeating generic saved-action guidance. English, Spanish, and French are updated.
+- **Checks:** SessionLive **47 tests, 0 failures**; locale LiveView **9 tests, 0 failures**; formatter, Gettext extraction freshness, and `git diff --check` passed. No live provider call or campaign UI interaction was used.
+
 ## 2026-10-01 — Enforce optional GM-character duties
 
 - Existing and new GM characters can receive a named active duty tied to their canonical current place. The movement validator rejects a proposed departure even when a valid route and duration exist; same-place actions and unassigned characters remain unaffected. Duties can be renamed or released only through a reasoned, revision-checked, out-of-character authoring correction. Stale editors and unresolved turns cannot change the duty.

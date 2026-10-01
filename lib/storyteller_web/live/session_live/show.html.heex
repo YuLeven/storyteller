@@ -269,14 +269,15 @@
             {failure_message(@current_turn.failure_code, @plan_usage_paused?)}
           </p>
           <p
-            :if={!opening_scene?(@current_turn)}
+            :if={
+              !opening_scene?(@current_turn) and
+                not (@current_turn.failure_code == "usage_limit" and
+                       @current_turn.resolution_phase == :after_roll)
+            }
             class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700"
           >
             {if @current_turn.failure_code == "usage_limit",
-              do:
-                gettext(
-                  "Your submitted action is saved below. Retrying continues this same turn."
-                ),
+              do: gettext("Your action is saved below. Retry continues this same turn."),
               else: gettext("Your submitted action remains in the campaign story below.")}
           </p>
           <p
@@ -294,7 +295,11 @@
             {gettext("D20 result:")} {@current_turn_roll}
           </p>
           <p
-            :if={retryable?(@current_turn) && playable?(@session)}
+            :if={
+              retryable?(@current_turn) && playable?(@session) &&
+                (@current_turn.failure_code != "usage_limit" or
+                   @current_turn.resolution_phase == :after_roll)
+            }
             class={
               if @current_turn.failure_code == "usage_limit",
                 do: "mt-3 text-sm leading-6 text-amber-950",

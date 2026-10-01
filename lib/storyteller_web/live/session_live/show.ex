@@ -701,7 +701,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             {case @event.event_type do
               :player_action -> gettext("You")
               :player_question -> gettext("Question for the GM")
-              :time_passage -> gettext("Time passage requested")
+              :time_passage -> gettext("You")
               :gm_narration -> gettext("Game master")
               :npc_dialogue -> speaker_name(@characters_by_id, @event.speaker_id)
               :character_activity -> speaker_name(@characters_by_id, @event.speaker_id)
