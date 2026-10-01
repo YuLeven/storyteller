@@ -9,10 +9,12 @@ defmodule Storyteller.CampaignBackup do
   import Ecto.Query, warn: false
 
   alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
+  alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
 
   alias Storyteller.Play.{
     Character,
+    CanonCorrection,
     ContinuityEntry,
     Event,
     Objective,
@@ -28,11 +30,13 @@ defmodule Storyteller.CampaignBackup do
   alias Storyteller.Repo
 
   @format "storyteller.campaign-backup"
-  @version 5
+  @version 6
   @legacy_version 1
   @previous_version 2
   @current_previous_version 3
   @place_connections_version 4
+  @elapsed_world_clock_version 5
+  @canon_corrections_version 6
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -170,6 +174,14 @@ defmodule Storyteller.CampaignBackup do
                 )
               )
               |> Enum.map(&export_authoring_correction/1),
+            "canon_corrections" =>
+              Repo.all(
+                from(correction in CanonCorrection,
+                  where: correction.campaign_id == ^campaign_id,
+                  order_by: [asc: correction.sequence]
+                )
+              )
+              |> Enum.map(&export_canon_correction/1),
             "continuity_entries" =>
               Repo.all(from(entry in ContinuityEntry, where: entry.campaign_id == ^campaign_id))
               |> Enum.map(fn entry ->
@@ -369,6 +381,19 @@ defmodule Storyteller.CampaignBackup do
     }
   end
 
+  defp export_canon_correction(correction) do
+    %{
+      "sequence" => correction.sequence,
+      "kind" => correction.kind,
+      "target_id" => correction.target_id,
+      "expected_revision" => correction.expected_revision,
+      "reason" => correction.reason,
+      "before_state" => correction.before_state,
+      "after_state" => correction.after_state,
+      "inserted_at" => encode_datetime(correction.inserted_at)
+    }
+  end
+
   defp validate_backup(backup) when is_map(backup) do
     with :ok <-
            exact_keys(
@@ -383,6 +408,7 @@ defmodule Storyteller.CampaignBackup do
              @previous_version,
              @current_previous_version,
              @place_connections_version,
+             @elapsed_world_clock_version,
              @version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
@@ -406,7 +432,14 @@ defmodule Storyteller.CampaignBackup do
          {:ok, rolls} <- validate_rolls(backup["rolls"], turns),
          {:ok, continuity} <- validate_continuity(backup["continuity_entries"], events),
          {:ok, corrections} <-
-           validate_authoring_corrections(Map.get(backup, "authoring_corrections", [])) do
+           validate_authoring_corrections(Map.get(backup, "authoring_corrections", [])),
+         {:ok, canon_corrections} <-
+           validate_canon_corrections(
+             Map.get(backup, "canon_corrections", []),
+             characters,
+             places,
+             panels
+           ) do
       {:ok,
        %{
          campaign: campaign,
@@ -421,7 +454,8 @@ defmodule Storyteller.CampaignBackup do
          events: events,
          rolls: rolls,
          continuity_entries: continuity,
-         authoring_corrections: corrections
+         authoring_corrections: corrections,
+         canon_corrections: canon_corrections
        }}
     else
       _ -> {:error, :invalid_backup}
@@ -436,8 +470,12 @@ defmodule Storyteller.CampaignBackup do
        when version in [@previous_version, @current_previous_version],
        do: root_backup_keys() ++ ["authoring_corrections"]
 
-  defp root_backup_keys(version) when version in [@place_connections_version, @version],
-    do: root_backup_keys() ++ ["authoring_corrections", "place_connections"]
+  defp root_backup_keys(version)
+       when version in [@place_connections_version, @elapsed_world_clock_version],
+       do: root_backup_keys() ++ ["authoring_corrections", "place_connections"]
+
+  defp root_backup_keys(@canon_corrections_version),
+    do: root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
 
   defp root_backup_keys(_), do: []
 
@@ -535,7 +573,7 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_state(map, characters, version) do
     clock_keys =
-      if version >= @version,
+      if version >= @elapsed_world_clock_version,
         do: ~w(elapsed_world_minutes elapsed_world_anchor_minutes elapsed_world_anchor),
         else: []
 
@@ -574,7 +612,8 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp validate_elapsed_clock(_map, public_state, version) when version < @version do
+  defp validate_elapsed_clock(_map, public_state, version)
+       when version < @elapsed_world_clock_version do
     {:ok, 0, 0, backup_world_time_labels(public_state)}
   end
 
@@ -932,7 +971,7 @@ defmodule Storyteller.CampaignBackup do
     do: turn_backup_keys(@previous_version) ++ ["failure_stage"]
 
   defp turn_backup_keys(version)
-       when version in [@place_connections_version, @version],
+       when version in [@place_connections_version, @elapsed_world_clock_version, @version],
        do: turn_backup_keys(@current_previous_version)
 
   defp optional_enum(nil, _allowed), do: {:ok, nil}
@@ -1118,6 +1157,173 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_authoring_corrections(_), do: {:error, :invalid_backup}
 
+  defp validate_canon_corrections(rows, characters, places, _panels)
+       when is_list(rows) and length(rows) <= 100_000 do
+    character_ids = MapSet.new(characters, & &1.speaker_id)
+    owner_ids = ["party" | Enum.map(characters, & &1.speaker_id)]
+
+    public_places =
+      places
+      |> Enum.filter(&(&1.visibility == :public))
+      |> Map.new(&{&1.place_id, &1.name})
+
+    with {:ok, corrections} <-
+           map_rows(rows, fn map ->
+             with :ok <-
+                    exact_keys(
+                      map,
+                      ~w(sequence kind target_id expected_revision reason before_state after_state inserted_at),
+                      :canon_correction
+                    ),
+                  sequence when is_integer(sequence) and sequence in 1..1_000_000 <-
+                    map["sequence"],
+                  {:ok, kind} <- choice(map["kind"], ~w(inventory resource location)),
+                  {:ok, target_id} <- stable_id(map["target_id"], 100),
+                  {:ok, expected_revision} <-
+                    integer_range(map["expected_revision"], 0, 2_147_483_647),
+                  {:ok, reason} <- text(map["reason"], 1, 1_000),
+                  true <- String.trim(reason) == reason,
+                  {:ok, before_state} <- json_map(map["before_state"], 100_000),
+                  {:ok, after_state} <- json_map(map["after_state"], 100_000),
+                  true <- before_state != after_state,
+                  :ok <-
+                    validate_canon_correction_states(
+                      kind,
+                      target_id,
+                      before_state,
+                      after_state,
+                      character_ids,
+                      owner_ids,
+                      public_places
+                    ),
+                  {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false) do
+               {:ok,
+                %{
+                  sequence: sequence,
+                  kind: kind,
+                  target_id: target_id,
+                  expected_revision: expected_revision,
+                  reason: reason,
+                  before_state: before_state,
+                  after_state: after_state,
+                  inserted_at: inserted_at
+                }}
+             end
+           end),
+         :ok <- unique_by(corrections, & &1.sequence) do
+      {:ok, Enum.sort_by(corrections, & &1.sequence)}
+    end
+  end
+
+  defp validate_canon_corrections(_, _, _, _), do: {:error, :invalid_backup}
+
+  defp validate_canon_correction_states(
+         "inventory",
+         target_id,
+         before_map,
+         after_map,
+         _character_ids,
+         owners,
+         _places
+       ) do
+    with :ok <- exact_keys(before_map, ["item"], :inventory_correction_state),
+         :ok <- exact_keys(after_map, ["item"], :inventory_correction_state),
+         {:ok, before_item} <- correction_inventory_item(before_map["item"], owners),
+         {:ok, after_item} <- correction_inventory_item(after_map["item"], owners),
+         true <-
+           (is_nil(before_item) or before_item["id"] == target_id) and
+             (is_nil(after_item) or after_item["id"] == target_id),
+         true <- not (is_nil(before_item) and is_nil(after_item)) do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_canon_correction_states(
+         "resource",
+         target_id,
+         before_map,
+         after_map,
+         _ids,
+         _owners,
+         _places
+       ) do
+    with :ok <- validate_resource_correction_state(before_map, target_id),
+         :ok <- validate_resource_correction_state(after_map, target_id),
+         true <- Map.drop(before_map, ["value"]) == Map.drop(after_map, ["value"]) do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_canon_correction_states(
+         "location",
+         target_id,
+         before_map,
+         after_map,
+         character_ids,
+         _owners,
+         places
+       ) do
+    with true <- MapSet.member?(character_ids, target_id),
+         :ok <- validate_location_correction_state(before_map, places),
+         :ok <- validate_location_correction_state(after_map, places),
+         true <- before_map["character_name"] == after_map["character_name"] do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_canon_correction_states(_, _, _, _, _, _, _),
+    do: {:error, :invalid_backup}
+
+  defp correction_inventory_item(nil, _owners), do: {:ok, nil}
+
+  defp correction_inventory_item(item, owners) when is_map(item) do
+    with {:ok, [normalized]} <- Inventory.normalize_initial([item], owners),
+         true <- normalized["visibility"] == "public" do
+      {:ok, normalized}
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp correction_inventory_item(_, _), do: {:error, :invalid_backup}
+
+  defp validate_resource_correction_state(state, target_id) do
+    with :ok <- exact_keys(state, ~w(key label type unit value), :resource_correction_state),
+         true <- state["key"] == target_id,
+         {:ok, _key} <- stable_id(state["key"], 100),
+         {:ok, _label} <- text(state["label"], 1, 100),
+         {:ok, type} <- choice(state["type"], ~w(quantity money text status date)),
+         {:ok, _unit} <- optional_text(state["unit"], 50),
+         {:ok, value} <- Panels.validate_value(type, state["value"]),
+         true <- value == state["value"] do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_location_correction_state(state, public_places) do
+    with :ok <-
+           exact_keys(state, ~w(character_name place_id place_name), :location_correction_state),
+         {:ok, _name} <- text(state["character_name"], 1, 300),
+         {:ok, place_id} <- optional_stable_id(state["place_id"], 100),
+         {:ok, place_name} <- optional_text(state["place_name"], 300),
+         true <-
+           (is_nil(place_id) and is_nil(place_name)) or
+             (is_binary(place_id) and is_binary(place_name) and
+                Map.get(public_places, place_id) == place_name) do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
   defp validate_authoring_state(state) when is_map(state) do
     with true <-
            Enum.all?(Map.keys(state), &(&1 in ~w(campaign player_character gm_characters))),
@@ -1208,6 +1414,7 @@ defmodule Storyteller.CampaignBackup do
     Repo.transaction(fn ->
       campaign = insert_campaign!(backup.campaign)
       insert_authoring_corrections!(campaign.id, backup.authoring_corrections)
+      insert_canon_corrections!(campaign.id, backup.canon_corrections)
       sessions_by_ref = insert_sessions!(campaign.id, backup.sessions)
       insert_state!(campaign.id, backup.state)
       insert_places!(campaign.id, backup.places)
@@ -1236,6 +1443,16 @@ defmodule Storyteller.CampaignBackup do
 
       %AuthoringCorrection{inserted_at: correction.inserted_at}
       |> AuthoringCorrection.changeset(Map.drop(attrs, [:inserted_at]))
+      |> insert_or_rollback!()
+    end)
+  end
+
+  defp insert_canon_corrections!(campaign_id, corrections) do
+    Enum.each(corrections, fn correction ->
+      attrs = Map.put(correction, :campaign_id, campaign_id)
+
+      %CanonCorrection{inserted_at: correction.inserted_at}
+      |> CanonCorrection.changeset(Map.drop(attrs, [:inserted_at]))
       |> insert_or_rollback!()
     end)
   end

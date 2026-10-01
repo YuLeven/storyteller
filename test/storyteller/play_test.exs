@@ -9,6 +9,8 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Play
 
   alias Storyteller.Play.{
+    CanonCorrection,
+    CanonCorrections,
     Character,
     ContinuityEntry,
     Event,
@@ -19,6 +21,348 @@ defmodule Storyteller.PlayTest do
     State,
     Turn
   }
+
+  test "out-of-character inventory corrections persist into the next session without rewriting story" do
+    {campaign, session} = play_campaign("The Orchard Ledger")
+
+    original_item = %{
+      "id" => "orchard-wine",
+      "name" => "Reserve wine",
+      "quantity" => 2,
+      "unit" => "bottles",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{"vintage" => "1566"}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", [original_item])
+      })
+    )
+
+    assert {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+    assert Enum.map(options.inventory, & &1.id) == ["orchard-wine"]
+
+    assert {:ok, added} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "inventory",
+               "expected_revision" => options.revision,
+               "reason" => "One bottle from the last delivery was omitted.",
+               "values" => %{
+                 "action" => "add",
+                 "name" => "Cellar key",
+                 "quantity" => "1",
+                 "unit" => "key",
+                 "owner_id" => "player"
+               }
+             })
+
+    added_record =
+      Repo.get_by!(CanonCorrection, campaign_id: campaign.id, sequence: added.sequence)
+
+    assert added_record.kind == "inventory"
+    assert added_record.expected_revision == options.revision
+    assert added_record.before_state == %{"item" => nil}
+    assert added_record.after_state["item"]["name"] == "Cellar key"
+
+    assert {:ok, options_after_add} = CanonCorrections.options(campaign.id, session.id)
+
+    assert {:ok, _corrected} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "inventory",
+               "target_id" => "orchard-wine",
+               "expected_revision" => options_after_add.revision,
+               "reason" => "Only five bottles remain in the cellar.",
+               "values" => %{"action" => "set", "quantity" => "5", "owner_id" => ""}
+             })
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.revision == options_after_add.revision + 1
+    assert state.event_sequence == 0
+    assert state.elapsed_world_minutes == 0
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    {:ok, next_session} =
+      Campaigns.start_session(Campaigns.get_campaign!(campaign.id), %{title: "A later day"})
+
+    captured = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "corrected-inventory-context",
+               "Look around.",
+               provider: fn request ->
+                 Agent.update(captured, fn _ -> decode_request(request) end)
+
+                 {:ok,
+                  Jason.encode!(
+                    ordinary_proposal(%{
+                      "dialogue" => [],
+                      "activities" => [],
+                      "character_updates" => []
+                    })
+                  )}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(captured, & &1)
+    reserve = Enum.find(context["inventory"]["player_visible"], &(&1["id"] == "orchard-wine"))
+    key = Enum.find(context["inventory"]["player_visible"], &(&1["id"] == added_record.target_id))
+    assert reserve["quantity"] == 5
+    assert key["name"] == "Cellar key"
+
+    receipts = CanonCorrections.list_receipts(campaign.id)
+
+    assert Enum.map(receipts, & &1.reason) == [
+             "Only five bottles remain in the cellar.",
+             "One bottle from the last delivery was omitted."
+           ]
+  end
+
+  test "resource corrections use the field type and remain private outside tracked public fields" do
+    {campaign, session} = play_campaign("The Cellar Ledger")
+
+    insert_panel_field!(campaign.id, %{
+      key: "wine_stock",
+      panel: "Cellar",
+      label: "Wine in storage",
+      value_type: :quantity,
+      unit: "bottles",
+      value: %{"value" => 12}
+    })
+
+    insert_panel_field!(campaign.id, %{
+      key: "private_reserve",
+      panel: "GM notes",
+      label: "Hidden reserve",
+      value_type: :quantity,
+      visibility: :gm_private,
+      value: %{"value" => 4}
+    })
+
+    assert {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+    assert Enum.map(options.resources, & &1.key) == ["wine_stock"]
+
+    assert {:error, :invalid_correction} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "resource",
+               "target_id" => "private_reserve",
+               "expected_revision" => options.revision,
+               "reason" => "Try to reach an unlisted resource.",
+               "values" => %{"value" => "0"}
+             })
+
+    assert {:error, :invalid_value} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "resource",
+               "target_id" => "wine_stock",
+               "expected_revision" => options.revision,
+               "reason" => "A quantity must be a whole number.",
+               "values" => %{"value" => "twelve"}
+             })
+
+    assert {:ok, receipt} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "resource",
+               "target_id" => "wine_stock",
+               "expected_revision" => options.revision,
+               "reason" => "A cellar check found seven bottles.",
+               "values" => %{"value" => "7"}
+             })
+
+    audit = Repo.get_by!(CanonCorrection, campaign_id: campaign.id, sequence: receipt.sequence)
+    assert audit.before_state["value"] == 12
+    assert audit.after_state["value"] == 7
+
+    assert Repo.get_by!(PanelField, campaign_id: campaign.id, key: "wine_stock").value == %{
+             "value" => 7
+           }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.event_sequence == 0
+    assert state.elapsed_world_minutes == 0
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+  end
+
+  test "location corrections use only public people and places and do not create travel time" do
+    {campaign, session} = play_campaign("The Vineyard Map")
+    finca = establish_starting_place!(campaign, "Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    hidden_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "sealed-room",
+          name: "Sealed room",
+          visibility: :gm_private,
+          facts: %{}
+        })
+      )
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:hidden",
+        name: "Hidden keeper",
+        role: :gm,
+        current_place_id: hidden_place.place_id
+      })
+    )
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        gm_private_state:
+          Map.put(state.gm_private_state, "inventory", [
+            %{
+              "id" => "hidden-ledger-key",
+              "name" => "Hidden ledger key",
+              "quantity" => 1,
+              "owner_id" => "npc:hidden",
+              "visibility" => "gm_private",
+              "properties" => %{}
+            }
+          ])
+      })
+    )
+
+    assert {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+    assert Enum.map(options.places, & &1.id) == ["bodega", finca.place_id]
+    assert Enum.map(options.characters, & &1.id) == ["player", "npc:lyra"]
+    refute Jason.encode!(options) =~ "Hidden ledger key"
+    refute Jason.encode!(options) =~ "sealed-room"
+
+    before_state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:error, :not_found} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "location",
+               "target_id" => "npc:hidden",
+               "expected_revision" => options.revision,
+               "reason" => "Hidden characters are not selectable.",
+               "values" => %{"place_id" => bodega.place_id}
+             })
+
+    assert {:ok, receipt} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "location",
+               "target_id" => "npc:lyra",
+               "expected_revision" => options.revision,
+               "reason" => "The keeper remained at the Finca.",
+               "values" => %{"place_id" => bodega.place_id}
+             })
+
+    audit = Repo.get_by!(CanonCorrection, campaign_id: campaign.id, sequence: receipt.sequence)
+    assert audit.before_state["place_id"] == finca.place_id
+    assert audit.after_state["place_id"] == bodega.place_id
+    assert Repo.get_by!(Character, id: lyra.id).current_place_id == bodega.place_id
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.revision == before_state.revision + 1
+    assert state.event_sequence == before_state.event_sequence
+    assert state.elapsed_world_minutes == before_state.elapsed_world_minutes
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    {:ok, next_session} =
+      Campaigns.start_session(Campaigns.get_campaign!(campaign.id), %{title: "A later visit"})
+
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "corrected-location-context",
+               "Look around.",
+               provider: fn request ->
+                 Agent.update(captured_context, fn _ -> decode_request(request) end)
+
+                 {:ok,
+                  Jason.encode!(
+                    ordinary_proposal(%{
+                      "dialogue" => [],
+                      "activities" => [],
+                      "character_updates" => []
+                    })
+                  )}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(captured_context, & &1)
+    corrected_character = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:lyra"))
+    assert corrected_character["current_place_id"] == bodega.place_id
+  end
+
+  test "canon corrections reject stale forms and any unresolved game master turn" do
+    {campaign, session} = play_campaign("The Stale Ledger")
+    assert {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+
+    assert {:error, :stale_correction} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "inventory",
+               "expected_revision" => options.revision + 1,
+               "reason" => "A stale view must not overwrite the current state.",
+               "values" => %{
+                 "action" => "add",
+                 "name" => "Test item",
+                 "quantity" => "1",
+                 "owner_id" => "player"
+               }
+             })
+
+    turn =
+      Repo.insert!(
+        Turn.changeset(%Turn{}, %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          idempotency_key: "correction-open-turn",
+          request_hash: String.duplicate("a", 64),
+          player_input: "I am still waiting for the GM.",
+          status: :pending,
+          resolution_phase: :initial,
+          attempts: 0
+        })
+      )
+
+    assert {:error, :turn_in_progress} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "inventory",
+               "expected_revision" => options.revision,
+               "reason" => "Do not change context while the GM works.",
+               "values" => %{
+                 "action" => "add",
+                 "name" => "Test item",
+                 "quantity" => "1",
+                 "owner_id" => "player"
+               }
+             })
+
+    assert Repo.get!(Turn, turn.id).status == :pending
+    assert Repo.aggregate(CanonCorrection, :count) == 0
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+  end
 
   @tag :privacy_guard
   test "rejects exact GM-private facts in public narration before appending events" do

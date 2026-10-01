@@ -4,6 +4,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   alias Storyteller.Auth.OAuth
   alias Storyteller.Campaigns
   alias Storyteller.Play
+  alias Storyteller.Play.CanonCorrections
 
   @poll_interval 1_500
   @turn_in_progress [:pending, :resolving]
@@ -56,7 +57,11 @@ defmodule StorytellerWeb.SessionLive.Show do
             worker_monitor_ref: nil,
             worker_tag: nil,
             worker_attempt: nil,
-            poll_scheduled?: false
+            poll_scheduled?: false,
+            correction_options: nil,
+            correction_receipts: [],
+            correction_form: %{"kind" => "inventory", "action" => "add", "owner_id" => "player"},
+            correction_error: nil
           )
 
         case Play.initialize_campaign(session.campaign) do
@@ -88,6 +93,64 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   def handle_event("change-input", _params, socket), do: {:noreply, socket}
+
+  def handle_event("change-correction-form", %{"correction" => params}, socket)
+      when is_map(params) do
+    options = socket.assigns.correction_options || %{}
+    previous = socket.assigns.correction_form
+
+    form =
+      params
+      |> Map.put_new("kind", "inventory")
+      |> Map.put_new("action", "add")
+      |> maybe_fill_correction_default(previous, options)
+
+    {:noreply, assign(socket, correction_form: form, correction_error: nil)}
+  end
+
+  def handle_event("change-correction-form", _params, socket), do: {:noreply, socket}
+
+  def handle_event("save-canon-correction", %{"correction" => params}, socket)
+      when is_map(params) do
+    values = Map.take(params, ~w(action name quantity unit owner_id value place_id))
+
+    attrs = %{
+      "kind" => Map.get(params, "kind"),
+      "target_id" => Map.get(params, "target_id"),
+      "expected_revision" => Map.get(params, "expected_revision"),
+      "reason" => Map.get(params, "reason"),
+      "values" => values
+    }
+
+    case CanonCorrections.correct(
+           socket.assigns.session.campaign_id,
+           socket.assigns.session.id,
+           attrs
+         ) do
+      {:ok, _receipt} ->
+        socket =
+          socket
+          |> assign(
+            correction_form: default_correction_form(),
+            correction_error: nil
+          )
+          |> refresh_game()
+          |> put_flash(:info, gettext("Correction saved outside the story."))
+
+        {:noreply, socket}
+
+      {:error, reason} ->
+        {:noreply,
+         assign(socket,
+           correction_form: params,
+           correction_error: correction_error_message(reason)
+         )}
+    end
+  end
+
+  def handle_event("save-canon-correction", _params, socket) do
+    {:noreply, assign(socket, correction_error: gettext("The correction could not be saved."))}
+  end
 
   def handle_event("select-mode", %{"mode" => mode}, socket) do
     case interaction_mode(mode) do
@@ -842,6 +905,16 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp refresh_game(socket) do
     campaign_id = socket.assigns.session.campaign_id
 
+    correction_options =
+      if playable?(socket.assigns.session) do
+        case CanonCorrections.options(campaign_id, socket.assigns.session.id) do
+          {:ok, options} -> options
+          _ -> nil
+        end
+      end
+
+    correction_receipts = CanonCorrections.list_receipts(campaign_id)
+
     with {:ok, projection} <- Play.public_projection(campaign_id),
          {:ok, %{events: recent_events, has_earlier?: has_earlier?}} <-
            Play.public_story_timeline_page(campaign_id, limit: @timeline_page_size) do
@@ -859,6 +932,8 @@ defmodule StorytellerWeb.SessionLive.Show do
       socket =
         assign(socket,
           projection: projection,
+          correction_options: correction_options,
+          correction_receipts: correction_receipts,
           player_character: Enum.find(projection.characters, &(&1.speaker_id == "player")),
           characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
           timeline: timeline,
@@ -1091,6 +1166,110 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp playable?(session) do
     session.status == :active and session.campaign.status == :active
+  end
+
+  defp default_correction_form do
+    %{"kind" => "inventory", "action" => "add", "owner_id" => "player"}
+  end
+
+  defp maybe_fill_correction_default(params, previous, options) do
+    inventory_item_changed? =
+      params["kind"] == "inventory" and params["action"] == "set" and
+        not is_nil(params["target_id"]) and
+        (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"] or
+           params["action"] != previous["action"])
+
+    resource_changed? =
+      params["kind"] == "resource" and not is_nil(params["target_id"]) and
+        (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"])
+
+    cond do
+      inventory_item_changed? ->
+        case Enum.find(options[:inventory] || [], &(&1.id == params["target_id"])) do
+          nil -> params
+          item -> Map.put(params, "quantity", to_string(item.quantity))
+        end
+
+      resource_changed? ->
+        case Enum.find(options[:resources] || [], &(&1.key == params["target_id"])) do
+          nil -> params
+          field -> Map.put(params, "value", correction_value(field.value))
+        end
+
+      true ->
+        params
+    end
+  end
+
+  defp correction_value(nil), do: ""
+  defp correction_value(value) when is_binary(value), do: value
+  defp correction_value(value) when is_number(value), do: to_string(value)
+  defp correction_value(value), do: inspect(value)
+
+  defp correction_error_message(:stale_correction),
+    do:
+      gettext(
+        "The campaign changed while this correction was open. Review the current state and try again."
+      )
+
+  defp correction_error_message(:turn_in_progress),
+    do:
+      gettext("Wait for the current game master turn to finish before correcting campaign state.")
+
+  defp correction_error_message(:invalid_reason),
+    do: gettext("Add a short reason for this correction.")
+
+  defp correction_error_message(:no_change),
+    do: gettext("That detail already has this value. Choose a different correction.")
+
+  defp correction_error_message(:not_found),
+    do: gettext("That tracked detail is no longer available to correct.")
+
+  defp correction_error_message(:invalid_value),
+    do: gettext("Check the correction values and try again.")
+
+  defp correction_error_message(_reason),
+    do: gettext("The correction could not be saved. Refresh and try again.")
+
+  defp correction_kind_label("inventory"), do: gettext("Inventory")
+  defp correction_kind_label("resource"), do: gettext("Tracked resource")
+  defp correction_kind_label("location"), do: gettext("Character location")
+  defp correction_kind_label(kind), do: kind
+
+  defp correction_receipt_value("inventory", %{name: name, quantity: quantity, unit: unit}) do
+    inventory_correction_label(%{name: name, quantity: quantity, unit: unit})
+  end
+
+  defp correction_receipt_value("inventory", _item), do: gettext("Not recorded")
+
+  defp correction_receipt_value("resource", %{value: value, unit: unit}) do
+    value = correction_value(value)
+    if unit, do: "#{value} #{unit}", else: value
+  end
+
+  defp correction_receipt_value("location", %{place_name: name}) when is_binary(name), do: name
+  defp correction_receipt_value("location", _place), do: gettext("Unrecorded location")
+  defp correction_receipt_value(_kind, _snapshot), do: gettext("Not recorded")
+
+  defp correction_owner_label(%{id: "party"}), do: gettext("Party")
+  defp correction_owner_label(%{name: name}), do: name
+
+  defp inventory_correction_label(item) do
+    quantity = to_string(item.quantity)
+    unit = if item.unit, do: " #{item.unit}", else: ""
+    "#{item.name} · #{quantity}#{unit}"
+  end
+
+  defp resource_correction_label(field) do
+    unit = if field.unit, do: " (#{field.unit})", else: ""
+    "#{field.panel} · #{field.label}#{unit}"
+  end
+
+  defp correction_inputmode(target_id, resources) do
+    case Enum.find(resources, &(&1.key == target_id)) do
+      %{type: type} when type in [:quantity, :money] -> "decimal"
+      _ -> "text"
+    end
   end
 
   defp blocking_turn?(%{intent: :opening_scene}), do: true

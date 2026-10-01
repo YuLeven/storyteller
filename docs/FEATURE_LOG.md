@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-01 — Correct tracked public canon without rewriting play
+
+- Added an out-of-character correction panel to the active session for repairing a public inventory item, a typed public campaign resource, or a character's known public location. Each change requires a reason and shows a concise receipt outside the story timeline with its target and before/after values.
+- Corrections apply atomically to canonical state and create a separate durable audit record with target, before/after snapshot, expected revision, and reason. They do not add story events or advance game time. Subsequent sessions and GM context use the corrected records.
+- The form offers only player-safe public targets; hidden locations and GM-private records do not leak through target options or audit snapshots. Revision checks reject stale forms, and corrections are refused during pending, resolving, or awaiting-roll turns to prevent races with prebuilt GM context. A failed turn remains correctable before retry.
+- Campaign backup schema v6 exports and validates correction audit records while preserving v1-v5 import compatibility. The additive `20261001000300` migration is covered by the isolated test database; the development database was not migrated.
+- **Checks:** full WSL suite **288 tests, 0 failures**; focused receipt LiveView test passed; JavaScript tests **13/13**; asset build, `mix format --check-formatted`, `mix compile --warnings-as-errors`, Gettext extraction freshness, and `git diff --check` passed. Automated tests use `storyteller_test` and fake providers. The separate investigation could not load QA campaign 35/session 36 because the development DB has the new migration pending, so no additional live retry was made.
+
 ## 2026-10-01 — Product goal: algorithmic continuity within a deliberate token budget
 
 - Recorded the user's market-research insight as a defining MVP goal: campaign coherence must come from Storyteller's durable, validated world model, not from asking the GM model to remember an ever-growing chat transcript. The forty-minute Finca–Bodega journey remains the concrete acceptance scenario: staff cannot be casually present across town unless modeled movement or another established contact explains it.

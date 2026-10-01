@@ -52,7 +52,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, Event, Objective, Place, State, Turn}
+  alias Storyteller.Play.{CanonCorrections, Character, Event, Objective, Place, State, Turn}
   alias Storyteller.Repo
   alias Storyteller.Settings
   alias StorytellerWeb.SessionLiveTest.FakeProvider
@@ -89,6 +89,67 @@ defmodule StorytellerWeb.SessionLiveTest do
     end)
 
     :ok
+  end
+
+  test "tracked state correction is out-of-character and does not add a story event", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        panel_fields: [
+          %{
+            key: "wine_stock",
+            panel: "Cellar",
+            label: "Wine in storage",
+            value_type: "quantity",
+            unit: "bottles",
+            visibility: "public",
+            initial_value: "12"
+          }
+        ]
+      })
+
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#canon-corrections")
+    refute has_element?(view, "#canon-corrections[open]")
+    assert has_element?(view, "#campaign-fields", "12")
+
+    before_events = Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence)
+    {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+
+    view
+    |> form("#canon-correction-form", %{"correction" => %{"kind" => "resource"}})
+    |> render_change()
+
+    assert has_element?(view, "#correction-resource-value")
+
+    correction = %{
+      "kind" => "resource",
+      "target_id" => "wine_stock",
+      "value" => "7",
+      "reason" => "The cellar ledger was counted again.",
+      "expected_revision" => Integer.to_string(options.revision)
+    }
+
+    view
+    |> form("#canon-correction-form", %{"correction" => correction})
+    |> render_change()
+
+    view
+    |> form("#canon-correction-form", %{"correction" => correction})
+    |> render_submit()
+
+    assert has_element?(view, "#campaign-fields", "7")
+    assert has_element?(view, "#recent-canon-corrections", "The cellar ledger was counted again.")
+    assert has_element?(view, "#recent-canon-corrections", "Wine in storage")
+    assert has_element?(view, "#recent-canon-corrections", "12 bottles")
+    assert has_element?(view, "#recent-canon-corrections", "7 bottles")
+    refute has_element?(view, "#story-live-timeline", "The cellar ledger was counted again.")
+
+    assert Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence) ==
+             before_events
   end
 
   test "campaign premise stays available as a collapsed in-play reference", %{conn: conn} do

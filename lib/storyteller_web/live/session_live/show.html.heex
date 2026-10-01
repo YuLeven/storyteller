@@ -1027,6 +1027,363 @@
         </section>
 
         <details
+          :if={playable?(@session) && @correction_options}
+          id="canon-corrections"
+          class="play-sidebar-section rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
+        >
+          <summary class="cursor-pointer list-none rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
+            <span class="block text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+              {gettext("Campaign care")}
+            </span>
+            <span class="mt-0.5 block text-base font-semibold text-stone-950">
+              {gettext("Correct tracked state")}
+            </span>
+          </summary>
+          <p class="mt-2 text-sm leading-5 text-stone-600">
+            {gettext(
+              "Fix a tracked detail out of character. The correction is audited and does not add to the story or move game time."
+            )}
+          </p>
+          <.form
+            for={%{}}
+            as={:correction}
+            id="canon-correction-form"
+            phx-change="change-correction-form"
+            phx-submit="save-canon-correction"
+            class="mt-4 space-y-3 border-t border-stone-100 pt-4"
+          >
+            <input
+              type="hidden"
+              name="correction[expected_revision]"
+              value={@correction_options.revision}
+            />
+            <div>
+              <label for="correction-kind" class="block text-sm font-medium text-stone-800">
+                {gettext("What needs correcting?")}
+              </label>
+              <select
+                id="correction-kind"
+                name="correction[kind]"
+                class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+              >
+                <option value="inventory" selected={@correction_form["kind"] == "inventory"}>
+                  {gettext("Inventory")}
+                </option>
+                <option value="resource" selected={@correction_form["kind"] == "resource"}>
+                  {gettext("Tracked resource")}
+                </option>
+                <option value="location" selected={@correction_form["kind"] == "location"}>
+                  {gettext("Character location")}
+                </option>
+              </select>
+            </div>
+
+            <div :if={@correction_form["kind"] == "inventory"} class="space-y-3">
+              <div>
+                <label
+                  for="correction-inventory-action"
+                  class="block text-sm font-medium text-stone-800"
+                >
+                  {gettext("Inventory change")}
+                </label>
+                <select
+                  id="correction-inventory-action"
+                  name="correction[action]"
+                  class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                >
+                  <option value="add" selected={@correction_form["action"] == "add"}>
+                    {gettext("Add a missing item")}
+                  </option>
+                  <option value="set" selected={@correction_form["action"] == "set"}>
+                    {gettext("Correct quantity or owner")}
+                  </option>
+                  <option value="remove" selected={@correction_form["action"] == "remove"}>
+                    {gettext("Remove an item that is not there")}
+                  </option>
+                </select>
+              </div>
+              <div :if={@correction_form["action"] in ["set", "remove"]}>
+                <label for="correction-item" class="block text-sm font-medium text-stone-800">
+                  {gettext("Item")}
+                </label>
+                <select
+                  id="correction-item"
+                  name="correction[target_id]"
+                  class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                >
+                  <option value="" selected={is_nil(@correction_form["target_id"])}>
+                    {gettext("Choose an item")}
+                  </option>
+                  <option
+                    :for={item <- @correction_options.inventory}
+                    value={item.id}
+                    selected={@correction_form["target_id"] == item.id}
+                  >
+                    {inventory_correction_label(item)}
+                  </option>
+                </select>
+              </div>
+              <div :if={@correction_form["action"] == "add"} class="grid gap-3 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                  <label
+                    for="correction-item-name"
+                    class="block text-sm font-medium text-stone-800"
+                  >
+                    {gettext("Item name")}
+                  </label>
+                  <input
+                    id="correction-item-name"
+                    name="correction[name]"
+                    value={@correction_form["name"]}
+                    maxlength="160"
+                    class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                  />
+                </div>
+                <div>
+                  <label
+                    for="correction-item-quantity"
+                    class="block text-sm font-medium text-stone-800"
+                  >
+                    {gettext("Quantity")}
+                  </label>
+                  <input
+                    id="correction-item-quantity"
+                    name="correction[quantity]"
+                    type="number"
+                    min="1"
+                    max="1000000"
+                    value={@correction_form["quantity"]}
+                    class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                  />
+                </div>
+                <div>
+                  <label
+                    for="correction-item-unit"
+                    class="block text-sm font-medium text-stone-800"
+                  >
+                    {gettext("Unit, if useful")}
+                  </label>
+                  <input
+                    id="correction-item-unit"
+                    name="correction[unit]"
+                    value={@correction_form["unit"]}
+                    maxlength="80"
+                    class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                  />
+                </div>
+                <div class="sm:col-span-2">
+                  <label
+                    for="correction-item-owner"
+                    class="block text-sm font-medium text-stone-800"
+                  >
+                    {gettext("Held by")}
+                  </label>
+                  <select
+                    id="correction-item-owner"
+                    name="correction[owner_id]"
+                    class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                  >
+                    <option
+                      :for={owner <- @correction_options.owners}
+                      value={owner.id}
+                      selected={@correction_form["owner_id"] == owner.id}
+                    >
+                      {correction_owner_label(owner)}
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <div
+                :if={
+                  @correction_form["kind"] == "inventory" && @correction_form["action"] == "set"
+                }
+                class="space-y-3"
+              >
+                <div>
+                  <label
+                    for="correction-item-set-quantity"
+                    class="block text-sm font-medium text-stone-800"
+                  >
+                    {gettext("Corrected quantity (zero removes it)")}
+                  </label>
+                  <input
+                    id="correction-item-set-quantity"
+                    name="correction[quantity]"
+                    type="number"
+                    min="0"
+                    max="1000000"
+                    value={@correction_form["quantity"]}
+                    class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                  />
+                </div>
+                <div>
+                  <label
+                    for="correction-item-set-owner"
+                    class="block text-sm font-medium text-stone-800"
+                  >
+                    {gettext("Correct owner, if needed")}
+                  </label>
+                  <select
+                    id="correction-item-set-owner"
+                    name="correction[owner_id]"
+                    class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                  >
+                    <option value="">{gettext("Keep current owner")}</option>
+                    <option :for={owner <- @correction_options.owners} value={owner.id}>
+                      {correction_owner_label(owner)}
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <p :if={@correction_form["action"] == "remove"} class="text-sm text-amber-900">
+                {gettext("This removes the selected item from tracked inventory immediately.")}
+              </p>
+            </div>
+
+            <div :if={@correction_form["kind"] == "resource"} class="space-y-3">
+              <div>
+                <label for="correction-resource" class="block text-sm font-medium text-stone-800">
+                  {gettext("Tracked detail")}
+                </label>
+                <select
+                  id="correction-resource"
+                  name="correction[target_id]"
+                  class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                >
+                  <option value="" selected={is_nil(@correction_form["target_id"])}>
+                    {gettext("Choose a tracked detail")}
+                  </option>
+                  <option
+                    :for={field <- @correction_options.resources}
+                    value={field.key}
+                    selected={@correction_form["target_id"] == field.key}
+                  >
+                    {resource_correction_label(field)}
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label
+                  for="correction-resource-value"
+                  class="block text-sm font-medium text-stone-800"
+                >
+                  {gettext("Correct value")}
+                </label>
+                <input
+                  id="correction-resource-value"
+                  name="correction[value]"
+                  value={@correction_form["value"]}
+                  inputmode={
+                    correction_inputmode(
+                      @correction_form["target_id"],
+                      @correction_options.resources
+                    )
+                  }
+                  class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                />
+              </div>
+            </div>
+
+            <div :if={@correction_form["kind"] == "location"} class="space-y-3">
+              <div>
+                <label for="correction-character" class="block text-sm font-medium text-stone-800">
+                  {gettext("Character")}
+                </label>
+                <select
+                  id="correction-character"
+                  name="correction[target_id]"
+                  class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                >
+                  <option value="" selected={is_nil(@correction_form["target_id"])}>
+                    {gettext("Choose a character")}
+                  </option>
+                  <option
+                    :for={character <- @correction_options.characters}
+                    value={character.id}
+                    selected={@correction_form["target_id"] == character.id}
+                  >
+                    {character.name}
+                  </option>
+                </select>
+              </div>
+              <div>
+                <label for="correction-place" class="block text-sm font-medium text-stone-800">
+                  {gettext("Correct location")}
+                </label>
+                <select
+                  id="correction-place"
+                  name="correction[place_id]"
+                  class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+                >
+                  <option value="" selected={is_nil(@correction_form["place_id"])}>
+                    {gettext("Choose a known place")}
+                  </option>
+                  <option
+                    :for={place <- @correction_options.places}
+                    value={place.id}
+                    selected={@correction_form["place_id"] == place.id}
+                  >
+                    {place.name}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label for="correction-reason" class="block text-sm font-medium text-stone-800">
+                {gettext("Reason")}
+              </label>
+              <textarea
+                id="correction-reason"
+                name="correction[reason]"
+                rows="2"
+                maxlength="1000"
+                required
+                class="mt-1 block w-full rounded-lg border-stone-300 text-sm focus:border-amber-700 focus:ring-amber-700"
+              >{@correction_form["reason"]}</textarea>
+              <p class="mt-1 text-xs leading-5 text-stone-500">
+                {gettext("Saved with the audit record, outside the campaign story.")}
+              </p>
+            </div>
+            <p :if={@correction_error} role="alert" class="text-sm font-medium text-rose-700">
+              {@correction_error}
+            </p>
+            <button
+              type="submit"
+              disabled={blocking_turn?(@current_turn)}
+              class="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >{gettext("Save correction")}</button>
+          </.form>
+          <details
+            :if={@correction_receipts != []}
+            id="recent-canon-corrections"
+            class="mt-4 border-t border-stone-100 pt-3"
+          >
+            <summary class="cursor-pointer text-sm font-semibold text-stone-700">
+              {gettext("Recent corrections")}
+            </summary>
+            <ol class="mt-2 space-y-2">
+              <li :for={receipt <- @correction_receipts} class="rounded-lg bg-stone-50 px-3 py-2">
+                <p class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                  {correction_kind_label(receipt.kind)}
+                </p>
+                <p :if={receipt.target_label} class="mt-1 text-sm font-medium text-stone-800">
+                  {receipt.target_label}
+                </p>
+                <p class="mt-1 text-xs leading-5 text-stone-600">
+                  <span class="font-medium">{gettext("Before")}</span>
+                  {correction_receipt_value(receipt.kind, receipt.before)}
+                  <span class="px-1 text-stone-400">→</span>
+                  <span class="font-medium">{gettext("After")}</span>
+                  {correction_receipt_value(receipt.kind, receipt.after)}
+                </p>
+                <p class="mt-1 whitespace-pre-wrap text-sm text-stone-700">{receipt.reason}</p>
+              </li>
+            </ol>
+          </details>
+        </details>
+
+        <details
           id="campaign-characters"
           phx-hook="PanelPulse"
           data-panel-change-message={gettext("Characters updated")}

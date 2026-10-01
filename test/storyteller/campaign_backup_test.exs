@@ -12,6 +12,8 @@ defmodule Storyteller.CampaignBackupTest do
   alias Storyteller.Play
 
   alias Storyteller.Play.{
+    CanonCorrection,
+    CanonCorrections,
     Character,
     ContinuityEntry,
     Event,
@@ -137,6 +139,17 @@ defmodule Storyteller.CampaignBackupTest do
              )
 
     assert second_turn.status == :completed
+
+    assert {:ok, correction_options} = CanonCorrections.options(campaign.id, second_session.id)
+
+    assert {:ok, _resource_correction} =
+             CanonCorrections.correct(campaign.id, second_session.id, %{
+               "kind" => "resource",
+               "target_id" => "wine_stock",
+               "expected_revision" => correction_options.revision,
+               "reason" => "A physical count found seven barrels.",
+               "values" => %{"value" => "7"}
+             })
 
     pending_turn =
       Repo.insert!(
@@ -272,7 +285,9 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 5
+    assert document["schema_version"] == 6
+    assert length(document["canon_corrections"]) == 1
+    assert hd(document["canon_corrections"])["after_state"]["value"] == 7
     assert document["campaign"]["title"] == campaign.title
     assert document["campaign"]["player_character_name"] == "Mira Vale"
     assert document["campaign"]["player_character"] == campaign.player_character
@@ -326,6 +341,19 @@ defmodule Storyteller.CampaignBackupTest do
              end)
 
     assert Enum.map(imported_corrections, & &1.contains_private_changes) == [false, true]
+
+    imported_canon_corrections =
+      Repo.all(
+        from(correction in CanonCorrection,
+          where: correction.campaign_id == ^imported.id,
+          order_by: [asc: correction.sequence]
+        )
+      )
+
+    assert Enum.map(imported_canon_corrections, &{&1.sequence, &1.kind, &1.reason}) ==
+             Enum.map(document["canon_corrections"], fn correction ->
+               {correction["sequence"], correction["kind"], correction["reason"]}
+             end)
 
     imported_player = Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "player")
     assert imported_player.name == "Mira Vale"
@@ -435,7 +463,8 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 6),
+          Map.put(decoded, "schema_version", 7),
+          Map.put(decoded, "canon_corrections", [%{"sequence" => 1}]),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
           put_in(decoded, ["campaign", "status"], "suspended"),
@@ -544,6 +573,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     legacy_document = Map.delete(legacy_document, "authoring_corrections")
     legacy_document = Map.delete(legacy_document, "place_connections")
+    legacy_document = Map.delete(legacy_document, "canon_corrections")
 
     assert {:ok, legacy_import} = CampaignBackup.import(Jason.encode!(legacy_document))
     assert Play.get_turn(legacy_import.id, turn.idempotency_key).intent == :action
@@ -573,7 +603,7 @@ defmodule Storyteller.CampaignBackupTest do
            ) == 0
   end
 
-  test "round-trips failure stages in version five and imports versions two through four" do
+  test "round-trips failure stages in version six and imports versions two through five" do
     campaign = campaign_fixture()
     [session] = campaign.sessions
     raw_model_output = "RAW-MODEL-OUTPUT-SENTINEL"
@@ -596,7 +626,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 5
+    assert document["schema_version"] == 6
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -605,12 +635,20 @@ defmodule Storyteller.CampaignBackupTest do
     imported_turn = Play.get_turn(imported.id, failed.idempotency_key)
     assert imported_turn.failure_stage == :response_decoding
 
-    # Version four had connections and failure stages, but no elapsed clock.
-    v4_document = %{
-      document
-      | "schema_version" => 4,
-        "state" => drop_elapsed_clock(document["state"])
-    }
+    # Version five had the elapsed clock but no state-correction audit records.
+    v5_document =
+      Map.drop(%{document | "schema_version" => 5}, ["canon_corrections"])
+
+    assert {:ok, imported_v5} = CampaignBackup.import(Jason.encode!(v5_document))
+    imported_v5_state = Repo.get_by!(State, campaign_id: imported_v5.id)
+    assert imported_v5_state.elapsed_world_minutes == document["state"]["elapsed_world_minutes"]
+
+    # Version four had connections and failure stages, but no elapsed clock or canon corrections.
+    v4_document =
+      Map.drop(
+        %{document | "schema_version" => 4, "state" => drop_elapsed_clock(document["state"])},
+        ["canon_corrections"]
+      )
 
     assert {:ok, imported_v4} = CampaignBackup.import(Jason.encode!(v4_document))
     imported_v4_state = Repo.get_by!(State, campaign_id: imported_v4.id)
@@ -622,7 +660,7 @@ defmodule Storyteller.CampaignBackupTest do
     v3_document =
       Map.drop(
         %{document | "schema_version" => 3, "state" => drop_elapsed_clock(document["state"])},
-        ["place_connections"]
+        ["place_connections", "canon_corrections"]
       )
 
     assert {:ok, imported_v3} = CampaignBackup.import(Jason.encode!(v3_document))
@@ -643,7 +681,7 @@ defmodule Storyteller.CampaignBackupTest do
             "state" => drop_elapsed_clock(document["state"]),
             "turns" => Enum.map(document["turns"], &Map.delete(&1, "failure_stage"))
         },
-        ["place_connections"]
+        ["place_connections", "canon_corrections"]
       )
 
     assert {:ok, imported_v2} = CampaignBackup.import(Jason.encode!(v2_document))
