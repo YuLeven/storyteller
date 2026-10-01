@@ -3989,6 +3989,70 @@ defmodule Storyteller.PlayTest do
     assert Enum.at(events, 0).payload["text"] == "Ask for tea."
   end
 
+  test "failed GM requests retain a fixed safe stage without provider content" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    raw_provider_text = "RAW-MODEL-OUTPUT-SENTINEL"
+    error_detail = "PRIVATE-PROVIDER-ERROR-SENTINEL"
+
+    failures = [
+      {"provider-stage", fn _request -> {:error, {:provider_error, error_detail}} end, :provider},
+      {"decode-stage", fn _request -> {:ok, raw_provider_text} end, :response_decoding},
+      {
+        "validation-stage",
+        fn _request -> {:ok, Jason.encode!(%{"narration" => ""})} end,
+        :proposal_validation
+      }
+    ]
+
+    for {key, provider, expected_stage} <- failures do
+      assert {:ok, %{status: :failed, failure_code: failure_code} = failed} =
+               Play.submit_turn(campaign.id, session.id, key, "I check the observatory.",
+                 provider: provider,
+                 model: "test-model"
+               )
+
+      assert failed.failure_stage == expected_stage
+      assert failure_code in ["provider_error", "invalid_response"]
+      refute inspect(failed) =~ raw_provider_text
+      refute inspect(failed) =~ error_detail
+    end
+  end
+
+  test "commit failures retain only the commit stage and leave the turn retryable" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+
+    Repo.query!("""
+    CREATE FUNCTION storyteller_test_reject_play_event() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'test-only commit rejection';
+    END;
+    $$
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER storyteller_test_reject_play_event
+    BEFORE INSERT ON play_events
+    FOR EACH ROW EXECUTE FUNCTION storyteller_test_reject_play_event()
+    """)
+
+    on_exit(fn ->
+      Repo.query!("DROP TRIGGER IF EXISTS storyteller_test_reject_play_event ON play_events")
+      Repo.query!("DROP FUNCTION IF EXISTS storyteller_test_reject_play_event()")
+    end)
+
+    assert {:ok,
+            %{status: :failed, failure_code: "provider_error", failure_stage: :commit} = failed} =
+             Play.submit_turn(campaign.id, session.id, "commit-stage", "I inspect the lens.",
+               provider: ordinary_provider(),
+               model: "test-model"
+             )
+
+    assert failed.failure_stage == :commit
+    assert Repo.get!(Turn, failed.id).failure_stage == :commit
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+  end
+
   test "a reclaimed resolution attempt fences a late successful provider result" do
     {campaign, session} = play_campaign("The Glass Observatory")
 

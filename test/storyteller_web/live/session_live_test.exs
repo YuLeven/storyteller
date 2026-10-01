@@ -2333,6 +2333,119 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert render(resumed) =~ "The saved action now moves the story forward."
   end
 
+  test "an exited GM task releases its claim and leaves same-view retry enabled", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    test_pid = self()
+
+    set_handler(fn _request ->
+      attempt = Agent.get_and_update(attempts, fn value -> {value, value + 1} end)
+      send(test_pid, {:monitored_gm_attempt, attempt, self()})
+
+      if attempt == 0 do
+        receive do
+          :release -> {:error, :provider_error}
+        end
+      else
+        {:ok,
+         %{
+           narration: "The saved action moves on.",
+           dialogue: [],
+           activities: [],
+           public_changes: %{},
+           private_changes: %{},
+           character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
+           roll_request: nil
+         }}
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: "I inspect the old gate."})
+    |> render_submit()
+
+    assert_receive {:monitored_gm_attempt, 0, worker_pid}, 1_000
+    Process.exit(worker_pid, :kill)
+
+    assert wait_until(fn ->
+             case Play.public_current_turn(campaign.id) do
+               %{status: :failed, failure_stage: :provider} ->
+                 has_element?(view, "#turn-error button[phx-click='retry-turn']") and
+                   not has_element?(view, "#turn-error button[phx-click='retry-turn'][disabled]")
+
+               _ ->
+                 false
+             end
+           end)
+
+    view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
+    assert_receive {:monitored_gm_attempt, 1, _worker_pid}, 1_000
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "The saved action moves on.")
+           end)
+
+    assert Play.public_current_turn(campaign.id) == nil
+  end
+
+  test "a same-view resolving turn can reclaim after its lease expires", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    test_pid = self()
+
+    set_handler(fn _request ->
+      attempt = Agent.get_and_update(attempts, fn value -> {value, value + 1} end)
+      send(test_pid, {:lease_gm_attempt, attempt, self()})
+
+      if attempt == 0 do
+        receive do
+          :release -> {:error, :provider_error}
+        end
+      else
+        {:ok,
+         %{
+           narration: "The lease was reclaimed.",
+           dialogue: [],
+           activities: [],
+           public_changes: %{},
+           private_changes: %{},
+           character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
+           roll_request: nil
+         }}
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: "I check the brass latch."})
+    |> render_submit()
+
+    assert_receive {:lease_gm_attempt, 0, _old_worker}, 1_000
+    turn = Repo.get_by!(Turn, campaign_id: campaign.id, player_input: "I check the brass latch.")
+
+    stale_at =
+      DateTime.utc_now() |> DateTime.add(-121, :second) |> DateTime.truncate(:microsecond)
+
+    Repo.update!(Turn.changeset(turn, %{resolution_started_at: stale_at}))
+
+    send(view.pid, :refresh_turn)
+    assert_receive {:lease_gm_attempt, 1, _new_worker}, 1_000
+
+    assert wait_until(fn -> has_element?(view, "#story-timeline", "The lease was reclaimed.") end),
+           "turn=#{inspect(Play.public_current_turn(campaign.id))} timeline=#{inspect(Play.public_timeline(campaign.id))}"
+
+    resolved = Repo.get!(Turn, turn.id)
+    assert resolved.status == :completed
+    assert resolved.attempts == 2
+  end
+
   test "OAuth client configuration failure gives repair guidance without a reconnect action", %{
     conn: conn
   } do

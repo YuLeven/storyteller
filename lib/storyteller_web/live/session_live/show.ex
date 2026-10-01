@@ -52,6 +52,10 @@ defmodule StorytellerWeb.SessionLive.Show do
             game_error: nil,
             turn_announcement: "",
             worker_turn_id: nil,
+            worker_pid: nil,
+            worker_monitor_ref: nil,
+            worker_tag: nil,
+            worker_attempt: nil,
             poll_scheduled?: false
           )
 
@@ -254,6 +258,7 @@ defmodule StorytellerWeb.SessionLive.Show do
         latest.session_id == socket.assigns.session.id and retryable?(latest) ->
         socket =
           socket
+          |> retire_resolution_worker(latest.id)
           |> start_resolution(latest.id)
           |> maybe_schedule_poll()
 
@@ -313,17 +318,31 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   @impl true
-  def handle_info({:turn_resolution_finished, turn_id}, socket) do
-    worker_turn_id =
-      if socket.assigns.worker_turn_id == turn_id, do: nil, else: socket.assigns.worker_turn_id
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, socket) do
+    if socket.assigns.worker_monitor_ref == ref do
+      if is_integer(socket.assigns.worker_attempt) do
+        _ =
+          Play.abandon_resolution_attempt(
+            socket.assigns.worker_turn_id,
+            socket.assigns.worker_attempt
+          )
+      end
 
-    socket =
-      socket
-      |> assign(worker_turn_id: worker_turn_id)
-      |> refresh_game()
-      |> maybe_schedule_poll()
+      socket = socket |> clear_resolution_worker() |> refresh_game()
+      socket = maybe_start_resolution(socket, socket.assigns.current_turn)
 
-    {:noreply, socket}
+      {:noreply, maybe_schedule_poll(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:turn_resolution_claimed, turn_id, worker_tag, attempt}, socket) do
+    if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag do
+      {:noreply, assign(socket, worker_attempt: attempt)}
+    else
+      {:noreply, socket}
+    end
   end
 
   attr :world, :map, required: true
@@ -951,8 +970,26 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp maybe_start_resolution(socket, turn) do
     if not socket.assigns.plan_usage_paused? and not is_nil(turn) and
          turn.session_id == socket.assigns.session.id and
-         turn.status in @turn_in_progress and playable?(socket.assigns.session) do
-      start_resolution(socket, turn.id)
+         playable?(socket.assigns.session) do
+      case turn.status do
+        :pending ->
+          start_resolution(socket, turn.id)
+
+        :resolving ->
+          if Play.resolution_lease_expired?(turn) do
+            socket
+            |> retire_resolution_worker(turn.id)
+            |> start_resolution(turn.id)
+          else
+            socket
+          end
+
+        :failed ->
+          retire_resolution_worker(socket, turn.id)
+
+        _ ->
+          socket
+      end
     else
       socket
     end
@@ -963,19 +1000,29 @@ defmodule StorytellerWeb.SessionLive.Show do
       socket
     else
       owner = self()
+      worker_tag = make_ref()
       provider = Application.get_env(:storyteller, :gm_provider, Storyteller.GM.OpenAI)
 
       case Task.start(fn ->
-             _ =
-               Play.retry_turn(turn_id,
-                 provider: provider,
-                 token_store: plan_usage_store()
-               )
-
-             send(owner, {:turn_resolution_finished, turn_id})
+             Play.retry_turn(turn_id,
+               provider: provider,
+               token_store: plan_usage_store(),
+               on_claim: fn claimed_turn_id, attempt ->
+                 send(owner, {:turn_resolution_claimed, claimed_turn_id, worker_tag, attempt})
+               end
+             )
            end) do
-        {:ok, _pid} ->
-          socket = assign(socket, worker_turn_id: turn_id)
+        {:ok, pid} ->
+          ref = Process.monitor(pid)
+
+          socket =
+            assign(socket,
+              worker_turn_id: turn_id,
+              worker_pid: pid,
+              worker_monitor_ref: ref,
+              worker_tag: worker_tag,
+              worker_attempt: nil
+            )
 
           if connected?(socket) and
                same_turn?(socket.assigns.current_turn, to_string(turn_id)) do
@@ -996,6 +1043,32 @@ defmodule StorytellerWeb.SessionLive.Show do
           socket
       end
     end
+  end
+
+  defp retire_resolution_worker(socket, turn_id) do
+    if socket.assigns.worker_turn_id == turn_id do
+      if is_pid(socket.assigns.worker_pid) and Process.alive?(socket.assigns.worker_pid) do
+        Process.exit(socket.assigns.worker_pid, :kill)
+      end
+
+      if is_reference(socket.assigns.worker_monitor_ref) do
+        Process.demonitor(socket.assigns.worker_monitor_ref, [:flush])
+      end
+
+      clear_resolution_worker(socket)
+    else
+      socket
+    end
+  end
+
+  defp clear_resolution_worker(socket) do
+    assign(socket,
+      worker_turn_id: nil,
+      worker_pid: nil,
+      worker_monitor_ref: nil,
+      worker_tag: nil,
+      worker_attempt: nil
+    )
   end
 
   defp maybe_schedule_poll(socket) do

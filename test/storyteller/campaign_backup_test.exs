@@ -234,7 +234,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 2
+    assert document["schema_version"] == 3
     assert document["campaign"]["title"] == campaign.title
     assert document["campaign"]["player_character_name"] == "Mira Vale"
     assert document["campaign"]["player_character"] == campaign.player_character
@@ -385,7 +385,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 3),
+          Map.put(decoded, "schema_version", 4),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
           put_in(decoded, ["campaign", "status"], "suspended"),
@@ -486,7 +486,7 @@ defmodule Storyteller.CampaignBackupTest do
         | "schema_version" => 1,
           "campaign" => Map.delete(document["campaign"], "player_character_name")
       }
-      | "turns" => Enum.map(document["turns"], &Map.delete(&1, "intent")),
+      | "turns" => Enum.map(document["turns"], &Map.drop(&1, ["intent", "failure_stage"])),
         "characters" => Enum.map(document["characters"], &Map.delete(&1, "voice_guidance")),
         "authoring_corrections" => nil
     }
@@ -512,6 +512,48 @@ defmodule Storyteller.CampaignBackupTest do
              :count,
              :id
            ) == 0
+  end
+
+  test "round-trips only the fixed failure stage in version three and still imports version two" do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    raw_model_output = "RAW-MODEL-OUTPUT-SENTINEL"
+
+    assert {:ok, failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "safe-failure-diagnostic",
+               "Look at the gate.",
+               provider: fn _request -> {:ok, raw_model_output} end,
+               model: "test-model"
+             )
+
+    assert failed.status == :failed
+    assert failed.failure_code == "invalid_response"
+    assert failed.failure_stage == :response_decoding
+
+    assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
+    refute backup_json =~ raw_model_output
+
+    document = Jason.decode!(backup_json)
+    assert document["schema_version"] == 3
+    [exported_turn] = document["turns"]
+    assert exported_turn["failure_code"] == "invalid_response"
+    assert exported_turn["failure_stage"] == "response_decoding"
+
+    assert {:ok, imported} = CampaignBackup.import(backup_json)
+    imported_turn = Play.get_turn(imported.id, failed.idempotency_key)
+    assert imported_turn.failure_stage == :response_decoding
+
+    v2_document = %{
+      document
+      | "schema_version" => 2,
+        "turns" => Enum.map(document["turns"], &Map.delete(&1, "failure_stage"))
+    }
+
+    assert {:ok, imported_v2} = CampaignBackup.import(Jason.encode!(v2_document))
+    assert Play.get_turn(imported_v2.id, failed.idempotency_key).failure_stage == nil
   end
 
   test "imports atomically and an enclosing rollback removes the new campaign and all children" do

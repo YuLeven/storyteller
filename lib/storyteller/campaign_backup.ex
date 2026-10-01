@@ -16,8 +16,9 @@ defmodule Storyteller.CampaignBackup do
   alias Storyteller.Repo
 
   @format "storyteller.campaign-backup"
-  @version 2
+  @version 3
   @legacy_version 1
+  @previous_version 2
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -275,6 +276,7 @@ defmodule Storyteller.CampaignBackup do
       "attempts" => turn.attempts,
       "resolution_started_at" => encode_datetime(turn.resolution_started_at),
       "failure_code" => turn.failure_code,
+      "failure_stage" => if(turn.failure_stage, do: Atom.to_string(turn.failure_stage)),
       "inserted_at" => encode_datetime(turn.inserted_at),
       "updated_at" => encode_datetime(turn.updated_at)
     }
@@ -338,7 +340,7 @@ defmodule Storyteller.CampaignBackup do
              :root
            ),
          true <- backup["format"] == @format,
-         true <- backup["schema_version"] in [@legacy_version, @version],
+         true <- backup["schema_version"] in [@legacy_version, @previous_version, @version],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
          {:ok, campaign} <- validate_campaign(backup["campaign"]),
@@ -351,7 +353,7 @@ defmodule Storyteller.CampaignBackup do
          {:ok, state} <- validate_state(backup["state"], characters),
          {:ok, panels} <- validate_panels(backup["panels"]),
          {:ok, objectives} <- validate_objectives(backup["objectives"]),
-         {:ok, turns} <- validate_turns(backup["turns"], sessions),
+         {:ok, turns} <- validate_turns(backup["turns"], sessions, backup["schema_version"]),
          :ok <- validate_open_turns(campaign, sessions, turns),
          {:ok, events} <- validate_events(backup["events"], sessions, turns),
          :ok <- validate_event_sequence(state, events),
@@ -383,7 +385,7 @@ defmodule Storyteller.CampaignBackup do
 
   defp root_backup_keys(@legacy_version), do: root_backup_keys()
 
-  defp root_backup_keys(@version),
+  defp root_backup_keys(version) when version in [@previous_version, @version],
     do: root_backup_keys() ++ ["authoring_corrections"]
 
   defp root_backup_keys(_), do: []
@@ -710,22 +712,14 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_objectives(_), do: {:error, :invalid_backup}
 
-  defp validate_turns(rows, sessions) when is_list(rows) and length(rows) <= 100_000 do
+  defp validate_turns(rows, sessions, version)
+       when is_list(rows) and length(rows) <= 100_000 do
     session_refs = MapSet.new(sessions, & &1.ref)
 
     with {:ok, turns} <-
            map_rows(rows, fn map ->
              with :ok <-
-                    exact_keys(
-                      map,
-                      if(Map.has_key?(map, "intent"),
-                        do:
-                          ~w(ref session_ref idempotency_key player_input intent status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at),
-                        else:
-                          ~w(ref session_ref idempotency_key player_input status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at)
-                      ),
-                      :turn
-                    ),
+                    exact_keys(map, turn_backup_keys(version), :turn),
                   {:ok, ref} <- reference(map["ref"], "turn"),
                   {:ok, session_ref} <- reference(map["session_ref"], "session"),
                   true <- MapSet.member?(session_refs, session_ref),
@@ -744,6 +738,11 @@ defmodule Storyteller.CampaignBackup do
                   {:ok, resolution_started_at} <-
                     parse_datetime(map["resolution_started_at"], true),
                   {:ok, failure_code} <- optional_text(map["failure_code"], 80),
+                  {:ok, failure_stage} <-
+                    optional_enum(
+                      Map.get(map, "failure_stage"),
+                      ~w(context provider response_decoding proposal_validation commit)
+                    ),
                   {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
                   {:ok, updated_at} <- parse_datetime(map["updated_at"], false) do
                {:ok,
@@ -759,6 +758,7 @@ defmodule Storyteller.CampaignBackup do
                   attempts: map["attempts"],
                   resolution_started_at: resolution_started_at,
                   failure_code: failure_code,
+                  failure_stage: failure_stage,
                   inserted_at: inserted_at,
                   updated_at: updated_at
                 }}
@@ -771,7 +771,20 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp validate_turns(_, _), do: {:error, :invalid_backup}
+  defp validate_turns(_, _, _), do: {:error, :invalid_backup}
+
+  defp turn_backup_keys(@legacy_version),
+    do:
+      ~w(ref session_ref idempotency_key player_input status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at)
+
+  defp turn_backup_keys(@previous_version),
+    do:
+      ~w(ref session_ref idempotency_key player_input intent status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at)
+
+  defp turn_backup_keys(@version), do: turn_backup_keys(@previous_version) ++ ["failure_stage"]
+
+  defp optional_enum(nil, _allowed), do: {:ok, nil}
+  defp optional_enum(value, allowed), do: enum(value, allowed)
 
   defp validate_open_turns(campaign, sessions, turns) do
     sessions_by_ref = Map.new(sessions, &{&1.ref, &1})
@@ -1173,7 +1186,8 @@ defmodule Storyteller.CampaignBackup do
         roll_request: turn.roll_request,
         attempts: attempts,
         resolution_started_at: if(interrupted?, do: nil, else: turn.resolution_started_at),
-        failure_code: failure_code
+        failure_code: failure_code,
+        failure_stage: if(interrupted?, do: nil, else: turn.failure_stage)
       }
 
       turn_struct = %Turn{inserted_at: turn.inserted_at, updated_at: turn.updated_at}

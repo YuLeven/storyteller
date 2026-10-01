@@ -9,8 +9,6 @@ defmodule Storyteller.Play do
   """
 
   import Ecto.Query, warn: false
-  require Logger
-
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
   alias Storyteller.Panels
@@ -810,7 +808,9 @@ defmodule Storyteller.Play do
           status: turn.status,
           resolution_phase: turn.resolution_phase,
           roll_request: turn.roll_request,
-          failure_code: turn.failure_code
+          failure_code: turn.failure_code,
+          failure_stage: turn.failure_stage,
+          resolution_started_at: turn.resolution_started_at
         }
     end
   end
@@ -901,6 +901,51 @@ defmodule Storyteller.Play do
   @doc "Resolves a pending/failed turn with an injected provider and selected model."
   def retry_turn(turn_id, opts \\ []), do: resolve_turn(turn_id, opts)
 
+  @doc false
+  def abandon_resolution_attempt(turn_id, attempt_token) when is_integer(attempt_token) do
+    Repo.transaction(fn ->
+      case Repo.get(Turn, turn_id) do
+        nil ->
+          Repo.rollback(:not_found)
+
+        first_read ->
+          {campaign, session} =
+            lock_campaign_session(first_read.campaign_id, first_read.session_id)
+
+          lock_state!(first_read.campaign_id)
+
+          turn =
+            Repo.one!(from candidate in Turn, where: candidate.id == ^turn_id, lock: "FOR UPDATE")
+
+          cond do
+            turn.status != :resolving or turn.attempts != attempt_token ->
+              turn
+
+            not active_scope?(campaign, session) ->
+              close_turn_for_scope!(turn, campaign, session)
+
+            true ->
+              turn
+              |> Turn.changeset(%{
+                status: :failed,
+                resolution_started_at: nil,
+                failure_code: "provider_error",
+                failure_stage: :provider
+              })
+              |> update_or_rollback!()
+          end
+      end
+    end)
+  end
+
+  @doc "Returns whether a resolving turn's 120-second claim lease has expired."
+  def resolution_lease_expired?(turn, now \\ utc_now())
+  def resolution_lease_expired?(%{resolution_started_at: nil}, _now), do: true
+
+  def resolution_lease_expired?(%{resolution_started_at: started_at}, now) do
+    DateTime.diff(now, started_at, :second) >= @resolution_lease_seconds
+  end
+
   @doc """
   Performs the explicit player D20 click. The authorization and random result are
   inserted under the campaign/turn row lock in one transaction. Replayed clicks
@@ -938,6 +983,7 @@ defmodule Storyteller.Play do
       :ok ->
         case claim_turn(turn_id) do
           {:ok, {:claimed, turn, attempt_token}} ->
+            notify_resolution_claim(opts, turn.id, attempt_token)
             resolve_claimed_turn(turn, attempt_token, opts)
 
           {:ok, {:done, turn}} ->
@@ -959,52 +1005,94 @@ defmodule Storyteller.Play do
     end
   end
 
+  defp notify_resolution_claim(opts, turn_id, attempt_token) do
+    case Keyword.get(opts, :on_claim) do
+      callback when is_function(callback, 2) ->
+        try do
+          callback.(turn_id, attempt_token)
+        rescue
+          _error -> :ok
+        catch
+          _kind, _reason -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
   defp resolve_claimed_turn(turn, attempt_token, opts) do
-    with provider when not is_nil(provider) <- provider(opts),
-         :ok <- ensure_plan_usage_allowed(opts),
-         {:ok, context} <- model_context(turn.id),
-         :ok <- ensure_plan_usage_allowed(opts),
-         {:ok, response} <- call_provider(provider, provider_request(context, opts, turn.intent)),
-         {:ok, proposal} <- decode_proposal(response),
-         {:ok, validated} <- validate_proposal(proposal, turn),
-         validated <- constrain_proposal_to_intent(validated, turn.intent) do
-      case commit_proposal(turn.id, attempt_token, validated) do
-        {:ok, committed} ->
-          {:ok, committed}
+    result =
+      with {:ok, provider} <-
+             run_resolution_stage(:provider, fn -> {:ok, provider(opts)} end),
+           provider when not is_nil(provider) <- provider,
+           {:ok, :ok} <- resolution_plan_check(opts),
+           {:ok, context} <- run_resolution_stage(:context, fn -> model_context(turn.id) end),
+           {:ok, :ok} <- resolution_plan_check(opts),
+           {:ok, response} <-
+             run_resolution_stage(:provider, fn ->
+               call_provider(provider, provider_request(context, opts, turn.intent))
+             end),
+           {:ok, proposal} <-
+             run_resolution_stage(:response_decoding, fn -> decode_proposal(response) end),
+           {:ok, validated} <-
+             run_resolution_stage(:proposal_validation, fn ->
+               with {:ok, proposal} <- validate_proposal(proposal, turn) do
+                 {:ok, constrain_proposal_to_intent(proposal, turn.intent)}
+               end
+             end) do
+        run_resolution_stage(:commit, fn -> commit_proposal(turn.id, attempt_token, validated) end)
+      else
+        nil ->
+          {:error, :model_unavailable, :provider}
 
-        {:error, :stale_attempt} ->
-          {:ok, get_turn!(turn.id)}
+        {:error, :plan_usage_paused, :provider} ->
+          latch_plan_usage(opts)
+          {:error, :usage_limit, :provider}
 
-        {:error, reason} when reason in [:campaign_unavailable, :session_unavailable] ->
-          {:ok, get_turn!(turn.id)}
+        {:error, reason, stage} ->
+          {:error, reason, stage}
 
         {:error, reason} ->
-          fail_turn(turn.id, attempt_token, normalize_failure_code(reason))
+          {:error, reason, :provider}
       end
-    else
-      nil ->
-        fail_turn(turn.id, attempt_token, :model_unavailable)
 
-      {:error, :plan_usage_paused} ->
-        latch_plan_usage(opts)
-        fail_turn(turn.id, attempt_token, :usage_limit)
+    case result do
+      {:ok, committed} ->
+        {:ok, committed}
 
-      {:error, code} ->
-        normalized = normalize_failure_code(code)
-        if normalized == :usage_limit, do: latch_plan_usage(opts)
-        fail_turn(turn.id, attempt_token, normalized)
+      {:error, :stale_attempt, _stage} ->
+        {:ok, get_turn!(turn.id)}
+
+      {:error, reason, _stage} when reason in [:campaign_unavailable, :session_unavailable] ->
+        {:ok, get_turn!(turn.id)}
+
+      {:error, reason, stage} ->
+        failure_code = normalize_failure_code(reason)
+        if failure_code == :usage_limit, do: latch_plan_usage(opts)
+        fail_turn(turn.id, attempt_token, failure_code, stage)
+    end
+  end
+
+  defp run_resolution_stage(stage, fun) do
+    case fun.() do
+      {:ok, value} -> {:ok, value}
+      {:error, reason} -> {:error, reason, stage}
+      _ -> {:error, :provider_error, stage}
     end
   rescue
-    error ->
-      Logger.warning(
-        "ChatGPT plan inference failed phase=turn_resolution exception=#{inspect(error.__struct__)}"
-      )
-
-      fail_turn(turn.id, attempt_token, :provider_error)
+    _error -> {:error, :provider_error, stage}
   catch
-    kind, _reason ->
-      Logger.warning("ChatGPT plan inference failed phase=turn_resolution_throw kind=#{kind}")
-      fail_turn(turn.id, attempt_token, :provider_error)
+    _kind, _reason -> {:error, :provider_error, stage}
+  end
+
+  defp resolution_plan_check(opts) do
+    run_resolution_stage(:provider, fn ->
+      case ensure_plan_usage_allowed(opts) do
+        :ok -> {:ok, :ok}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
   defp create_or_get_turn(campaign_id, session_id, key, input, intent) do
@@ -1132,14 +1220,20 @@ defmodule Storyteller.Play do
                 status: :resolving,
                 attempts: turn.attempts + 1,
                 resolution_started_at: now,
-                failure_code: nil
+                failure_code: nil,
+                failure_stage: nil
               })
               |> update_or_rollback!()
               |> then(&{:claimed, &1, &1.attempts})
 
             turn.status == :resolving and stale_resolution?(turn, now) ->
               turn
-              |> Turn.changeset(%{attempts: turn.attempts + 1, resolution_started_at: now})
+              |> Turn.changeset(%{
+                attempts: turn.attempts + 1,
+                resolution_started_at: now,
+                failure_code: nil,
+                failure_stage: nil
+              })
               |> update_or_rollback!()
               |> then(&{:claimed, &1, &1.attempts})
 
@@ -1191,7 +1285,8 @@ defmodule Storyteller.Play do
                        status: :pending,
                        resolution_phase: :after_roll,
                        resolution_started_at: nil,
-                       failure_code: nil
+                       failure_code: nil,
+                       failure_stage: nil
                      })
                      |> Repo.update() do
                 {updated_turn, roll}
@@ -1324,7 +1419,8 @@ defmodule Storyteller.Play do
         status: next_status,
         roll_request: proposal.roll_request,
         resolution_started_at: nil,
-        failure_code: nil
+        failure_code: nil,
+        failure_stage: nil
       }
 
       updated_turn = turn |> Turn.changeset(update_turn) |> update_or_rollback!()
@@ -4100,7 +4196,7 @@ defmodule Storyteller.Play do
 
   defp voice_guidance_context(_character), do: %{}
 
-  defp fail_turn(turn_id, attempt_token, code) do
+  defp fail_turn(turn_id, attempt_token, code, stage) do
     Repo.transaction(fn ->
       case Repo.get(Turn, turn_id) do
         nil ->
@@ -4127,7 +4223,8 @@ defmodule Storyteller.Play do
               |> Turn.changeset(%{
                 status: :failed,
                 failure_code: Atom.to_string(normalize_failure_code(code)),
-                resolution_started_at: nil
+                resolution_started_at: nil,
+                failure_stage: stage
               })
               |> update_or_rollback!()
           end
@@ -4191,7 +4288,8 @@ defmodule Storyteller.Play do
         status: :failed,
         attempts: turn.attempts + 1,
         failure_code: code,
-        resolution_started_at: nil
+        resolution_started_at: nil,
+        failure_stage: nil
       })
       |> update_or_rollback!()
     else
@@ -4199,11 +4297,7 @@ defmodule Storyteller.Play do
     end
   end
 
-  defp stale_resolution?(%Turn{resolution_started_at: nil}, _now), do: true
-
-  defp stale_resolution?(%Turn{resolution_started_at: started_at}, now) do
-    DateTime.diff(now, started_at, :second) >= @resolution_lease_seconds
-  end
+  defp stale_resolution?(turn, now), do: resolution_lease_expired?(turn, now)
 
   defp validate_submission(key, input) do
     key = if is_binary(key), do: String.trim(key), else: ""
@@ -4418,6 +4512,7 @@ defmodule Storyteller.Play do
         set: [
           status: :failed,
           failure_code: "usage_limit",
+          failure_stage: nil,
           resolution_started_at: nil,
           updated_at: utc_now()
         ]

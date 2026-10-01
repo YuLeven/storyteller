@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-09-30 — Recover abandoned GM turns and retain safe failure diagnostics
+
+- Each failed turn now retains one fixed diagnostic stage: context assembly, provider call, response decoding, proposal validation, or commit. The application stores no exception text, prompt, private context, credential, or raw model output in this field. Campaign backup schema version 3 preserves the stage while older v1/v2 backups remain importable.
+- The session LiveView monitors its GM task. If a task exits after claiming a turn, only that still-current attempt is marked as a retryable failure; stale attempts cannot overwrite a newer retry. If a worker remains resolving past its 120-second claim lease, the page can reclaim the turn with attempt fencing. This keeps retries available in the same view and avoids silently running the same player action twice.
+- **Live retry investigation:** campaign 35/session 36 turn 19 was failed with `invalid_response` at 17 attempts. A fresh page showed an enabled retry; one authorized retry preserved the saved turn, entered the responding state, and failed again at 18 attempts. The earlier record has no diagnostic stage, so its exact cause cannot be recovered. No further retry was made during the initial investigation.
+- **Competitor task benchmark:** added an official-source comparison of scene orientation, flexible inventory, canon correction, and campaign resume in [the product benchmark](PRODUCT_BENCHMARK_2026-09.md). This is desk research with explicit evidence limits, not timed or authenticated usability testing.
+- **Checks:** full WSL ExUnit suite **249 tests, 0 failures**; focused Play, SessionLive, and CampaignBackup suites passed (**55**, **39**, and **7** tests). Formatting, warnings-as-errors compilation, and `git diff --check` pass. All tests use fake providers and the isolated `storyteller_test` database; the development campaign database was not migrated or changed.
+
 ## 2026-09-30 — Keep observation replies novel and audit failed-turn retry
 
 - The GM policy now limits “look around” and “what can I see?” replies to new or specifically inspected details from the player's vantage. When there is nothing new, the GM should say so briefly and return control. The two helpful prompts now make that expectation clear in English, Spanish, and French.

@@ -26,6 +26,10 @@ defmodule Storyteller.Play.Turn do
     field :resolution_started_at, :utc_datetime_usec
     field :failure_code, :string
 
+    field :failure_stage,
+          Ecto.Enum,
+          values: [:context, :provider, :response_decoding, :proposal_validation, :commit]
+
     belongs_to :campaign, Campaign
     belongs_to :session, Session
 
@@ -46,7 +50,8 @@ defmodule Storyteller.Play.Turn do
       :roll_request,
       :attempts,
       :resolution_started_at,
-      :failure_code
+      :failure_code,
+      :failure_stage
     ])
     |> validate_required([
       :campaign_id,
