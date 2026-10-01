@@ -155,17 +155,16 @@ defmodule Storyteller.Play do
 
   WORLD AND PEOPLE: Date/time/weather have one canonical value; never use aliases
   (e.g. current_date, world_time, time_of_day, conditions). Create places before
-  moving anyone, keep stable IDs, and record every place creation/movement with
-  a grounded reason in location_changes. The player moves only to a public
+  moving anyone; keep stable IDs and record grounded place changes in
+  location_changes. The player moves only to a public
   place; change their location there, never via public_changes. Create new NPCs
   with fresh stable speaker IDs and separate visible_facts/gm_private_facts.
   When first met, introduce a new NPC with a fresh stable speaker ID and move
   them into the scene before they speak or act; nil place is not presence.
-  They may then act, speak, receive items, or be updated in that
-  same proposal; all other references use known IDs. Public NPC speech/activity
-  must come from the player's final place. A remote NPC needs accepted movement
-  or a communication path established in canon; do not assume a phone, letter,
-  or other unmodeled path. Keep private place details and presence private.
+  After placement they may act, speak, receive items or be updated; thereafter
+  use known IDs. Public NPC speech/activity must come from the player's final
+  place. Remote NPCs need movement or a canonical communication path; never
+  assume unmodeled channels. Keep private place details and presence private.
 
   TRAVEL: The supplied travel_connections graph is canon. Edges join existing
   places and have integer minutes; create/correct them only in travel_changes.
@@ -176,6 +175,9 @@ defmodule Storyteller.Play do
   time_advance_minutes, including travel; the server clamps to each character's
   summed route and uses the maximum across characters. Use private routes/relevance
   only in GM-private context. Do not place people together without valid travel.
+
+  ACTIVE DUTIES: Never move away from active_duty.place_id; only the owner may
+  edit or release a duty out of character.
 
   OBJECTIVES AND MEMORY: Objectives are commitments, public or private. Do not
   invent them or complete them from mere mention, elapsed time, or partial
@@ -347,10 +349,19 @@ defmodule Storyteller.Play do
         Enum.each(character_attrs, fn character ->
           initial_place = ensure_initial_place!(campaign.id, character.initial_location)
 
+          duty_attrs =
+            if is_binary(character.active_duty_name) and initial_place do
+              %{duty_name: character.active_duty_name, duty_place_id: initial_place.place_id}
+            else
+              %{}
+            end
+
           character
           |> Map.delete(:initial_location)
+          |> Map.delete(:active_duty_name)
           |> Map.put(:campaign_id, campaign.id)
           |> Map.put(:current_place_id, initial_place && initial_place.place_id)
+          |> Map.merge(duty_attrs)
           |> ensure_character!()
         end)
 
@@ -4511,6 +4522,7 @@ defmodule Storyteller.Play do
               Map.get(places_by_id, character.current_place_id) |> maybe_place_context()
           }
           |> Map.merge(voice_guidance_context(character))
+          |> Map.merge(active_duty_context(character, places_by_id))
         end),
       panels:
         Enum.map(panels, fn panel ->
@@ -4661,6 +4673,24 @@ defmodule Storyteller.Play do
 
   defp voice_guidance_context(_character), do: %{}
 
+  defp active_duty_context(
+         %Character{role: :gm, duty_name: name, duty_place_id: place_id},
+         places_by_id
+       )
+       when is_binary(name) and is_binary(place_id) do
+    place = Map.get(places_by_id, place_id)
+
+    %{
+      active_duty: %{
+        name: name,
+        place_id: place_id,
+        place_name: place && place.name
+      }
+    }
+  end
+
+  defp active_duty_context(_character, _places_by_id), do: %{}
+
   defp fail_turn(turn_id, attempt_token, code, stage) do
     Repo.transaction(fn ->
       case Repo.get(Turn, turn_id) do
@@ -4810,6 +4840,8 @@ defmodule Storyteller.Play do
       visible = attr(attrs, :visible_facts, %{})
       private = attr(attrs, :gm_private_facts, %{})
       voice_guidance = VoiceGuidance.normalize(attr(attrs, :voice_guidance, %{}))
+      active_duty_name = normalize_optional_duty_name(attr(attrs, :active_duty_name))
+      initial_location = attr(attrs, :initial_location) || initial_character_location(visible)
 
       cond do
         not is_map(attrs) ->
@@ -4830,6 +4862,13 @@ defmodule Storyteller.Play do
         match?({:error, _}, voice_guidance) ->
           {:halt, {:error, :invalid_character}}
 
+        match?({:error, _}, active_duty_name) ->
+          {:halt, {:error, :invalid_character}}
+
+        match?({:ok, name} when is_binary(name), active_duty_name) and
+            (not is_binary(initial_location) or String.trim(initial_location) == "") ->
+          {:halt, {:error, :invalid_character}}
+
         true ->
           character = %{
             speaker_id: speaker_id,
@@ -4838,8 +4877,8 @@ defmodule Storyteller.Play do
             visible_facts: without_character_location_facts(visible),
             gm_private_facts: without_character_location_facts(private),
             voice_guidance: elem(voice_guidance, 1),
-            initial_location:
-              attr(attrs, :initial_location) || initial_character_location(visible),
+            active_duty_name: elem(active_duty_name, 1),
+            initial_location: initial_location,
             visible_activity: attr(attrs, :visible_activity)
           }
 
@@ -4857,9 +4896,14 @@ defmodule Storyteller.Play do
 
       existing ->
         if is_nil(existing.current_place_id) and not is_nil(attrs.current_place_id) do
-          update_or_rollback!(
-            Character.changeset(existing, %{current_place_id: attrs.current_place_id})
-          )
+          duty_attrs =
+            if is_nil(existing.duty_name) and is_nil(existing.duty_place_id),
+              do: Map.take(attrs, [:duty_name, :duty_place_id]),
+              else: %{}
+
+          attrs = Map.merge(%{current_place_id: attrs.current_place_id}, duty_attrs)
+
+          update_or_rollback!(Character.changeset(existing, attrs))
         else
           existing
         end
@@ -4905,6 +4949,24 @@ defmodule Storyteller.Play do
   end
 
   defp initial_character_location(_), do: nil
+
+  defp normalize_optional_duty_name(nil), do: {:ok, nil}
+
+  defp normalize_optional_duty_name(value) when is_binary(value) do
+    if String.valid?(value) do
+      normalized = String.trim(value)
+
+      cond do
+        normalized == "" -> {:ok, nil}
+        String.length(normalized) <= 160 -> {:ok, normalized}
+        true -> {:error, :invalid_duty_name}
+      end
+    else
+      {:error, :invalid_duty_name}
+    end
+  end
+
+  defp normalize_optional_duty_name(_), do: {:error, :invalid_duty_name}
 
   defp public_place_projection(place) do
     %{

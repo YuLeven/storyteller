@@ -432,10 +432,12 @@ defmodule Storyteller.GM.ContextBudget do
               "name",
               "role",
               "current_place_id",
+              "active_duty",
               :speaker_id,
               :name,
               :role,
-              :current_place_id
+              :current_place_id,
+              :active_duty
             ])
             |> maybe_put_context("current_place", compact_place_identity(current_place))
 

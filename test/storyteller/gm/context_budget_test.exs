@@ -113,6 +113,55 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert compacted.travel_connections == context.travel_connections
   end
 
+  test "retains a remote GM character's active duty while compacting unrelated character details" do
+    context = base_context()
+
+    characters =
+      Enum.map(context.characters, fn character ->
+        if character.speaker_id == "tomas" do
+          Map.put(character, :active_duty, %{
+            name: "Keep the river bodega vats under observation",
+            place_id: "bodega",
+            place_name: "Bodega"
+          })
+        else
+          character
+        end
+      end)
+
+    history =
+      Enum.map(1..50, fn sequence ->
+        text =
+          if sequence == 5 do
+            "A bodega forty minutes from the Finca; Marisol stayed at the Finca. " <>
+              String.duplicate("specific older note ", 70)
+          else
+            "Unrelated market report #{sequence}. " <> String.duplicate("unrelated detail ", 70)
+          end
+
+        %{
+          "sequence" => sequence,
+          "session_id" => 1,
+          "event_type" => "gm_narration",
+          "visibility" => "public",
+          "speaker_id" => nil,
+          "payload" => %{"text" => text}
+        }
+      end)
+
+    context = context |> Map.put(:characters, characters) |> Map.put(:history, history)
+
+    assert {:ok, %{context: compacted, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
+               context_input_token_budget: 20_000
+             )
+
+    assert metrics.compacted?
+    tomas = Enum.find(compacted.characters, &(&1.speaker_id == "tomas"))
+    assert tomas.active_duty == Enum.find(characters, &(&1.speaker_id == "tomas")).active_duty
+    refute Map.has_key?(tomas, :gm_private_facts)
+  end
+
   test "retrieves relevant player memories without resending unrelated details under budget" do
     context = base_context()
 

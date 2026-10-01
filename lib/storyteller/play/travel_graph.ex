@@ -52,36 +52,46 @@ defmodule Storyteller.Play.TravelGraph do
         first_placement_ids \\ MapSet.new()
       ) do
     with {:ok, graph} <- normalize_connections(connections),
-         {:ok, locations} <- normalize_character_locations(characters) do
-      Enum.reduce_while(changes, {:ok, [], locations}, fn
+         {:ok, locations, active_duties} <- normalize_character_locations(characters) do
+      Enum.reduce_while(changes, {:ok, [], locations, active_duties}, fn
         %{"type" => "move_character", "speaker_id" => speaker_id, "place_id" => place_id} = move,
-        {:ok, accepted, current_locations} ->
+        {:ok, accepted, current_locations, duties} ->
           current_place_id = Map.get(current_locations, speaker_id)
           current_scene_id = Map.get(current_locations, "player", player_place_id)
 
-          case movement_duration(
-                 current_place_id,
-                 place_id,
-                 speaker_id,
-                 current_scene_id,
-                 graph,
-                 first_placement_ids
-               ) do
+          result =
+            case Map.get(duties, speaker_id) do
+              %{place_id: duty_place_id} when duty_place_id != place_id ->
+                {:error, :active_duty}
+
+              _ ->
+                movement_duration(
+                  current_place_id,
+                  place_id,
+                  speaker_id,
+                  current_scene_id,
+                  graph,
+                  first_placement_ids
+                )
+            end
+
+          case result do
             {:ok, minutes} ->
               normalized = Map.put(move, "travel_minutes", minutes)
 
               {:cont,
-               {:ok, accepted ++ [normalized], Map.put(current_locations, speaker_id, place_id)}}
+               {:ok, accepted ++ [normalized], Map.put(current_locations, speaker_id, place_id),
+                duties}}
 
             {:error, _reason} = error ->
               {:halt, error}
           end
 
-        change, {:ok, accepted, current_locations} ->
-          {:cont, {:ok, accepted ++ [change], current_locations}}
+        change, {:ok, accepted, current_locations, duties} ->
+          {:cont, {:ok, accepted ++ [change], current_locations, duties}}
       end)
       |> case do
-        {:ok, validated, locations} -> {:ok, validated, locations}
+        {:ok, validated, locations, _duties} -> {:ok, validated, locations}
         {:error, _reason} = error -> error
       end
     end
@@ -346,11 +356,33 @@ defmodule Storyteller.Play.TravelGraph do
 
       if is_binary(speaker_id) and (is_nil(place_id) or is_binary(place_id)) and
            not Map.has_key?(acc, speaker_id) do
-        {:cont, {:ok, Map.put(acc, speaker_id, place_id)}}
+        normalized = Map.put(acc, speaker_id, place_id)
+        {:cont, {:ok, normalized}}
       else
         {:halt, {:error, :invalid_characters}}
       end
     end)
+    |> case do
+      {:ok, locations} ->
+        duties =
+          characters
+          |> Enum.reduce(%{}, fn character, acc ->
+            speaker_id = get(character, :speaker_id)
+            duty_name = get(character, :duty_name)
+            duty_place_id = get(character, :duty_place_id)
+
+            if is_binary(duty_name) and duty_name != "" and is_binary(duty_place_id) do
+              Map.put(acc, speaker_id, %{name: duty_name, place_id: duty_place_id})
+            else
+              acc
+            end
+          end)
+
+        {:ok, locations, duties}
+
+      error ->
+        error
+    end
   end
 
   defp normalize_character_locations(_), do: {:error, :invalid_characters}

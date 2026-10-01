@@ -164,6 +164,73 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert detail_html =~ "A patient harbor courier who knows every island path."
   end
 
+  test "campaign editor authors a private active duty and rejects stale or in-flight changes", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Finca",
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            starting_place: "The Finca"
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+    {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    {:ok, stale_view, _stale_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    assert html =~ "Active duty (GM only, optional)"
+    assert has_element?(view, "input[name='campaign[expected_revision]']")
+
+    assignment_attrs = %{
+      correction_reason: "Elin is responsible for the evening beacon checks.",
+      expected_revision: "0",
+      character_active_duties: %{
+        "keeper-elin" => %{duty_name: "Check the evening beacon"}
+      }
+    }
+
+    html = view |> form("#campaign-edit-form", campaign: assignment_attrs) |> render_submit()
+    refute html =~ "Elin is responsible for the evening beacon checks."
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+    assert character.duty_name == "Check the evening beacon"
+    assert character.duty_place_id == character.current_place_id
+    correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
+    assert correction.contains_private_changes
+
+    stale_attrs = %{
+      correction_reason: "Try to replace the duty from an older editor tab.",
+      character_active_duties: %{
+        "keeper-elin" => %{duty_name: "Check the press room"}
+      }
+    }
+
+    stale_html =
+      stale_view |> form("#campaign-edit-form", campaign: stale_attrs) |> render_submit()
+
+    assert stale_html =~ "campaign changed while this setup was open"
+    assert Repo.get_by!(Character, id: character.id).duty_name == "Check the evening beacon"
+
+    assert {:ok, pending} =
+             Play.submit_turn(campaign.id, session.id, "edit-duty-open-turn", "Look around.")
+
+    assert pending.status == :pending
+
+    in_flight_attrs = %{
+      correction_reason: "Elin has finished the evening checks.",
+      character_active_duties: %{"keeper-elin" => %{duty_name: ""}}
+    }
+
+    in_flight_html =
+      view |> form("#campaign-edit-form", campaign: in_flight_attrs) |> render_submit()
+
+    assert in_flight_html =~ "Wait for the game master to finish the turn"
+    assert Repo.get_by!(Character, id: character.id).duty_name == "Check the evening beacon"
+  end
+
   test "editor shows public correction receipts and omits corrections with private changes", %{
     conn: conn
   } do

@@ -324,6 +324,16 @@ defmodule StorytellerWeb.CampaignLive.New do
           number: number
         )
 
+      [number, "active duty must be 160 characters or fewer."] ->
+        gettext("GM character %{number} active duty must be 160 characters or fewer.",
+          number: number
+        )
+
+      [number, "needs a starting place for an active duty."] ->
+        gettext("GM character %{number} needs a starting place for an active duty.",
+          number: number
+        )
+
       _details ->
         gettext("Campaign setup could not be validated. Review the fields and try again.")
     end

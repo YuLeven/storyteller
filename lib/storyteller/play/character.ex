@@ -16,6 +16,8 @@ defmodule Storyteller.Play.Character do
     field :voice_guidance, :map, default: %{}
     field :visible_activity, :string
     field :current_place_id, :string
+    field :duty_name, :string
+    field :duty_place_id, :string
 
     belongs_to :campaign, Campaign
 
@@ -33,7 +35,9 @@ defmodule Storyteller.Play.Character do
       :gm_private_facts,
       :voice_guidance,
       :visible_activity,
-      :current_place_id
+      :current_place_id,
+      :duty_name,
+      :duty_place_id
     ])
     |> validate_required([:campaign_id, :speaker_id, :name, :role])
     |> validate_length(:speaker_id, min: 1, max: 100)
@@ -45,10 +49,15 @@ defmodule Storyteller.Play.Character do
     |> validate_voice_guidance()
     |> validate_length(:current_place_id, max: 100)
     |> validate_format(:current_place_id, ~r/\A[a-zA-Z0-9:_-]+\z/)
+    |> validate_active_duty()
     |> foreign_key_constraint(:campaign_id)
     |> foreign_key_constraint(:current_place_id,
       name: :play_characters_campaign_current_place_fkey
     )
+    |> foreign_key_constraint(:duty_place_id,
+      name: :play_characters_campaign_duty_place_fkey
+    )
+    |> check_constraint(:duty_name, name: :play_characters_active_duty_check)
     |> unique_constraint([:campaign_id, :speaker_id])
     |> unique_constraint(:campaign_id, name: :one_player_character_per_campaign)
     |> check_constraint(:role, name: :play_characters_role_check)
@@ -65,6 +74,32 @@ defmodule Storyteller.Play.Character do
     case VoiceGuidance.normalize(get_field(changeset, :voice_guidance)) do
       {:ok, normalized} -> put_change(changeset, :voice_guidance, normalized)
       {:error, _reason} -> add_error(changeset, :voice_guidance, "is invalid")
+    end
+  end
+
+  defp validate_active_duty(changeset) do
+    duty_name = get_field(changeset, :duty_name)
+    duty_place_id = get_field(changeset, :duty_place_id)
+
+    cond do
+      is_nil(duty_name) and is_nil(duty_place_id) ->
+        changeset
+
+      get_field(changeset, :role) != :gm ->
+        add_error(changeset, :duty_name, "is only available for GM-controlled characters")
+
+      not is_binary(duty_name) or String.trim(duty_name) == "" or
+          String.length(duty_name) > 160 ->
+        add_error(changeset, :duty_name, "must be a name up to 160 characters")
+
+      not is_binary(duty_place_id) or String.trim(duty_place_id) == "" ->
+        add_error(changeset, :duty_place_id, "must name the character's current place")
+
+      get_field(changeset, :current_place_id) != duty_place_id ->
+        add_error(changeset, :duty_place_id, "must match the character's current place")
+
+      true ->
+        changeset
     end
   end
 end

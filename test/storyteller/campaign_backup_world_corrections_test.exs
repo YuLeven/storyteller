@@ -18,7 +18,15 @@ defmodule Storyteller.CampaignBackupWorldCorrectionsTest do
     session = hd(campaign.sessions)
 
     assert {:ok, before_correction} = CampaignBackup.export(campaign.id)
-    v7_backup = before_correction |> Jason.decode!() |> Map.put("schema_version", 7)
+
+    v7_backup =
+      before_correction
+      |> Jason.decode!()
+      |> Map.put("schema_version", 7)
+      |> Map.update!("characters", fn characters ->
+        Enum.map(characters, &Map.drop(&1, ["duty_name", "duty_place_id"]))
+      end)
+
     assert {:ok, imported_v7} = CampaignBackup.import(Jason.encode!(v7_backup))
     assert Repo.get_by!(State, campaign_id: imported_v7.id).public_state["weather"] == "Low fog"
 
@@ -35,7 +43,7 @@ defmodule Storyteller.CampaignBackupWorldCorrectionsTest do
 
     assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
     backup = Jason.decode!(backup_json)
-    assert backup["schema_version"] == 8
+    assert backup["schema_version"] == 9
 
     assert [%{"kind" => "world", "target_id" => "weather"} = exported_correction] =
              backup["canon_corrections"]

@@ -2380,6 +2380,128 @@ defmodule Storyteller.PlayTest do
     assert Enum.any?(events, &(&1.turn_id == arrived.id and &1.event_type == :character_activity))
   end
 
+  test "a route-valid NPC departure is blocked by active duty until the owner releases it" do
+    {campaign, session} = play_campaign("The Cellar Assignment")
+    finca = establish_starting_place!(campaign, "Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    insert_travel_connection!(campaign.id, finca.place_id, bodega.place_id, 40)
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    assert {:ok, before_duty} = Play.public_projection(campaign.id)
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" =>
+                 "Lyra is responsible for the Finca's morning cellar checks.",
+               "expected_revision" => before_duty.revision,
+               "character_active_duties" => %{
+                 "npc:lyra" => %{"duty_name" => "Morning cellar checks"}
+               }
+             })
+
+    state_after_assignment = Repo.get_by!(State, campaign_id: campaign.id)
+    assert {:ok, assigned_projection} = Play.public_projection(campaign.id)
+    assigned_lyra = Enum.find(assigned_projection.characters, &(&1.speaker_id == "npc:lyra"))
+    refute Map.has_key?(assigned_lyra, :active_duty)
+    refute Jason.encode!(assigned_projection) =~ "Morning cellar checks"
+
+    attempted_move =
+      ordinary_proposal(%{
+        "narration" => "A road connects the Finca to the bodega.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => bodega.place_id,
+            "reason" => "Lyra takes the forty-minute road to the bodega."
+          }
+        ]
+      })
+
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation} = failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "duty-blocked-departure",
+               "I ask Lyra to check the bodega.",
+               provider: fn request ->
+                 Agent.update(captured_context, fn _ -> decode_request(request) end)
+                 {:ok, Jason.encode!(attempted_move)}
+               end,
+               model: "test-model"
+             )
+
+    gm_lyra =
+      captured_context
+      |> Agent.get(& &1)
+      |> then(
+        &Enum.find(&1["characters"], fn character -> character["speaker_id"] == "npc:lyra" end)
+      )
+
+    assert gm_lyra["active_duty"]["name"] == "Morning cellar checks"
+    assert gm_lyra["active_duty"]["place_id"] == finca.place_id
+
+    assert Repo.get_by!(Character, id: lyra.id).current_place_id == finca.place_id
+    failed_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert failed_state.elapsed_world_minutes == state_after_assignment.elapsed_world_minutes
+    assert failed_state.revision == state_after_assignment.revision
+    assert {:ok, events_after_rejection} = Play.public_timeline(campaign.id)
+    refute Enum.any?(events_after_rejection, &(&1.turn_id == failed.id))
+    refute Jason.encode!(events_after_rejection) =~ "Morning cellar checks"
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Lyra has completed the morning cellar checks.",
+               "expected_revision" => assigned_projection.revision,
+               "character_active_duties" => %{"npc:lyra" => %{"duty_name" => ""}}
+             })
+
+    assert is_nil(Repo.get_by!(Character, id: lyra.id).duty_name)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "duty-released-departure",
+               "Lyra's assignment has ended; she can go to the bodega.",
+               provider: fn _request -> {:ok, Jason.encode!(attempted_move)} end,
+               model: "test-model"
+             )
+
+    lyra = Repo.get_by!(Character, id: lyra.id)
+    assert lyra.current_place_id == bodega.place_id
+    assert is_nil(lyra.duty_name)
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
+             state_after_assignment.elapsed_world_minutes + 40
+
+    assert {:ok, projection_after_move} = Play.public_projection(campaign.id)
+    moved_lyra = Enum.find(projection_after_move.characters, &(&1.speaker_id == "npc:lyra"))
+    refute Map.has_key?(moved_lyra, :active_duty)
+
+    assert {:ok, events_after_move} = Play.public_timeline(campaign.id)
+    assert Enum.any?(events_after_move, &(&1.event_type == :gm_narration))
+    refute Jason.encode!(events_after_move) =~ "Morning cellar checks"
+  end
+
   test "an existing NPC with unknown location cannot be placed in-scene to speak for free" do
     {campaign, session} = play_campaign("The Unplaced Messenger")
     finca = establish_starting_place!(campaign, "Finca")

@@ -7,7 +7,7 @@ defmodule Storyteller.Campaigns do
   alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, VoiceGuidance}
+  alias Storyteller.Play.{Character, State, Turn, VoiceGuidance}
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
@@ -94,7 +94,8 @@ defmodule Storyteller.Campaigns do
       unless changeset.valid?, do: Repo.rollback(changeset)
 
       with {:ok, voice_updates} <- normalize_character_voice_updates(campaign_id, attrs),
-           {:ok, fact_updates} <- normalize_character_fact_updates(campaign_id, attrs) do
+           {:ok, fact_updates} <- normalize_character_fact_updates(campaign_id, attrs),
+           {:ok, duty_updates} <- normalize_character_duty_updates(campaign_id, attrs) do
         characters =
           Repo.all(
             from character in Character,
@@ -103,7 +104,15 @@ defmodule Storyteller.Campaigns do
               lock: "FOR UPDATE"
           )
 
-        plan = authoring_change_plan(campaign, characters, changeset, voice_updates, fact_updates)
+        plan =
+          authoring_change_plan(
+            campaign,
+            characters,
+            changeset,
+            voice_updates,
+            fact_updates,
+            duty_updates
+          )
 
         if map_size(plan.before_state) == 0 do
           campaign
@@ -111,7 +120,16 @@ defmodule Storyteller.Campaigns do
           reason = normalized_correction_reason(attr(attrs, :correction_reason))
           if is_nil(reason), do: Repo.rollback(:invalid_correction_reason)
 
-          updated_campaign = persist_campaign_correction!(campaign, characters, changeset, plan)
+          state =
+            if plan.duty_changed? do
+              validate_duty_authoring_revision!(campaign_id, attr(attrs, :expected_revision))
+            else
+              nil
+            end
+
+          updated_campaign =
+            persist_campaign_correction!(campaign, characters, changeset, plan, state)
+
           sequence = next_correction_sequence(campaign_id)
 
           %AuthoringCorrection{}
@@ -129,7 +147,12 @@ defmodule Storyteller.Campaigns do
           updated_campaign
         end
       else
-        {:error, reason} when reason in [:invalid_voice_guidance, :invalid_authoring_details] ->
+        {:error, reason}
+        when reason in [
+               :invalid_voice_guidance,
+               :invalid_authoring_details,
+               :invalid_active_duty
+             ] ->
           Repo.rollback(reason)
 
         {:error, _reason} ->
@@ -140,7 +163,14 @@ defmodule Storyteller.Campaigns do
     end
   end
 
-  defp authoring_change_plan(campaign, characters, changeset, voice_updates, fact_updates) do
+  defp authoring_change_plan(
+         campaign,
+         characters,
+         changeset,
+         voice_updates,
+         fact_updates,
+         duty_updates
+       ) do
     by_speaker = Map.new(characters, &{&1.speaker_id, &1})
     updated_campaign = Ecto.Changeset.apply_changes(changeset)
 
@@ -153,8 +183,8 @@ defmodule Storyteller.Campaigns do
     {player_before, player_after, player_attrs} =
       player_character_diff(Map.get(by_speaker, "player"), campaign, updated_campaign, changeset)
 
-    {gm_before, gm_after, gm_updates, private?} =
-      gm_character_diffs(by_speaker, voice_updates, fact_updates)
+    {gm_before, gm_after, gm_updates, private?, duty_changed?} =
+      gm_character_diffs(by_speaker, voice_updates, fact_updates, duty_updates)
 
     before_state =
       %{}
@@ -173,7 +203,8 @@ defmodule Storyteller.Campaigns do
       after_state: after_state,
       player_attrs: player_attrs,
       gm_updates: gm_updates,
-      contains_private_changes: private?
+      contains_private_changes: private?,
+      duty_changed?: duty_changed?
     }
   end
 
@@ -234,14 +265,14 @@ defmodule Storyteller.Campaigns do
     {before, after_map, attrs}
   end
 
-  defp gm_character_diffs(by_speaker, voice_updates, fact_updates) do
+  defp gm_character_diffs(by_speaker, voice_updates, fact_updates, duty_updates) do
     voices = Map.new(voice_updates)
     facts = Map.new(fact_updates)
-    speakers = Enum.uniq(Map.keys(voices) ++ Map.keys(facts))
+    speakers = Enum.uniq(Map.keys(voices) ++ Map.keys(facts) ++ Map.keys(duty_updates))
 
-    Enum.reduce(speakers, {%{}, %{}, %{}, false}, fn speaker_id,
-                                                     {before_all, after_all, updates_all,
-                                                      private?} ->
+    Enum.reduce(speakers, {%{}, %{}, %{}, false, false}, fn speaker_id,
+                                                            {before_all, after_all, updates_all,
+                                                             private?, duty_changed?} ->
       character = Map.fetch!(by_speaker, speaker_id)
       old_voice = character.voice_guidance || %{}
       new_voice = Map.get(voices, speaker_id, old_voice)
@@ -250,6 +281,28 @@ defmodule Storyteller.Campaigns do
       old_private = character.gm_private_facts || %{}
       new_visible = update_fact_text(old_visible, "description", fact_edits, :visible_facts_text)
       new_private = update_fact_text(old_private, "notes", fact_edits, :private_notes)
+      new_duty_name = Map.get(duty_updates, speaker_id, character.duty_name)
+
+      new_duty_place_id =
+        cond do
+          is_nil(new_duty_name) -> nil
+          new_duty_name == character.duty_name -> character.duty_place_id
+          is_binary(character.current_place_id) -> character.current_place_id
+          true -> Repo.rollback(:invalid_active_duty)
+        end
+
+      if is_binary(new_duty_name) and
+           not Repo.exists?(
+             from place in Storyteller.Play.Place,
+               where:
+                 place.campaign_id == ^character.campaign_id and
+                   place.place_id == ^new_duty_place_id
+           ) do
+        Repo.rollback(:invalid_active_duty)
+      end
+
+      old_duty = %{"name" => character.duty_name, "place_id" => character.duty_place_id}
+      new_duty = %{"name" => new_duty_name, "place_id" => new_duty_place_id}
 
       {voice_before, voice_after_map} = map_diff(old_voice, new_voice)
 
@@ -258,23 +311,38 @@ defmodule Storyteller.Campaigns do
 
       {private_before, private_after_map} = diff_one_key(old_private, new_private, "notes")
 
+      {duty_before, duty_after} =
+        if old_duty == new_duty, do: {%{}, %{}}, else: {old_duty, new_duty}
+
       before_map =
         %{}
         |> put_nonempty("voice_guidance", voice_before)
         |> put_nonempty("visible_facts", visible_before)
         |> put_nonempty("gm_private_facts", private_before)
+        |> put_nonempty("active_duty", duty_before)
 
       after_map =
         %{}
         |> put_nonempty("voice_guidance", voice_after_map)
         |> put_nonempty("visible_facts", visible_after_map)
         |> put_nonempty("gm_private_facts", private_after_map)
+        |> put_nonempty("active_duty", duty_after)
 
       update_attrs =
         %{}
         |> maybe_put(:voice_guidance, voice_before != %{}, new_voice)
         |> maybe_put(:visible_facts, visible_before != %{}, new_visible)
         |> maybe_put(:gm_private_facts, private_before != %{}, new_private)
+
+      update_attrs =
+        if map_size(duty_before) > 0 do
+          Map.merge(update_attrs, %{
+            duty_name: new_duty_name,
+            duty_place_id: new_duty_place_id
+          })
+        else
+          update_attrs
+        end
 
       before_all = put_nonempty(before_all, speaker_id, before_map)
       after_all = put_nonempty(after_all, speaker_id, after_map)
@@ -285,9 +353,10 @@ defmodule Storyteller.Campaigns do
           else: Map.put(updates_all, speaker_id, update_attrs)
 
       private? =
-        private? or map_size(private_before) > 0 or map_size(voice_before) > 0
+        private? or map_size(private_before) > 0 or map_size(voice_before) > 0 or
+          map_size(duty_before) > 0
 
-      {before_all, after_all, updates_all, private?}
+      {before_all, after_all, updates_all, private?, duty_changed? or map_size(duty_before) > 0}
     end)
   end
 
@@ -318,7 +387,7 @@ defmodule Storyteller.Campaigns do
 
   defp normalized_correction_reason(_), do: nil
 
-  defp persist_campaign_correction!(campaign, characters, changeset, plan) do
+  defp persist_campaign_correction!(campaign, characters, changeset, plan, state) do
     updated_campaign =
       if map_size(changeset.changes) == 0 do
         campaign
@@ -348,6 +417,15 @@ defmodule Storyteller.Campaigns do
         {:error, _changeset} -> Repo.rollback(:invalid_character)
       end
     end)
+
+    if plan.duty_changed? do
+      case state
+           |> State.changeset(%{revision: state.revision + 1})
+           |> Repo.update() do
+        {:ok, _updated_state} -> :ok
+        {:error, _changeset} -> Repo.rollback(:invalid_active_duty)
+      end
+    end
 
     updated_campaign
   end
@@ -709,6 +787,85 @@ defmodule Storyteller.Campaigns do
     end
   end
 
+  defp normalize_character_duty_updates(campaign_id, attrs) do
+    supplied = attr(attrs, :character_active_duties, %{})
+    known_speakers = list_gm_characters(campaign_id) |> MapSet.new(& &1.speaker_id)
+
+    cond do
+      not is_map(supplied) or map_size(supplied) > 100 ->
+        {:error, :invalid_active_duty}
+
+      true ->
+        Enum.reduce_while(supplied, {:ok, %{}}, fn {speaker_id, row}, {:ok, acc} ->
+          speaker_id = if is_atom(speaker_id), do: Atom.to_string(speaker_id), else: speaker_id
+          keys = if is_map(row), do: Enum.map(Map.keys(row), &key_name/1), else: []
+
+          cond do
+            not is_binary(speaker_id) or not MapSet.member?(known_speakers, speaker_id) ->
+              {:halt, {:error, :invalid_active_duty}}
+
+            not is_map(row) or keys != ["duty_name"] ->
+              {:halt, {:error, :invalid_active_duty}}
+
+            true ->
+              case normalize_duty_name(attr(row, :duty_name)) do
+                {:ok, name} -> {:cont, {:ok, Map.put(acc, speaker_id, name)}}
+                :error -> {:halt, {:error, :invalid_active_duty}}
+              end
+          end
+        end)
+    end
+  end
+
+  defp normalize_duty_name(value) when is_binary(value) do
+    if String.valid?(value) do
+      name = String.trim(value)
+
+      cond do
+        name == "" -> {:ok, nil}
+        String.length(name) <= 160 -> {:ok, name}
+        true -> :error
+      end
+    else
+      :error
+    end
+  end
+
+  defp normalize_duty_name(_), do: :error
+
+  defp validate_duty_authoring_revision!(campaign_id, expected_revision) do
+    state =
+      Repo.one(
+        from state in State,
+          where: state.campaign_id == ^campaign_id,
+          lock: "FOR UPDATE"
+      ) || Repo.rollback(:invalid_active_duty)
+
+    if parse_revision(expected_revision) != state.revision,
+      do: Repo.rollback(:stale_authoring_revision)
+
+    if Repo.exists?(
+         from turn in Turn,
+           where:
+             turn.campaign_id == ^campaign_id and
+               turn.status in [:pending, :resolving, :awaiting_roll]
+       ),
+       do: Repo.rollback(:authoring_turn_in_progress)
+
+    state
+  end
+
+  defp parse_revision(value) when is_integer(value) and value >= 0, do: value
+
+  defp parse_revision(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {revision, ""} when revision >= 0 -> revision
+      _ -> nil
+    end
+  end
+
+  defp parse_revision(_), do: nil
+
   defp normalize_authoring_fact_text(row, key) do
     if has_attr?(row, key) do
       value = attr(row, key)
@@ -784,6 +941,7 @@ defmodule Storyteller.Campaigns do
           supplied_speaker_id = attrs |> attr(:speaker_id, "") |> trim_string()
           name = attrs |> attr(:name, "") |> trim_string()
           starting_place = attrs |> attr(:starting_place, "") |> trim_string()
+          active_duty_name = attrs |> attr(:active_duty_name, "") |> trim_string()
           visible = character_facts(attrs, :visible_facts, :visible_facts_text, "description")
           private = character_facts(attrs, :gm_private_facts, :private_notes, "notes")
           voice_guidance = attr(attrs, :voice_guidance, %{})
@@ -808,6 +966,18 @@ defmodule Storyteller.Campaigns do
                {:error,
                 {:setup,
                  "GM character #{row_index + 1} starting place must be 300 characters or fewer."}}}
+
+            String.length(active_duty_name) > 160 ->
+              {:halt,
+               {:error,
+                {:setup,
+                 "GM character #{row_index + 1} active duty must be 160 characters or fewer."}}}
+
+            active_duty_name != "" and starting_place == "" ->
+              {:halt,
+               {:error,
+                {:setup,
+                 "GM character #{row_index + 1} needs a starting place for an active duty."}}}
 
             not valid_speaker_id?(speaker_id) ->
               {:halt,
@@ -843,6 +1013,7 @@ defmodule Storyteller.Campaigns do
                       speaker_id: speaker_id,
                       name: name,
                       initial_location: clean_optional(starting_place),
+                      active_duty_name: clean_optional(active_duty_name),
                       visible_facts: visible,
                       gm_private_facts: private,
                       voice_guidance: elem(normalized_voice_guidance, 1)

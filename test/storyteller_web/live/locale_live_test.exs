@@ -108,6 +108,81 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "lieu public distinct"
   end
 
+  test "active duty setup, editor guidance, and validation are translated", %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [%{speaker_id: "keeper-elin", name: "Keeper Elin"}]
+      })
+
+    story = %{
+      title: "The Quiet Beacon",
+      premise: "A keeper finds a note beneath the lantern.",
+      setting: "A fictional island harbor",
+      tone: "Warm and quietly suspenseful",
+      narration_language: "English"
+    }
+
+    player = %{player_character_name: "Ilya", player_character: "A patient harbor courier."}
+    opening = %{starting_location: "The Finca", starting_date: "Day one", world_time: "Morning"}
+
+    for {locale, label, placeholder, setup_help, edit_help, validation_error, setup_error} <- [
+          {
+            "es",
+            "Tarea activa",
+            "Cuidar las cubas",
+            "Se requiere un lugar de inicio.",
+            "Borra el campo para liberar la tarea.",
+            "Una tarea activa necesita un nombre de hasta 160 caracteres y un personaje con un lugar actual conocido.",
+            "necesita un lugar de inicio para una tarea activa"
+          },
+          {
+            "fr",
+            "Tâche active",
+            "Surveiller les cuves",
+            "Un lieu de départ est requis.",
+            "Effacez le champ pour libérer la tâche.",
+            "Une tâche active nécessite un nom de 160 caractères maximum et un personnage dont le lieu actuel est connu.",
+            "doit avoir un lieu de départ pour une tâche active"
+          }
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+
+      {:ok, setup_view, _html} = live(conn, ~p"/campaigns/new")
+      submit_setup_step(setup_view, story, "continue")
+      submit_setup_step(setup_view, Map.merge(story, player), "continue")
+      submit_setup_step(setup_view, Map.merge(Map.merge(story, player), opening), "continue")
+      setup_html = setup_view |> element("button[phx-click=add-character]") |> render_click()
+      assert setup_html =~ label
+      assert setup_html =~ placeholder
+      assert setup_html =~ setup_help
+
+      invalid_setup =
+        Map.merge(Map.merge(Map.merge(story, player), opening), %{
+          gm_characters: %{
+            "0" => %{name: "Elin", active_duty_name: "Tend the lantern", starting_place: ""}
+          }
+        })
+
+      error_html = submit_setup_step(setup_view, invalid_setup, "continue")
+      assert error_html =~ setup_error
+
+      {:ok, edit_view, edit_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+      assert edit_html =~ label
+      assert edit_html =~ edit_help
+
+      invalid_edit = %{
+        correction_reason: "Give Elin a current task.",
+        character_active_duties: %{"keeper-elin" => %{duty_name: "Watch the harbor"}}
+      }
+
+      error_html =
+        edit_view |> form("#campaign-edit-form", campaign: invalid_edit) |> render_submit()
+
+      error_text = error_html |> Floki.parse_document!() |> Floki.text()
+      assert error_text =~ validation_error
+    end
+  end
+
   test "inventory board labels are translated while campaign items remain unchanged", %{
     conn: conn
   } do
@@ -226,5 +301,12 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Chart the winter stars"
     assert french_html =~ "Close the unsafe cellar"
     refute french_html =~ "Find the hidden witness"
+  end
+
+  defp submit_setup_step(view, attrs, direction) do
+    view
+    |> form("#campaign-form", campaign: attrs)
+    |> put_submitter("button[name=direction][value=#{direction}]")
+    |> render_submit()
   end
 end

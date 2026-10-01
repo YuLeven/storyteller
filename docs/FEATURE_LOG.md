@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-01 — Enforce optional GM-character duties
+
+- Existing and new GM characters can receive a named active duty tied to their canonical current place. The movement validator rejects a proposed departure even when a valid route and duration exist; same-place actions and unassigned characters remain unaffected. Duties can be renamed or released only through a reasoned, revision-checked, out-of-character authoring correction. Stale editors and unresolved turns cannot change the duty.
+- The duty is stored on the character record, included in the GM's compact structured context, and retained by context compaction even for a remote character. It is omitted from player projections and story events. Irrelevant history/profile detail remains first to be compacted, and the full transcript is not re-sent on every turn; measurable cost remains the serialized request-byte bound and aggregate provider token usage when available.
+- Recurring schedules, free-form calendar interpretation, and automatic duty completion are intentionally outside this slice. Campaigns without explicit active duties stay flexible.
+- This is a concrete iteration on the product thesis recorded in the implementation plan: application-owned canon and validation should prevent the Finca/Bodega class of continuity error while compact context carries only the facts the GM needs. It does not claim general schedule interpretation or make the model infallible.
+- Backup schema v9 exports/restores duty records and private authoring-audit snapshots; v1–v8 backups remain importable with no active duty. Migration `20261001000600` is applied to the local development database as a schema-only update; no campaign rows were rewritten. The campaign editor returned HTTP 200 for the separate fictional QA campaign and rendered the duty control. The previous continuity audit below describes the gap before this implementation.
+- **Checks:** full WSL suite **328 tests, 0 failures**; Play behavior **75 tests, 0 failures**; campaign-authoring/context/editor **27 tests, 0 failures**; locale **9 tests, 0 failures**; backup **11 tests, 0 failures**. `mix format --check-formatted`, `MIX_ENV=test mix compile --warnings-as-errors`, Gettext freshness, and `git diff --check` passed. All automated cases use isolated data and fake providers; the active-duty scenario tests a 40-minute Finca/Bodega route without altering a live campaign or using a real provider.
+
 ## 2026-10-01 — Bound the current movement guarantee and track routine enforcement as MVP work
 
 - A movement-domain audit confirmed that canonical place IDs, persisted routes, computed travel minutes, scene-presence validation, and cross-session tests prevent the original Finca/Bodega teleportation failure. Existing behavior coverage also rejects off-scene NPC dialogue/activity and movement from an unknown origin.

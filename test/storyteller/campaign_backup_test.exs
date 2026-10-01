@@ -285,7 +285,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 8
+    assert document["schema_version"] == 9
     assert length(document["canon_corrections"]) == 1
     assert hd(document["canon_corrections"])["after_state"]["value"] == 7
     assert document["campaign"]["title"] == campaign.title
@@ -440,6 +440,107 @@ defmodule Storyteller.CampaignBackupTest do
     assert imported_connection.scene_relevance == "The road from the villa to the cellar."
   end
 
+  test "round-trips active GM duties and preserves their authoring audit snapshot" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "Finca",
+        gm_characters: [%{speaker_id: "npc:keeper", name: "Keeper"}]
+      })
+
+    finca = Repo.get_by!(Place, campaign_id: campaign.id, name: "Finca")
+
+    another_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "north-cellar",
+          name: "North cellar",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    keeper = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:keeper")
+
+    Repo.update!(Character.changeset(keeper, %{current_place_id: finca.place_id}))
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "expected_revision" => state.revision,
+               "correction_reason" => "Assign the keeper's cellar rounds.",
+               "character_active_duties" => %{
+                 "npc:keeper" => %{"duty_name" => "Check the reserve casks"}
+               }
+             })
+
+    assert {:ok, json} = CampaignBackup.export(campaign.id)
+    document = Jason.decode!(json)
+    assert document["schema_version"] == 9
+
+    exported_keeper = Enum.find(document["characters"], &(&1["speaker_id"] == "npc:keeper"))
+    assert exported_keeper["duty_name"] == "Check the reserve casks"
+    assert exported_keeper["duty_place_id"] == finca.place_id
+
+    [correction] = document["authoring_corrections"]
+    assert correction["contains_private_changes"]
+
+    assert correction["before_state"]["gm_characters"]["npc:keeper"]["active_duty"] == %{
+             "name" => nil,
+             "place_id" => nil
+           }
+
+    assert correction["after_state"]["gm_characters"]["npc:keeper"]["active_duty"] == %{
+             "name" => "Check the reserve casks",
+             "place_id" => finca.place_id
+           }
+
+    imported_count = Repo.aggregate(Storyteller.Campaigns.Campaign, :count, :id)
+    wrong_place = put_character(document, "npc:keeper", "duty_place_id", another_place.place_id)
+
+    player = Enum.find(document["characters"], &(&1["speaker_id"] == "player"))
+
+    player_duty =
+      put_character(document, "player", "duty_name", "Count the harvest")
+      |> put_character("player", "duty_place_id", player["current_place_id"])
+
+    for invalid <- [wrong_place, player_duty] do
+      assert {:error, :invalid_backup} = CampaignBackup.import(Jason.encode!(invalid))
+      assert Repo.aggregate(Storyteller.Campaigns.Campaign, :count, :id) == imported_count
+    end
+
+    assert {:ok, imported} = CampaignBackup.import(json)
+    imported_keeper = Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "npc:keeper")
+    assert imported_keeper.duty_name == "Check the reserve casks"
+    assert imported_keeper.duty_place_id == finca.place_id
+
+    imported_correction = Repo.get_by!(AuthoringCorrection, campaign_id: imported.id)
+    assert imported_correction.before_state == correction["before_state"]
+    assert imported_correction.after_state == correction["after_state"]
+    assert imported_correction.contains_private_changes
+    assert Campaigns.list_public_authoring_corrections(imported.id) == []
+  end
+
+  test "version eight backups import without active duties" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "Finca",
+        gm_characters: [%{speaker_id: "npc:keeper", name: "Keeper"}]
+      })
+
+    assert {:ok, json} = CampaignBackup.export(campaign.id)
+    legacy = Jason.decode!(json) |> pre_active_duties(8)
+
+    assert {:ok, imported} = CampaignBackup.import(Jason.encode!(legacy))
+
+    imported_character =
+      Repo.get_by!(Character, campaign_id: imported.id, speaker_id: "npc:keeper")
+
+    assert is_nil(imported_character.duty_name)
+    assert is_nil(imported_character.duty_place_id)
+  end
+
   test "rejects unknown versions, secret-bearing extra fields, and dangling references before writing" do
     campaign = campaign_fixture(%{starting_location: "The west terrace"})
     [session] = campaign.sessions
@@ -463,7 +564,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 9),
+          Map.put(decoded, "schema_version", 10),
           Map.put(decoded, "canon_corrections", [%{"sequence" => 1}]),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
@@ -559,15 +660,21 @@ defmodule Storyteller.CampaignBackupTest do
              "vocabulary" => "Careful and formal"
            }
 
+    legacy_characters =
+      document
+      |> pre_active_duties(1)
+      |> Map.fetch!("characters")
+      |> Enum.map(&Map.delete(&1, "voice_guidance"))
+
     legacy_document = %{
       %{
-        document
+        pre_active_duties(document, 1)
         | "schema_version" => 1,
           "campaign" => Map.delete(document["campaign"], "player_character_name"),
           "state" => drop_elapsed_clock(document["state"])
       }
       | "turns" => Enum.map(document["turns"], &Map.drop(&1, ["intent", "failure_stage"])),
-        "characters" => Enum.map(document["characters"], &Map.delete(&1, "voice_guidance")),
+        "characters" => legacy_characters,
         "authoring_corrections" => nil
     }
 
@@ -626,7 +733,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 8
+    assert document["schema_version"] == 9
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -637,7 +744,9 @@ defmodule Storyteller.CampaignBackupTest do
 
     # Version five had the elapsed clock but no state-correction audit records.
     v5_document =
-      Map.drop(%{document | "schema_version" => 5}, ["canon_corrections"])
+      document
+      |> pre_active_duties(5)
+      |> Map.drop(["canon_corrections"])
 
     assert {:ok, imported_v5} = CampaignBackup.import(Jason.encode!(v5_document))
     imported_v5_state = Repo.get_by!(State, campaign_id: imported_v5.id)
@@ -645,10 +754,10 @@ defmodule Storyteller.CampaignBackupTest do
 
     # Version four had connections and failure stages, but no elapsed clock or canon corrections.
     v4_document =
-      Map.drop(
-        %{document | "schema_version" => 4, "state" => drop_elapsed_clock(document["state"])},
-        ["canon_corrections"]
-      )
+      document
+      |> pre_active_duties(4)
+      |> Map.put("state", drop_elapsed_clock(document["state"]))
+      |> Map.drop(["canon_corrections"])
 
     assert {:ok, imported_v4} = CampaignBackup.import(Jason.encode!(v4_document))
     imported_v4_state = Repo.get_by!(State, campaign_id: imported_v4.id)
@@ -658,10 +767,10 @@ defmodule Storyteller.CampaignBackupTest do
 
     # Version three had failure stages but not the place graph or elapsed clock.
     v3_document =
-      Map.drop(
-        %{document | "schema_version" => 3, "state" => drop_elapsed_clock(document["state"])},
-        ["place_connections", "canon_corrections"]
-      )
+      document
+      |> pre_active_duties(3)
+      |> Map.put("state", drop_elapsed_clock(document["state"]))
+      |> Map.drop(["place_connections", "canon_corrections"])
 
     assert {:ok, imported_v3} = CampaignBackup.import(Jason.encode!(v3_document))
 
@@ -674,15 +783,11 @@ defmodule Storyteller.CampaignBackupTest do
            ) == 0
 
     v2_document =
-      Map.drop(
-        %{
-          document
-          | "schema_version" => 2,
-            "state" => drop_elapsed_clock(document["state"]),
-            "turns" => Enum.map(document["turns"], &Map.delete(&1, "failure_stage"))
-        },
-        ["place_connections", "canon_corrections"]
-      )
+      document
+      |> pre_active_duties(2)
+      |> Map.put("state", drop_elapsed_clock(document["state"]))
+      |> Map.put("turns", Enum.map(document["turns"], &Map.delete(&1, "failure_stage")))
+      |> Map.drop(["place_connections", "canon_corrections"])
 
     assert {:ok, imported_v2} = CampaignBackup.import(Jason.encode!(v2_document))
     assert Play.get_turn(imported_v2.id, failed.idempotency_key).failure_stage == nil
@@ -691,6 +796,23 @@ defmodule Storyteller.CampaignBackupTest do
              from(connection in PlaceConnection, where: connection.campaign_id == ^imported_v2.id),
              :count
            ) == 0
+  end
+
+  defp pre_active_duties(document, version) do
+    document
+    |> Map.put("schema_version", version)
+    |> Map.update!("characters", fn characters ->
+      Enum.map(characters, &Map.drop(&1, ["duty_name", "duty_place_id"]))
+    end)
+  end
+
+  defp put_character(document, speaker_id, key, value) do
+    Map.update!(document, "characters", fn characters ->
+      Enum.map(characters, fn
+        %{"speaker_id" => ^speaker_id} = character -> Map.put(character, key, value)
+        character -> character
+      end)
+    end)
   end
 
   defp drop_elapsed_clock(state),
@@ -763,7 +885,7 @@ defmodule Storyteller.CampaignBackupTest do
     [session] = campaign.sessions
 
     assert {:ok, ordinary_backup} = CampaignBackup.export(campaign.id)
-    v6_backup = ordinary_backup |> Jason.decode!() |> Map.put("schema_version", 6)
+    v6_backup = ordinary_backup |> Jason.decode!() |> pre_active_duties(6)
     assert {:ok, _imported_v6} = CampaignBackup.import(Jason.encode!(v6_backup))
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
@@ -782,7 +904,7 @@ defmodule Storyteller.CampaignBackupTest do
              })
 
     assert {:ok, memory_backup} = CampaignBackup.export(campaign.id)
-    invalid_v6 = memory_backup |> Jason.decode!() |> Map.put("schema_version", 6)
+    invalid_v6 = memory_backup |> Jason.decode!() |> pre_active_duties(6)
     assert {:error, :invalid_backup} = CampaignBackup.import(Jason.encode!(invalid_v6))
   end
 

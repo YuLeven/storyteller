@@ -7,6 +7,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
   alias Storyteller.Campaigns
   alias Storyteller.Panels
   alias Storyteller.Play
+  alias Storyteller.Play.Character
+  alias Storyteller.Repo
 
   test "campaign list keeps two stories in separate cards and links to the right sessions", %{
     conn: conn
@@ -159,6 +161,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
         "0" => %{
           name: "Marcel",
           starting_place: "The river bodega",
+          active_duty_name: "Tend the fermentation vats",
           visible_facts_text: "A warm, observant beaver cook from Lyon.",
           private_notes: "Secret: he altered the cellar ledger.",
           voice_guidance: %{
@@ -196,6 +199,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert review_html =~ "Marcel"
     assert review_html =~ "Starting place"
     assert review_html =~ "The river bodega"
+    assert review_html =~ "Active duty (GM only)"
+    assert review_html =~ "Tend the fermentation vats"
     assert review_html =~ "The west cellar"
     assert review_html =~ "Second day of harvest"
     assert review_html =~ "Late evening"
@@ -223,6 +228,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
     view |> element("button[phx-click=edit]") |> render_click()
     assert has_element?(view, "#gm-starting-place-0[value='The river bodega']")
+    assert has_element?(view, "#gm-active-duty-0[value='Tend the fermentation vats']")
     assert has_element?(view, "#gm-starting-place-1[value='']")
     submit_wizard_step(view, attrs, "continue")
 
@@ -238,6 +244,12 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
     assert marcel.current_place_id == bodega.place_id
     assert marcel.current_place == Map.take(bodega, [:place_id, :name, :description, :facts])
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "marcel").duty_place_id ==
+             bodega.place_id
+
+    refute Map.has_key?(marcel, :active_duty)
+    refute Jason.encode!(projection) =~ "Tend the fermentation vats"
     assert is_nil(perrin.current_place_id)
     assert is_nil(perrin.current_place)
     assert Enum.map(projection.places, & &1.name) == ["The river bodega", "The west cellar"]
@@ -258,7 +270,8 @@ defmodule StorytellerWeb.CampaignLiveTest do
           "A soft French accent from Lyon.",
           "Quick phrases that slow before a confession.",
           "Uses kitchen and river words.",
-          "Taps the spoon when thinking."
+          "Taps the spoon when thinking.",
+          "Tend the fermentation vats"
         ] do
       refute campaign_html =~ private_text
       refute session_html =~ private_text

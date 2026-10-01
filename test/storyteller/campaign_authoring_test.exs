@@ -6,7 +6,7 @@ defmodule Storyteller.CampaignAuthoringTest do
   alias Storyteller.Campaigns
   alias Storyteller.Campaigns.AuthoringCorrection
   alias Storyteller.Play
-  alias Storyteller.Play.Character
+  alias Storyteller.Play.{Character, State}
 
   test "player name headlines the roster while the full profile details reach the GM" do
     campaign =
@@ -79,6 +79,182 @@ defmodule Storyteller.CampaignAuthoringTest do
     projected_character = Enum.find(projection.characters, &(&1.speaker_id == "captain-ren"))
     refute Map.has_key?(projected_character, :voice_guidance)
     refute Jason.encode!(projection) =~ "Taps the compass twice"
+  end
+
+  test "setup binds an active duty to the character's canonical starting place and keeps it GM-only" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Finca",
+        gm_characters: [
+          %{
+            speaker_id: "npc:cellar-keeper",
+            name: "Marcel",
+            starting_place: "The river bodega",
+            active_duty_name: "Tend the morning fermentation checks"
+          }
+        ]
+      })
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:cellar-keeper")
+
+    bodega =
+      Repo.get_by!(Storyteller.Play.Place, campaign_id: campaign.id, name: "The river bodega")
+
+    assert character.current_place_id == bodega.place_id
+    assert character.duty_name == "Tend the morning fermentation checks"
+    assert character.duty_place_id == bodega.place_id
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    projected = Enum.find(projection.characters, &(&1.speaker_id == "npc:cellar-keeper"))
+    refute Map.has_key?(projected, :active_duty)
+    refute Jason.encode!(projection) =~ "Tend the morning fermentation checks"
+    refute Jason.encode!(projection) =~ "duty_place_id"
+
+    [session] = campaign.sessions
+    assert {:ok, turn} = Play.submit_turn(campaign.id, session.id, "duty-context", "Look around.")
+    assert {:ok, context} = Play.model_context(turn.id)
+    gm_character = Enum.find(context.characters, &(&1.speaker_id == "npc:cellar-keeper"))
+
+    assert gm_character.active_duty == %{
+             name: "Tend the morning fermentation checks",
+             place_id: bodega.place_id,
+             place_name: "The river bodega"
+           }
+  end
+
+  test "active duties change only through a reasoned revision-checked private correction" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Finca",
+        gm_characters: [
+          %{
+            speaker_id: "npc:cellar-keeper",
+            name: "Marcel",
+            starting_place: "The Finca"
+          }
+        ]
+      })
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:cellar-keeper")
+    state_before = Repo.get_by!(State, campaign_id: campaign.id)
+    assert {:ok, history_before} = Play.public_timeline(campaign.id)
+    assert {:ok, before_projection} = Play.public_projection(campaign.id)
+
+    attrs = %{
+      "correction_reason" => "Marcel is assigned to watch the fermentation vats.",
+      "expected_revision" => before_projection.revision,
+      "character_active_duties" => %{
+        "npc:cellar-keeper" => %{"duty_name" => "Watch the fermentation vats"}
+      }
+    }
+
+    assert {:ok, _campaign} = Campaigns.update_campaign_authoring(campaign, attrs)
+
+    character = Repo.get_by!(Character, id: character.id)
+    assert character.duty_name == "Watch the fermentation vats"
+    assert character.duty_place_id == character.current_place_id
+
+    [correction] = Repo.all(AuthoringCorrection)
+    assert correction.contains_private_changes
+
+    assert correction.before_state["gm_characters"]["npc:cellar-keeper"]["active_duty"] == %{
+             "name" => nil,
+             "place_id" => nil
+           }
+
+    assert correction.after_state["gm_characters"]["npc:cellar-keeper"]["active_duty"] == %{
+             "name" => "Watch the fermentation vats",
+             "place_id" => character.current_place_id
+           }
+
+    assert Campaigns.list_public_authoring_corrections(campaign.id) == []
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
+             state_before.elapsed_world_minutes
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).revision == state_before.revision + 1
+    assert {:ok, history_after} = Play.public_timeline(campaign.id)
+    assert history_after == history_before
+
+    assert {:ok, assigned_projection} = Play.public_projection(campaign.id)
+
+    assert {:error, :stale_authoring_revision} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Attempt to overwrite a newer assignment.",
+               "expected_revision" => before_projection.revision,
+               "character_active_duties" => %{
+                 "npc:cellar-keeper" => %{"duty_name" => "Watch the press room"}
+               }
+             })
+
+    assert {:error, :invalid_correction_reason} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "expected_revision" => assigned_projection.revision,
+               "character_active_duties" => %{
+                 "npc:cellar-keeper" => %{"duty_name" => "Watch the press room"}
+               }
+             })
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Marcel's assignment at the vats has ended.",
+               "expected_revision" => assigned_projection.revision,
+               "character_active_duties" => %{"npc:cellar-keeper" => %{"duty_name" => ""}}
+             })
+
+    released = Repo.get_by!(Character, id: character.id)
+    assert is_nil(released.duty_name)
+    assert is_nil(released.duty_place_id)
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
+             state_before.elapsed_world_minutes
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).revision == state_before.revision + 2
+    assert {:ok, history_after_release} = Play.public_timeline(campaign.id)
+    assert history_after_release == history_before
+  end
+
+  test "a GM duty needs a canonical starting place and its edit rejects unresolved turns" do
+    attrs =
+      valid_campaign_attrs()
+      |> Map.put(:gm_characters, [
+        %{speaker_id: "npc:cellar-keeper", name: "Marcel", active_duty_name: "Tend the vats"}
+      ])
+
+    assert {:error, {:setup, message}} = Campaigns.create_campaign(attrs)
+    assert message =~ "needs a starting place"
+
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Finca",
+        gm_characters: [
+          %{
+            speaker_id: "npc:cellar-keeper",
+            name: "Marcel",
+            starting_place: "The Finca"
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+
+    assert {:ok, turn} =
+             Play.submit_turn(campaign.id, session.id, "open-duty-turn", "Look around.")
+
+    assert turn.status == :pending
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert {:error, :authoring_turn_in_progress} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Marcel begins ferment checks.",
+               "expected_revision" => projection.revision,
+               "character_active_duties" => %{
+                 "npc:cellar-keeper" => %{"duty_name" => "Check fermentation"}
+               }
+             })
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:cellar-keeper").duty_name ==
+             nil
   end
 
   test "voice guidance fields and combined length are bounded and validated" do
