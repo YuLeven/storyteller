@@ -36,6 +36,17 @@ defmodule Storyteller.GM.ContextBudget do
     ton tu un une vos votre vous y
   ))
 
+  # A small, explicit cross-language vocabulary for durable memory retrieval.
+  # These are equivalent campaign concepts, not open-ended semantic expansion.
+  @memory_term_aliases %{
+    "wine" => "wine",
+    "wines" => "wine",
+    "vino" => "wine",
+    "vinos" => "wine",
+    "vin" => "wine",
+    "vins" => "wine"
+  }
+
   @measured_sections [
     :campaign,
     :world,
@@ -304,7 +315,12 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp memory_relevant?(entry, query_terms) do
-    meaningful_query_terms = MapSet.difference(query_terms, @memory_stopwords)
+    meaningful_query_terms =
+      query_terms
+      |> Enum.map(&memory_term_alias/1)
+      |> MapSet.new()
+      |> MapSet.difference(@memory_stopwords)
+
     note_terms = meaningful_terms(entry_text(entry))
     not MapSet.disjoint?(meaningful_query_terms, note_terms)
   end
@@ -314,11 +330,14 @@ defmodule Storyteller.GM.ContextBudget do
     |> String.downcase()
     |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
     |> List.flatten()
+    |> Enum.map(&memory_term_alias/1)
     |> Enum.reject(&MapSet.member?(@memory_stopwords, &1))
     |> MapSet.new()
   end
 
   defp meaningful_terms(_text), do: MapSet.new()
+
+  defp memory_term_alias(term), do: Map.get(@memory_term_aliases, term, term)
 
   defp compact_history(history, terms) when is_list(history) do
     story_events = Enum.filter(history, &conversation_event?/1)

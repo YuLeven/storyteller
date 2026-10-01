@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-01 — Bound the current movement guarantee and track routine enforcement as MVP work
+
+- A movement-domain audit confirmed that canonical place IDs, persisted routes, computed travel minutes, scene-presence validation, and cross-session tests prevent the original Finca/Bodega teleportation failure. Existing behavior coverage also rejects off-scene NPC dialogue/activity and movement from an unknown origin.
+- The remaining gap is an employee whose route-valid departure contradicts an established duty: the app has no typed schedule or active assignment/release condition to check. Updated the implementation plan and acceptance brief to keep this explicit as open MVP continuity work; current location validation must not be described as routine-level enforcement.
+- No campaign data, schema, or live provider was touched during this audit.
+
+## 2026-10-01 — Retrieve durable wine memory across player languages
+
+- A saved English wine-reserve note could be omitted when the player asked about the same fact using Spanish “vinos” or French “vins”: memory filtering compared exact meaningful words. The deterministic retrieval vocabulary now maps the explicitly equivalent forms `wine/wines`, `vino/vinos`, and `vin/vins` to one campaign concept.
+- The alias applies only to player-managed public-memory relevance. Existing exact-word behavior, unrelated-note omission, GM-authored/private continuity, context byte bound, and older-event ranking are unchanged. This is a small curated vocabulary, not paid semantic search or general synonym expansion.
+- The fake-provider play-turn regression asks in Spanish, captures the actual GM request, and verifies the reserve note is included, the bridge-toll note stays redacted, and canonical state plus both saved memories are unchanged.
+- **Checks:** compiler tests passed (**10 tests, 0 failures**), Play behavior tests passed (**74 tests, 0 failures**), and the full WSL suite passed (**319 tests, 0 failures**). Warnings-as-errors test compilation, formatting, Gettext freshness, and `git diff --check` passed. No provider or live campaign was used.
+
 ## 2026-10-01 — Set GM characters' starting places in campaign setup
 
 - The optional GM-character setup card now accepts a canonical starting place, and the review step shows it separately from character description and voice notes. Using the exact opening-location name colocates someone with the player; another name creates a separate public place without assuming a route. Leaving it blank keeps their location unknown instead of placing every NPC together.

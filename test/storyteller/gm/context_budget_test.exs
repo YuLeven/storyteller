@@ -167,6 +167,50 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.context_json_bytes < byte_size(Jason.encode!(context))
   end
 
+  test "retrieves a durable wine memory when the player asks in Spanish or French" do
+    player_memory = %{
+      entry_id: "wine-reserve",
+      kind: "fact",
+      title: "Wine reserve for autumn",
+      details: "Keep six bottles aside for the autumn tasting.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    unrelated_memory = %{
+      entry_id: "bridge-toll",
+      kind: "fact",
+      title: "Bridge toll agreement",
+      details: "The town bridge toll is waived until summer.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    context =
+      base_context()
+      |> Map.put(:continuity, %{public: [player_memory, unrelated_memory], gm_private: []})
+
+    for action <- ["¿Cuántos vinos quedan en reserva?", "Combien de vins restent en réserve ?"] do
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(
+                 %{context | player_action: action},
+                 "Short GM policy",
+                 "gpt-6-astra"
+               )
+
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+
+      assert Enum.find(compiled.continuity.public, &(&1.entry_id == "wine-reserve")).details ==
+               player_memory.details
+
+      unrelated = Enum.find(compiled.continuity.public, &(&1.entry_id == "bridge-toll"))
+      refute Map.has_key?(unrelated, :title)
+      refute Map.has_key?(unrelated, :details)
+    end
+  end
+
   test "uses exact meaningful word matches and leaves GM-authored or private continuity intact" do
     context = base_context()
 

@@ -5124,6 +5124,99 @@ defmodule Storyteller.PlayTest do
     assert metrics.budget_tokens == 24_000
   end
 
+  test "Spanish wine question sends matching public memory but omits unrelated note" do
+    {campaign, session} = play_campaign("The Spanish Wine Ledger")
+
+    wine_memory =
+      Repo.insert!(
+        ContinuityEntry.changeset(%ContinuityEntry{}, %{
+          campaign_id: campaign.id,
+          entry_id: "wine-reserve",
+          kind: :fact,
+          title: "Wine reserve for autumn",
+          details: "Keep six bottles aside for the autumn tasting.",
+          status: :active,
+          visibility: :public
+        })
+      )
+
+    unrelated_memory =
+      Repo.insert!(
+        ContinuityEntry.changeset(%ContinuityEntry{}, %{
+          campaign_id: campaign.id,
+          entry_id: "bridge-toll",
+          kind: :fact,
+          title: "Bridge toll agreement",
+          details: "The town bridge toll is waived until summer.",
+          status: :active,
+          visibility: :public
+        })
+      )
+
+    context_agent = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(context_agent, fn _ -> decode_request(request) end)
+
+      proposal =
+        ordinary_proposal(%{
+          "narration" => "The cellar is quiet as you consider the stores.",
+          "dialogue" => [],
+          "activities" => [],
+          "character_updates" => []
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    state_before = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "ask-wine-reserve-in-spanish",
+               "¿Cuántos vinos quedan en reserva?",
+               intent: :question,
+               provider: provider,
+               model: "test-model"
+             )
+
+    context = Agent.get(context_agent, & &1)
+    public_entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+
+    assert public_entries["wine-reserve"]["details"] == wine_memory.details
+    refute Map.has_key?(public_entries["bridge-toll"], "title")
+    refute Map.has_key?(public_entries["bridge-toll"], "details")
+
+    metrics = context |> Map.fetch!("context_completeness")
+    assert metrics["player_managed_memory_details_omitted"]
+
+    state_after = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert Map.take(state_after, [
+             :public_state,
+             :gm_private_state,
+             :elapsed_world_minutes,
+             :elapsed_world_anchor_minutes,
+             :elapsed_world_anchor,
+             :public_history_summary,
+             :gm_private_history_summary
+           ]) ==
+             Map.take(state_before, [
+               :public_state,
+               :gm_private_state,
+               :elapsed_world_minutes,
+               :elapsed_world_anchor_minutes,
+               :elapsed_world_anchor,
+               :public_history_summary,
+               :gm_private_history_summary
+             ])
+
+    assert Repo.get!(ContinuityEntry, wine_memory.id) == wine_memory
+    assert Repo.get!(ContinuityEntry, unrelated_memory.id) == unrelated_memory
+  end
+
   test "Ask GM reaches the provider with a modest conversation history inside the default bound" do
     {campaign, session} = play_campaign("The Lantern Observatory")
     owner = self()
