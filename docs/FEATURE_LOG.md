@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-01 — Make algorithmic continuity the MVP's defining advantage
+
+- The implementation plan now treats Storyteller-owned world state as the product thesis: the LLM narrates and proposes, while the application persists modeled facts, checks presence and other constraints, and commits accepted changes with provenance. This is a release goal, not an assumption that a longer prompt will make model memory reliable.
+- The context budget is part of that same goal. Keep the full campaign locally, assemble each request from the current scene and relevant canonical facts or older evidence, omit unrelated prose first, and preserve required canon. Measure aggregate provider usage when available; use the byte ceiling only as a preflight proxy. If required canon cannot fit, explain the retryable limit instead of asking the GM to guess.
+- Added behavioral coverage for campaign-specific state across later sessions: a vineyard uses its own cash and wine ledgers, a dungeon uses player-carried items without inheriting vineyard data, a 1567 campaign keeps its free-form historical date, and a genre without configured resources or mechanics can still play normally. These complement the Finca–Bodega presence/travel acceptance test already listed in the plan.
+- **Checks:** genre-flexibility coverage passed within the full WSL suite (**305 tests, 0 failures**); `mix format --check-formatted` and `git diff --check` passed. These cases use fake providers and isolated test campaigns. No live provider request or real campaign was used.
+
 ## 2026-10-01 — Spend context on relevant memory and avoid duplicate scene answers
 
 - A context-budget review found that public player-managed memories were sent in full whenever an ordinary request fit the byte ceiling, even if a note had nothing to do with the current action. The deterministic compiler now includes note details only when meaningful words overlap with the player's action, present characters, or current place. Unrelated notes keep stable identity/status metadata and are marked in `context_completeness`; the full note remains visible on the campaign board. GM-authored public continuity and GM-private canon are not altered. This lexical selection is a low-cost baseline; synonym-heavy and implicit-reference retrieval still needs scenario coverage.
