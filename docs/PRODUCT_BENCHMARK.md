@@ -1,7 +1,7 @@
 # Product benchmark: coherent play with a light context budget
 
 **Reviewed:** 2026-10-01  
-**Evidence boundary:** This is a first-party public-documentation review, not a hands-on competitor trial. Storyteller was inspected in the separate fictional QA campaign 35/session 36. Campaign 34 (Vineyard) was not opened, and this review made no live GM request.
+**Evidence boundary:** This combines a first-party public-documentation review with one live GM turn in a separate fictional QA campaign. It is not a hands-on competitor trial or a broad campaign-quality result. The Vineyard campaign was not opened. No campaign text, prompt, or private context is reproduced here.
 
 ## What comparable products teach us
 
@@ -22,7 +22,9 @@ Apple's Human Interface Guidelines recommend matching feedback to the importance
 
 ## Storyteller hands-on finding and next actions
 
-The QA session shows a useful fiction-first loop: the player can ask what they notice or explicitly pass time; travel updates the game-time label; the current location and situation remain on the board. In the last observed look-around, however, the GM answered that there were no new details, repeated that the bar was the place to ask, and the same explanation appeared again in the current-situation panel. The timeline and board were individually readable, but the answer did not add a strong tabletop cue for what the player could inspect or do next. That is the next narration-quality target: concise, vantage-grounded answers, no near-verbatim repetition between the conversation and persistent scene panel, and a natural hand-back of agency. It should be fixed in GM response guidance and tested with fake providers; do not spend a live plan request to test prompt wording.
+The QA session supports a useful fiction-first loop: the player can ask what they notice or explicitly pass time; travel updates the game-time label; the current location and situation remain on the board. An earlier read-only pass found a look-around answer that repeated the board and did not offer a grounded next cue. GM guidance and fake-provider regression coverage have since been updated to keep follow-up answers concise, tied to the character's vantage, and non-duplicative.
+
+In one later live turn in the fictional QA campaign, the player asked about job terms at a tavern bar. The GM introduced an employer through narration and dialogue, and the scene roster then showed her at the current location with the existing companion. The saved player action remained visible while the GM responded. This is a single-turn observation, not proof of cross-session recall, overall consistency, or context-cost savings. The timeline also displayed a separate `New story` summary for the character; review that presentation against the goal of letting the GM introduce people naturally, without a game-like character notification. Broader multi-session play testing remains necessary.
 
 | Priority | Product action | Evidence of success |
 | --- | --- | --- |
