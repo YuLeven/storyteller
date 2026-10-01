@@ -17,12 +17,12 @@ defmodule StorytellerWeb.SessionLiveTest.FakeProvider do
           |> Jason.decode!()
 
         if context["interaction_mode"] == "opening_scene",
-          do: opening_scene_response(),
+          do: opening_scene_response(context),
           else: {:error, :provider_error}
     end
   end
 
-  def opening_scene_response do
+  def opening_scene_response(context \\ %{}) do
     {:ok,
      %{
        narration: "The scene takes shape, and a clear choice is yours.",
@@ -35,11 +35,37 @@ defmodule StorytellerWeb.SessionLiveTest.FakeProvider do
        character_updates: [],
        character_creations: [],
        inventory_changes: [],
-       location_changes: [],
+       location_changes: opening_location_changes(context),
        objective_changes: [],
        continuity_changes: [],
        roll_request: nil
      }}
+  end
+
+  defp opening_location_changes(context) do
+    current_location = get_in(context, ["world", "public", "location"])
+
+    if is_binary(current_location) and String.trim(current_location) != "" do
+      []
+    else
+      [
+        %{
+          "type" => "create_place",
+          "place" => %{
+            "place_id" => "session-live-opening-place",
+            "name" => "The Opening Scene",
+            "visibility" => "public"
+          },
+          "reason" => "The fake GM establishes the opening location."
+        },
+        %{
+          "type" => "move_character",
+          "speaker_id" => "player",
+          "place_id" => "session-live-opening-place",
+          "reason" => "The player starts in the opening scene."
+        }
+      ]
+    end
   end
 end
 
@@ -627,7 +653,23 @@ defmodule StorytellerWeb.SessionLiveTest do
                character_updates: [],
                character_creations: [],
                inventory_changes: [],
-               location_changes: [],
+               location_changes: [
+                 %{
+                   "type" => "create_place",
+                   "place" => %{
+                     "place_id" => "retry-opening-harbor",
+                     "name" => "The Harbor Inn",
+                     "visibility" => "public"
+                   },
+                   "reason" => "The opening retry establishes the harbor."
+                 },
+                 %{
+                   "type" => "move_character",
+                   "speaker_id" => "player",
+                   "place_id" => "retry-opening-harbor",
+                   "reason" => "The player is present in the opening scene."
+                 }
+               ],
                objective_changes: [],
                continuity_changes: [],
                roll_request: nil
@@ -1338,7 +1380,11 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute has_element?(view, "#story-timeline", "Cash: 18.5 silver → 24.75 silver")
     refute has_element?(view, "#story-timeline", "A customer pays for one basket of apples.")
 
-    state_event = Repo.get_by!(Event, campaign_id: campaign.id, event_type: :state_change)
+    state_event =
+      Repo.all_by(Event, campaign_id: campaign.id, event_type: :state_change)
+      |> Enum.find(&is_list(&1.payload["panel_changes"]))
+
+    assert state_event
     assert state_event.payload["panel_changes"] != []
 
     assert state_event.payload["panel_changes"] |> hd() |> Map.fetch!("reason") ==
@@ -1475,6 +1521,7 @@ defmodule StorytellerWeb.SessionLiveTest do
   } do
     campaign =
       campaign_fixture(%{
+        starting_location: "Old quay",
         starting_date: "The 14th day of thaw",
         world_time: "First watch",
         gm_characters: [
@@ -1495,16 +1542,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     [session] = campaign.sessions
 
-    old_place =
-      Repo.insert!(
-        Place.changeset(%Place{}, %{
-          campaign_id: campaign.id,
-          place_id: "old-quay",
-          name: "Old quay",
-          visibility: :public,
-          facts: %{}
-        })
-      )
+    old_place = Repo.get_by!(Place, campaign_id: campaign.id, name: "Old quay")
 
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
     Repo.update!(Character.changeset(lyra, %{current_place_id: old_place.place_id}))
@@ -1570,7 +1608,7 @@ defmodule StorytellerWeb.SessionLiveTest do
          travel_changes: [
            %{
              type: "create_connection",
-             place_a_id: "old-quay",
+             place_a_id: old_place.place_id,
              place_b_id: "beacon-road",
              travel_minutes: 8,
              visibility: "public",
@@ -1589,7 +1627,8 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> form("#turn-composer", turn: %{input: "Follow the road with Lyra."})
     |> render_submit()
 
-    assert wait_until(fn -> has_element?(view, "#current-place", "Beacon road") end)
+    assert wait_until(fn -> has_element?(view, "#current-place", "Beacon road") end),
+           "movement did not resolve: #{inspect(Play.public_current_turn(campaign.id))}"
 
     assert has_element?(view, "#place-change-beacon-road > summary", "Last changed")
     refute has_element?(view, "#place-change-beacon-road[open]")
@@ -1633,6 +1672,8 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, _state} = Play.initialize_campaign(campaign)
 
     set_handler(fn _request ->
+      player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
       {:ok,
        %{
          narration: "A courier steps out from under the stone arch.",
@@ -1655,7 +1696,14 @@ defmodule StorytellerWeb.SessionLiveTest do
            gm_private_summary: "Orin seeks a map."
          },
          inventory_changes: [],
-         location_changes: [],
+         location_changes: [
+           %{
+             type: "move_character",
+             speaker_id: "npc:orin",
+             place_id: player.current_place_id,
+             reason: "Orin steps out where Bevs can see him."
+           }
+         ],
          objective_changes: [],
          roll_request: nil
        }}
@@ -2971,7 +3019,7 @@ defmodule StorytellerWeb.SessionLiveTest do
       context = provider_context(request)
 
       if context["interaction_mode"] == "opening_scene" and not handle_opening? do
-        FakeProvider.opening_scene_response()
+        FakeProvider.opening_scene_response(context)
       else
         handler.(request)
       end

@@ -5,8 +5,21 @@
 - Added an out-of-character correction panel to the active session for repairing a public inventory item, a typed public campaign resource, or a character's known public location. Each change requires a reason and shows a concise receipt outside the story timeline with its target and before/after values.
 - Corrections apply atomically to canonical state and create a separate durable audit record with target, before/after snapshot, expected revision, and reason. They do not add story events or advance game time. Subsequent sessions and GM context use the corrected records.
 - The form offers only player-safe public targets; hidden locations and GM-private records do not leak through target options or audit snapshots. Revision checks reject stale forms, and corrections are refused during pending, resolving, or awaiting-roll turns to prevent races with prebuilt GM context. A failed turn remains correctable before retry.
-- Campaign backup schema v6 exports and validates correction audit records while preserving v1-v5 import compatibility. The additive `20261001000300` migration is covered by the isolated test database; the development database was not migrated.
-- **Checks:** full WSL suite **288 tests, 0 failures**; focused receipt LiveView test passed; JavaScript tests **13/13**; asset build, `mix format --check-formatted`, `mix compile --warnings-as-errors`, Gettext extraction freshness, and `git diff --check` passed. Automated tests use `storyteller_test` and fake providers. The separate investigation could not load QA campaign 35/session 36 because the development DB has the new migration pending, so no additional live retry was made.
+- Campaign backup schema v6 exports and validates correction audit records while preserving v1-v5 import compatibility. The additive `20261001000300` migration is covered by the isolated test database and was subsequently applied to the development database as a schema-only change; no campaign rows were rewritten.
+- **Checks:** full WSL suite **288 tests, 0 failures**; focused receipt LiveView test passed; JavaScript tests **13/13**; asset build, `mix format --check-formatted`, `mix compile --warnings-as-errors`, Gettext extraction freshness, and `git diff --check` passed. Automated tests use `storyteller_test` and fake providers.
+
+## 2026-10-01 — Reopen the authorized QA retry check after migration
+
+- The first subagent check found the local UI blocked by the pending correction migration, so it did not retry or call the provider. After applying the additive migration, `/campaigns/35/sessions/36` loaded successfully and rendered the current scene and normal composer.
+- Read-only state inspection found the originally reported turn 19 is `superseded` with its safe `proposal_validation` stage retained; turns 22–24 are completed and there is no currently failed turn. The page has no failed-turn card or Retry control. The subagent did not replay turn 19 or a completed turn, and made no provider call.
+- Campaign 34/Vineyard was not accessed. The only database change was creation of the correction audit table and its indexes/constraints.
+
+## 2026-10-01 — Anchor fresh campaigns in canonical places
+
+- The continuity goal is now enforced at campaign start: a fresh opening response must leave the player in a known or newly created public place. A public NPC who speaks or acts in that scene must also have an accepted placement there. A rejected proposal leaves the timeline and campaign state untouched.
+- The test provider now establishes a deterministic public opening place when a fixture has no configured start. Existing campaign setups with a known public start keep that place without duplicating it. Movement fixtures use the seeded place's canonical stable ID, matching how the real GM receives it in context.
+- This closes a specific start-of-play hole in the broader MVP continuity promise: all future plausibility checks need a trustworthy initial location, while context remains compact and backed by durable records rather than requiring the model to infer geography from chat.
+- **Checks:** both opening-scene `PlayTest` cases passed; `SessionLiveTest` passed (43 tests, 0 failures); the full WSL suite passed (290 tests, 0 failures). `mix format --check-formatted`, `mix gettext.extract --check-up-to-date`, `mix compile --warnings-as-errors`, and `git diff --check` passed. The development database's additive canon-correction migration was applied without changing campaign records.
 
 ## 2026-10-01 — Product goal: algorithmic continuity within a deliberate token budget
 

@@ -22,6 +22,114 @@ defmodule Storyteller.PlayTest do
     Turn
   }
 
+  test "opening scene needs a public player place and presence for its speaking characters" do
+    {campaign, session} = play_campaign("The Unplaced Observatory")
+    assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
+
+    unanchored =
+      ordinary_proposal(%{
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => []
+      })
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.retry_turn(opening_turn.id,
+               provider: fn _request -> {:ok, Jason.encode!(unanchored)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    assert is_nil(player.current_place_id)
+
+    opening_place_changes = [
+      %{
+        "type" => "create_place",
+        "place" => %{
+          "place_id" => "observatory-dome",
+          "name" => "The Observatory Dome",
+          "visibility" => "public"
+        },
+        "reason" => "The GM establishes where the opening scene takes place."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "player",
+        "place_id" => "observatory-dome",
+        "reason" => "Mira begins the story at the observatory."
+      }
+    ]
+
+    missing_npc_presence =
+      ordinary_proposal(%{
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The dome is opening."}],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => opening_place_changes
+      })
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.retry_turn(opening_turn.id,
+               provider: fn _request -> {:ok, Jason.encode!(missing_npc_presence)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    anchored =
+      ordinary_proposal(%{
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The dome is opening."}],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" =>
+          opening_place_changes ++
+            [
+              %{
+                "type" => "move_character",
+                "speaker_id" => "npc:lyra",
+                "place_id" => "observatory-dome",
+                "reason" => "Lyra is present when the scene begins."
+              }
+            ]
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.retry_turn(opening_turn.id,
+               provider: fn _request -> {:ok, Jason.encode!(anchored)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    lyra = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
+    assert player.current_place_id == "observatory-dome"
+    assert lyra.current_place_id == "observatory-dome"
+    assert projection.world["location"] == "The Observatory Dome"
+  end
+
+  test "opening scene keeps a configured public starting place without inventing another" do
+    campaign = campaign_fixture(%{starting_location: "The Glass Observatory"})
+    [session] = campaign.sessions
+    assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
+
+    opening =
+      ordinary_proposal(%{"dialogue" => [], "activities" => [], "character_updates" => []})
+
+    assert {:ok, %{status: :completed}} =
+             Play.retry_turn(opening_turn.id,
+               provider: fn _request -> {:ok, Jason.encode!(opening)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    assert player.current_place.name == "The Glass Observatory"
+    assert player.current_place_id
+  end
+
   test "out-of-character inventory corrections persist into the next session without rewriting story" do
     {campaign, session} = play_campaign("The Orchard Ledger")
 

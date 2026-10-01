@@ -2600,6 +2600,14 @@ defmodule Storyteller.Play do
              player_place_id
            ),
          :ok <-
+           validate_opening_scene_player_place(
+             turn.intent,
+             final_locations,
+             player_place_id,
+             turn.campaign_id,
+             location_changes
+           ),
+         :ok <-
            validate_public_scene_presence(
              dialogue,
              activities,
@@ -3273,6 +3281,45 @@ defmodule Storyteller.Play do
       do: :ok,
       else: {:error, :invalid_response}
   end
+
+  defp validate_opening_scene_player_place(
+         :opening_scene,
+         final_locations,
+         initial_place_id,
+         campaign_id,
+         location_changes
+       ) do
+    place_id = Map.get(final_locations, "player", initial_place_id)
+
+    known_public_place? =
+      is_binary(place_id) and
+        not is_nil(
+          Repo.get_by(Place, campaign_id: campaign_id, place_id: place_id, visibility: :public)
+        )
+
+    created_public_place? =
+      Enum.any?(location_changes, fn
+        %{
+          "type" => "create_place",
+          "place" => %{"place_id" => ^place_id, "visibility" => "public"}
+        } ->
+          true
+
+        _ ->
+          false
+      end)
+
+    if known_public_place? or created_public_place?, do: :ok, else: {:error, :invalid_response}
+  end
+
+  defp validate_opening_scene_player_place(
+         _intent,
+         _final_locations,
+         _initial_place_id,
+         _campaign_id,
+         _location_changes
+       ),
+       do: :ok
 
   defp current_player_place_id(campaign_id) do
     case Repo.get_by(Character, campaign_id: campaign_id, speaker_id: "player") do
@@ -4283,6 +4330,9 @@ defmodule Storyteller.Play do
     marker, not a player action. Establish the initial situation and return
     control with a clear opportunity for the player to choose what to do. Do not
     invent any action, speech, thought, or decision for the player's character.
+    If the player has no canonical public place yet, create a suitable public
+    place and move the player there in this response. Place every NPC who speaks
+    or acts in that scene at the same place before they do so.
     """
   end
 
