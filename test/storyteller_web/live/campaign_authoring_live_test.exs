@@ -239,10 +239,12 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     render_change(view, "validate", %{"campaign" => validated_attrs})
 
+    # A later validation and submit may carry only fields that changed. They
+    # must not discard voice notes or the correction reason from earlier events.
+    render_change(view, "validate", %{"campaign" => %{"title" => campaign.title}})
+
     html =
-      render_submit(view, "save", %{
-        "campaign" => %{"correction_reason" => validated_attrs["correction_reason"]}
-      })
+      render_submit(view, "save", %{"campaign" => %{"title" => campaign.title}})
 
     assert html =~ "Campaign changes saved."
 

@@ -37,21 +37,27 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   @impl true
   def handle_event("validate", %{"campaign" => attrs}, socket) do
+    authoring_draft =
+      merge_authoring_draft(authoring_draft(attrs), socket.assigns.authoring_draft)
+
     changeset =
       Campaigns.change_campaign(socket.assigns.campaign, Map.take(attrs, @editable_fields))
 
     {:noreply,
      assign(socket,
        form: to_form(%{changeset | action: :validate}, as: :campaign),
-       authoring_draft: authoring_draft(attrs),
-       correction_reason: Map.get(attrs, "correction_reason", ""),
+       authoring_draft: authoring_draft,
+       correction_reason: Map.get(attrs, "correction_reason", socket.assigns.correction_reason),
        save_error: nil
      )}
   end
 
   @impl true
   def handle_event("save", %{"campaign" => attrs}, socket) do
-    attrs = merge_authoring_draft(attrs, socket.assigns.authoring_draft)
+    attrs =
+      attrs
+      |> merge_authoring_draft(socket.assigns.authoring_draft)
+      |> put_default_correction_reason(socket.assigns.correction_reason)
 
     case Campaigns.update_campaign_authoring(socket.assigns.campaign, attrs) do
       {:ok, campaign} ->
@@ -222,6 +228,14 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   defp authoring_draft(attrs) do
     Map.take(attrs, ["gm_character_setup", "character_active_duties", "character_voice_guidance"])
+  end
+
+  defp put_default_correction_reason(attrs, default) do
+    if Map.has_key?(attrs, "correction_reason") or Map.has_key?(attrs, :correction_reason) do
+      attrs
+    else
+      Map.put(attrs, "correction_reason", default)
+    end
   end
 
   defp merge_authoring_draft(attrs, draft) do
