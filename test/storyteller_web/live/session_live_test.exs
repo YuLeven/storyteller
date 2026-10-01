@@ -189,6 +189,83 @@ defmodule StorytellerWeb.SessionLiveTest do
              before_events
   end
 
+  test "weather correction updates canon without rewriting story history or elapsed time", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        starting_date: "14 October 1567",
+        world_time: "Before dawn",
+        weather: "Bleaky"
+      })
+
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+    before_state = Repo.get_by!(State, campaign_id: campaign.id)
+    before_events = Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence)
+
+    view
+    |> form("#canon-correction-form", %{"correction" => %{"kind" => "world"}})
+    |> render_change()
+
+    assert has_element?(view, "#correction-world-field option[value='date']")
+    assert has_element?(view, "#correction-world-field option[value='time']")
+    assert has_element?(view, "#correction-world-field option[value='weather']")
+
+    view
+    |> form("#canon-correction-form", %{
+      "correction" => %{"kind" => "world", "target_id" => "weather"}
+    })
+    |> render_change()
+
+    assert render(view) =~ ~s(id="correction-world-value")
+    assert render(view) =~ ~s(value="Bleaky")
+
+    correction = %{
+      "kind" => "world",
+      "target_id" => "weather",
+      "value" => "Cool river mist",
+      "reason" => "The opening weather was entered with a typo.",
+      "expected_revision" => Integer.to_string(options.revision)
+    }
+
+    view
+    |> form("#canon-correction-form", %{"correction" => correction})
+    |> render_submit()
+
+    corrected_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert corrected_state.public_state["weather"] == "Cool river mist"
+    assert corrected_state.public_state["date"] == "14 October 1567"
+    assert corrected_state.public_state["time"] == "Before dawn"
+    assert corrected_state.elapsed_world_minutes == before_state.elapsed_world_minutes
+
+    assert corrected_state.elapsed_world_anchor_minutes ==
+             before_state.elapsed_world_anchor_minutes
+
+    assert corrected_state.elapsed_world_anchor == before_state.elapsed_world_anchor
+
+    assert has_element?(view, "#world-weather", "Cool river mist")
+    assert has_element?(view, "#recent-canon-corrections", "Weather")
+    assert has_element?(view, "#recent-canon-corrections", "Bleaky")
+    assert has_element?(view, "#recent-canon-corrections", "Cool river mist")
+
+    assert has_element?(
+             view,
+             "#recent-canon-corrections",
+             "The opening weather was entered with a typo."
+           )
+
+    refute has_element?(
+             view,
+             "#story-live-timeline",
+             "The opening weather was entered with a typo."
+           )
+
+    assert Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence) ==
+             before_events
+  end
+
   test "player can keep, edit, and remove public story memory without changing the story timeline",
        %{
          conn: conn
@@ -1254,7 +1331,10 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert Enum.any?(public_events, &(&1.event_type == :character_activity))
     refute Enum.any?(story_events, &(&1.event_type in [:state_change, :character_activity]))
 
-    for {locale, label} <- [{"es", "Hora del juego"}, {"fr", "Heure du jeu"}] do
+    for {locale, label, state_label, detail_label, weather_label} <- [
+          {"es", "Hora del juego", "Estado del mundo", "Dato del mundo", "Clima"},
+          {"fr", "Heure du jeu", "État du monde", "Détail du monde", "Météo"}
+        ] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
       {:ok, localized_view, localized_html} = live_play(conn, campaign, session)
 
@@ -1265,6 +1345,24 @@ defmodule StorytellerWeb.SessionLiveTest do
              )
 
       refute localized_html =~ "UTC"
+
+      localized_view
+      |> form("#canon-correction-form", %{"correction" => %{"kind" => "world"}})
+      |> render_change()
+
+      assert has_element?(
+               localized_view,
+               "#correction-kind option[value='world'][selected]",
+               state_label
+             )
+
+      assert has_element?(localized_view, "label[for='correction-world-field']", detail_label)
+
+      assert has_element?(
+               localized_view,
+               "#correction-world-field option[value='weather']",
+               weather_label
+             )
     end
 
     assert {:ok, _preference} = Settings.set_ui_locale("en")

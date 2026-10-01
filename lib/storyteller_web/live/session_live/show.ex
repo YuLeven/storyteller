@@ -1359,6 +1359,10 @@ defmodule StorytellerWeb.SessionLive.Show do
       params["kind"] == "resource" and not is_nil(params["target_id"]) and
         (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"])
 
+    world_label_changed? =
+      params["kind"] == "world" and not is_nil(params["target_id"]) and
+        (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"])
+
     cond do
       inventory_item_changed? ->
         case Enum.find(options[:inventory] || [], &(&1.id == params["target_id"])) do
@@ -1368,6 +1372,12 @@ defmodule StorytellerWeb.SessionLive.Show do
 
       resource_changed? ->
         case Enum.find(options[:resources] || [], &(&1.key == params["target_id"])) do
+          nil -> params
+          field -> Map.put(params, "value", correction_value(field.value))
+        end
+
+      world_label_changed? ->
+        case Enum.find(options[:world_labels] || [], &(&1.key == params["target_id"])) do
           nil -> params
           field -> Map.put(params, "value", correction_value(field.value))
         end
@@ -1437,8 +1447,14 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp correction_kind_label("inventory"), do: gettext("Inventory")
   defp correction_kind_label("resource"), do: gettext("Tracked resource")
   defp correction_kind_label("location"), do: gettext("Character location")
+  defp correction_kind_label("world"), do: gettext("World state")
   defp correction_kind_label("memory"), do: gettext("Campaign memory")
   defp correction_kind_label(kind), do: kind
+
+  defp world_correction_label("date"), do: gettext("Date")
+  defp world_correction_label("time"), do: gettext("Time")
+  defp world_correction_label("weather"), do: gettext("Weather")
+  defp world_correction_label(key), do: key
 
   defp story_memory_kind_label(:fact), do: gettext("Fact")
   defp story_memory_kind_label(:relationship), do: gettext("Relationship")
@@ -1457,6 +1473,9 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp correction_receipt_value("location", %{place_name: name}) when is_binary(name), do: name
   defp correction_receipt_value("location", _place), do: gettext("Unrecorded location")
+
+  defp correction_receipt_value("world", %{value: value}), do: correction_value(value)
+  defp correction_receipt_value("world", _field), do: gettext("Not recorded")
 
   defp correction_receipt_value("memory", %{title: title, details: details, status: status}) do
     gettext("%{title}: %{details} (%{status})",

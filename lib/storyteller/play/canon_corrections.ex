@@ -23,6 +23,8 @@ defmodule Storyteller.Play.CanonCorrections do
     Turn
   }
 
+  alias Storyteller.Play
+
   alias Storyteller.Repo
 
   @active_turn_statuses [:pending, :resolving, :awaiting_roll]
@@ -38,7 +40,8 @@ defmodule Storyteller.Play.CanonCorrections do
          %Session{status: :active} <-
            Repo.get_by(Session, id: session_id, campaign_id: campaign_id),
          %State{} = state <- Repo.get_by(State, campaign_id: campaign_id),
-         {:ok, panel_projection} <- Panels.public_projection(campaign_id) do
+         {:ok, panel_projection} <- Panels.public_projection(campaign_id),
+         {:ok, play_projection} <- Play.public_projection(campaign_id) do
       places =
         Repo.all(
           from place in Place,
@@ -94,6 +97,8 @@ defmodule Storyteller.Play.CanonCorrections do
           end)
         end)
 
+      world_labels = public_world_labels(play_projection.world)
+
       player_memory_count =
         Repo.aggregate(
           from(entry in ContinuityEntry,
@@ -111,6 +116,7 @@ defmodule Storyteller.Play.CanonCorrections do
          inventory: inventory,
          owners: [%{id: "party", name: "Party"} | characters],
          resources: resources,
+         world_labels: world_labels,
          characters: characters,
          places: Enum.map(places, &%{id: &1.place_id, name: &1.name}),
          player_memory_count: player_memory_count,
@@ -172,12 +178,17 @@ defmodule Storyteller.Play.CanonCorrections do
 
   defp receipt_snapshot("memory", _snapshot), do: nil
 
+  defp receipt_snapshot("world", %{"key" => key, "label" => label, "value" => value}) do
+    %{key: key, label: label, value: value}
+  end
+
   defp receipt_snapshot(_kind, _snapshot), do: nil
 
   defp receipt_target_label("inventory", %{name: name}), do: name
   defp receipt_target_label("resource", %{label: label}), do: label
   defp receipt_target_label("location", %{character_name: name}), do: name
   defp receipt_target_label("memory", %{title: title}), do: title
+  defp receipt_target_label("world", %{label: label}), do: label
   defp receipt_target_label(_kind, _snapshot), do: nil
 
   @doc "Applies one explicit correction, rejecting stale or in-flight campaign state."
@@ -356,8 +367,96 @@ defmodule Storyteller.Play.CanonCorrections do
     end
   end
 
+  defp plan_correction(:world, target_id, values, _campaign_id, state)
+       when target_id in ["date", "time", "weather"] do
+    with {:ok, %{world: canonical_world}} <- Play.public_projection(state.campaign_id),
+         %{value: before_value, label: label} <-
+           Enum.find(public_world_labels(canonical_world), &(&1.key == target_id)),
+         value when is_binary(value) <- normalize_world_label_value(attr(values, :value)),
+         true <- value != before_value do
+      before_state = world_label_snapshot(target_id, label, before_value)
+      after_state = world_label_snapshot(target_id, label, value)
+
+      update = fn locked_state ->
+        public_state =
+          locked_state.public_state
+          |> drop_public_world_aliases(target_id)
+          |> Map.put(target_id, value)
+
+        attrs = %{public_state: public_state}
+
+        attrs =
+          if target_id in ["date", "time"] do
+            anchor_labels =
+              canonical_world
+              |> Map.put(target_id, value)
+              |> Map.take(["date", "time"])
+
+            Map.merge(attrs, %{
+              elapsed_world_anchor_minutes: locked_state.elapsed_world_minutes,
+              elapsed_world_anchor: anchor_labels
+            })
+          else
+            attrs
+          end
+
+        case locked_state |> State.changeset(attrs) |> Repo.update() do
+          {:ok, updated_state} -> {:ok, updated_state}
+          {:error, _changeset} -> {:error, :invalid_correction}
+        end
+      end
+
+      {:ok, target_id, before_state, after_state, update}
+    else
+      nil -> {:error, :not_found}
+      false -> {:error, :no_change}
+      {:error, _reason} -> {:error, :invalid_correction}
+      _ -> {:error, :invalid_value}
+    end
+  end
+
+  defp plan_correction(:world, _target_id, _values, _campaign_id, _state),
+    do: {:error, :not_found}
+
   defp plan_correction(_kind, _target_id, _values, _campaign_id, _state),
     do: {:error, :invalid_correction}
+
+  defp public_world_labels(public_state) do
+    Enum.flat_map([{"date", "Date"}, {"time", "Time"}, {"weather", "Weather"}], fn {
+                                                                                     key,
+                                                                                     label
+                                                                                   } ->
+      case Map.get(public_state, key) do
+        value when is_binary(value) and value != "" -> [%{key: key, label: label, value: value}]
+        _ -> []
+      end
+    end)
+  end
+
+  defp world_label_snapshot(key, label, value),
+    do: %{"key" => key, "label" => label, "value" => value}
+
+  defp drop_public_world_aliases(public_state, target_id) do
+    aliases = world_field_aliases(target_id)
+
+    Enum.reduce(Map.keys(public_state), public_state, fn key, world ->
+      normalized = key |> to_string() |> String.trim() |> String.downcase()
+      if normalized in aliases, do: Map.delete(world, key), else: world
+    end)
+  end
+
+  defp world_field_aliases("date"), do: ~w(date current_date world_date calendar_date)
+  defp world_field_aliases("time"), do: ~w(time current_time time_of_day world_time)
+  defp world_field_aliases("weather"), do: ~w(weather conditions)
+
+  defp normalize_world_label_value(value) when is_binary(value) do
+    normalized = String.trim(value)
+
+    if normalized != "" and String.valid?(normalized) and String.length(normalized) <= 2_000,
+      do: normalized
+  end
+
+  defp normalize_world_label_value(_value), do: nil
 
   defp add_player_memory(values, campaign_id) do
     active_count = active_continuity_count(campaign_id)
@@ -734,6 +833,8 @@ defmodule Storyteller.Play.CanonCorrections do
   defp normalize_kind(:location), do: :location
   defp normalize_kind("memory"), do: :memory
   defp normalize_kind(:memory), do: :memory
+  defp normalize_kind("world"), do: :world
+  defp normalize_kind(:world), do: :world
   defp normalize_kind(_), do: nil
 
   defp normalize_reason(value) when is_binary(value) do

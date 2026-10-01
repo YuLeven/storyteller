@@ -37,7 +37,8 @@ defmodule Storyteller.CampaignBackup do
   @elapsed_world_clock_version 5
   @canon_corrections_version 6
   @player_memories_version 7
-  @version @player_memories_version
+  @world_label_corrections_version 8
+  @version @world_label_corrections_version
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -414,7 +415,8 @@ defmodule Storyteller.CampaignBackup do
              @place_connections_version,
              @elapsed_world_clock_version,
              @canon_corrections_version,
-             @version
+             @player_memories_version,
+             @world_label_corrections_version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
@@ -483,7 +485,11 @@ defmodule Storyteller.CampaignBackup do
        do: root_backup_keys() ++ ["authoring_corrections", "place_connections"]
 
   defp root_backup_keys(version)
-       when version in [@canon_corrections_version, @player_memories_version],
+       when version in [
+              @canon_corrections_version,
+              @player_memories_version,
+              @world_label_corrections_version
+            ],
        do:
          root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
 
@@ -985,7 +991,8 @@ defmodule Storyteller.CampaignBackup do
               @place_connections_version,
               @elapsed_world_clock_version,
               @canon_corrections_version,
-              @player_memories_version
+              @player_memories_version,
+              @world_label_corrections_version
             ],
        do: turn_backup_keys(@current_previous_version)
 
@@ -1253,6 +1260,9 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_canon_corrections(_, _, _, _, _, _), do: {:error, :invalid_backup}
 
+  defp canon_correction_kinds(version) when version >= @world_label_corrections_version,
+    do: ~w(inventory resource location memory world)
+
   defp canon_correction_kinds(version) when version >= @player_memories_version,
     do: ~w(inventory resource location memory)
 
@@ -1346,8 +1356,41 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
+  defp validate_canon_correction_states(
+         "world",
+         target_id,
+         before_map,
+         after_map,
+         _character_ids,
+         _owners,
+         _places,
+         _continuity
+       ) do
+    with true <- target_id in ~w(date time weather),
+         :ok <- validate_world_correction_state(before_map, target_id),
+         :ok <- validate_world_correction_state(after_map, target_id),
+         true <- before_map != after_map do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
   defp validate_canon_correction_states(_, _, _, _, _, _, _, _),
     do: {:error, :invalid_backup}
+
+  defp validate_world_correction_state(state, target_id) do
+    expected_label = %{"date" => "Date", "time" => "Time", "weather" => "Weather"}[target_id]
+
+    with :ok <- exact_keys(state, ~w(key label value), :world_correction_state),
+         true <- state["key"] == target_id,
+         true <- state["label"] == expected_label,
+         {:ok, _value} <- text(state["value"], 1, 2_000) do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
 
   defp validate_memory_correction_state(%{"entry" => nil} = state, _target_id),
     do: exact_keys(state, ["entry"], :memory_correction_state)

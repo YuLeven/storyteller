@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-01 — Correct the current world's date, time, or weather in place
+
+- Extended **Campaign care** with a correction path for the currently visible public date, time, and weather, so a setup typo can be repaired after a campaign has begun. Each correction is reasoned and revision-checked, updates the player board and future GM context, and remains separate from narration and the in-world event timeline.
+- Date/time corrections re-anchor the elapsed-world clock at its existing total; weather corrections leave all clock fields alone. The picker and receipt use the same canonical public value as the board, and a correction removes stale legacy aliases that could otherwise override it. In-flight turns and stale forms still reject atomically.
+- Bumped campaign backups to schema v8 for world-label audit records. v1–v7 imports remain supported, while a v7 backup cannot claim a v8 world correction. The migration only expands the existing audit-kind constraint.
+- **Checks:** full WSL suite **311 tests, 0 failures**; the focused LiveView/domain/backup set passed (**50 tests, 0 failures**); warnings-as-errors compilation, formatting, Gettext freshness, and `git diff --check` passed. The development migration applied successfully and the local home page returned HTTP 200. Tests used fake providers and `storyteller_test`; the development change was schema-only. No campaign rows or Vineyard data were edited, and no live provider call was made.
+
 ## 2026-10-01 — Make algorithmic continuity the MVP's defining advantage
 
 - The implementation plan now treats Storyteller-owned world state as the product thesis: the LLM narrates and proposes, while the application persists modeled facts, checks presence and other constraints, and commits accepted changes with provenance. This is a release goal, not an assumption that a longer prompt will make model memory reliable.
