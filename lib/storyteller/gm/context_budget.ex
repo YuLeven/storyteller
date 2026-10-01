@@ -190,6 +190,56 @@ defmodule Storyteller.GM.ContextBudget do
     "convenir" => "campaign:commitment",
     "convenu" => "campaign:commitment",
     "convenue" => "campaign:commitment",
+    "meet" => "campaign:meeting",
+    "meets" => "campaign:meeting",
+    "meeting" => "campaign:meeting",
+    "met" => "campaign:meeting",
+    "appointment" => "campaign:meeting",
+    "appointments" => "campaign:meeting",
+    "rendez" => "campaign:meeting",
+    "reunión" => "campaign:meeting",
+    "reuniones" => "campaign:meeting",
+    "reunir" => "campaign:meeting",
+    "reunirse" => "campaign:meeting",
+    "quedar" => "campaign:meeting",
+    "quedamos" => "campaign:meeting",
+    "quedaremos" => "campaign:meeting",
+    "cita" => "campaign:meeting",
+    "citas" => "campaign:meeting",
+    "encuentro" => "campaign:meeting",
+    "encontrarnos" => "campaign:meeting",
+    "rencontre" => "campaign:meeting",
+    "rencontrer" => "campaign:meeting",
+    "retrouver" => "campaign:meeting",
+    "retrouvons" => "campaign:meeting",
+    "reply" => "campaign:response",
+    "replies" => "campaign:response",
+    "replied" => "campaign:response",
+    "response" => "campaign:response",
+    "respond" => "campaign:response",
+    "responds" => "campaign:response",
+    "responded" => "campaign:response",
+    "answer" => "campaign:response",
+    "answers" => "campaign:response",
+    "answered" => "campaign:response",
+    "respuesta" => "campaign:response",
+    "respuestas" => "campaign:response",
+    "responder" => "campaign:response",
+    "responde" => "campaign:response",
+    "respondió" => "campaign:response",
+    "respondio" => "campaign:response",
+    "contestación" => "campaign:response",
+    "contestacion" => "campaign:response",
+    "contestar" => "campaign:response",
+    "contesta" => "campaign:response",
+    "contestó" => "campaign:response",
+    "contesto" => "campaign:response",
+    "réponse" => "campaign:response",
+    "réponses" => "campaign:response",
+    "répondre" => "campaign:response",
+    "répond" => "campaign:response",
+    "répondu" => "campaign:response",
+    "répondra" => "campaign:response",
     "pay" => "employment:compensation",
     "pays" => "employment:compensation",
     "paid" => "employment:compensation",
@@ -221,6 +271,7 @@ defmodule Storyteller.GM.ContextBudget do
                                   "allocation:set-aside"
                                 ])
   @event_subconcepts MapSet.new(["occasion:tasting"])
+  @social_memory_concepts MapSet.new(["campaign:meeting", "campaign:response"])
   @employment_memory_concepts MapSet.new([
                                 "employment:work",
                                 "employment:acceptance",
@@ -536,7 +587,11 @@ defmodule Storyteller.GM.ContextBudget do
       |> MapSet.difference(@memory_stopwords)
 
     matched_concepts = MapSet.intersection(meaningful_query_terms, note_terms)
-    other_matched_concepts = MapSet.difference(matched_concepts, @employment_memory_concepts)
+
+    other_matched_concepts =
+      matched_concepts
+      |> MapSet.difference(@employment_memory_concepts)
+      |> MapSet.difference(@social_memory_concepts)
 
     employment_matches = MapSet.intersection(matched_concepts, @employment_memory_concepts)
 
@@ -565,6 +620,9 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
     cond do
+      social_commitment_relevant?(entry, matched_concepts) ->
+        true
+
       typed_commitment_relevant?(entry, meaningful_query_terms) ->
         true
 
@@ -584,6 +642,14 @@ defmodule Storyteller.GM.ContextBudget do
       true ->
         true
     end
+  end
+
+  # A bounded meeting/reply cue can recover an older social commitment even
+  # when the query is phrased in another supported language. Require a typed
+  # commitment so matching mentions in ordinary facts do not broaden retrieval.
+  defp social_commitment_relevant?(entry, matched_concepts) do
+    value(entry, :kind) in ["commitment", :commitment] and
+      not MapSet.disjoint?(matched_concepts, @social_memory_concepts)
   end
 
   # A question about what was promised can refer to a campaign commitment even

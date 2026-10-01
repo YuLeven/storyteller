@@ -5553,6 +5553,153 @@ defmodule Storyteller.PlayTest do
     assert Repo.get!(ContinuityEntry, unrelated_memory.id) == unrelated_memory
   end
 
+  test "later-session meeting and reply questions retrieve old social commitments across locales" do
+    {campaign, first_session} = play_campaign("The Observatory Correspondence")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-social-commitments",
+               "Mira and Nella leave the observatory after their conversation.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "north-gate-meeting",
+                         "kind" => "commitment",
+                         "title" => "Nella's North Gate Promise",
+                         "details" =>
+                           "Nella will meet the archivist at the north gate after the comet returns.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "Nella commits to a later meeting."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "charter-reply",
+                         "kind" => "commitment",
+                         "title" => "Iria's Charter Promise",
+                         "details" =>
+                           "Iria promised to send a reply about the charter after the comet returns.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "Iria promises to send the charter decision later."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "appointment-fact",
+                         "kind" => "fact",
+                         "title" => "The Cartographer's Appointment",
+                         "details" =>
+                           "The miller expects an appointment with the cartographer after the first frost.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The cartographer has an unrelated appointment."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "answer-fact",
+                         "kind" => "fact",
+                         "title" => "The Magistrate's Answer",
+                         "details" =>
+                           "The magistrate's answer about the river tax arrived at dawn.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The magistrate answered a separate question."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "key-promise",
+                         "kind" => "commitment",
+                         "title" => "The Keeper's Key Promise",
+                         "details" => "The keeper promised to return the silver key before dawn.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The keeper promises to return a key."
+                     }
+                   ]
+                 })
+             )
+
+    meeting =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "north-gate-meeting")
+
+    reply =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "charter-reply")
+
+    expected_details = %{meeting.entry_id => meeting.details, reply.entry_id => reply.details}
+    {:ok, next_session} = Campaigns.start_session(campaign)
+    captured_contexts = Agent.start_link(fn -> [] end) |> elem(1)
+
+    provider = fn request ->
+      context = decode_request(request)
+
+      Agent.update(captured_contexts, fn contexts ->
+        [{context, request.local_context_metrics} | contexts]
+      end)
+
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    questions = [
+      {"When is our appointment?", meeting.entry_id},
+      {"¿Cuándo quedamos para vernos?", meeting.entry_id},
+      {"Où devions-nous retrouver quelqu'un ?", meeting.entry_id},
+      {"Did she answer us yet?", reply.entry_id},
+      {"¿Ya nos contestó?", reply.entry_id},
+      {"A-t-elle répondu ?", reply.entry_id}
+    ]
+
+    questions
+    |> Enum.with_index()
+    |> Enum.each(fn {{question, _expected_entry_id}, index} ->
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 next_session.id,
+                 "social-followup-#{index}",
+                 question,
+                 intent: :question,
+                 provider: provider,
+                 model: "test-model"
+               )
+    end)
+
+    captured = Agent.get(captured_contexts, &Enum.reverse/1)
+    assert length(captured) == length(questions)
+
+    for {{question, expected_entry_id}, {context, metrics}} <- Enum.zip(questions, captured) do
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.budget_tokens == 24_000
+
+      entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+      assert entries[expected_entry_id]["details"] == expected_details[expected_entry_id]
+
+      for decoy_id <-
+            [
+              "north-gate-meeting",
+              "charter-reply",
+              "appointment-fact",
+              "answer-fact",
+              "key-promise"
+            ] -- [expected_entry_id] do
+        assert entries[decoy_id]["entry_id"] == decoy_id
+        assert entries[decoy_id]["status"] == "active"
+        refute Map.has_key?(entries[decoy_id], "title"), "#{question}: #{decoy_id}"
+        refute Map.has_key?(entries[decoy_id], "details"), "#{question}: #{decoy_id}"
+      end
+
+      assert context["context_completeness"]["continuity_memory_details_omitted"]
+    end
+  end
+
   test "a later-session generic agreement question receives typed commitment context" do
     {campaign, first_session} = play_campaign("The Quiet Observatory Agreements")
 

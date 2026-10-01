@@ -550,6 +550,91 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
+  test "retrieves typed meeting and reply commitments from bounded multilingual cues" do
+    meeting = %{
+      entry_id: "future-meeting",
+      kind: "commitment",
+      title: "Nella's North Gate Promise",
+      details: "Nella will meet the archivist at the north gate after the comet returns.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    reply = %{
+      entry_id: "future-reply",
+      kind: "commitment",
+      title: "Mira's Charter Promise",
+      details: "Mira promised to send a reply about the charter after the comet returns.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    meeting_fact_decoy = %{
+      entry_id: "appointment-fact",
+      kind: "fact",
+      title: "The Cartographer's Appointment",
+      details: "The miller expects an appointment with the cartographer after the first frost.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    reply_fact_decoy = %{
+      entry_id: "answer-fact",
+      kind: "fact",
+      title: "The Magistrate's Answer",
+      details: "The magistrate's answer about the river tax arrived at dawn.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    unrelated_commitment = %{
+      entry_id: "key-promise",
+      kind: "commitment",
+      title: "The Keeper's Key Promise",
+      details: "The keeper promised to return the silver key before dawn.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    entries = [meeting, reply, meeting_fact_decoy, reply_fact_decoy, unrelated_commitment]
+
+    context =
+      base_context()
+      |> Map.put(:continuity, %{public: entries, gm_private: []})
+
+    for {action, expected_entry_id} <- [
+          {"When is our appointment?", meeting.entry_id},
+          {"¿Cuándo quedamos para vernos?", meeting.entry_id},
+          {"Où devions-nous retrouver quelqu'un ?", meeting.entry_id},
+          {"Did she answer us yet?", reply.entry_id},
+          {"¿Ya nos contestó?", reply.entry_id},
+          {"A-t-elle répondu ?", reply.entry_id}
+        ] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_token_budget: 24_000
+               )
+
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+
+      detailed_ids =
+        compiled.continuity.public
+        |> Enum.filter(&Map.has_key?(&1, :details))
+        |> Enum.map(& &1.entry_id)
+
+      assert detailed_ids == [expected_entry_id]
+      assert compiled.context_completeness.continuity_memory_details_omitted
+      assert :continuity_memory_details in metrics.omissions
+    end
+  end
+
   test "retrieves a durable wine memory when the player asks in Spanish or French" do
     player_memory = %{
       entry_id: "wine-reserve",

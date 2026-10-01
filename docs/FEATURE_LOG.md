@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 — Retrieve social commitments from indirect multilingual cues
+
+- Added a small deterministic alias vocabulary for future meetings and replies across English, Spanish, and French. The new relation retrieves details only for typed commitments; same-topic facts stay compact, and unrelated commitments remain omitted.
+- Added compiler regressions for appointment/meeting and reply/answer cues in all three languages, plus a fake-provider cross-session scenario that preserves meeting and reply commitments while excluding same-topic fact decoys and an unrelated commitment. Every request asserts the existing 24,000-byte preflight bound.
+- **Checks:** the complete context-budget suite and new cross-session Play regression passed (**97 tests, 0 failures**); full WSL suite passed (**351 tests, 0 failures**); formatting, Gettext POT freshness, test-environment warnings-as-errors compilation, and `git diff --check` passed. Tests use the isolated test database and fake providers; no live campaign or provider request was used.
+
 ## 2026-10-01 — Make multi-day time passage easy to request
 
 - Added a **Pass a few days** nudge in Let time pass mode. Its text asks the GM to stop at the next meaningful decision the player needs to make; the free-form duration path remains available. Spanish and French copy is included.
