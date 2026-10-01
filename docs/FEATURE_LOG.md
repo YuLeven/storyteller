@@ -6,6 +6,12 @@
 - Made continuity and context cost a single acceptance goal. Remaining work is called out for routine NPC availability, indirect and cross-language memory recall without false inclusion, and long-campaign checks using provider-reported aggregate usage where available. Serialized bytes remain a conservative preflight proxy, not an exact token count; required canon is never silently dropped when a safe prompt cannot fit.
 - Documentation update only; no campaign state or application behavior changed in this entry.
 
+## 2026-10-01 — Preserve distinct current-scene character voice guidance
+
+- Added a context-budget regression with two colocated GM characters that have different quirks, accents, cadence, vocabulary, and mannerisms. When forced compaction runs, each present character keeps their own full voice profile while an unmentioned remote character's profile is omitted to conserve context.
+- This proves the configured voice reaches the bounded prompt without being merged or discarded. It does not prove the model performs the voices distinctly; that still needs human evaluation in play with separate characters and several turns.
+- **Checks:** context-budget suite **12 tests, 0 failures**; format check and `git diff --check` passed. Synthetic contexts and no provider call.
+
 ## 2026-10-01 — Clarify time-passage turns and usage-limit recovery
 
 - Time-passage timeline entries now use the player's “You” label, so a turn such as “An hour passes” reads as the player's action rather than a machine-generated request category. Stored event type and turn semantics are unchanged.

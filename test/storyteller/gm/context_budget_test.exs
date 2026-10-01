@@ -162,6 +162,77 @@ defmodule Storyteller.GM.ContextBudgetTest do
     refute Map.has_key?(tomas, :gm_private_facts)
   end
 
+  test "keeps each present NPC's distinct voice guidance when compacting the GM context" do
+    context = base_context()
+
+    marisol_voice = %{
+      "quirks" => "Answers with a dry joke when nervous.",
+      "accent_dialect" => "French accent, with Lyonnais vowels.",
+      "cadence" => "Short phrases, then a pause before a confession.",
+      "vocabulary" => "Uses kitchen and cellar terms.",
+      "mannerisms" => "Taps the spoon against her apron when thinking."
+    }
+
+    keeper_voice = %{
+      "quirks" => "Repeats the last word as a quiet question.",
+      "accent_dialect" => "Soft coastal Spanish lilt.",
+      "cadence" => "Slow, careful sentences.",
+      "vocabulary" => "Favors weather and gardening metaphors.",
+      "mannerisms" => "Looks toward the vines before answering."
+    }
+
+    remote_voice = %{"cadence" => "Speaks in clipped, formal sentences."}
+
+    characters =
+      Enum.map(context.characters, fn character ->
+        case character.speaker_id do
+          "marisol" -> Map.put(character, :voice_guidance, marisol_voice)
+          "tomas" -> Map.put(character, :voice_guidance, remote_voice)
+          _ -> character
+        end
+      end) ++
+        [
+          %{
+            speaker_id: "keeper",
+            name: "Iria",
+            role: :gm,
+            current_place_id: "finca",
+            current_place: %{place_id: "finca", name: "Finca", visibility: :public},
+            visible_facts: %{},
+            gm_private_facts: %{},
+            voice_guidance: keeper_voice
+          }
+        ]
+
+    history =
+      Enum.map(1..50, fn sequence ->
+        %{
+          "sequence" => sequence,
+          "session_id" => 1,
+          "event_type" => "gm_narration",
+          "visibility" => "public",
+          "speaker_id" => nil,
+          "payload" => %{
+            "text" => "Unrelated ledger detail #{sequence}. " <> String.duplicate("record ", 70)
+          }
+        }
+      end)
+
+    context = context |> Map.put(:characters, characters) |> Map.put(:history, history)
+
+    assert {:ok, %{context: compacted, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
+               context_input_token_budget: 20_000
+             )
+
+    assert metrics.compacted?
+
+    compacted_characters = Map.new(compacted.characters, &{&1.speaker_id, &1})
+    assert compacted_characters["marisol"].voice_guidance == marisol_voice
+    assert compacted_characters["keeper"].voice_guidance == keeper_voice
+    refute Map.has_key?(compacted_characters["tomas"], :voice_guidance)
+  end
+
   test "retrieves relevant player memories without resending unrelated details under budget" do
     context = base_context()
 
