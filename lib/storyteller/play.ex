@@ -106,6 +106,12 @@ defmodule Storyteller.Play do
   must not omit an established consequence or canonical change that the turn
   requires.
 
+  For a look, inspection, or "what can I see?" request, report only new or
+  specifically inspected details that follow from canonical public state and
+  the character's vantage point. Do not replay the whole scene, retell the
+  previous event, or list facts already available on the player's board. If
+  nothing new is noticeable, say so briefly and return control.
+
   Introduce a new character through ordinary scene narration or their own
   dialogue, as a tabletop GM would. Never announce a character creation, list
   their statistics, or write a system-style introduction. Their structured

@@ -2190,11 +2190,6 @@ msgstr "Le MJ fait avancer la durée demandée et s'arrête lorsqu'une décision
 msgid "What can I see?"
 msgstr "Que puis-je voir ?"
 
-#: lib/storyteller_web/live/session_live/show.ex:1073
-#, elixir-autogen
-msgid "What can I see from here?"
-msgstr "Que puis-je voir d'ici ?"
-
 #: lib/storyteller_web/live/session_live/show.ex:1077
 #, elixir-autogen
 msgid "What choices do I notice?"
@@ -2229,11 +2224,6 @@ msgstr "Avancez jusqu'au lendemain matin et arrêtez-vous si je dois prendre une
 #, elixir-autogen
 msgid "Look around"
 msgstr "Regarder autour de soi"
-
-#: lib/storyteller_web/live/session_live/show.ex:1108
-#, elixir-autogen
-msgid "I look around the scene carefully."
-msgstr "J'observe attentivement la scène."
 
 #: lib/storyteller_web/live/session_live/show.ex:1112
 #, elixir-autogen
@@ -2515,3 +2505,13 @@ msgstr "L’importation crée une campagne distincte et ne remplace jamais une c
 #, elixir-autogen, elixir-format
 msgid "Backups contain GM-only notes and full campaign history. Keep downloaded files somewhere private."
 msgstr "Les sauvegardes contiennent les notes réservées au MJ et l’historique complet de la campagne. Conservez les fichiers téléchargés dans un endroit privé."
+
+#: lib/storyteller_web/live/session_live/show.ex:1108
+#, elixir-autogen, elixir-format
+msgid "I scan the scene for anything new or out of place."
+msgstr "Je scrute la scène pour repérer un élément nouveau ou déplacé."
+
+#: lib/storyteller_web/live/session_live/show.ex:1073
+#, elixir-autogen, elixir-format
+msgid "What can I see from here that I haven't noticed yet?"
+msgstr "Que puis-je voir d'ici que je n'ai pas encore remarqué ?"

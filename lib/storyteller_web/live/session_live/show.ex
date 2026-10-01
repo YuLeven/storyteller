@@ -1070,7 +1070,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       %{
         id: "visible",
         label: gettext("What can I see?"),
-        text: gettext("What can I see from here?")
+        text: gettext("What can I see from here that I haven't noticed yet?")
       },
       %{
         id: "choices",
@@ -1105,7 +1105,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       %{
         id: "look-around",
         label: gettext("Look around"),
-        text: gettext("I look around the scene carefully.")
+        text: gettext("I scan the scene for anything new or out of place.")
       },
       %{
         id: "talk-nearby",

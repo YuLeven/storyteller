@@ -2190,11 +2190,6 @@ msgstr "El GM avanza el intervalo solicitado y se detiene cuando necesitas decid
 msgid "What can I see?"
 msgstr "¿Qué puedo ver?"
 
-#: lib/storyteller_web/live/session_live/show.ex:1073
-#, elixir-autogen
-msgid "What can I see from here?"
-msgstr "¿Qué puedo ver desde aquí?"
-
 #: lib/storyteller_web/live/session_live/show.ex:1077
 #, elixir-autogen
 msgid "What choices do I notice?"
@@ -2229,11 +2224,6 @@ msgstr "Avanza hasta la mañana siguiente y detente si debo tomar una decisión.
 #, elixir-autogen
 msgid "Look around"
 msgstr "Mirar alrededor"
-
-#: lib/storyteller_web/live/session_live/show.ex:1108
-#, elixir-autogen
-msgid "I look around the scene carefully."
-msgstr "Observo atentamente la escena."
 
 #: lib/storyteller_web/live/session_live/show.ex:1112
 #, elixir-autogen
@@ -2515,3 +2505,13 @@ msgstr "La importación crea una campaña independiente y nunca reemplaza una ex
 #, elixir-autogen, elixir-format
 msgid "Backups contain GM-only notes and full campaign history. Keep downloaded files somewhere private."
 msgstr "Las copias de seguridad contienen notas exclusivas del GM y el historial completo de la campaña. Guarda los archivos descargados en un lugar privado."
+
+#: lib/storyteller_web/live/session_live/show.ex:1108
+#, elixir-autogen, elixir-format
+msgid "I scan the scene for anything new or out of place."
+msgstr "Examino la escena para buscar algo nuevo o fuera de lugar."
+
+#: lib/storyteller_web/live/session_live/show.ex:1073
+#, elixir-autogen, elixir-format
+msgid "What can I see from here that I haven't noticed yet?"
+msgstr "¿Qué puedo ver desde aquí que aún no haya notado?"

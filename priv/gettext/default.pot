@@ -2197,11 +2197,6 @@ msgstr ""
 msgid "What can I see?"
 msgstr ""
 
-#: lib/storyteller_web/live/session_live/show.ex:1073
-#, elixir-autogen
-msgid "What can I see from here?"
-msgstr ""
-
 #: lib/storyteller_web/live/session_live/show.ex:1077
 #, elixir-autogen
 msgid "What choices do I notice?"
@@ -2235,11 +2230,6 @@ msgstr ""
 #: lib/storyteller_web/live/session_live/show.ex:1107
 #, elixir-autogen
 msgid "Look around"
-msgstr ""
-
-#: lib/storyteller_web/live/session_live/show.ex:1108
-#, elixir-autogen
-msgid "I look around the scene carefully."
 msgstr ""
 
 #: lib/storyteller_web/live/session_live/show.ex:1112
@@ -2521,4 +2511,14 @@ msgstr ""
 #: lib/storyteller_web/live/campaign_live/show.html.heex:183
 #, elixir-autogen, elixir-format
 msgid "Backups contain GM-only notes and full campaign history. Keep downloaded files somewhere private."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.ex:1108
+#, elixir-autogen, elixir-format
+msgid "I scan the scene for anything new or out of place."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.ex:1073
+#, elixir-autogen, elixir-format
+msgid "What can I see from here that I haven't noticed yet?"
 msgstr ""

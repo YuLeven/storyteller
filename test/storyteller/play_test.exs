@@ -3460,6 +3460,32 @@ defmodule Storyteller.PlayTest do
     refute Enum.any?(timeline, &Map.has_key?(&1.payload, "panel_changes"))
   end
 
+  test "observation requests report only new or specifically inspected details" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    instructions_agent = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(instructions_agent, fn _ -> request.instructions end)
+      {:ok, Jason.encode!(ordinary_proposal(%{"narration" => "Nothing new catches your eye."}))}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "observe-without-recap",
+               "I look around the room.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    instructions = Agent.get(instructions_agent, & &1) |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~ "For a look, inspection, or \"what can I see?\" request"
+    assert instructions =~ "report only new or specifically inspected details"
+    assert instructions =~ "If nothing new is noticeable, say so briefly and return control"
+  end
+
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
     {first, first_session} = play_campaign("The Glass Observatory")
     {second, second_session} = play_campaign("The Copper Archive")

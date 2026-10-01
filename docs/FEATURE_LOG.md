@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-09-30 — Keep observation replies novel and audit failed-turn retry
+
+- The GM policy now limits “look around” and “what can I see?” replies to new or specifically inspected details from the player's vantage. When there is nothing new, the GM should say so briefly and return control. The two helpful prompts now make that expectation clear in English, Spanish, and French.
+- **Hands-on play check:** the separate Amber Orchard QA campaign returned one short line — “Nothing new or out of place catches your eye from here.” — without repeating the weather, location, or established scene. The scene panel updated; game time and inventory stayed unchanged. No Vineyard campaign was opened or changed.
+- **Retry investigation:** a read-only check of campaign 35/session 36 found its latest turn failed with `invalid_response`; the campaign and session are active and ChatGPT plan requests are not paused. A fresh failed-turn view should show **Retry this turn**. The same LiveView can keep a matching `worker_turn_id` after its unmonitored task exits, leaving the retry disabled; current tests cover retry after reconnect, not this worker-exit case. The test turn was not opened, retried, or changed. Add worker-exit/stale-lease recovery to gameplay reliability work.
+- **Checks:** regression assertion confirms observation instructions reach the GM provider request. The full WSL suite passed (**244 tests, 0 failures**); JavaScript tests passed (**6/6**); format, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` passed.
+
 ## 2026-09-30 — Keep campaign backup tools in campaign persistence
 
 - Removed import and export controls from the campaign library. The library now stays focused on creating, opening, resuming, and archiving stories.
@@ -7,6 +14,7 @@
 - Kept the detail-page action labeled **Edit campaign**, so it describes the complete editor instead of emphasizing character voice guidance.
 - Prevented facts written for GM-controlled characters while they are in a GM-private place from later entering public character panels or receipts when they return to public play. The facts remain available in hidden GM context; an explicit structured public update can disclose a fact later.
 - Reordered the active MVP queue around complete play tasks and state trust. Backup is implemented maintenance with no further MVP feature work planned; accessibility hardening remains V1 and other AI providers remain V2.
+- **Hands-on play check:** in the separate Amber Orchard QA session, one move ate an apple and asked Inés what she planned next. The GM delivered one concise narration followed by one direct character reply; the story did not gain a state-update message. Inventory moved from 3 apples to 2, and both the turn and count persisted after reloading.
 - **Checks:** latest campaign and backup placement tests **18 tests, 0 failures**; full suite **243 tests, 0 failures**; JavaScript tests **13/13**; formatting, gettext freshness, warnings-as-errors compilation, asset build, and `git diff --check` pass. The full suite uses fake providers and the isolated `storyteller_test` database.
 
 ## 2026-09-30 — Guide campaign setup and surface canonical change receipts
