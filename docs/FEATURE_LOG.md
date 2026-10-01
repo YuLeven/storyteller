@@ -13,6 +13,14 @@
 - Added fake-catalog account-page coverage, local preference persistence coverage, and a fake-provider play regression asserting the saved model reaches turn resolution. No live account/API request or production campaign data was accessed.
 - **Checks:** Settings/account controller tests **7/7**; saved-model Play regression **1 selected, 0 failures**; OpenAI adapter tests **16/16**; full WSL suite **346 tests, 0 failures**. Formatting, Gettext POT freshness, warnings-as-errors compilation, and `git diff --check` passed. Tests used `storyteller_test` and a fake model catalog/provider.
 
+## 2026-10-01 — Skip the catalog round trip for a saved GM model
+
+- Turns with an explicitly saved model now send that model directly to Responses, removing the per-turn `/v1/models` request. Automatic selection still fetches the account catalog and chooses its first listed model.
+- The account settings summary now shows that effective first-listed model (display name and slug) in Automatic mode, the selected model when pinned, or a translated stale-choice notice if the saved slug is no longer in the catalog. The summary is localized in English, Spanish, and French.
+- The settings save path validates choices against the connected account catalog. A choice can become stale after it is saved; a provider `model_not_found`/unavailable response remains a recoverable `model_unavailable` turn failure, and the operator can choose another model or return to Automatic.
+- Fake-HTTP coverage verifies the selected-model request skips catalog lookup, automatic still selects from the catalog, and a stale saved model's provider error maps to `model_unavailable`. No live account/provider request or campaign data was used.
+- **Checks:** OpenAI adapter **17 tests, 0 failures**; full WSL suite **348 tests, 0 failures**; formatting, Gettext freshness, warnings-as-errors compilation, and `git diff --check` passed. Tests used the isolated test setup and fake HTTP/catalog.
+
 ## 2026-10-01 — Bound GM context across every continuity-memory source
 
 - The context compiler now selects relevant details from both GM-authored and player-managed continuity entries in public and GM-private scopes, with an eight-detail cap per scope. Other entries retain stable identity, type, and status metadata, while a completeness marker tells the GM that omitted detail is unknown. Full records remain persisted and visible only through their correct campaign views; a relevant canon item that still exceeds the hard input bound continues to fail recoverably.

@@ -204,7 +204,7 @@ msgstr "Personaje:"
 msgid "Characters"
 msgstr "Personajes"
 
-#: lib/storyteller_web/controllers/auth_controller.ex:194
+#: lib/storyteller_web/controllers/auth_controller.ex:210
 #, elixir-autogen, elixir-format
 msgid "ChatGPT identity could not be verified. Your current connection is unchanged."
 msgstr "No se pudo verificar la identidad de ChatGPT. La conexión actual no ha cambiado."
@@ -214,17 +214,17 @@ msgstr "No se pudo verificar la identidad de ChatGPT. La conexión actual no ha 
 msgid "ChatGPT plan usage is connected."
 msgstr "El uso del plan de ChatGPT está conectado."
 
-#: lib/storyteller_web/controllers/auth_controller.ex:206
+#: lib/storyteller_web/controllers/auth_controller.ex:222
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in could not be completed. Your current connection is unchanged."
 msgstr "No se pudo completar el inicio de sesión de ChatGPT. La conexión actual no ha cambiado."
 
-#: lib/storyteller_web/controllers/auth_controller.ex:183
+#: lib/storyteller_web/controllers/auth_controller.ex:199
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in is temporarily unavailable. Your current connection is unchanged."
 msgstr "El inicio de sesión de ChatGPT no está disponible temporalmente. La conexión actual no ha cambiado."
 
-#: lib/storyteller_web/controllers/auth_controller.ex:185
+#: lib/storyteller_web/controllers/auth_controller.ex:201
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in was cancelled."
 msgstr "Se canceló el inicio de sesión de ChatGPT."
@@ -649,7 +649,7 @@ msgstr "Jugando como %{character}"
 msgid "Premise"
 msgstr "Premisa"
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:140
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:142
 #, elixir-autogen, elixir-format
 msgid "Preview eligibility and usage"
 msgstr "Requisitos y uso de la versión preliminar"
@@ -733,7 +733,7 @@ msgstr "Revisar la configuración de la campaña"
 msgid "Review session"
 msgstr "Revisar sesión"
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:153
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:155
 #, elixir-autogen, elixir-format
 msgid "Review the current"
 msgstr "Consulta las"
@@ -820,7 +820,7 @@ msgstr "Ambientación"
 msgid "Setting and tone"
 msgstr "Ambientación y tono"
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:142
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:144
 #, elixir-autogen, elixir-format
 msgid "Sign in with ChatGPT plan usage is a preview for eligible open-source, locally hosted apps. Storyteller is released under the MIT license and is intended to run on this computer at %{address}."
 msgstr "El inicio de sesión con el uso del plan de ChatGPT es una versión preliminar para aplicaciones elegibles de código abierto alojadas localmente. Storyteller se publica bajo la licencia MIT y está pensado para ejecutarse en este equipo en %{address}."
@@ -1048,12 +1048,12 @@ msgstr "El resultado de tu D20 está guardado. Reintentar continúa este mismo t
 msgid "The session title must be 1 to 100 characters."
 msgstr "El título de la sesión debe tener entre 1 y 100 caracteres."
 
-#: lib/storyteller_web/controllers/auth_controller.ex:201
+#: lib/storyteller_web/controllers/auth_controller.ex:217
 #, elixir-autogen, elixir-format
 msgid "The sign-in response did not match the saved ChatGPT registration. Your current connection is unchanged."
 msgstr "La respuesta de inicio de sesión no coincide con el registro guardado de ChatGPT. La conexión actual no ha cambiado."
 
-#: lib/storyteller_web/controllers/auth_controller.ex:197
+#: lib/storyteller_web/controllers/auth_controller.ex:213
 #, elixir-autogen, elixir-format
 msgid "The sign-in response was incomplete or expired. Please start again."
 msgstr "La respuesta de inicio de sesión estaba incompleta o caducó. Inicia el proceso de nuevo."
@@ -1068,7 +1068,7 @@ msgstr "La cronología continúa a lo largo de todas las sesiones de esta campa�
 msgid "There is no validated D20 request to roll right now."
 msgstr "Ahora mismo no hay ninguna solicitud de tirada de D20 validada."
 
-#: lib/storyteller_web/controllers/auth_controller.ex:189
+#: lib/storyteller_web/controllers/auth_controller.ex:205
 #, elixir-autogen, elixir-format
 msgid "This ChatGPT account did not grant plan usage access. Your current connection is unchanged."
 msgstr "Esta cuenta de ChatGPT no concedió acceso al uso del plan. La conexión actual no ha cambiado."
@@ -1224,7 +1224,7 @@ msgstr "Tu turno está guardado"
 msgid "Your worlds"
 msgstr "Tus mundos"
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:160
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:162
 #, elixir-autogen, elixir-format
 msgid "and confirm your app is eligible before connecting."
 msgstr "y confirma que tu aplicación cumple los requisitos antes de conectarla."
@@ -1250,7 +1250,7 @@ msgstr "debe tirar"
 msgid "optional"
 msgstr "opcional"
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:159
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:161
 #, elixir-autogen, elixir-format
 msgid "preview limitations"
 msgstr "limitaciones de la versión preliminar"
@@ -1780,7 +1780,7 @@ msgstr "No se pudo comprobar la pausa del plan de ChatGPT. Inténtalo de nuevo."
 msgid "The account-wide pause could not be cleared. Please try again."
 msgstr "No se pudo quitar la pausa de la cuenta. Inténtalo de nuevo."
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:148
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:150
 #, elixir-autogen, elixir-format
 msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. When ChatGPT reports a plan usage limit, Storyteller pauses game-master requests across all sessions. Check ChatGPT Usage settings, then resume from a session when you believe requests are available and retry the saved turn."
 msgstr "Esta conexión usa el cupo de tu plan de ChatGPT; no usa una clave API ni créditos de API. Los límites de uso se comparten con otras aplicaciones de ChatGPT. Cuando ChatGPT informa de un límite de uso del plan, Storyteller pausa las solicitudes del director de juego en todas las sesiones. Revisa los ajustes de Uso de ChatGPT; luego reanuda desde una sesión cuando creas que hay solicitudes disponibles y vuelve a intentar el turno guardado."
@@ -3042,8 +3042,8 @@ msgstr "Una tarea activa requiere un nombre de hasta 160 caracteres, un lugar ac
 msgid "Account and GM model"
 msgstr "Cuenta y modelo del director de juego"
 
-#: lib/storyteller_web/controllers/auth_controller.ex:172
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:105
+#: lib/storyteller_web/controllers/auth_controller.ex:179
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:107
 #, elixir-autogen, elixir-format
 msgid "Automatic"
 msgstr "Automático"
@@ -3053,10 +3053,20 @@ msgstr "Automático"
 msgid "Choose a model from the connected account's available models."
 msgstr "Elige un modelo de los disponibles en la cuenta conectada."
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:87
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:89
 #, elixir-autogen, elixir-format
-msgid "Choose which available account model resolves new turns. Automatic keeps Storyteller's current account-catalog selection behavior."
-msgstr "Elige qué modelo disponible de la cuenta resuelve los turnos nuevos. El modo automático conserva el comportamiento actual de Storyteller al elegir un modelo del catálogo de la cuenta."
+msgid "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
+msgstr "Elige qué modelo disponible de la cuenta resuelve los turnos nuevos. El modo automático usa el primer modelo que devuelve el catálogo de la cuenta."
+
+#: lib/storyteller_web/controllers/auth_controller.ex:173
+#, elixir-autogen, elixir-format
+msgid "Automatic (first model in account list: %{model})"
+msgstr "Automático (primer modelo de la lista de la cuenta: %{model})"
+
+#: lib/storyteller_web/controllers/auth_controller.ex:187
+#, elixir-autogen, elixir-format
+msgid "Saved model no longer listed: %{model}"
+msgstr "El modelo guardado ya no aparece en la lista: %{model}"
 
 #: lib/storyteller_web/controllers/auth_controller.ex:34
 #, elixir-autogen, elixir-format
@@ -3069,12 +3079,12 @@ msgid "GM model preference updated."
 msgstr "Se actualizó la preferencia de modelo del director de juego."
 
 #: lib/storyteller_web/controllers/auth_html/connect.html.heex:82
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:98
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:100
 #, elixir-autogen, elixir-format
 msgid "Game master model"
 msgstr "Modelo del director de juego"
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:118
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:120
 #, elixir-autogen, elixir-format
 msgid "Save model"
 msgstr "Guardar modelo"
@@ -3084,12 +3094,12 @@ msgstr "Guardar modelo"
 msgid "The GM model preference could not be saved. Please retry."
 msgstr "No se pudo guardar la preferencia de modelo del director de juego. Vuelve a intentarlo."
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:130
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:132
 #, elixir-autogen, elixir-format
 msgid "The account model list is unavailable right now. Reopen this page to try again."
 msgstr "La lista de modelos de la cuenta no está disponible ahora. Vuelve a abrir esta página para intentarlo de nuevo."
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:124
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:126
 #, elixir-autogen, elixir-format
 msgid "Your saved model is no longer listed. Choose another model or return to Automatic."
 msgstr "El modelo guardado ya no aparece en la lista. Elige otro modelo o vuelve al modo automático."

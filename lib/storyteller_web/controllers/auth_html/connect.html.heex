@@ -80,12 +80,14 @@
     <details id="gm-model-setting" class="group">
       <summary class="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-6 py-4 font-semibold text-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700">
         <span>{gettext("Game master model")}</span>
-        <span class="text-sm font-medium text-stone-600">{@preferred_model_name}</span>
+        <span data-model-selection-summary class="text-sm font-medium text-stone-600">
+          {@model_summary}
+        </span>
       </summary>
       <div class="border-t border-stone-200 px-6 py-5">
         <p class="text-sm leading-6 text-stone-600">
           {gettext(
-            "Choose which available account model resolves new turns. Automatic keeps Storyteller's current account-catalog selection behavior."
+            "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
           )}
         </p>
         <%= if @catalog_available? do %>

@@ -211,7 +211,7 @@ msgstr ""
 msgid "Characters"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:194
+#: lib/storyteller_web/controllers/auth_controller.ex:210
 #, elixir-autogen, elixir-format
 msgid "ChatGPT identity could not be verified. Your current connection is unchanged."
 msgstr ""
@@ -221,17 +221,17 @@ msgstr ""
 msgid "ChatGPT plan usage is connected."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:206
+#: lib/storyteller_web/controllers/auth_controller.ex:222
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in could not be completed. Your current connection is unchanged."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:183
+#: lib/storyteller_web/controllers/auth_controller.ex:199
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in is temporarily unavailable. Your current connection is unchanged."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:185
+#: lib/storyteller_web/controllers/auth_controller.ex:201
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in was cancelled."
 msgstr ""
@@ -656,7 +656,7 @@ msgstr ""
 msgid "Premise"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:140
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:142
 #, elixir-autogen, elixir-format
 msgid "Preview eligibility and usage"
 msgstr ""
@@ -740,7 +740,7 @@ msgstr ""
 msgid "Review session"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:153
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:155
 #, elixir-autogen, elixir-format
 msgid "Review the current"
 msgstr ""
@@ -827,7 +827,7 @@ msgstr ""
 msgid "Setting and tone"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:142
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:144
 #, elixir-autogen, elixir-format
 msgid "Sign in with ChatGPT plan usage is a preview for eligible open-source, locally hosted apps. Storyteller is released under the MIT license and is intended to run on this computer at %{address}."
 msgstr ""
@@ -1055,12 +1055,12 @@ msgstr ""
 msgid "The session title must be 1 to 100 characters."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:201
+#: lib/storyteller_web/controllers/auth_controller.ex:217
 #, elixir-autogen, elixir-format
 msgid "The sign-in response did not match the saved ChatGPT registration. Your current connection is unchanged."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:197
+#: lib/storyteller_web/controllers/auth_controller.ex:213
 #, elixir-autogen, elixir-format
 msgid "The sign-in response was incomplete or expired. Please start again."
 msgstr ""
@@ -1075,7 +1075,7 @@ msgstr ""
 msgid "There is no validated D20 request to roll right now."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:189
+#: lib/storyteller_web/controllers/auth_controller.ex:205
 #, elixir-autogen, elixir-format
 msgid "This ChatGPT account did not grant plan usage access. Your current connection is unchanged."
 msgstr ""
@@ -1231,7 +1231,7 @@ msgstr ""
 msgid "Your worlds"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:160
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:162
 #, elixir-autogen, elixir-format
 msgid "and confirm your app is eligible before connecting."
 msgstr ""
@@ -1257,7 +1257,7 @@ msgstr ""
 msgid "optional"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:159
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:161
 #, elixir-autogen, elixir-format
 msgid "preview limitations"
 msgstr ""
@@ -1787,7 +1787,7 @@ msgstr ""
 msgid "The account-wide pause could not be cleared. Please try again."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:148
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:150
 #, elixir-autogen, elixir-format
 msgid "This connection uses your ChatGPT plan allowance; it does not use an API key or API credits. Usage limits are shared with other ChatGPT apps. When ChatGPT reports a plan usage limit, Storyteller pauses game-master requests across all sessions. Check ChatGPT Usage settings, then resume from a session when you believe requests are available and retry the saved turn."
 msgstr ""
@@ -3049,8 +3049,8 @@ msgstr ""
 msgid "Account and GM model"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_controller.ex:172
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:105
+#: lib/storyteller_web/controllers/auth_controller.ex:179
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:107
 #, elixir-autogen, elixir-format
 msgid "Automatic"
 msgstr ""
@@ -3060,9 +3060,19 @@ msgstr ""
 msgid "Choose a model from the connected account's available models."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:87
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:89
 #, elixir-autogen, elixir-format
-msgid "Choose which available account model resolves new turns. Automatic keeps Storyteller's current account-catalog selection behavior."
+msgid "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_controller.ex:173
+#, elixir-autogen, elixir-format
+msgid "Automatic (first model in account list: %{model})"
+msgstr ""
+
+#: lib/storyteller_web/controllers/auth_controller.ex:187
+#, elixir-autogen, elixir-format
+msgid "Saved model no longer listed: %{model}"
 msgstr ""
 
 #: lib/storyteller_web/controllers/auth_controller.ex:34
@@ -3076,12 +3086,12 @@ msgid "GM model preference updated."
 msgstr ""
 
 #: lib/storyteller_web/controllers/auth_html/connect.html.heex:82
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:98
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:100
 #, elixir-autogen, elixir-format
 msgid "Game master model"
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:118
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:120
 #, elixir-autogen, elixir-format
 msgid "Save model"
 msgstr ""
@@ -3091,12 +3101,12 @@ msgstr ""
 msgid "The GM model preference could not be saved. Please retry."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:130
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:132
 #, elixir-autogen, elixir-format
 msgid "The account model list is unavailable right now. Reopen this page to try again."
 msgstr ""
 
-#: lib/storyteller_web/controllers/auth_html/connect.html.heex:124
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:126
 #, elixir-autogen, elixir-format
 msgid "Your saved model is no longer listed. Choose another model or return to Automatic."
 msgstr ""

@@ -62,6 +62,62 @@ defmodule Storyteller.GM.OpenAITest do
     assert Keyword.fetch!(options, :into) == :self
   end
 
+  test "sends an explicitly selected model without fetching the account catalog", context do
+    test_pid = self()
+    http = provider_http(test_pid, completion_event("The selected model answered."))
+
+    assert {:ok, %{text: "The selected model answered."}} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return text.",
+                 input: [%{role: "user", content: "Hello"}],
+                 model: "fixture-model"
+               },
+               store: context.store,
+               http: http
+             )
+
+    assert_receive {:responses_request, options}
+    assert Keyword.fetch!(options, :json)["model"] == "fixture-model"
+    refute_receive {:models_request, _}
+    refute_receive {:responses_request, _}
+  end
+
+  test "returns model unavailable when a saved model is rejected by Responses", context do
+    test_pid = self()
+
+    http = fn method, url, options ->
+      cond do
+        method == :get and url == "https://api.openai.com/v1/models" ->
+          send(test_pid, {:models_request, options})
+          %{status: 200, body: Jason.encode!(model_catalog())}
+
+        method == :post and url == "https://api.openai.com/v1/responses" ->
+          send(test_pid, {:responses_request, options})
+          %{status: 400, body: Jason.encode!(%{"error" => %{"code" => "model_not_found"}})}
+
+        true ->
+          {:error, :unexpected_request}
+      end
+    end
+
+    assert {:error, :model_unavailable} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return text.",
+                 input: [%{role: "user", content: "Hello"}],
+                 model: "retired-model"
+               },
+               store: context.store,
+               http: http
+             )
+
+    assert_receive {:responses_request, options}
+    assert Keyword.fetch!(options, :json)["model"] == "retired-model"
+    refute_receive {:models_request, _}
+    refute_receive {:responses_request, _}
+  end
+
   test "returns only safe numeric token usage from the completed response", context do
     text = "The rain begins."
 
@@ -119,25 +175,6 @@ defmodule Storyteller.GM.OpenAITest do
 
     assert {:ok, [%{slug: "fixture-model", display_name: "Fixture Model"}]} =
              OpenAI.models(store: context.store, http: http)
-  end
-
-  test "rejects a requested model that is absent from the current account catalog", context do
-    test_pid = self()
-    http = provider_http(test_pid, completion_event("unused"))
-
-    assert {:error, :model_unavailable} =
-             OpenAI.stream_response(
-               %{
-                 instructions: "Return text.",
-                 input: [%{role: "user", content: "Hello"}],
-                 model: "not-listed"
-               },
-               store: context.store,
-               http: http
-             )
-
-    assert_receive {:models_request, _}
-    refute_receive {:responses_request, _}
   end
 
   test "does not accept partial text when the SSE stream ends without response.completed",

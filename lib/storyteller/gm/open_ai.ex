@@ -31,8 +31,7 @@ defmodule Storyteller.GM.OpenAI do
   @doc false
   def stream_response(request, opts) when is_map(request) do
     with {:ok, access_token} <- log_stage_error(:oauth, OAuth.access_token(opts)),
-         {:ok, models} <- log_stage_error(:model_catalog, fetch_models(access_token, opts)),
-         {:ok, model} <- log_stage_error(:model_selection, select_model(request, models)),
+         {:ok, model} <- resolve_model(request, access_token, opts),
          {:ok, body} <- log_stage_error(:request_validation, request_body(request, model)),
          {:ok, response} <-
            log_stage_error(:responses_request, post_response(access_token, body, opts)),
@@ -57,6 +56,21 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   def stream_response(_request, _opts), do: {:error, :invalid_response}
+
+  defp resolve_model(request, access_token, opts) do
+    case field(request, :model) do
+      model when is_binary(model) and model != "" ->
+        {:ok, model}
+
+      nil ->
+        with {:ok, models} <- log_stage_error(:model_catalog, fetch_models(access_token, opts)) do
+          log_stage_error(:model_selection, select_model(request, models))
+        end
+
+      _ ->
+        log_stage_error(:model_selection, {:error, :model_unavailable})
+    end
+  end
 
   defp fetch_models(access_token, opts) do
     http = http(opts)

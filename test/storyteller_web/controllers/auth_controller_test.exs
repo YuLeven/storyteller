@@ -32,19 +32,35 @@ defmodule StorytellerWeb.AuthControllerTest do
     end
   end
 
-  test "connected account page links to ChatGPT usage settings", %{conn: conn} do
-    credentials = %Credentials{
-      client_id: "test-client",
-      subject: "test-account",
-      email: "player@example.test",
-      host_id: TokenStore.host_id(),
-      access_token: "test-access-token",
-      refresh_token: "test-refresh-token",
-      expires_at: System.system_time(:second) + 3_600,
-      scopes: ["openid", "chatgpt.tokens.use.direct"]
-    }
+  test "automatic model summary is localized and follows the account list order", %{conn: conn} do
+    put_test_credentials()
 
-    assert :ok = TokenStore.put_credentials(credentials)
+    on_exit(fn ->
+      _ = TokenStore.sign_out(fn _credentials -> :ok end)
+    end)
+
+    for {locale, expected} <- [
+          {
+            "en",
+            "Automatic (first model in account list: Fixture Model (fixture-model))"
+          },
+          {
+            "es",
+            "Automático (primer modelo de la lista de la cuenta: Fixture Model (fixture-model))"
+          },
+          {
+            "fr",
+            "Automatique (premier modèle de la liste du compte : Fixture Model (fixture-model))"
+          }
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      html = conn |> recycle() |> get("/auth/connect") |> html_response(200)
+      assert model_summary_text(html) == expected
+    end
+  end
+
+  test "connected account page links to ChatGPT usage settings", %{conn: conn} do
+    put_test_credentials()
 
     on_exit(fn ->
       _ = TokenStore.sign_out(fn _credentials -> :ok end)
@@ -58,26 +74,20 @@ defmodule StorytellerWeb.AuthControllerTest do
     assert html =~ "Reconnect ChatGPT"
     assert html =~ "action=\"/auth/authorize\""
     assert html =~ "Game master model"
-    assert html =~ "Fixture Model (fixture-model)"
-    assert html =~ "Choose which available account model"
+
+    assert model_summary_text(html) ==
+             "Automatic (first model in account list: Fixture Model (fixture-model))"
+
+    assert html =~
+             "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
+
     assert html =~ "value=\"automatic\" selected"
   end
 
   test "preferred model can be saved from the connected catalog and reset to automatic", %{
     conn: conn
   } do
-    credentials = %Credentials{
-      client_id: "test-client",
-      subject: "test-account",
-      email: "player@example.test",
-      host_id: TokenStore.host_id(),
-      access_token: "test-access-token",
-      refresh_token: "test-refresh-token",
-      expires_at: System.system_time(:second) + 3_600,
-      scopes: ["openid", "chatgpt.tokens.use.direct"]
-    }
-
-    assert :ok = TokenStore.put_credentials(credentials)
+    put_test_credentials()
 
     on_exit(fn ->
       _ = TokenStore.sign_out(fn _credentials -> :ok end)
@@ -91,6 +101,7 @@ defmodule StorytellerWeb.AuthControllerTest do
     conn = recycle(conn)
     html = conn |> get("/auth/connect") |> html_response(200)
     assert html =~ "value=\"fixture-model\" selected"
+    assert model_summary_text(html) == "Fixture Model (fixture-model)"
 
     conn = recycle(conn)
 
@@ -98,6 +109,24 @@ defmodule StorytellerWeb.AuthControllerTest do
              "/auth/connect"
 
     assert Settings.preferred_gm_model() == "fixture-model"
+
+    assert {:ok, _preference} = Settings.set_preferred_gm_model("removed-model")
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
+    conn = recycle(conn)
+    html = conn |> get("/auth/connect") |> html_response(200)
+    assert model_summary_text(html) == "Saved model no longer listed: removed-model"
+
+    assert html =~
+             "Your saved model is no longer listed. Choose another model or return to Automatic."
+
+    for {locale, expected} <- [
+          {"es", "El modelo guardado ya no aparece en la lista: removed-model"},
+          {"fr", "Le modèle enregistré n'est plus répertorié : removed-model"}
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      html = conn |> recycle() |> get("/auth/connect") |> html_response(200)
+      assert model_summary_text(html) == expected
+    end
 
     conn = recycle(conn)
 
@@ -128,5 +157,28 @@ defmodule StorytellerWeb.AuthControllerTest do
       route.verb == verb and route.path == path and route.plug == AuthController and
         route.plug_opts == action
     end)
+  end
+
+  defp model_summary_text(html) do
+    html
+    |> Floki.parse_document!()
+    |> Floki.find("#gm-model-setting [data-model-selection-summary]")
+    |> Floki.text()
+    |> String.trim()
+  end
+
+  defp put_test_credentials do
+    credentials = %Credentials{
+      client_id: "test-client",
+      subject: "test-account",
+      email: "player@example.test",
+      host_id: TokenStore.host_id(),
+      access_token: "test-access-token",
+      refresh_token: "test-refresh-token",
+      expires_at: System.system_time(:second) + 3_600,
+      scopes: ["openid", "chatgpt.tokens.use.direct"]
+    }
+
+    assert :ok = TokenStore.put_credentials(credentials)
   end
 end

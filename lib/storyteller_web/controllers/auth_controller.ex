@@ -23,7 +23,7 @@ defmodule StorytellerWeb.AuthController do
       models: models,
       catalog_available?: catalog_available?,
       preferred_model: preferred_model,
-      preferred_model_name: model_display_name(preferred_model, models)
+      model_summary: model_summary(preferred_model, models, catalog_available?)
     )
   end
 
@@ -169,14 +169,30 @@ defmodule StorytellerWeb.AuthController do
     _error -> {:error, :provider_error}
   end
 
-  defp model_display_name(nil, _models), do: gettext("Automatic")
+  defp model_summary(nil, [first_model | _models], true) do
+    gettext(
+      "Automatic (first model in account list: %{model})",
+      model: model_label(first_model)
+    )
+  end
 
-  defp model_display_name(model_slug, models) do
+  defp model_summary(nil, _models, _catalog_available?), do: gettext("Automatic")
+
+  defp model_summary(model_slug, models, catalog_available?) do
     case Enum.find(models, &(&1.slug == model_slug)) do
-      %{display_name: display_name} -> display_name
-      nil -> model_slug
+      model when is_map(model) ->
+        model_label(model)
+
+      nil when catalog_available? ->
+        gettext("Saved model no longer listed: %{model}", model: model_slug)
+
+      nil ->
+        model_slug
     end
   end
+
+  defp model_label(%{display_name: display_name, slug: slug}),
+    do: "#{display_name} (#{slug})"
 
   defp auth_message(:identity_provider_unavailable),
     do:
