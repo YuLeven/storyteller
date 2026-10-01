@@ -1,9 +1,17 @@
 # Feature log
 
+## 2026-10-01 — Keep character voice guidance open while editing
+
+- Browser testing exposed that entering one character voice note collapsed the nested voice section after LiveView updated, hiding the other fields while the user was still configuring the character. The section now stays expanded once any voice note has content, so quirks, accent/dialect, cadence, vocabulary, and mannerisms can be entered together. Empty optional sections remain collapsed.
+- Added a LiveView behavior test that enters two separate voice fields across validation updates and verifies both values remain visible in the open section. A fresh fictional two-character campaign setup confirmed both distinct profiles appear in review and persist through campaign creation.
+- The opening-scene request in that separate QA campaign reached ChatGPT but was rejected with an account usage limit. Storyteller saved the turn and paused requests across sessions; no retry or further provider request was made. Resume this live voice evaluation after usage becomes available.
+- **Checks:** CampaignLive **19 tests, 0 failures**; format check and `git diff --check` passed.
+
 ## 2026-10-01 — Keep canonical continuity and context economy in one MVP gate
 
-- Elevated the market insight into an explicit MVP workstream: Storyteller owns and validates modeled campaign facts, while the GM model narrates and receives only the relevant bounded context for the turn. The Finca/Bodega example remains the player-value test; the broad comparison with other LLM TTRPGs is a hypothesis to validate through play, not an assumed market fact.
-- Made continuity and context cost a single acceptance goal. Remaining work is called out for routine NPC availability, indirect and cross-language memory recall without false inclusion, and long-campaign checks using provider-reported aggregate usage where available. Serialized bytes remain a conservative preflight proxy, not an exact token count; required canon is never silently dropped when a safe prompt cannot fit.
+- Recorded the owner's market insight as Storyteller's leading product thesis: a model can retain a character's personality but lose campaign logistics as conversation context is compressed. In the vineyard example, the GM remembers employees well enough to give them dialogue but forgets that the Bodega is a forty-minute trip from the Finca. This is the concrete failure mode to prevent, not a claim that every competing product behaves this way.
+- The MVP response is algorithmic canon: the app owns and validates modeled places, presence, travel, duties, inventory, resources, and world time; the GM narrates and receives only the relevant bounded context for the turn. Character personality cannot stand in for where someone is or whether they can plausibly act there.
+- Made continuity and context cost a single acceptance goal. Remaining work is called out for routine NPC availability, indirect and cross-language memory recall without false inclusion, and short/long synthetic campaign benchmarks comparing bounded requests with full-history baselines. Collect provider-reported aggregate usage where available; serialized bytes remain a conservative preflight proxy, not an exact token count. Required canon is never silently dropped to save context; if it cannot fit safely, fail recoverably.
 - Documentation update only; no campaign state or application behavior changed in this entry.
 
 ## 2026-10-01 — Preserve distinct current-scene character voice guidance

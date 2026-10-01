@@ -526,6 +526,67 @@ defmodule StorytellerWeb.CampaignLiveTest do
     end
   end
 
+  test "character voice guidance stays expanded while separate notes are entered", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    story = %{
+      title: "The Bellwether Inn",
+      premise: "A storm closes the mountain pass for the night.",
+      setting: "A fictional inn above a pine forest",
+      tone: "Warm and grounded",
+      narration_language: "English"
+    }
+
+    player = %{
+      player_character_name: "Nessa Vale",
+      player_character: "A cartographer who listens before deciding."
+    }
+
+    opening = %{
+      starting_location: "The Bellwether Inn",
+      starting_date: "Late autumn",
+      world_time: "Evening",
+      weather: "Cold rain"
+    }
+
+    submit_wizard_step(view, story, "continue")
+    submit_wizard_step(view, Map.merge(story, player), "continue")
+    submit_wizard_step(view, Map.merge(Map.merge(story, player), opening), "continue")
+
+    view |> element("button[phx-click=add-character]") |> render_click()
+
+    attrs =
+      Map.merge(Map.merge(Map.merge(story, player), opening), %{
+        gm_characters: %{
+          "0" => %{
+            name: "Bastien Brume",
+            starting_place: "The Bellwether Inn",
+            visible_facts_text: "A French beaver who cooks for the inn.",
+            voice_guidance: %{quirks: "Uses dry humor when nervous."}
+          }
+        }
+      })
+
+    view |> form("#campaign-form", campaign: attrs) |> render_change()
+
+    assert has_element?(view, "#gm-character-voice-0[open]")
+    assert render(view) =~ "Uses dry humor when nervous."
+
+    attrs =
+      put_in(
+        attrs,
+        [:gm_characters, "0", :voice_guidance, :accent_dialect],
+        "A gentle French accent, never phonetic spelling."
+      )
+
+    view |> form("#campaign-form", campaign: attrs) |> render_change()
+
+    assert has_element?(view, "#gm-character-voice-0[open]")
+    html = render(view)
+    assert html =~ "Uses dry humor when nervous."
+    assert html =~ "A gentle French accent, never phonetic spelling."
+  end
+
   test "GM character setup creates stable identities from names without showing internal IDs", %{
     conn: conn
   } do

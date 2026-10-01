@@ -433,6 +433,15 @@ defmodule StorytellerWeb.CampaignLive.New do
 
   defp voice_value(_row, _key), do: ""
 
+  defp voice_guidance_present?(row) do
+    Enum.any?(~w(quirks accent_dialect cadence vocabulary mannerisms), fn key ->
+      case voice_value(row, key) do
+        value when is_binary(value) -> String.trim(value) != ""
+        _ -> false
+      end
+    end)
+  end
+
   defp panel_type_label(:quantity), do: gettext("Quantity")
   defp panel_type_label(:money), do: gettext("Money")
   defp panel_type_label(:text), do: gettext("Text")
