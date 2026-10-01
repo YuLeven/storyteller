@@ -10,15 +10,28 @@ defmodule Storyteller.CampaignBackup do
 
   alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
   alias Storyteller.Panels.Field, as: PanelField
-  alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Place, Roll, State, Turn}
+
+  alias Storyteller.Play.{
+    Character,
+    ContinuityEntry,
+    Event,
+    Objective,
+    Place,
+    PlaceConnection,
+    Roll,
+    State,
+    Turn
+  }
+
   alias Storyteller.Play.Inventory
   alias Storyteller.Play.VoiceGuidance
   alias Storyteller.Repo
 
   @format "storyteller.campaign-backup"
-  @version 3
+  @version 4
   @legacy_version 1
   @previous_version 2
+  @current_previous_version 3
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -111,6 +124,14 @@ defmodule Storyteller.CampaignBackup do
             "places" =>
               Repo.all(from(place in Place, where: place.campaign_id == ^campaign_id))
               |> Enum.map(&export_place/1),
+            "place_connections" =>
+              Repo.all(
+                from(connection in PlaceConnection,
+                  where: connection.campaign_id == ^campaign_id,
+                  order_by: [asc: connection.place_a_id, asc: connection.place_b_id]
+                )
+              )
+              |> Enum.map(&export_place_connection/1),
             "panels" =>
               Repo.all(from(panel in PanelField, where: panel.campaign_id == ^campaign_id))
               |> Enum.map(&export_panel/1),
@@ -236,6 +257,18 @@ defmodule Storyteller.CampaignBackup do
     }
   end
 
+  defp export_place_connection(connection) do
+    %{
+      "place_a_id" => connection.place_a_id,
+      "place_b_id" => connection.place_b_id,
+      "travel_minutes" => connection.travel_minutes,
+      "scene_relevance" => connection.scene_relevance,
+      "visibility" => Atom.to_string(connection.visibility),
+      "inserted_at" => encode_datetime(connection.inserted_at),
+      "updated_at" => encode_datetime(connection.updated_at)
+    }
+  end
+
   defp export_panel(panel) do
     %{
       "key" => panel.key,
@@ -340,7 +373,13 @@ defmodule Storyteller.CampaignBackup do
              :root
            ),
          true <- backup["format"] == @format,
-         true <- backup["schema_version"] in [@legacy_version, @previous_version, @version],
+         true <-
+           backup["schema_version"] in [
+             @legacy_version,
+             @previous_version,
+             @current_previous_version,
+             @version
+           ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
          {:ok, campaign} <- validate_campaign(backup["campaign"]),
@@ -350,6 +389,8 @@ defmodule Storyteller.CampaignBackup do
          {campaign, characters} <- normalize_player_character_name(campaign, characters),
          {:ok, places} <- validate_places(backup["places"]),
          :ok <- validate_character_places(characters, places),
+         {:ok, place_connections} <-
+           validate_place_connections(Map.get(backup, "place_connections", []), places),
          {:ok, state} <- validate_state(backup["state"], characters),
          {:ok, panels} <- validate_panels(backup["panels"]),
          {:ok, objectives} <- validate_objectives(backup["objectives"]),
@@ -368,6 +409,7 @@ defmodule Storyteller.CampaignBackup do
          state: state,
          characters: characters,
          places: places,
+         place_connections: place_connections,
          panels: panels,
          objectives: objectives,
          turns: turns,
@@ -385,8 +427,12 @@ defmodule Storyteller.CampaignBackup do
 
   defp root_backup_keys(@legacy_version), do: root_backup_keys()
 
-  defp root_backup_keys(version) when version in [@previous_version, @version],
-    do: root_backup_keys() ++ ["authoring_corrections"]
+  defp root_backup_keys(version)
+       when version in [@previous_version, @current_previous_version],
+       do: root_backup_keys() ++ ["authoring_corrections"]
+
+  defp root_backup_keys(@version),
+    do: root_backup_keys() ++ ["authoring_corrections", "place_connections"]
 
   defp root_backup_keys(_), do: []
 
@@ -626,6 +672,53 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_places(_), do: {:error, :invalid_backup}
 
+  defp validate_place_connections(rows, places) when is_list(rows) and length(rows) <= 1_000 do
+    places_by_id = Map.new(places, &{&1.place_id, &1})
+
+    with {:ok, connections} <-
+           map_rows(rows, fn map ->
+             with :ok <-
+                    exact_keys(
+                      map,
+                      ~w(place_a_id place_b_id travel_minutes scene_relevance visibility inserted_at updated_at),
+                      :place_connection
+                    ),
+                  {:ok, place_a_id} <- stable_id(map["place_a_id"], 100),
+                  {:ok, place_b_id} <- stable_id(map["place_b_id"], 100),
+                  true <- place_a_id != place_b_id,
+                  {:ok, travel_minutes} <- integer_range(map["travel_minutes"], 1, 10_080),
+                  {:ok, scene_relevance} <- optional_text(map["scene_relevance"], 1_000),
+                  {:ok, visibility} <- enum(map["visibility"], ~w(public gm_private)),
+                  %{} = place_a <- Map.get(places_by_id, place_a_id),
+                  %{} = place_b <- Map.get(places_by_id, place_b_id),
+                  true <-
+                    visibility == :gm_private or
+                      (place_a.visibility == :public and place_b.visibility == :public),
+                  {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
+                  {:ok, updated_at} <- parse_datetime(map["updated_at"], false) do
+               [place_a_id, place_b_id] = Enum.sort([place_a_id, place_b_id])
+
+               {:ok,
+                %{
+                  place_a_id: place_a_id,
+                  place_b_id: place_b_id,
+                  travel_minutes: travel_minutes,
+                  scene_relevance: scene_relevance,
+                  visibility: visibility,
+                  inserted_at: inserted_at,
+                  updated_at: updated_at
+                }}
+             else
+               _ -> {:error, :invalid_place_connection}
+             end
+           end),
+         :ok <- unique_by(connections, &{&1.place_a_id, &1.place_b_id}) do
+      {:ok, connections}
+    end
+  end
+
+  defp validate_place_connections(_rows, _places), do: {:error, :invalid_backup}
+
   defp validate_character_places(characters, places) do
     place_ids = MapSet.new(places, & &1.place_id)
 
@@ -781,7 +874,10 @@ defmodule Storyteller.CampaignBackup do
     do:
       ~w(ref session_ref idempotency_key player_input intent status resolution_phase roll_request attempts resolution_started_at failure_code inserted_at updated_at)
 
-  defp turn_backup_keys(@version), do: turn_backup_keys(@previous_version) ++ ["failure_stage"]
+  defp turn_backup_keys(@current_previous_version),
+    do: turn_backup_keys(@previous_version) ++ ["failure_stage"]
+
+  defp turn_backup_keys(@version), do: turn_backup_keys(@current_previous_version)
 
   defp optional_enum(nil, _allowed), do: {:ok, nil}
   defp optional_enum(value, allowed), do: enum(value, allowed)
@@ -1059,6 +1155,7 @@ defmodule Storyteller.CampaignBackup do
       sessions_by_ref = insert_sessions!(campaign.id, backup.sessions)
       insert_state!(campaign.id, backup.state)
       insert_places!(campaign.id, backup.places)
+      insert_place_connections!(campaign.id, backup.place_connections)
       insert_characters!(campaign.id, backup.characters)
       insert_panels!(campaign.id, backup.panels)
       insert_objectives!(campaign.id, backup.objectives)
@@ -1121,6 +1218,16 @@ defmodule Storyteller.CampaignBackup do
 
       %Place{inserted_at: place.inserted_at, updated_at: place.updated_at}
       |> Place.changeset(Map.drop(attrs, [:inserted_at, :updated_at]))
+      |> insert_or_rollback!()
+    end)
+  end
+
+  defp insert_place_connections!(campaign_id, connections) do
+    Enum.each(connections, fn connection ->
+      attrs = Map.put(connection, :campaign_id, campaign_id)
+
+      %PlaceConnection{inserted_at: connection.inserted_at, updated_at: connection.updated_at}
+      |> PlaceConnection.changeset(Map.drop(attrs, [:inserted_at, :updated_at]))
       |> insert_or_rollback!()
     end)
   end
@@ -1356,6 +1463,11 @@ defmodule Storyteller.CampaignBackup do
   end
 
   defp text(_, _, _), do: {:error, :invalid_backup}
+
+  defp integer_range(value, min, max) when is_integer(value) and value >= min and value <= max,
+    do: {:ok, value}
+
+  defp integer_range(_, _, _), do: {:error, :invalid_backup}
 
   defp optional_text(nil, _max), do: {:ok, nil}
   defp optional_text(value, max), do: text(value, 0, max)

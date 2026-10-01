@@ -7,7 +7,18 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Place, Roll, State, Turn}
+
+  alias Storyteller.Play.{
+    Character,
+    ContinuityEntry,
+    Event,
+    Objective,
+    Place,
+    PlaceConnection,
+    Roll,
+    State,
+    Turn
+  }
 
   @tag :privacy_guard
   test "rejects exact GM-private facts in public narration before appending events" do
@@ -831,7 +842,16 @@ defmodule Storyteller.PlayTest do
       {:ok,
        Jason.encode!(
          ordinary_proposal(%{
-           "location_changes" => move_player_to("upper-dome", "Upper dome")
+           "location_changes" =>
+             move_player_to("upper-dome", "Upper dome") ++
+               [
+                 %{
+                   "type" => "move_character",
+                   "speaker_id" => "npc:lyra",
+                   "place_id" => "upper-dome",
+                   "reason" => "The keeper is present at the dome."
+                 }
+               ]
          })
        )}
     end
@@ -1568,6 +1588,242 @@ defmodule Storyteller.PlayTest do
     assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
+  test "the finca to bodega route computes 40 minutes and reaches the next GM context" do
+    {campaign, session} = play_campaign("The Finca and Bodega")
+    finca = establish_starting_place!(campaign, "Finca")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    location_changes = [
+      %{
+        "type" => "create_place",
+        "place" => %{
+          "place_id" => "bodega",
+          "name" => "Bodega",
+          "visibility" => "public",
+          "facts" => %{}
+        },
+        "reason" => "The winery at the bodega is established."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "player",
+        "place_id" => "bodega",
+        "reason" => "The player travels to the bodega."
+      }
+    ]
+
+    travel_changes = [
+      %{
+        "type" => "create_connection",
+        "place_a_id" => finca.place_id,
+        "place_b_id" => "bodega",
+        "travel_minutes" => 40,
+        "scene_relevance" => "A winding road connects the finca and bodega.",
+        "visibility" => "public",
+        "reason" => "The bodega is a forty-minute trip from the finca."
+      }
+    ]
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" => "After the forty-minute ride, the bodega comes into view.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => location_changes,
+        "travel_changes" => travel_changes
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "finca-to-bodega", "Travel to the bodega.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    bodega = Repo.get_by!(Place, campaign_id: campaign.id, place_id: "bodega")
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == bodega.place_id
+
+    connection =
+      Repo.get_by!(PlaceConnection,
+        campaign_id: campaign.id,
+        place_a_id: Enum.min([finca.place_id, bodega.place_id]),
+        place_b_id: Enum.max([finca.place_id, bodega.place_id])
+      )
+
+    assert connection.travel_minutes == 40
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+
+    movement =
+      events
+      |> Enum.flat_map(&Map.get(&1.payload, "location_changes", []))
+      |> Enum.find(&(&1["speaker_id"] == "player" and &1["place_id"] == "bodega"))
+
+    assert movement["travel_minutes"] == 40
+
+    request_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "bodega-scene-context", "Look around.",
+               provider: fn request ->
+                 Agent.update(request_context, fn _ -> decode_request(request) end)
+
+                 {:ok,
+                  Jason.encode!(
+                    ordinary_proposal(%{
+                      "dialogue" => [],
+                      "activities" => [],
+                      "character_updates" => []
+                    })
+                  )}
+               end,
+               model: "test-model"
+             )
+
+    context = Agent.get(request_context, & &1)
+    assert Enum.any?(context["travel_connections"]["public"], &(&1["travel_minutes"] == 40))
+
+    assert Enum.any?(context["travel_connections"]["public_routes"], fn route ->
+             route["travel_minutes"] == 40 and finca.place_id in route["place_ids"] and
+               bodega.place_id in route["place_ids"]
+           end)
+  end
+
+  test "rejects off-scene NPC dialogue but accepts dialogue after a same-turn arrival" do
+    {campaign, session} = play_campaign("The Off-scene Messenger")
+    finca = establish_starting_place!(campaign, "Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    insert_travel_connection!(campaign.id, finca.place_id, bodega.place_id, 40)
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(player, %{current_place_id: bodega.place_id}))
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "location", "Bodega")})
+    )
+
+    remote_dialogue =
+      ordinary_proposal(%{
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The fermentation is steady."}],
+        "activities" => [],
+        "character_updates" => []
+      })
+
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation} = failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "remote-npc-speech",
+               "Ask Lyra for an update.",
+               provider: fn _request -> {:ok, Jason.encode!(remote_dialogue)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    refute Enum.any?(events, &(&1.turn_id == failed.id and &1.event_type == :npc_dialogue))
+
+    arrival_and_dialogue =
+      ordinary_proposal(%{
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => bodega.place_id,
+            "reason" => "Lyra arrives at the bodega."
+          }
+        ],
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The fermentation is steady."}],
+        "activities" => [],
+        "character_updates" => []
+      })
+
+    assert {:ok, %{status: :completed} = arrived} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "lyra-arrives-at-bodega",
+               "Ask Lyra to come to the bodega before updating me.",
+               provider: fn _request -> {:ok, Jason.encode!(arrival_and_dialogue)} end,
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra").current_place_id ==
+             bodega.place_id
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+
+    arrival =
+      events
+      |> Enum.flat_map(&Map.get(&1.payload, "location_changes", []))
+      |> Enum.find(&(&1["speaker_id"] == "npc:lyra" and &1["place_id"] == bodega.place_id))
+
+    assert arrival["travel_minutes"] == 40
+    assert Enum.any?(events, &(&1.turn_id == arrived.id and &1.event_type == :npc_dialogue))
+  end
+
+  test "new character introduction requires accepted canonical arrival in the scene" do
+    {campaign, session} = play_campaign("An Introduced Character")
+    finca = establish_starting_place!(campaign, "Finca")
+
+    proposal =
+      ordinary_proposal(%{
+        "character_creations" => [
+          %{"speaker_id" => "npc:new", "name" => "Tomas", "visible_facts" => %{}}
+        ],
+        "dialogue" => [%{"speaker_id" => "npc:new", "text" => "The cellar is ready."}],
+        "activities" => [],
+        "character_updates" => []
+      })
+
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "unplaced-new-npc",
+               "Meet the cellar hand.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    arrival_proposal =
+      put_in(
+        proposal["location_changes"],
+        [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:new",
+            "place_id" => finca.place_id,
+            "reason" => "Tomas joins the player at the finca."
+          }
+        ]
+      )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "placed-new-npc", "Meet the cellar hand.",
+               provider: fn _request -> {:ok, Jason.encode!(arrival_proposal)} end,
+               model: "test-model"
+             )
+
+    introduced = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:new")
+    assert introduced.current_place_id == finca.place_id
+  end
+
   test "places seed character presence, persist across turns, and keep private locations out of player views" do
     {campaign, session} = play_campaign("The Quiet Vineyard")
     state = Repo.get_by!(State, campaign_id: campaign.id)
@@ -1605,6 +1861,9 @@ defmodule Storyteller.PlayTest do
     assert lyra.visible_facts == %{"role" => "cellar keeper"}
     assert Enum.map(initial.places, & &1.name) |> Enum.sort() == ["North cellar", "Vineyard gate"]
 
+    vineyard_gate = Repo.get_by!(Place, campaign_id: campaign.id, name: "Vineyard gate")
+    north_cellar = Repo.get_by!(Place, campaign_id: campaign.id, name: "North cellar")
+
     location_changes = [
       %{
         "type" => "create_place",
@@ -1641,13 +1900,36 @@ defmodule Storyteller.PlayTest do
       }
     ]
 
+    travel_changes = [
+      %{
+        "type" => "create_connection",
+        "place_a_id" => vineyard_gate.place_id,
+        "place_b_id" => "press-room",
+        "travel_minutes" => 5,
+        "visibility" => "public",
+        "reason" => "A short cellar passage links the gate and press room."
+      },
+      %{
+        "type" => "create_connection",
+        "place_a_id" => north_cellar.place_id,
+        "place_b_id" => "sealed-vault",
+        "travel_minutes" => 2,
+        "visibility" => "gm_private",
+        "reason" => "A hidden stair links the cellar and sealed vault."
+      }
+    ]
+
     assert {:ok, %{status: :completed}} =
              Play.submit_turn(
                campaign.id,
                session.id,
                "place-transition",
                "I explore the cellar.",
-               provider: ordinary_provider(%{"location_changes" => location_changes}),
+               provider:
+                 ordinary_provider(%{
+                   "location_changes" => location_changes,
+                   "travel_changes" => travel_changes
+                 }),
                model: "test-model"
              )
 
@@ -1705,7 +1987,7 @@ defmodule Storyteller.PlayTest do
                "Start the next day in the press room.",
                provider: fn request ->
                  Agent.update(next_session_context, fn _ -> decode_request(request) end)
-                 {:ok, Jason.encode!(ordinary_proposal())}
+                 {:ok, Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))}
                end,
                model: "test-model"
              )
@@ -1723,13 +2005,30 @@ defmodule Storyteller.PlayTest do
       move_player_to("orchard-gate", "Orchard gate") ++
         move_player_to("press-house", "Press house")
 
+    travel_changes = [
+      %{
+        "type" => "create_connection",
+        "place_a_id" => "orchard-gate",
+        "place_b_id" => "press-house",
+        "travel_minutes" => 12,
+        "visibility" => "public",
+        "reason" => "A gravel path leads from the gate to the press house."
+      }
+    ]
+
     assert {:ok, %{status: :completed}} =
              Play.submit_turn(
                campaign.id,
                session.id,
                "cross-two-places",
                "Walk from the gate to the press house.",
-               provider: ordinary_provider(%{"location_changes" => location_changes}),
+               provider:
+                 ordinary_provider(%{
+                   "dialogue" => [],
+                   "activities" => [],
+                   "location_changes" => location_changes,
+                   "travel_changes" => travel_changes
+                 }),
                model: "test-model"
              )
 
@@ -1749,7 +2048,7 @@ defmodule Storyteller.PlayTest do
                "Look around the press house.",
                provider: fn request ->
                  Agent.update(observed_context, fn _ -> decode_request(request) end)
-                 {:ok, Jason.encode!(ordinary_proposal())}
+                 {:ok, Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))}
                end,
                model: "test-model"
              )
@@ -1780,6 +2079,12 @@ defmodule Storyteller.PlayTest do
           "facts" => %{"surroundings" => "A low stone wall borders the road."}
         },
         "reason" => "The scene establishes the meeting place."
+      },
+      %{
+        "type" => "move_character",
+        "speaker_id" => "player",
+        "place_id" => "south-gate",
+        "reason" => "The player waits at the south gate."
       },
       %{
         "type" => "move_character",
@@ -2038,6 +2343,16 @@ defmodule Storyteller.PlayTest do
                    "location_changes" => [
                      public_road,
                      Map.put(leaking_exit, "reason", "Elira returns to the road.")
+                   ],
+                   "travel_changes" => [
+                     %{
+                       "type" => "create_connection",
+                       "place_a_id" => "flooded-passage",
+                       "place_b_id" => "orchard-road",
+                       "travel_minutes" => 18,
+                       "visibility" => "gm_private",
+                       "reason" => "A concealed drainage passage reaches the orchard road."
+                     }
                    ]
                  }),
                model: "test-model"
@@ -2153,6 +2468,16 @@ defmodule Storyteller.PlayTest do
                        "place_id" => "hidden-cistern",
                        "reason" => "Lyra leaves the orchard walk."
                      }
+                   ],
+                   "travel_changes" => [
+                     %{
+                       "type" => "create_connection",
+                       "place_a_id" => "orchard-walk",
+                       "place_b_id" => "hidden-cistern",
+                       "travel_minutes" => 4,
+                       "visibility" => "gm_private",
+                       "reason" => "A hidden footpath connects the orchard walk to the cistern."
+                     }
                    ]
                  }),
                model: "test-model"
@@ -2210,6 +2535,16 @@ defmodule Storyteller.PlayTest do
                        "speaker_id" => "npc:lyra",
                        "place_id" => "north-trellis",
                        "reason" => "Lyra moves to the north trellis."
+                     }
+                   ],
+                   "travel_changes" => [
+                     %{
+                       "type" => "create_connection",
+                       "place_a_id" => "hidden-cistern",
+                       "place_b_id" => "north-trellis",
+                       "travel_minutes" => 6,
+                       "visibility" => "gm_private",
+                       "reason" => "A concealed path returns from the cistern to the trellis."
                      }
                    ]
                  }),
@@ -2638,6 +2973,16 @@ defmodule Storyteller.PlayTest do
             "speaker_id" => "npc:orin",
             "place_id" => "saffron-vault",
             "reason" => "Orin slips into Saffron Vault unseen."
+          }
+        ],
+        "travel_changes" => [
+          %{
+            "type" => "create_connection",
+            "place_a_id" => "old-quay",
+            "place_b_id" => "beacon-road",
+            "travel_minutes" => 8,
+            "visibility" => "public",
+            "reason" => "The coast path continues from the old quay."
           }
         ]
       })
@@ -3495,7 +3840,11 @@ defmodule Storyteller.PlayTest do
       first_session,
       "first",
       "Look at the map.",
-      ordinary_provider(%{"location_changes" => move_player_to("dome", "Dome")})
+      ordinary_provider(%{
+        "dialogue" => [],
+        "activities" => [],
+        "location_changes" => move_player_to("dome", "Dome")
+      })
     )
 
     complete_turn(
@@ -3503,7 +3852,11 @@ defmodule Storyteller.PlayTest do
       second_session,
       "second",
       "Open the catalog.",
-      ordinary_provider(%{"location_changes" => move_player_to("archive", "Archive")})
+      ordinary_provider(%{
+        "dialogue" => [],
+        "activities" => [],
+        "location_changes" => move_player_to("archive", "Archive")
+      })
     )
 
     assert {:ok, next_session} = Campaigns.start_session(first)
@@ -3513,7 +3866,7 @@ defmodule Storyteller.PlayTest do
       next_session,
       "third",
       "Ask about the missing page.",
-      ordinary_provider()
+      ordinary_provider(%{"dialogue" => [], "activities" => []})
     )
 
     assert {:ok, first_projection} = Play.public_projection(first.id)
@@ -4069,6 +4422,8 @@ defmodule Storyteller.PlayTest do
           {:ok,
            Jason.encode!(
              ordinary_proposal(%{
+               "dialogue" => [],
+               "activities" => [],
                "location_changes" => move_player_to("stale", "Stale worker")
              })
            )}
@@ -4087,6 +4442,8 @@ defmodule Storyteller.PlayTest do
              Play.retry_turn(pending.id,
                provider:
                  ordinary_provider(%{
+                   "dialogue" => [],
+                   "activities" => [],
                    "location_changes" => move_player_to("fresh", "Fresh worker")
                  }),
                model: "test-model"
@@ -4299,6 +4656,35 @@ defmodule Storyteller.PlayTest do
              )
 
     assert Keyword.has_key?(changeset.errors, :session_id)
+  end
+
+  defp establish_starting_place!(campaign, name) do
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "location", name)
+      })
+    )
+
+    assert {:ok, _state} =
+             Play.initialize_campaign(campaign, %{public_state: %{"location" => name}})
+
+    Repo.get_by!(Place, campaign_id: campaign.id, name: name)
+  end
+
+  defp insert_travel_connection!(campaign_id, place_a_id, place_b_id, travel_minutes) do
+    [place_a_id, place_b_id] = Enum.sort([place_a_id, place_b_id])
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign_id,
+        place_a_id: place_a_id,
+        place_b_id: place_b_id,
+        travel_minutes: travel_minutes,
+        visibility: :public
+      })
+    )
   end
 
   defp play_campaign(title) do

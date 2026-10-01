@@ -10,7 +10,19 @@ defmodule Storyteller.CampaignBackupTest do
   alias Storyteller.Auth.TokenStore
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, ContinuityEntry, Event, Objective, Place, Roll, State, Turn}
+
+  alias Storyteller.Play.{
+    Character,
+    ContinuityEntry,
+    Event,
+    Objective,
+    Place,
+    PlaceConnection,
+    Roll,
+    State,
+    Turn
+  }
+
   alias Storyteller.Repo
 
   test "round-trips complete multi-session canon and remaps internal provenance IDs" do
@@ -52,6 +64,32 @@ defmodule Storyteller.CampaignBackupTest do
           }
         ]
       })
+
+    villa = Repo.get_by!(Place, campaign_id: campaign.id, name: "Villa terrace")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "backup-bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    [place_a_id, place_b_id] = Enum.sort([villa.place_id, bodega.place_id])
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: place_a_id,
+        place_b_id: place_b_id,
+        travel_minutes: 40,
+        scene_relevance: "The road from the villa to the cellar.",
+        visibility: :public
+      })
+    )
 
     assert {:ok, campaign_with_public_correction} =
              Campaigns.update_campaign_authoring(campaign, %{
@@ -234,7 +272,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 3
+    assert document["schema_version"] == 4
     assert document["campaign"]["title"] == campaign.title
     assert document["campaign"]["player_character_name"] == "Mira Vale"
     assert document["campaign"]["player_character"] == campaign.player_character
@@ -252,6 +290,8 @@ defmodule Storyteller.CampaignBackupTest do
            )
 
     assert Enum.any?(document["places"], &(&1["visibility"] == "gm_private"))
+    assert length(document["place_connections"]) == 1
+    assert hd(document["place_connections"])["travel_minutes"] == 40
     assert Enum.any?(document["panels"], &(&1["visibility"] == "gm_private"))
     assert Enum.any?(document["objectives"], &(&1["visibility"] == "gm_private"))
     assert Enum.any?(document["continuity_entries"], &(&1["visibility"] == "gm_private"))
@@ -360,6 +400,10 @@ defmodule Storyteller.CampaignBackupTest do
 
     assert Repo.get_by!(Place, campaign_id: imported.id, place_id: "sealed-cellar").visibility ==
              :gm_private
+
+    imported_connection = Repo.get_by!(PlaceConnection, campaign_id: imported.id)
+    assert imported_connection.travel_minutes == 40
+    assert imported_connection.scene_relevance == "The road from the villa to the cellar."
   end
 
   test "rejects unknown versions, secret-bearing extra fields, and dangling references before writing" do
@@ -385,7 +429,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 4),
+          Map.put(decoded, "schema_version", 5),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
           put_in(decoded, ["campaign", "status"], "suspended"),
@@ -492,9 +536,17 @@ defmodule Storyteller.CampaignBackupTest do
     }
 
     legacy_document = Map.delete(legacy_document, "authoring_corrections")
+    legacy_document = Map.delete(legacy_document, "place_connections")
 
     assert {:ok, legacy_import} = CampaignBackup.import(Jason.encode!(legacy_document))
     assert Play.get_turn(legacy_import.id, turn.idempotency_key).intent == :action
+
+    assert Repo.aggregate(
+             from(connection in PlaceConnection,
+               where: connection.campaign_id == ^legacy_import.id
+             ),
+             :count
+           ) == 0
 
     assert Repo.get_by!(Character, campaign_id: legacy_import.id, speaker_id: "npc:keeper").voice_guidance ==
              %{}
@@ -514,7 +566,7 @@ defmodule Storyteller.CampaignBackupTest do
            ) == 0
   end
 
-  test "round-trips only the fixed failure stage in version three and still imports version two" do
+  test "round-trips the fixed failure stage in version four and imports versions two and three" do
     campaign = campaign_fixture()
     [session] = campaign.sessions
     raw_model_output = "RAW-MODEL-OUTPUT-SENTINEL"
@@ -537,7 +589,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 3
+    assert document["schema_version"] == 4
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -546,14 +598,37 @@ defmodule Storyteller.CampaignBackupTest do
     imported_turn = Play.get_turn(imported.id, failed.idempotency_key)
     assert imported_turn.failure_stage == :response_decoding
 
-    v2_document = %{
-      document
-      | "schema_version" => 2,
-        "turns" => Enum.map(document["turns"], &Map.delete(&1, "failure_stage"))
-    }
+    # This is the exported v3 shape: it retains v3's failure_stage field and
+    # drops only the v4 place_connections root field.
+    v3_document = Map.drop(%{document | "schema_version" => 3}, ["place_connections"])
+
+    assert {:ok, imported_v3} = CampaignBackup.import(Jason.encode!(v3_document))
+
+    assert Play.get_turn(imported_v3.id, failed.idempotency_key).failure_stage ==
+             :response_decoding
+
+    assert Repo.aggregate(
+             from(connection in PlaceConnection, where: connection.campaign_id == ^imported_v3.id),
+             :count
+           ) == 0
+
+    v2_document =
+      Map.drop(
+        %{
+          document
+          | "schema_version" => 2,
+            "turns" => Enum.map(document["turns"], &Map.delete(&1, "failure_stage"))
+        },
+        ["place_connections"]
+      )
 
     assert {:ok, imported_v2} = CampaignBackup.import(Jason.encode!(v2_document))
     assert Play.get_turn(imported_v2.id, failed.idempotency_key).failure_stage == nil
+
+    assert Repo.aggregate(
+             from(connection in PlaceConnection, where: connection.campaign_id == ^imported_v2.id),
+             :count
+           ) == 0
   end
 
   test "imports atomically and an enclosing rollback removes the new campaign and all children" do

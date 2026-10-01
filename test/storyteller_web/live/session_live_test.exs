@@ -797,6 +797,7 @@ defmodule StorytellerWeb.SessionLiveTest do
       })
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
+    starting_place = Repo.get_by!(Place, campaign_id: campaign.id, name: "Observatory grounds")
 
     Repo.update!(
       State.changeset(state, %{
@@ -847,6 +848,16 @@ defmodule StorytellerWeb.SessionLiveTest do
              speaker_id: "rhea",
              place_id: "western-road",
              reason: "Rhea joins the player by the archway."
+           }
+         ],
+         travel_changes: [
+           %{
+             type: "create_connection",
+             place_a_id: starting_place.place_id,
+             place_b_id: "western-road",
+             travel_minutes: 3,
+             visibility: "public",
+             reason: "A short path crosses from the grounds to the western road."
            }
          ],
          private_changes: %{"unseen_clue" => "This stays private"},
@@ -1373,6 +1384,16 @@ defmodule StorytellerWeb.SessionLiveTest do
              speaker_id: "npc:orin",
              place_id: "saffron-vault",
              reason: "Orin slips into Saffron Vault unseen."
+           }
+         ],
+         travel_changes: [
+           %{
+             type: "create_connection",
+             place_a_id: "old-quay",
+             place_b_id: "beacon-road",
+             travel_minutes: 8,
+             visibility: "public",
+             reason: "The coast path continues from the old quay."
            }
          ],
          objective_changes: [],

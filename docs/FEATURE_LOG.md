@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-01 — Persist travel routes and validate scene presence
+
+- Implemented campaign-scoped place connections with canonical integer-minute durations, public/GM-private visibility, and concise scene relevance. A normalized shortest route is computed from stored connections; model-supplied travel time is not trusted. Same-turn place/connection discovery can support a first arrival when the accepted proposal contains a valid route.
+- Character movement and public NPC dialogue/activity are checked against canonical current/final presence. A character who remains at the finca cannot casually appear at a bodega forty minutes away; an accepted move, including an explicit same-turn arrival, updates presence and records the computed route duration. Unplaced newly introduced characters need an explicit canonical arrival before public speech or activity.
+- GM context receives relevant local connections and bounded route summaries, while GM-private route details stay in hidden context. No prose-clock parser or elapsed in-world clock enforcement was added; the integer connection duration is a canonical travel receipt, not a claim that free-form dates/times are safely advanced.
+- Campaign backup schema v4 includes place connections and retains v1-v3 import compatibility; legacy backups default to no modeled connections. The true v3 regression fixture preserves its historical `failure_stage` field while checking that legacy routes default empty.
+- **Defining product promise:** structured local canon prevents LLM memory drift, while a deliberate context budget controls request cost. Cross-session state continuity and a measured/configured per-model token budget are required acceptance checks. The graph projection has fixed relevance caps, but token instrumentation and a measured numeric budget remain open work.
+- Behavioral integration coverage now includes a 40-minute Finca→Bodega transition and next-turn context, rejection of an off-scene NPC, explicit same-turn NPC arrival, first-visit route creation, and v1-v3 backup imports. Focused WSL checks passed (88 tests, 0 failures), the full suite passed (266 tests, 0 failures), and the session LiveView module passed (40 tests, 0 failures). Warnings-as-errors compilation, formatting, and `git diff --check` passed. The additive route migration ran against `storyteller_dev` without modifying campaign records. Tests use fake providers; OAuth validation tests use generated local keys and fake OIDC endpoints. No live AI was used.
+
 ## 2026-09-30 — Make algorithmic world consistency a core MVP goal
 
 - Storyteller's continuity should come from its durable, structured world model rather than expecting an LLM to remember every detail from prose. The MVP now explicitly calls for modeled place connections and travel durations, canonical character locations/presence, accepted movement, and relevant scene context for the GM.

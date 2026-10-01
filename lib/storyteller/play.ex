@@ -21,9 +21,11 @@ defmodule Storyteller.Play do
     LocationChanges,
     Objective,
     Place,
+    PlaceConnection,
     Roll,
     State,
     Turn,
+    TravelGraph,
     VoiceGuidance
   }
 
@@ -185,11 +187,27 @@ defmodule Storyteller.Play do
   visible_facts and gm_private_facts. Never reuse an existing ID or "player".
   A character created in this proposal may speak, act, receive items, move, or
   receive a character update in this same proposal; otherwise use only known
-  character IDs. Put canonical presence only in location_changes, after creating
-  any new place first. The player may only move to a public place. Do not change
+  character IDs. Explicitly move a newly introduced character to the scene in
+  location_changes before they speak or act; a nil initial place is not presence.
+  Put canonical presence only in location_changes, after creating any new place
+  first. The player may only move to a public place. Do not change
   the world location through public_changes; move the player to a canonical
   public place instead. Keep private facts and GM-private place names, facts,
   and presence out of every public event and projection.
+
+  The supplied travel_connections graph is canonical too. A connection joins
+  two existing places, records an integer travel duration in minutes, and may
+  include a concise scene_relevance note. Create or correct edges only through
+  travel_changes. A movement must follow a path that already exists in the
+  supplied graph or a connection accepted in the same response. The application
+  computes the shortest valid route duration from the normalized canonical graph
+  and records it with accepted movement. Narrate the required journey and its
+  consequences; do not invent a shorter travel time. Only use a
+  GM-private connection in GM-private context and never reveal its route or
+  scene_relevance in public text. Public NPC dialogue and activity are spoken
+  from the player's final current place; a remote character needs accepted
+  movement into the scene. Storyteller does not assume an unmodeled phone,
+  letter, or other communication path.
 
   Update durable objectives only when the action or established history supports
   the change. Return objective_changes in the order they should apply. A create
@@ -239,7 +257,10 @@ defmodule Storyteller.Play do
   gm_private_facts?} for new GM-controlled characters),
   location_changes (array of {type: "create_place", place: {place_id, name,
   description?, visibility, facts?}, reason} or {type: "move_character",
-  speaker_id, place_id, reason}), inventory_changes (array of operations:
+  speaker_id, place_id, reason}), travel_changes (array of {type:
+  "create_connection", place_a_id, place_b_id, travel_minutes, scene_relevance?,
+  visibility, reason} or {type: "update_connection", place_a_id, place_b_id,
+  travel_minutes?, scene_relevance?, reason}), inventory_changes (array of operations:
   {type: "add", item: item, reason: text},
   {type: "transfer", item_id: id, owner_id: speaker_id_or_party, reason: text},
   or {type: "transfer", item_id: id, quantity: integer, new_item_id: id,
@@ -1602,6 +1623,14 @@ defmodule Storyteller.Play do
     sequence =
       append_location_change_event(state, turn, sequence, :gm_private, private_location_changes)
 
+    {public_travel_changes, private_travel_changes} =
+      Enum.split_with(proposal.travel_changes, &(Map.get(&1, "visibility", "public") == "public"))
+
+    sequence = append_travel_change_event(state, turn, sequence, :public, public_travel_changes)
+
+    sequence =
+      append_travel_change_event(state, turn, sequence, :gm_private, private_travel_changes)
+
     sequence = append_objective_change_events(state, turn, proposal.objective_changes, sequence)
 
     Enum.reduce(proposal.character_updates, sequence, fn update, current ->
@@ -2047,6 +2076,26 @@ defmodule Storyteller.Play do
     )
   end
 
+  defp append_travel_change_event(_state, _turn, sequence, _visibility, []), do: sequence
+
+  defp append_travel_change_event(state, turn, sequence, visibility, changes) do
+    changes =
+      Enum.map(changes, fn change ->
+        if visibility == :public,
+          do: Map.drop(change, ["reason"]),
+          else: change
+      end)
+
+    append_event!(
+      %{state | event_sequence: sequence},
+      turn,
+      :state_change,
+      visibility,
+      nil,
+      %{travel_changes: changes}
+    )
+  end
+
   defp append_event!(state, turn, type, visibility, speaker_id, payload) do
     sequence = state.event_sequence + 1
     append_event!(state, turn, type, visibility, speaker_id, payload, sequence)
@@ -2194,6 +2243,7 @@ defmodule Storyteller.Play do
     gm_private_state = deep_merge(state.gm_private_state, proposal.private_changes)
 
     apply_location_changes!(campaign_id, proposal.location_changes)
+    apply_travel_changes!(campaign_id, proposal.travel_changes)
 
     public_state =
       case proposal.location_changes
@@ -2309,6 +2359,40 @@ defmodule Storyteller.Play do
           )
 
         update_or_rollback!(Character.changeset(character, %{current_place_id: place_id}))
+    end)
+  end
+
+  defp apply_travel_changes!(_campaign_id, []), do: :ok
+
+  defp apply_travel_changes!(campaign_id, changes) do
+    Enum.each(changes, fn change ->
+      attrs = %{
+        campaign_id: campaign_id,
+        place_a_id: change["place_a_id"],
+        place_b_id: change["place_b_id"]
+      }
+
+      case change["type"] do
+        "create_connection" ->
+          attrs =
+            attrs
+            |> Map.put(:travel_minutes, change["travel_minutes"])
+            |> Map.put(:scene_relevance, change["scene_relevance"])
+            |> Map.put(:visibility, String.to_existing_atom(change["visibility"]))
+
+          insert_or_rollback!(PlaceConnection.changeset(%PlaceConnection{}, attrs))
+
+        "update_connection" ->
+          connection =
+            Repo.get_by!(PlaceConnection, attrs)
+
+          updates =
+            change
+            |> Map.take(["travel_minutes", "scene_relevance"])
+            |> Enum.into(%{}, fn {key, value} -> {String.to_existing_atom(key), value} end)
+
+          update_or_rollback!(PlaceConnection.changeset(connection, updates))
+      end
     end)
   end
 
@@ -2452,7 +2536,7 @@ defmodule Storyteller.Play do
 
   defp validate_proposal(proposal, turn) when is_map(proposal) do
     allowed =
-      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes objective_changes continuity_changes roll_request)
+      ~w(narration dialogue activities public_changes private_changes panel_changes character_updates character_creations memory_update inventory_changes location_changes travel_changes objective_changes continuity_changes roll_request)
 
     cond do
       not unique_normalized_keys?(proposal) ->
@@ -2493,6 +2577,7 @@ defmodule Storyteller.Play do
         character_creations: [],
         inventory_changes: [],
         location_changes: [],
+        travel_changes: [],
         objective_changes: [],
         continuity_changes: [],
         memory_update: nil,
@@ -2527,11 +2612,36 @@ defmodule Storyteller.Play do
              turn.campaign_id,
              speaker_ids
            ),
+         player_place_id = current_player_place_id(turn.campaign_id),
+         movement_characters = known_characters ++ character_creations,
          {:ok, location_changes} <-
            validate_location_changes(
              field(proposal, :location_changes, []),
              turn.campaign_id,
              speaker_ids
+           ),
+         {:ok, travel_changes} <-
+           validate_travel_changes(
+             field(proposal, :travel_changes, []),
+             turn.campaign_id,
+             location_changes
+           ),
+         {:ok, location_changes, final_locations} <-
+           validate_movement_routes(
+             location_changes,
+             travel_changes,
+             turn.campaign_id,
+             movement_characters,
+             player_place_id
+           ),
+         :ok <-
+           validate_public_scene_presence(
+             dialogue,
+             activities,
+             final_locations,
+             player_place_id,
+             turn.campaign_id,
+             location_changes
            ),
          {:ok, objective_changes} <-
            validate_objective_changes(
@@ -2562,6 +2672,7 @@ defmodule Storyteller.Play do
                 panel_changes != [] or character_creations != [] or character_updates != [] or
                 inventory_changes != [] or
                 location_changes != [] or objective_changes != [] or
+                travel_changes != [] or
                 continuity_changes != []) do
           {:error, :invalid_response}
         else
@@ -2576,6 +2687,7 @@ defmodule Storyteller.Play do
             character_creations: character_creations,
             inventory_changes: inventory_changes,
             location_changes: location_changes,
+            travel_changes: travel_changes,
             objective_changes: objective_changes,
             continuity_changes: continuity_changes,
             memory_update: memory_update,
@@ -2613,6 +2725,7 @@ defmodule Storyteller.Play do
     state = Repo.get_by!(State, campaign_id: campaign_id)
     characters = campaign_characters(campaign_id)
     places = Repo.all(from place in Place, where: place.campaign_id == ^campaign_id)
+    connections = Repo.all(from edge in PlaceConnection, where: edge.campaign_id == ^campaign_id)
     panels = Panels.list_fields(campaign_id)
 
     private_place_ids =
@@ -2628,6 +2741,7 @@ defmodule Storyteller.Play do
             else: []
         end) ++
         Enum.flat_map(places, &private_place_values/1) ++
+        Enum.flat_map(connections, &private_connection_values/1) ++
         private_inventory_values(Map.get(state.gm_private_state || %{}, "inventory", [])) ++
         Enum.flat_map(panels, fn panel ->
           if panel.visibility == :gm_private, do: [Map.get(panel.value || %{}, "value")], else: []
@@ -2648,6 +2762,7 @@ defmodule Storyteller.Play do
           name ++ public_json_values(character.visible_facts)
         end) ++
         Enum.flat_map(places, &public_place_values/1) ++
+        Enum.flat_map(connections, &public_connection_values/1) ++
         public_inventory_values(Map.get(state.public_state || %{}, "inventory", [])) ++
         Enum.flat_map(panels, fn panel ->
           if panel.visibility == :public, do: [Map.get(panel.value || %{}, "value")], else: []
@@ -2677,6 +2792,16 @@ defmodule Storyteller.Play do
   end
 
   defp private_place_values(_place), do: []
+
+  defp private_connection_values(%PlaceConnection{visibility: :gm_private} = connection),
+    do: [connection.scene_relevance]
+
+  defp private_connection_values(_connection), do: []
+
+  defp public_connection_values(%PlaceConnection{visibility: :public} = connection),
+    do: [connection.scene_relevance]
+
+  defp public_connection_values(_connection), do: []
 
   defp private_objective_values(campaign_id) do
     Repo.all(
@@ -2767,6 +2892,13 @@ defmodule Storyteller.Play do
         _ ->
           []
       end) ++
+      Enum.flat_map(proposal.travel_changes, fn
+        %{"visibility" => "gm_private"} = change ->
+          [Map.get(change, "scene_relevance"), Map.get(change, "reason")]
+
+        _ ->
+          []
+      end) ++
       Enum.flat_map(proposal.inventory_changes, fn
         %{"type" => "add", "visibility" => "gm_private", "item" => item} ->
           private_inventory_values([item])
@@ -2816,6 +2948,10 @@ defmodule Storyteller.Play do
         _ ->
           []
       end) ++
+      Enum.flat_map(proposal.travel_changes, fn
+        %{"visibility" => "public"} = change -> [Map.get(change, "scene_relevance")]
+        _ -> []
+      end) ++
       Enum.flat_map(proposal.inventory_changes, fn
         %{"type" => "add", "visibility" => "public", "item" => item} ->
           public_inventory_values([item])
@@ -2859,6 +2995,10 @@ defmodule Storyteller.Play do
         _ -> []
       end) ++
       Enum.flat_map(proposal.location_changes, fn
+        %{"visibility" => "public", "reason" => reason} -> [reason]
+        _ -> []
+      end) ++
+      Enum.flat_map(proposal.travel_changes, fn
         %{"visibility" => "public", "reason" => reason} -> [reason]
         _ -> []
       end) ++
@@ -3092,6 +3232,86 @@ defmodule Storyteller.Play do
 
   defp validate_location_changes(_changes, _campaign_id, _speaker_ids),
     do: {:error, :invalid_response}
+
+  defp validate_travel_changes(changes, campaign_id, location_changes) when is_list(changes) do
+    existing_places = Repo.all(from place in Place, where: place.campaign_id == ^campaign_id)
+
+    created_places =
+      Enum.flat_map(location_changes, fn
+        %{"type" => "create_place", "place" => place} ->
+          [%{place_id: place["place_id"], visibility: place["visibility"]}]
+
+        _ ->
+          []
+      end)
+
+    places =
+      Enum.map(existing_places, &%{place_id: &1.place_id, visibility: &1.visibility}) ++
+        created_places
+
+    connections =
+      Repo.all(from edge in PlaceConnection, where: edge.campaign_id == ^campaign_id)
+
+    case TravelGraph.validate_changes(changes, places, connections) do
+      {:ok, normalized} -> {:ok, normalized}
+      {:error, _reason} -> {:error, :invalid_response}
+    end
+  end
+
+  defp validate_travel_changes(_changes, _campaign_id, _location_changes),
+    do: {:error, :invalid_response}
+
+  defp validate_movement_routes(changes, travel_changes, campaign_id, characters, player_place_id) do
+    connections =
+      Repo.all(from edge in PlaceConnection, where: edge.campaign_id == ^campaign_id)
+
+    with {:ok, graph} <- TravelGraph.merge_changes(connections, travel_changes),
+         {:ok, routed, locations} <-
+           TravelGraph.validate_movements(changes, characters, graph, player_place_id) do
+      {:ok, routed, locations}
+    else
+      {:error, _reason} -> {:error, :invalid_response}
+    end
+  end
+
+  defp validate_public_scene_presence(
+         dialogue,
+         activities,
+         locations,
+         player_place_id,
+         campaign_id,
+         location_changes
+       ) do
+    scene_id = Map.get(locations, "player", player_place_id)
+    speaker_visibility = character_visibility_after_changes(campaign_id, location_changes)
+
+    public_lines =
+      Enum.filter(dialogue ++ activities, fn line ->
+        Map.get(speaker_visibility, line.speaker_id, :public) == :public
+      end)
+
+    if TravelGraph.public_lines_in_scene?(public_lines, locations, scene_id),
+      do: :ok,
+      else: {:error, :invalid_response}
+  end
+
+  defp current_player_place_id(campaign_id) do
+    case Repo.get_by(Character, campaign_id: campaign_id, speaker_id: "player") do
+      %Character{current_place_id: place_id} when is_binary(place_id) ->
+        place_id
+
+      _ ->
+        state = Repo.get_by(State, campaign_id: campaign_id)
+        location = state && get_in(state.public_state || %{}, ["location"])
+
+        if is_binary(location) do
+          case Repo.get_by(Place, campaign_id: campaign_id, name: location) do
+            %Place{place_id: place_id} -> place_id
+            _ -> nil
+          end
+        end
+    end
+  end
 
   defp validate_objective_changes(changes, campaign_id)
        when is_list(changes) and length(changes) <= 100 do
@@ -4090,6 +4310,7 @@ defmodule Storyteller.Play do
       )
 
     places_by_id = Map.new(places, &{&1.place_id, &1})
+    player_place_id = current_player_place_id(turn.campaign_id)
     panels = Panels.list_fields(turn.campaign_id)
 
     events =
@@ -4133,6 +4354,8 @@ defmodule Storyteller.Play do
         gm_private:
           Enum.filter(places, &(&1.visibility == :gm_private)) |> Enum.map(&place_context/1)
       },
+      travel_connections:
+        travel_graph_context(turn.campaign_id, player_place_id, characters, places_by_id),
       objectives: %{
         public: objective_context(turn.campaign_id, :public),
         gm_private: objective_context(turn.campaign_id, :gm_private)
@@ -4459,6 +4682,110 @@ defmodule Storyteller.Play do
     }
   end
 
+  defp travel_graph_context(campaign_id, player_place_id, characters, places_by_id) do
+    connections =
+      Repo.all(
+        from edge in PlaceConnection,
+          where: edge.campaign_id == ^campaign_id,
+          order_by: [asc: edge.travel_minutes, asc: edge.place_a_id, asc: edge.place_b_id]
+      )
+
+    relevant_place_ids =
+      characters
+      |> Enum.map(& &1.current_place_id)
+      |> Kernel.++([player_place_id])
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    local_connections =
+      connections
+      |> Enum.filter(&TravelGraph.relevant_to_places?(&1, relevant_place_ids))
+      |> Enum.sort_by(fn edge ->
+        priority =
+          if edge.place_a_id == player_place_id or edge.place_b_id == player_place_id,
+            do: 0,
+            else: 1
+
+        {priority, edge.travel_minutes, edge.place_a_id, edge.place_b_id}
+      end)
+      |> Enum.take(32)
+      |> Enum.map(&travel_connection_context/1)
+
+    routes =
+      characters
+      |> Enum.map(& &1.current_place_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(&1 == player_place_id))
+      |> Enum.uniq()
+      |> Enum.take(20)
+      |> Enum.flat_map(fn destination_id ->
+        case TravelGraph.shortest_route(player_place_id, destination_id, connections) do
+          {:ok, route} ->
+            visibility = route_visibility(route.place_ids, connections, places_by_id)
+
+            [
+              {visibility,
+               %{
+                 from_place_id: player_place_id,
+                 to_place_id: destination_id,
+                 travel_minutes: route.travel_minutes,
+                 place_ids: route.place_ids
+               }}
+            ]
+
+          _ ->
+            []
+        end
+      end)
+
+    %{
+      public: Enum.filter(local_connections, &(&1.visibility == :public)),
+      gm_private: Enum.filter(local_connections, &(&1.visibility == :gm_private)),
+      public_routes:
+        routes
+        |> Enum.filter(&(elem(&1, 0) == :public))
+        |> Enum.map(&elem(&1, 1)),
+      gm_private_routes:
+        routes
+        |> Enum.filter(&(elem(&1, 0) == :gm_private))
+        |> Enum.map(&elem(&1, 1))
+    }
+  end
+
+  defp travel_connection_context(connection) do
+    %{
+      place_a_id: connection.place_a_id,
+      place_b_id: connection.place_b_id,
+      travel_minutes: connection.travel_minutes,
+      scene_relevance: connection.scene_relevance,
+      visibility: connection.visibility
+    }
+  end
+
+  defp route_visibility(place_ids, connections, places_by_id) do
+    private_place? =
+      Enum.any?(place_ids, fn place_id ->
+        case Map.get(places_by_id, place_id) do
+          %Place{visibility: :gm_private} -> true
+          _ -> false
+        end
+      end)
+
+    private_edge? =
+      place_ids
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.any?(fn [a, b] ->
+        pair = TravelGraph.connection_pair(a, b)
+
+        Enum.any?(connections, fn connection ->
+          TravelGraph.connection_pair(connection.place_a_id, connection.place_b_id) == pair and
+            connection.visibility == :gm_private
+        end)
+      end)
+
+    if private_place? or private_edge?, do: :gm_private, else: :public
+  end
+
   defp maybe_place_context(nil), do: nil
   defp maybe_place_context(place), do: place_context(place)
 
@@ -4547,6 +4874,7 @@ defmodule Storyteller.Play do
       proposal.panel_changes != [] or proposal.character_creations != [] or
       proposal.character_updates != [] or
       proposal.inventory_changes != [] or proposal.location_changes != [] or
+      proposal.travel_changes != [] or
       proposal.objective_changes != [] or proposal.continuity_changes != [] or
       proposal.activities != [] or proposal.memory_update != nil
   end
