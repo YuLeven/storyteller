@@ -3,6 +3,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   alias Storyteller.Campaigns
   alias Storyteller.Play
+  alias Storyteller.Play.VoiceGuidance
 
   @editable_fields ~w(
     title premise setting tone narration_language player_character_name player_character
@@ -104,7 +105,9 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
-               "Character voice notes must use the listed fields and stay within the length limits."
+               "Voice notes must be %{field_limit} characters or fewer per field and %{total_limit} characters total.",
+               field_limit: VoiceGuidance.max_field_length(),
+               total_limit: VoiceGuidance.max_total_length()
              )
          )}
 
@@ -217,6 +220,18 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
     nonempty_map?(character.voice_guidance) or nonempty_map?(draft_guidance)
   end
+
+  defp voice_guidance_count(character, draft) do
+    guidance =
+      Map.new(VoiceGuidance.fields(), fn field ->
+        {field, voice_value(character, field, draft)}
+      end)
+
+    VoiceGuidance.character_count(guidance)
+  end
+
+  defp voice_guidance_over_limit?(character, draft),
+    do: voice_guidance_count(character, draft) > VoiceGuidance.max_total_length()
 
   defp nonempty_map?(map) when is_map(map), do: map_size(map) > 0
   defp nonempty_map?(_value), do: false

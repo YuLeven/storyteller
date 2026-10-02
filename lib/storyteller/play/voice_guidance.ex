@@ -6,6 +6,20 @@ defmodule Storyteller.Play.VoiceGuidance do
   @max_total_length 1_200
 
   def fields, do: @fields
+  def max_field_length, do: @max_field_length
+  def max_total_length, do: @max_total_length
+
+  def character_count(guidance) when is_map(guidance) do
+    Enum.reduce(guidance, 0, fn {key, value}, total ->
+      if key_name(key) in @fields and is_binary(value) do
+        total + String.length(String.trim(value))
+      else
+        total
+      end
+    end)
+  end
+
+  def character_count(_guidance), do: 0
 
   def normalize(nil), do: {:ok, %{}}
 

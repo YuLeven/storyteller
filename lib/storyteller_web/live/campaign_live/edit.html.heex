@@ -192,7 +192,9 @@
           </summary>
           <p class="mt-2 text-sm text-stone-600">
             {gettext(
-              "Keep delivery notes with this character's setup. Each field allows 280 characters; all notes together allow 1,200."
+              "Keep delivery notes with this character's setup. Each field allows up to %{field_limit} characters; all notes together allow %{total_limit}.",
+              field_limit: VoiceGuidance.max_field_length(),
+              total_limit: VoiceGuidance.max_total_length()
             )}
           </p>
           <div class="mt-4 grid gap-4 sm:grid-cols-2">
@@ -200,7 +202,7 @@
               {gettext("Quirks")}
               <textarea
                 name={"campaign[character_voice_guidance][#{character.speaker_id}][quirks]"}
-                maxlength="280"
+                maxlength={VoiceGuidance.max_field_length()}
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
               >{voice_value(character, "quirks", @authoring_draft)}</textarea>
@@ -209,7 +211,7 @@
               {gettext("Accent or dialect")}
               <textarea
                 name={"campaign[character_voice_guidance][#{character.speaker_id}][accent_dialect]"}
-                maxlength="280"
+                maxlength={VoiceGuidance.max_field_length()}
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
               >{voice_value(character, "accent_dialect", @authoring_draft)}</textarea>
@@ -218,7 +220,7 @@
               {gettext("Cadence")}
               <textarea
                 name={"campaign[character_voice_guidance][#{character.speaker_id}][cadence]"}
-                maxlength="280"
+                maxlength={VoiceGuidance.max_field_length()}
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
               >{voice_value(character, "cadence", @authoring_draft)}</textarea>
@@ -227,7 +229,7 @@
               {gettext("Vocabulary")}
               <textarea
                 name={"campaign[character_voice_guidance][#{character.speaker_id}][vocabulary]"}
-                maxlength="280"
+                maxlength={VoiceGuidance.max_field_length()}
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
               >{voice_value(character, "vocabulary", @authoring_draft)}</textarea>
@@ -236,12 +238,32 @@
               {gettext("Mannerisms")}
               <textarea
                 name={"campaign[character_voice_guidance][#{character.speaker_id}][mannerisms]"}
-                maxlength="280"
+                maxlength={VoiceGuidance.max_field_length()}
                 rows="2"
                 class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
               >{voice_value(character, "mannerisms", @authoring_draft)}</textarea>
             </label>
           </div>
+          <p
+            id={"voice-guidance-count-#{character.speaker_id}"}
+            class={
+              if voice_guidance_over_limit?(character, @authoring_draft),
+                do: "mt-3 text-sm font-medium text-rose-700",
+                else: "mt-3 text-sm text-stone-500"
+            }
+          >
+            {gettext("%{count} of %{limit} characters used",
+              count: voice_guidance_count(character, @authoring_draft),
+              limit: VoiceGuidance.max_total_length()
+            )}
+          </p>
+          <p
+            :if={voice_guidance_over_limit?(character, @authoring_draft)}
+            role="alert"
+            class="mt-1 text-sm text-rose-700"
+          >
+            {gettext("These notes exceed the combined limit. Shorten them to continue.")}
+          </p>
         </details>
       </div>
     </section>

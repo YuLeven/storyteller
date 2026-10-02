@@ -55,6 +55,28 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     refute Jason.encode!(projection) =~ "Soft coastal vowels"
   end
 
+  test "campaign setup displays the combined voice-note character count", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+    view |> element("button[phx-click='add-character']") |> render_click()
+
+    voice =
+      Map.new(Storyteller.Play.VoiceGuidance.fields(), fn field ->
+        {field, String.duplicate("x", 250)}
+      end)
+
+    render_change(view, "validate", %{
+      "campaign" => %{
+        "gm_characters" => %{
+          "0" => %{"name" => "Captain Ren", "voice_guidance" => voice}
+        }
+      }
+    })
+
+    html = render(view)
+    assert html =~ "1250 of 1200 characters used"
+    assert html =~ "These notes exceed the combined limit. Shorten them to continue."
+  end
+
   test "campaign editor saves story setup and known character voices", %{conn: conn} do
     campaign =
       campaign_fixture(%{
@@ -331,6 +353,44 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     reopened_html = render(reopened_view)
     assert reopened_html =~ "Warm French vowels."
     assert reopened_html =~ "Taps the wine thief against the barrel before speaking."
+  end
+
+  test "campaign editor explains and preserves voice notes over the combined limit", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        player_character_name: "Ilya",
+        player_character: "A patient courier.",
+        gm_characters: [%{speaker_id: "keeper-elin", name: "Keeper Elin", voice_guidance: %{}}]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    voice =
+      Map.new(Storyteller.Play.VoiceGuidance.fields(), fn field ->
+        {field, String.duplicate("x", 250)}
+      end)
+
+    params = %{
+      "correction_reason" => "Clarify the keeper's voice.",
+      "character_voice_guidance" => %{"keeper-elin" => voice}
+    }
+
+    render_change(view, "validate", %{"campaign" => params})
+    html = render(view)
+    assert html =~ "1250 of 1200 characters used"
+    assert html =~ "These notes exceed the combined limit. Shorten them to continue."
+
+    html = render_submit(view, "save", %{"campaign" => params})
+
+    assert html =~
+             "Voice notes must be 280 characters or fewer per field and 1200 characters total."
+
+    assert html =~ "1250 of 1200 characters used"
+
+    saved = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+    assert saved.voice_guidance == %{}
   end
 
   test "campaign editor rejects stale voice edits from another tab and preserves them for review",

@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Make combined character voice limits visible
+
+- A profile can stay below each field's 280-character HTML limit while exceeding the server's 1,200-character total and being rejected. Campaign setup and campaign edit now share the validator's limits, show the live per-character total, and warn inline when the combined cap is exceeded. The edit error names both limits and retains the rejected draft; the atomic backend validation remains authoritative.
+- Added LiveView coverage for both setup and editing. The edit regression checks the over-limit warning, retained 1,250-character draft, precise save error, and absence of partial database writes. This is a demonstrated reject-without-save path, not confirmation that it was the exact cause of the reported runtime symptom.
+- **Checks:** 377 tests passed; test-environment compile with warnings as errors, formatter check, translation-catalog check, and `git diff --check` all passed.
+
 ## 2026-10-02 — Exercise continuity at the production turn boundary
 
 - Added an isolated fake-provider `Play.submit_turn` regression over 100 synthetic sessions and 2,400 persisted events. The request retains an old Finca/Bodega travel-and-duty fact, all 12 newest events, and canonical character locations, active duty, and route data, while unrelated old history is omitted.

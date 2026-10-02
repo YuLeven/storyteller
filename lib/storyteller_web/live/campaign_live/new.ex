@@ -3,6 +3,7 @@ defmodule StorytellerWeb.CampaignLive.New do
 
   alias Storyteller.Campaigns
   alias Storyteller.Campaigns.Campaign
+  alias Storyteller.Play.VoiceGuidance
 
   @impl true
   def mount(_params, _session, socket) do
@@ -353,7 +354,11 @@ defmodule StorytellerWeb.CampaignLive.New do
   defp setup_error_message(
          "Voice notes need up to 280 characters per field and 1,200 characters total."
        ) do
-    gettext("Voice notes must be 280 characters or fewer per field and 1,200 characters total.")
+    gettext(
+      "Voice notes must be %{field_limit} characters or fewer per field and %{total_limit} characters total.",
+      field_limit: VoiceGuidance.max_field_length(),
+      total_limit: VoiceGuidance.max_total_length()
+    )
   end
 
   defp setup_error_message("Player character details must be a list.") do
@@ -452,6 +457,12 @@ defmodule StorytellerWeb.CampaignLive.New do
       end
     end)
   end
+
+  defp voice_guidance_count(row),
+    do: row |> row_value("voice_guidance") |> VoiceGuidance.character_count()
+
+  defp voice_guidance_over_limit?(row),
+    do: voice_guidance_count(row) > VoiceGuidance.max_total_length()
 
   defp panel_type_label(:quantity), do: gettext("Quantity")
   defp panel_type_label(:money), do: gettext("Money")

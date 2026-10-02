@@ -535,7 +535,9 @@
               </summary>
               <p class="mt-2 text-sm text-stone-600">
                 {gettext(
-                  "Keep delivery notes separate from character facts. Each field allows up to 280 characters; all notes together allow 1,200."
+                  "Keep delivery notes separate from character facts. Each field allows up to %{field_limit} characters; all notes together allow %{total_limit}.",
+                  field_limit: VoiceGuidance.max_field_length(),
+                  total_limit: VoiceGuidance.max_total_length()
                 )}
               </p>
               <div class="mt-4 grid gap-4 sm:grid-cols-2">
@@ -548,7 +550,7 @@
                     id={"gm-voice-quirks-#{index}"}
                     name={"campaign[gm_characters][#{index}][voice_guidance][quirks]"}
                     rows="2"
-                    maxlength="280"
+                    maxlength={VoiceGuidance.max_field_length()}
                     class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
                   >{voice_value(row, "quirks")}</textarea>
                 </label>
@@ -561,7 +563,7 @@
                     id={"gm-voice-accent-#{index}"}
                     name={"campaign[gm_characters][#{index}][voice_guidance][accent_dialect]"}
                     rows="2"
-                    maxlength="280"
+                    maxlength={VoiceGuidance.max_field_length()}
                     class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
                   >{voice_value(row, "accent_dialect")}</textarea>
                 </label>
@@ -574,7 +576,7 @@
                     id={"gm-voice-cadence-#{index}"}
                     name={"campaign[gm_characters][#{index}][voice_guidance][cadence]"}
                     rows="2"
-                    maxlength="280"
+                    maxlength={VoiceGuidance.max_field_length()}
                     class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
                   >{voice_value(row, "cadence")}</textarea>
                 </label>
@@ -587,7 +589,7 @@
                     id={"gm-voice-vocabulary-#{index}"}
                     name={"campaign[gm_characters][#{index}][voice_guidance][vocabulary]"}
                     rows="2"
-                    maxlength="280"
+                    maxlength={VoiceGuidance.max_field_length()}
                     class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
                   >{voice_value(row, "vocabulary")}</textarea>
                 </label>
@@ -600,11 +602,31 @@
                     id={"gm-voice-mannerisms-#{index}"}
                     name={"campaign[gm_characters][#{index}][voice_guidance][mannerisms]"}
                     rows="2"
-                    maxlength="280"
+                    maxlength={VoiceGuidance.max_field_length()}
                     class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
                   >{voice_value(row, "mannerisms")}</textarea>
                 </label>
               </div>
+              <p
+                id={"gm-voice-guidance-count-#{index}"}
+                class={
+                  if voice_guidance_over_limit?(row),
+                    do: "mt-3 text-sm font-medium text-rose-700",
+                    else: "mt-3 text-sm text-stone-500"
+                }
+              >
+                {gettext("%{count} of %{limit} characters used",
+                  count: voice_guidance_count(row),
+                  limit: VoiceGuidance.max_total_length()
+                )}
+              </p>
+              <p
+                :if={voice_guidance_over_limit?(row)}
+                role="alert"
+                class="mt-1 text-sm text-rose-700"
+              >
+                {gettext("These notes exceed the combined limit. Shorten them to continue.")}
+              </p>
             </details>
           </div>
         </details>
