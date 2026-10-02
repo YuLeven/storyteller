@@ -123,8 +123,11 @@
             class="grid min-w-0 gap-1 border-t border-stone-100 pt-2"
           >
             <dt class="break-words text-sm text-stone-600">{field.label}</dt>
-            <dd class="min-w-0 whitespace-pre-wrap break-words text-left text-sm font-semibold text-stone-900">
-              {panel_value(field.value, field.unit)}
+            <dd class="min-w-0 text-left text-sm font-semibold text-stone-900">
+              <span data-panel-value class="block whitespace-pre-wrap break-words">{panel_value(
+                field.value,
+                field.unit
+              )}</span>
             </dd>
           </div>
         </dl>

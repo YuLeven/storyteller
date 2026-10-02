@@ -2130,7 +2130,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert html =~ "A light rain begins"
     assert html =~ "Day 3, June 10"
     refute html =~ "This stays private"
-    refute html =~ "UTC"
+    refute has_element?(view, "#story-timeline .game-time-label", "UTC")
 
     player_action = Repo.get_by!(Event, campaign_id: campaign.id, event_type: :player_action)
 
@@ -2161,7 +2161,7 @@ defmodule StorytellerWeb.SessionLiveTest do
           {"fr", "Heure du jeu", "État du monde", "Détail du monde", "Météo"}
         ] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
-      {:ok, localized_view, localized_html} = live_play(conn, campaign, session)
+      {:ok, localized_view, _localized_html} = live_play(conn, campaign, session)
 
       assert has_element?(
                localized_view,
@@ -2169,7 +2169,7 @@ defmodule StorytellerWeb.SessionLiveTest do
                label
              )
 
-      refute localized_html =~ "UTC"
+      refute has_element?(localized_view, "#story-timeline .game-time-label", "UTC")
 
       localized_view
       |> form("#canon-correction-form", %{"correction" => %{"kind" => "world"}})
@@ -2346,7 +2346,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute has_element?(view, "#event-#{first_sequence + 4} .game-time-label")
     assert has_element?(view, "#event-#{first_sequence + 5} .game-time-label", "Year 1 · 22:00")
     assert has_element?(view, "#event-#{final_sequence} .game-time-label", "Year 1 · 21:00")
-    refute render(view) =~ "UTC"
+    refute has_element?(view, "#story-timeline .game-time-label", "UTC")
   end
 
   test "loading earlier story moves a repeated turn-time marker to the turn's first event", %{
@@ -2880,7 +2880,17 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute render(play_view) =~ "Private reserve"
     refute render(play_view) =~ "90 crates"
     assert play_html =~ "break-words"
-    assert play_html =~ long_note
+
+    assert has_element?(
+             play_view,
+             "#campaign-fields [data-panel-watch='resource-field_notes'] > span[data-panel-value].whitespace-pre-wrap",
+             long_note
+           )
+
+    refute has_element?(
+             play_view,
+             "#campaign-fields [data-panel-watch='resource-field_notes'].whitespace-pre-wrap"
+           )
 
     play_view
     |> form("#turn-composer", turn: %{input: "Sell two barrels of reserve wine."})
@@ -2906,6 +2916,13 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, latest_detail, latest_detail_html} = live(conn, ~p"/campaigns/#{campaign.id}")
     assert has_element?(latest_detail, "#public-campaign-panels", "48.75 florins")
     assert has_element?(latest_detail, "#public-campaign-panels", "16 barrels")
+
+    assert has_element?(
+             latest_detail,
+             "#public-campaign-panels span[data-panel-value]",
+             long_note
+           )
+
     refute latest_detail_html =~ "Private reserve"
 
     [action_context] = Agent.get(contexts, &Enum.reverse/1)

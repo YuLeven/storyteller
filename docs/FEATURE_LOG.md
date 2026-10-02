@@ -8,6 +8,13 @@
 - In the separate fictional Quiet Observatory campaign, one simple Ask about current weather completed through the configured ChatGPT-plan connection in about 12 seconds. Its narration persisted after reload while date, time, weather, and location stayed unchanged. This verifies the basic Ask path only, not stateful movement or prose quality.
 - The earlier movement-and-inventory action and its retry both failed proposal validation; no canon was applied. A missing modeled route is plausible but unconfirmed, and the application currently keeps only the generic `invalid_response` category. The safe QA Ask superseded that failed turn. The imported comparison campaign and Vineyard source were not accessed or changed.
 
+## 2026-10-02 — Keep tracked-resource markup from preserving template whitespace
+
+- A separate synthetic resource fixture exposed large gaps and indentation in the live resource card: `whitespace-pre-wrap` was applied to a definition container that also held the correction link and nested receipt. The fixture did not reproduce text overlap exactly, and the imported comparison campaign was not opened.
+- Limited preserved line breaks to a value-only span in the live board and campaign detail card. Long typed values still wrap, while labels, values, and correction controls now flow without template indentation.
+- Added a rendered regression for long resource values, the value-only whitespace scope, and GM-private field omission. Manually checked the narrow play board with quantity, money, and long text values; values aligned cleanly and controls sat directly below them. Removed all four temporary QA fields afterward.
+- **Checks:** three focused `SessionLive` regressions passed; full WSL suite passed (**425 tests, 0 failures**); formatting and warnings-as-errors test/dev compilation passed; Gettext extraction is current. One unrelated flaky assertion surfaced during a broader targeted run: it searched the whole LiveView HTML for `UTC`, which can match the opaque LiveView session token. Changed it to inspect visible game-time labels instead.
+
 ## 2026-10-02 — Finish the scene beat before handing control back
 
 - A close reading of the shared campaign confirmed that its rhythm shifts with intent: broad intervals get a selective montage, inspections and choices stay close, and ensemble scenes can include grounded sensory facts and character reactions before the next player decision. Storyteller's compared tasting beat stopped after a short narration and one NPC question, and asked the player to supply sensory information.

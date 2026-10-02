@@ -716,11 +716,11 @@
                 </dd>
                 <dd
                   data-panel-watch={"resource-#{field.key}"}
-                  class="mt-1 min-w-0 whitespace-pre-wrap break-words text-left text-sm font-semibold text-stone-900"
+                  class="mt-1 min-w-0 text-left text-sm font-semibold text-stone-900"
                 >
-                  {if is_nil(field.value) or field.value == "",
-                    do: gettext("Not recorded"),
-                    else: display_value(field.value)}
+                  <span data-panel-value class="block whitespace-pre-wrap break-words">{panel_field_value(
+                    field
+                  )}</span>
                   <.panel_change_receipt
                     :if={Map.has_key?(@projection.latest_panel_changes, field.key)}
                     change={Map.fetch!(@projection.latest_panel_changes, field.key)}

@@ -1971,6 +1971,11 @@ defmodule StorytellerWeb.SessionLive.Show do
     if draft == "", do: sentence, else: draft <> "\n" <> sentence
   end
 
+  defp panel_field_value(%{value: value}) when is_nil(value) or value == "",
+    do: gettext("Not recorded")
+
+  defp panel_field_value(%{value: value}), do: display_value(value)
+
   defp display_value(value) when is_binary(value), do: value
   defp display_value(value) when is_number(value), do: to_string(value)
 
