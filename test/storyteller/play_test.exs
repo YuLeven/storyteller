@@ -3217,6 +3217,55 @@ defmodule Storyteller.PlayTest do
     assert Enum.any?(events, &(&1.turn_id == arrived.id and &1.event_type == :npc_dialogue))
   end
 
+  test "public NPC dialogue requires an established player scene" do
+    {campaign, session} = play_campaign("The Unplaced Player")
+    finca = establish_starting_place!(campaign, "Finca")
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(Character.changeset(player, %{current_place_id: nil}))
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    before_elapsed_minutes = state.elapsed_world_minutes
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "location", nil)})
+    )
+
+    proposal =
+      ordinary_proposal(%{
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The cellar is quiet."}],
+        "activities" => [%{"speaker_id" => "npc:lyra", "text" => "Lyra checks the casks."}],
+        "character_updates" => []
+      })
+
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation} = failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "npc-without-player-scene",
+               "Ask what Lyra is doing.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(Character, id: player.id).current_place_id == nil
+    assert Repo.get_by!(Character, id: lyra.id).current_place_id == finca.place_id
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
+             before_elapsed_minutes
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+
+    refute Enum.any?(events, fn event ->
+             event.turn_id == failed.id and
+               event.event_type in [:npc_dialogue, :character_activity]
+           end)
+
+    assert failed.player_input == "Ask what Lyra is doing."
+  end
+
   test "new character introduction requires accepted canonical arrival in the scene" do
     {campaign, session} = play_campaign("An Introduced Character")
     finca = establish_starting_place!(campaign, "Finca")

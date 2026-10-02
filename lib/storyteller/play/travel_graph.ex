@@ -131,13 +131,13 @@ defmodule Storyteller.Play.TravelGraph do
     end
   end
 
-  @doc "Returns whether every public NPC line is spoken from the player's final scene."
-  def public_lines_in_scene?(lines, locations, player_place_id) when is_list(lines) do
+  @doc "Returns whether every public NPC line is spoken from the player's final, known scene."
+  def public_lines_in_scene?(lines, locations, scene_place_id) when is_list(lines) do
     Enum.all?(lines, fn line ->
       speaker_id = get(line, :speaker_id)
 
-      speaker_id == "player" or is_nil(player_place_id) or
-        (is_binary(player_place_id) and Map.get(locations, speaker_id) == player_place_id)
+      speaker_id == "player" or
+        (is_binary(scene_place_id) and Map.get(locations, speaker_id) == scene_place_id)
     end)
   end
 

@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Require a known player scene for NPC dialogue
+
+- A missing canonical player place was being treated as if every NPC were present. A fake-provider behavior regression reproduced a completed turn with public dialogue and activity from an NPC whose canonical place was Finca while the player had no known place.
+- Public NPC speech and activity now require a known player scene and a matching final canonical location. An unresolved place is not evidence of co-presence; the player's own line and separately validated remote-message events keep their existing behavior.
+- The regression asserts that the turn fails safely, preserves the submitted action for recovery, leaves the NPC's location and world clock unchanged, and adds no NPC dialogue or activity. The existing LiveView retry-card regression also passed.
+- **Checks:** 4 focused continuity/recovery tests passed (143 tests discovered, 0 failures, 139 excluded); formatter, warnings-as-errors compilation, and `git diff --check` passed. All tests use `MIX_ENV=test`, the isolated `storyteller_test` database, and fake providers; no live model call or OAuth flow was used.
+
 ## 2026-10-02 — Recall campaign decisions in English, Spanish, and French
 
 - Added a small reviewed vocabulary for common decision wording, including “What did we decide?”, “¿Qué decidimos?”, and “Qu’avons-nous décidé ?”. These cues retrieve typed campaign commitments without broadening ordinary facts that merely mention a decision.
