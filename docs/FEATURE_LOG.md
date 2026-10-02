@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-02 — Finish the scene beat before handing control back
+
+- A close reading of the shared campaign confirmed that its rhythm shifts with intent: broad intervals get a selective montage, inspections and choices stay close, and ensemble scenes can include grounded sensory facts and character reactions before the next player decision. Storyteller's compared tasting beat stopped after a short narration and one NPC question, and asked the player to supply sensory information.
+- Updated the shared GM policy to keep an in-character exchange moving to its natural handoff, while retaining scoped time-passage montages and the player's control of their own response. The tasting instruction now asks the GM to establish concrete sensory facts at the depth warranted. A fake-provider regression verifies this guidance reaches action requests; it does not claim to test generated prose.
+- A first, more verbose action-only prompt exceeded the existing 11 KB instruction-size regression. Removed duplicated guidance and kept the final policy under that guard, preserving the bounded request budget.
+- Added a LiveView regression for oversized local context: the saved action and retry remain available in English, Spanish, and French; the provider is not called while the test-only size cap is exceeded; retry completes the same saved turn once the cap is restored. Added a catalog guard that checks all active Spanish/French singular and plural translations.
+- **Checks:** focused pacing, time-passage, local-retry, and locale-catalog tests passed; full isolated suite passed (**425 tests, 0 failures**). Formatting, test/dev warnings-as-errors compilation, Gettext freshness, and `git diff --check` passed in WSL. Tests use fictional fixtures and fake providers. No live model request or OAuth consent was used.
+
 ## 2026-10-02 — Let scene pace follow the player's intent
 
 - Reviewed the owner's shared campaign as a pacing reference. Its routine vineyard work advances over days in broad strokes, while a tasting or live social exchange can stay close to the conversation. The desired quality is that shift in rhythm, not a universal response length. No transcript or plot-specific state was copied into the repository.

@@ -4196,6 +4196,128 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
   end
 
+  test "a local request-size failure preserves the action, skips the provider, and retries in each locale",
+       %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    action = "I check the vineyard ledger before deciding what to do next."
+    original_locale = Settings.ui_locale()
+
+    original_budgets =
+      Application.get_env(:storyteller, :gm_context_byte_budgets, :not_configured)
+
+    test_pid = self()
+
+    try do
+      assert {:ok, _preference} = Settings.set_ui_locale("en")
+
+      # Let the normal fake-provider opening complete before making the local
+      # cap impossibly small. This keeps the override tightly scoped to the
+      # submitted action and subsequent retry.
+      {:ok, _view, _html} = live_play(conn, campaign, session)
+
+      opening_turn =
+        Repo.one!(
+          from turn in Turn,
+            where:
+              turn.campaign_id == ^campaign.id and turn.session_id == ^session.id and
+                turn.intent == :opening_scene and turn.status == :completed,
+            order_by: [desc: turn.id],
+            limit: 1
+        )
+
+      assert opening_turn.status == :completed
+
+      short_budgets =
+        case original_budgets do
+          budgets when is_map(budgets) -> budgets
+          _ -> %{}
+        end
+        |> Map.new(fn {model, _budget} -> {model, 1} end)
+        |> Map.merge(%{
+          "default" => 1,
+          "fixture-model" => 1,
+          "second-fixture-model" => 1
+        })
+
+      Application.put_env(:storyteller, :gm_context_byte_budgets, short_budgets)
+
+      set_handler(fn request ->
+        context = provider_context(request)
+        send(test_pid, {:fake_provider_request, context["player_action"]})
+        FakeProvider.opening_scene_response(context)
+      end)
+
+      {:ok, initial_view, _html} = live_play(conn, campaign, session)
+
+      initial_view
+      |> form("#turn-composer", turn: %{input: action})
+      |> render_submit()
+
+      assert wait_until(fn ->
+               match?(
+                 %{status: :failed, failure_code: "context_budget_exceeded"},
+                 Play.public_current_turn(campaign.id)
+               ) and has_element?(initial_view, "#turn-error", "request was not sent")
+             end)
+
+      failed_turn = Play.public_current_turn(campaign.id)
+      assert failed_turn.player_input == action
+      refute_receive {:fake_provider_request, _}, 100
+
+      for {locale, notice, retry_label} <- [
+            {"en",
+             "Storyteller could not fit the required campaign details into its local GM request-size limit. Your action is saved, and the request was not sent. Shorten unusually long campaign instructions or notes, then retry this turn.",
+             "Retry this turn"},
+            {"es",
+             "Storyteller no pudo incluir los detalles necesarios de la campaña dentro de su límite local de tamaño para la solicitud al DJ. Tu acción está guardada y la solicitud no se envió. Acorta las instrucciones o notas de campaña excepcionalmente largas y vuelve a intentarlo.",
+             "Reintentar este turno"},
+            {"fr",
+             "Storyteller n'a pas pu inclure les détails nécessaires de la campagne dans sa limite locale de taille de requête au MJ. Votre action est enregistrée et la requête n'a pas été envoyée. Raccourcissez les instructions ou notes de campagne exceptionnellement longues, puis réessayez ce tour.",
+             "Réessayer ce tour"}
+          ] do
+        assert {:ok, _preference} = Settings.set_ui_locale(locale)
+        {:ok, view, _html} = live_play(conn, campaign, session)
+
+        assert has_element?(view, "#turn-error", notice)
+        assert has_element?(view, "#story-pending-action", action)
+        assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+        assert Play.public_current_turn(campaign.id).id == failed_turn.id
+      end
+
+      # Relaxing the local test cap makes the still-persisted turn retryable.
+      # The retry must use that same action and turn, and this is the first
+      # provider call since the cap was forced.
+      restore_env(:gm_context_byte_budgets, original_budgets)
+      assert {:ok, _preference} = Settings.set_ui_locale("en")
+      {:ok, retry_view, _html} = live_play(conn, campaign, session)
+
+      retry_view
+      |> element("#turn-error button[phx-click='retry-turn']")
+      |> render_click()
+
+      assert_receive {:fake_provider_request, ^action}, 1_000
+
+      assert wait_until(fn ->
+               case Repo.get(Turn, failed_turn.id) do
+                 %Turn{status: :completed, player_input: ^action} ->
+                   true
+
+                 _ ->
+                   false
+               end
+             end),
+             "retry did not complete: #{inspect(Repo.get!(Turn, failed_turn.id) |> Map.take([:status, :failure_code, :failure_stage, :player_input]))}"
+
+      completed_turn = Repo.get!(Turn, failed_turn.id)
+      assert completed_turn.player_input == action
+      assert completed_turn.status == :completed
+    after
+      restore_env(:gm_context_byte_budgets, original_budgets)
+      Settings.set_ui_locale(original_locale)
+    end
+  end
+
   test "a usage limit during the GM opening keeps the first scene retryable without repeating the pause",
        %{
          conn: conn

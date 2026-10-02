@@ -1176,8 +1176,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "SENSORY AUTHORITY: The GM owns external and sensory facts."
     assert instructions =~ "Never ask the player to invent how the world or an object tastes"
 
-    assert instructions =~
-             "The player owns their character's words, actions, and subjective response"
+    assert instructions =~ "ask for their interpretation"
 
     assert instructions =~
              "use each speaker_id's own accent/dialect, vocabulary, cadence, quirks, and mannerisms"
@@ -5695,16 +5694,46 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Request a player D20 only for an uncertain, consequential outcome"
 
     assert instructions =~
-             "ADAPTIVE PACE: Fit the response to intent and scope, not a fixed length."
+             "ADAPTIVE PACE: Match intent, not fixed length."
 
     assert instructions =~
-             "Clearly ongoing work or an uninterrupted interval gets one flowing summary"
+             "Summarize clearly ongoing work or intervals at the requested scale"
 
-    assert instructions =~ "never assume the player's follow-through"
+    assert instructions =~ "Never assume follow-through."
     assert instructions =~ "Keep dialogue proportional"
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
     assert instructions =~ "combine related lines into one bubble"
     assert instructions =~ "Act describes the player's in-character action or speech"
+  end
+
+  test "in-character actions receive the adaptive scene handoff guidance" do
+    {campaign, session} = play_campaign("The Glass Observatory Shared Scene")
+    owner = self()
+
+    provider = fn request ->
+      send(owner, {:shared_scene_request, request})
+      {:ok, Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "ask-lyra-about-the-star-chart",
+               "I ask Lyra what she makes of the star chart.",
+               intent: :action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:shared_scene_request, request}, 2_000
+    instructions = String.replace(request.instructions, ~r/\s+/, " ")
+
+    assert instructions =~ "ADAPTIVE PACE: Match intent, not fixed length."
+
+    assert instructions =~ "instead of stopping after one NPC line"
+    assert instructions =~ "stop at the next choice"
+    assert instructions =~ "Never assume follow-through."
   end
 
   test "a follow-up look-around question gets vantage guidance without changing the scene" do
