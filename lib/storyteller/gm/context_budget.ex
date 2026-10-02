@@ -293,6 +293,19 @@ defmodule Storyteller.GM.ContextBudget do
     "rémunérations" => "employment:compensation"
   }
 
+  # Treat the tightly coupled "star chart" idea as one recall cue across the
+  # supported interface languages. Requiring both a celestial term and a map
+  # term prevents a note about stars or an unrelated map from matching alone.
+  @memory_compound_term_groups %{
+    "reference:star-chart" => [
+      MapSet.new(
+        ~w(star stars étoile étoiles estrella estrellas estelar estelares celestial céleste celeste)
+      ),
+      MapSet.new(~w(chart charts map maps mapa mapas carte cartes))
+    ]
+  }
+  @memory_compound_concepts MapSet.new(Map.keys(@memory_compound_term_groups))
+
   @autumn_terms MapSet.new(["fall", "autumn", "otoño", "automne"])
   @seasonal_supporting_concepts MapSet.new([
                                   "occasion:event",
@@ -613,9 +626,7 @@ defmodule Storyteller.GM.ContextBudget do
     note_terms = meaningful_terms(note_text)
 
     meaningful_query_terms =
-      query_terms
-      |> Enum.map(&memory_term_alias/1)
-      |> MapSet.new()
+      normalize_memory_terms(query_terms)
       |> MapSet.difference(@memory_stopwords)
 
     matched_concepts = MapSet.intersection(meaningful_query_terms, note_terms)
@@ -653,6 +664,9 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
     cond do
+      not MapSet.disjoint?(meaningful_query_terms, @memory_compound_concepts) ->
+        not MapSet.disjoint?(note_terms, @memory_compound_concepts)
+
       social_commitment_relevant?(entry, matched_concepts) ->
         true
 
@@ -727,11 +741,22 @@ defmodule Storyteller.GM.ContextBudget do
   defp meaningful_terms(text) when is_binary(text) do
     text
     |> raw_meaningful_terms()
-    |> Enum.map(&memory_term_alias/1)
-    |> MapSet.new()
+    |> normalize_memory_terms()
   end
 
   defp meaningful_terms(_text), do: MapSet.new()
+
+  defp normalize_memory_terms(terms) do
+    normalized_terms = terms |> Enum.map(&memory_term_alias/1) |> MapSet.new()
+
+    Enum.reduce(@memory_compound_term_groups, normalized_terms, fn {concept, groups}, acc ->
+      if Enum.all?(groups, &(not MapSet.disjoint?(terms, &1))) do
+        MapSet.put(acc, concept)
+      else
+        acc
+      end
+    end)
+  end
 
   defp raw_meaningful_terms(text) when is_binary(text) do
     text

@@ -6381,6 +6381,210 @@ defmodule Storyteller.PlayTest do
     end)
   end
 
+  test "production GM request recalls a French-authored public star chart after 2,400 events" do
+    {campaign, first_session} = play_campaign("The Quiet Observatory Star Chart Chronicle")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-french-star-chart-memory",
+               "We record the observatory's old discoveries.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "french-star-chart",
+                         "kind" => "fact",
+                         "title" => "La carte des étoiles",
+                         "details" =>
+                           "La carte des étoiles a été cachée sous la dalle de la coupole.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The French-language campaign note records the clue."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "french-port-map",
+                         "kind" => "fact",
+                         "title" => "Le plan du port",
+                         "details" => "Le plan du port est conservé dans le coffre de la guilde.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "A map without a star-chart clue is also recorded."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "french-north-stars",
+                         "kind" => "fact",
+                         "title" => "Les étoiles du Nord",
+                         "details" => "Les étoiles du nord brillent au-dessus du port.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "A star observation without a chart clue is also recorded."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "private-french-star-chart",
+                         "kind" => "fact",
+                         "title" => "Le second relevé secret",
+                         "details" =>
+                           "La carte des étoiles privée est dissimulée dans le coffre fermé.",
+                         "visibility" => "gm_private"
+                       },
+                       "reason" => "The sealed vault detail is GM-private."
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    target_memory =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "french-star-chart")
+
+    target_source = Repo.get!(Event, target_memory.source_event_id)
+
+    sessions =
+      Enum.reduce(2..100, [first_session], fn _session_number, sessions ->
+        {:ok, session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+        [session | sessions]
+      end)
+      |> Enum.reverse()
+
+    turn_ids_by_session =
+      sessions
+      |> Enum.with_index(1)
+      |> Map.new(fn {session, session_number} ->
+        input = "Synthetic observatory chronicle session #{session_number}"
+
+        turn =
+          Repo.insert!(
+            Turn.changeset(%Turn{}, %{
+              campaign_id: campaign.id,
+              session_id: session.id,
+              idempotency_key: "star-chart-history-#{session_number}",
+              request_hash: :crypto.hash(:sha256, input) |> Base.encode16(case: :lower),
+              player_input: input,
+              intent: :action,
+              status: :completed,
+              resolution_phase: :initial,
+              attempts: 0
+            })
+          )
+
+        {session.id, turn.id}
+      end)
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    first_history_sequence = state.event_sequence + 1
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    historical_events =
+      Enum.map(1..2_400, fn sequence ->
+        session = Enum.at(sessions, div(sequence - 1, 24))
+
+        text =
+          if sequence >= 2_389 do
+            "Recent observatory entry #{sequence}: Mira counts ordinary supply crates."
+          else
+            "Old observatory ledger #{sequence}: the harbor council reconciles grain accounts."
+          end
+
+        %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          turn_id: Map.fetch!(turn_ids_by_session, session.id),
+          sequence: first_history_sequence + sequence - 1,
+          event_type: :gm_narration,
+          visibility: :public,
+          speaker_id: nil,
+          payload: %{"text" => text},
+          inserted_at: now
+        }
+      end)
+
+    assert {2_400, nil} = Repo.insert_all(Event, historical_events)
+
+    last_history_sequence = first_history_sequence + 2_399
+    Repo.update!(State.changeset(state, %{event_sequence: last_history_sequence}))
+
+    caller = self()
+
+    final_session = List.last(sessions)
+
+    questions = [
+      "Where did we hide the star chart?",
+      "¿Dónde escondimos el mapa de estrellas?",
+      "Où avons-nous caché la carte des étoiles ?"
+    ]
+
+    Enum.with_index(questions)
+    |> Enum.each(fn {question, index} ->
+      query_session =
+        if index == 0 do
+          final_session
+        else
+          {:ok, session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+          session
+        end
+
+      provider = fn request ->
+        send(
+          caller,
+          {:cross_language_memory_request, index, request, decode_request(request)}
+        )
+
+        {:ok, Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))}
+      end
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 query_session.id,
+                 "ask-for-star-chart-location-#{index}",
+                 question,
+                 intent: :question,
+                 provider: provider,
+                 model: "gpt-6-astra"
+               )
+
+      assert_receive {:cross_language_memory_request, ^index, request, context}, 2_000
+
+      public_entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+      private_entries = Map.new(context["continuity"]["gm_private"], &{&1["entry_id"], &1})
+
+      assert public_entries["french-star-chart"]["details"] == target_memory.details
+      assert public_entries["french-star-chart"]["source_sequence"] == target_source.sequence
+
+      for decoy_id <- ["french-port-map", "french-north-stars"] do
+        assert public_entries[decoy_id]["status"] == "active"
+        refute Map.has_key?(public_entries[decoy_id], "title")
+        refute Map.has_key?(public_entries[decoy_id], "details")
+      end
+
+      assert private_entries["private-french-star-chart"]["details"] =~ "coffre fermé"
+      refute Map.has_key?(public_entries, "private-french-star-chart")
+
+      if index == 0 do
+        latest_sequences = MapSet.new((last_history_sequence - 11)..last_history_sequence)
+        sent_sequences = MapSet.new(context["history"], & &1["sequence"])
+        assert MapSet.subset?(latest_sequences, sent_sequences)
+      end
+
+      assert request.local_context_metrics.budget_tokens == 24_000
+
+      assert request.local_context_metrics.conservative_input_token_upper_bound <=
+               request.local_context_metrics.budget_tokens
+    end)
+
+    assert length(historical_events) == 2_400
+  end
+
   test "later-session meeting and reply questions retrieve old social commitments across locales" do
     {campaign, first_session} = play_campaign("The Observatory Correspondence")
 

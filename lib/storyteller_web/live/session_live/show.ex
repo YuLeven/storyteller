@@ -2340,6 +2340,25 @@ defmodule StorytellerWeb.SessionLive.Show do
     Enum.any?(keywords, &(&1 in words))
   end
 
+  defp player_character_description(%{visible_facts: facts}) when is_map(facts),
+    do: Map.get(facts, "description")
+
+  defp player_character_description(_character), do: nil
+
+  defp player_character_profile_summary(character),
+    do: character |> player_character_profile_details() |> Enum.take(3)
+
+  defp player_character_additional_details(character),
+    do: character |> player_character_profile_details() |> Enum.drop(3)
+
+  defp player_character_profile_details(%{visible_facts: facts}) when is_map(facts) do
+    facts
+    |> Enum.reject(fn {key, _value} -> to_string(key) == "description" end)
+    |> Enum.sort_by(fn {key, _value} -> String.downcase(to_string(key)) end)
+  end
+
+  defp player_character_profile_details(_character), do: []
+
   defp world_label(key) do
     case to_string(key) do
       "date" -> gettext("Date")

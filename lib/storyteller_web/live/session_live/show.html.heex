@@ -182,6 +182,12 @@
             class="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-100"
           >{gettext("Campaign story")}</a>
         </li>
+        <li :if={@player_character}>
+          <a
+            href="#player-character-at-a-glance"
+            class="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-100"
+          >{gettext("Your character")}</a>
+        </li>
         <li>
           <a
             href="#character-inventory"
@@ -1226,6 +1232,82 @@
                 </div>
               </dl>
             </div>
+          </details>
+        </section>
+
+        <section
+          :if={@player_character}
+          id="player-character-at-a-glance"
+          phx-hook="PanelPulse"
+          data-panel-change-message={gettext("Character details updated")}
+          tabindex="-1"
+          class="play-sidebar-section scroll-mt-20 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
+        >
+          <p
+            class="sr-only"
+            data-panel-announcement
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+          </p>
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+            {gettext("Your character")}
+          </p>
+          <h2
+            id="player-character-name"
+            data-panel-watch="player-character-name"
+            class="mt-0.5 text-base font-semibold text-stone-950"
+          >
+            {@player_character.name}
+          </h2>
+          <p
+            :if={player_character_description(@player_character)}
+            id="player-character-description"
+            data-panel-watch="player-character-description"
+            class="mt-2 whitespace-pre-wrap text-sm leading-6 text-stone-700"
+          >
+            {player_character_description(@player_character)}
+          </p>
+          <dl
+            :if={player_character_profile_summary(@player_character) != []}
+            class="mt-3 grid gap-2 border-t border-stone-100 pt-3 sm:grid-cols-2"
+          >
+            <div
+              :for={{key, value} <- player_character_profile_summary(@player_character)}
+              data-panel-watch={"player-character-fact-#{key}"}
+              class="min-w-0"
+            >
+              <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                {world_label(key)}
+              </dt>
+              <dd class="mt-0.5 whitespace-pre-wrap text-sm leading-5 text-stone-800">
+                {display_value(value)}
+              </dd>
+            </div>
+          </dl>
+          <details
+            :if={player_character_additional_details(@player_character) != []}
+            class="mt-3 border-t border-stone-100 pt-2"
+          >
+            <summary class="cursor-pointer text-sm font-semibold text-amber-900">
+              {gettext("See %{count} more",
+                count: length(player_character_additional_details(@player_character))
+              )}
+            </summary>
+            <dl class="mt-2 grid gap-2 sm:grid-cols-2">
+              <div
+                :for={{key, value} <- player_character_additional_details(@player_character)}
+                class="min-w-0"
+              >
+                <dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                  {world_label(key)}
+                </dt>
+                <dd class="mt-0.5 whitespace-pre-wrap text-sm leading-5 text-stone-800">
+                  {display_value(value)}
+                </dd>
+              </div>
+            </dl>
           </details>
         </section>
 

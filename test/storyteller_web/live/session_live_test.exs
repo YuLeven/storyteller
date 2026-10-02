@@ -2321,6 +2321,48 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert {:ok, _preference} = Settings.set_ui_locale("en")
   end
 
+  test "player character identity and key details stay close to the current scene", %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        player_character_name: "Mira Vale",
+        player_character: "A patient apprentice astronomer who keeps careful field notes.",
+        player_character_details: [
+          %{label: "Health", value: "Weary"},
+          %{label: "Focus", value: "Steady"},
+          %{label: "Favor", value: "One observatory token"},
+          %{label: "Oath", value: "Protect the star charts"}
+        ],
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            gm_private_facts: %{"motive" => "Never show this private motive."}
+          }
+        ]
+      })
+
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#player-character-at-a-glance", "Mira Vale")
+
+    assert has_element?(
+             view,
+             "#player-character-description",
+             "A patient apprentice astronomer who keeps careful field notes."
+           )
+
+    assert has_element?(
+             view,
+             "#player-character-at-a-glance [data-panel-watch='player-character-fact-Health']",
+             "Weary"
+           )
+
+    assert has_element?(view, "#player-character-at-a-glance details", "See 1 more")
+    assert has_element?(view, "#player-character-at-a-glance details", "Protect the star charts")
+    refute render(view) =~ "Never show this private motive."
+  end
+
   test "player character fact updates appear on the board without a system chat entry", %{
     conn: conn
   } do

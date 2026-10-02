@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-02 — Bring the player character onto the play board
+
+- The play page showed “Playing as [name]” in its header, while the description and personal facts were buried in the generic, collapsed Characters list. Added a compact “Your character” card beside the scene and inventory with the player's name and public description, three stable public facts, and a disclosure for additional details; the mobile section bar links directly to it.
+- The card uses the existing in-place panel cue for changed character details. Its regression verifies name, description, a tracked Health value, overflow disclosure, and exclusion of a GM-private motive.
+- **Checks:** focused LiveView regression passed (1 selected, 59 excluded); full SessionLive suite passed (60 tests, 0 failures); full WSL `MIX_ENV=test mix test --max-cases 1` suite passed (392 tests, 0 failures). WSL formatting, warnings-as-errors compilation, and `git diff --check` passed for the combined iteration.
+
+## 2026-10-02 — Recall a French star-chart fact from English, Spanish, or French
+
+- A production-boundary fake-provider test found that a French public continuity note about “la carte des étoiles” was omitted when later asked in English, “Where did we hide the star chart?” The detail selector compared individual lexical tokens and had no reviewed cross-language phrase for the paired idea.
+- Added one bounded `star chart` concept requiring both a celestial term and a chart/map term on the query and note. English, Spanish, and French asks now retrieve the French-authored fact and its source sequence. Same-locale chart-only and star-only decoys retain only identity/status metadata. A similarly worded GM-private note remains in the private prompt section and is absent from the public continuity list.
+- The regression stores the note through a real accepted turn, then exercises later production `Play.submit_turn` requests after 100 synthetic sessions and 2,400 unrelated persisted events. It checks all 12 newest events on the first recall, source provenance, and the configured 24,000-byte conservative input bound for each locale. This adds a reviewed compound lexical cue, not general translation, paraphrase understanding, or semantic search.
+- **Checks:** before the fix, the focused regression reproduced omission of the French detail (1 selected test failed as expected); after the fix, all three locale questions passed (1 selected test, 0 failures; 88 excluded). The full Play and ContextBudget modules passed (107 tests, 0 failures). Formatter check, test-environment warnings-as-errors compilation, and `git diff --check` passed. Tests use `MIX_ENV=test`, isolated `storyteller_test`, and an injected fake provider; no development DB, port 4000, campaign/Vineyard data, live model, or OAuth was used.
+
 ## 2026-10-02 — Keep observation recall within the current scene
 
 - Added a bounded observation-question cue list for common English, Spanish, and French forms of see/look/notice/inspect/hear/smell/feel. Older history for those questions is retrieved through the current place and co-present character anchors; connected-place names and isolated wording matches cannot make a remote detail appear visible. Other turn retrieval keeps its existing connected-place and action-term anchors.
