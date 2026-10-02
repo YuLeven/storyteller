@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-02 — Put canon corrections beside public values
+
+- The audited correction form was hidden below the play board, so correcting an item or resource required opening the panel, choosing its type, finding the target, and re-entering the current value.
+- Added a restrained **Correct** link beside each public inventory item and tracked resource. It opens the correction panel with the matching target selected and its current quantity or value prefilled; the player can then enter a reason and make the existing auditable correction. GM-private items receive no public link, and corrections remain unavailable while a turn is unresolved.
+- If another session changes tracked state before a correction is submitted, the board and revision now refresh while the player's draft remains open for review and retry.
+- The LiveView regressions now enter through the contextual links, verify target selection and prefilled values, and complete both an inventory detail edit and a resource correction without adding story events.
+- **Checks:** focused `SessionLiveTest` passed (**63 tests, 0 failures**) and localized LiveView tests passed (**11 tests, 0 failures**); the full WSL suite passed (**409 tests, 0 failures**). `MIX_ENV=test mix compile --warnings-as-errors`, formatting, Gettext extraction freshness, and `git diff --check` passed. All play data used isolated `storyteller_test` fixtures and a fake provider.
+
 ## 2026-10-02 — Validate OAuth codes before persisting registration
 
 - A loopback callback with valid state and an issued client ID could omit its authorization code yet persist that unverified ID. A later sign-in would reuse it, potentially preventing first-time registration from recovering.

@@ -62,6 +62,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             correction_options: nil,
             correction_receipts: [],
             correction_form: %{"kind" => "inventory", "action" => "add", "owner_id" => "player"},
+            correction_open?: false,
             correction_error: nil,
             memory_editor: nil,
             memory_form: default_story_memory_form(),
@@ -116,6 +117,29 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   def handle_event("change-correction-form", _params, socket), do: {:noreply, socket}
 
+  def handle_event("toggle-canon-corrections", _params, socket) do
+    {:noreply, assign(socket, correction_open?: not socket.assigns.correction_open?)}
+  end
+
+  def handle_event("start-canon-correction", %{"kind" => kind, "target-id" => target_id}, socket)
+      when is_binary(kind) and is_binary(target_id) do
+    options = socket.assigns.correction_options || %{}
+
+    with true <- correction_changes_allowed?(socket),
+         {:ok, form} <- contextual_correction_form(kind, target_id, options) do
+      {:noreply,
+       assign(socket,
+         correction_open?: true,
+         correction_form: form,
+         correction_error: nil
+       )}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("start-canon-correction", _params, socket), do: {:noreply, socket}
+
   def handle_event("save-canon-correction", %{"correction" => params}, socket)
       when is_map(params) do
     values =
@@ -142,6 +166,7 @@ defmodule StorytellerWeb.SessionLive.Show do
           socket
           |> assign(
             correction_form: default_correction_form(),
+            correction_open?: true,
             correction_error: nil
           )
           |> refresh_game()
@@ -150,11 +175,14 @@ defmodule StorytellerWeb.SessionLive.Show do
         {:noreply, socket}
 
       {:error, reason} ->
-        {:noreply,
-         assign(socket,
-           correction_form: params,
-           correction_error: correction_error_message(reason)
-         )}
+        socket =
+          assign(socket,
+            correction_form: params,
+            correction_error: correction_error_message(reason)
+          )
+
+        socket = if reason == :stale_correction, do: refresh_game(socket), else: socket
+        {:noreply, socket}
     end
   end
 
@@ -953,6 +981,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   attr :characters_by_id, :map, required: true
   attr :playable, :boolean, required: true
   attr :turn_blocked, :boolean, required: true
+  attr :can_correct, :boolean, default: false
 
   defp inventory_item(assigns) do
     ~H"""
@@ -1039,6 +1068,17 @@ defmodule StorytellerWeb.SessionLive.Show do
         disabled={@turn_blocked}
         class="mt-1 inline-flex min-h-8 items-center rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
       >{gettext("Use in action")}</button>
+      <a
+        :if={@can_correct}
+        id={"correct-inventory-#{@item["id"]}"}
+        href="#canon-corrections"
+        phx-click="start-canon-correction"
+        phx-value-kind="inventory"
+        phx-value-target-id={@item["id"]}
+        class="ml-2 inline-flex min-h-8 items-center rounded-lg px-2 py-1 text-xs font-semibold text-amber-800 underline decoration-amber-700/40 underline-offset-2 hover:bg-amber-50"
+      >
+        {gettext("Correct")}<span class="sr-only">: {@item["name"]}</span>
+      </a>
     </li>
     """
   end
@@ -1410,6 +1450,41 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp default_correction_form do
     %{"kind" => "inventory", "action" => "add", "owner_id" => "player"}
   end
+
+  defp correction_changes_allowed?(socket) do
+    playable?(socket.assigns.session) and not is_nil(socket.assigns.correction_options) and
+      not blocking_turn?(socket.assigns.current_turn)
+  end
+
+  defp correctable_resource?(key, options) when is_map(options) do
+    Enum.any?(options[:resources] || [], &(&1.key == key))
+  end
+
+  defp correctable_resource?(_key, _options), do: false
+
+  defp contextual_correction_form("inventory", target_id, options) do
+    case Enum.find(options[:inventory] || [], &(&1.id == target_id)) do
+      nil ->
+        {:error, :not_found}
+
+      _item ->
+        form = %{"kind" => "inventory", "action" => "set", "target_id" => target_id}
+        {:ok, maybe_fill_correction_default(form, %{}, options)}
+    end
+  end
+
+  defp contextual_correction_form("resource", target_id, options) do
+    case Enum.find(options[:resources] || [], &(&1.key == target_id)) do
+      nil ->
+        {:error, :not_found}
+
+      _field ->
+        form = %{"kind" => "resource", "target_id" => target_id}
+        {:ok, maybe_fill_correction_default(form, %{}, options)}
+    end
+  end
+
+  defp contextual_correction_form(_kind, _target_id, _options), do: {:error, :invalid_target}
 
   defp default_story_memory_form do
     %{"kind" => "fact", "title" => "", "details" => "", "reason" => ""}

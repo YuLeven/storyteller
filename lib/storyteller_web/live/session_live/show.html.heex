@@ -722,6 +722,20 @@
                     :if={Map.has_key?(@projection.latest_panel_changes, field.key)}
                     change={Map.fetch!(@projection.latest_panel_changes, field.key)}
                   />
+                  <a
+                    :if={
+                      correctable_resource?(field.key, @correction_options) and
+                        not blocking_turn?(@current_turn)
+                    }
+                    id={"correct-resource-#{field.key}"}
+                    href="#canon-corrections"
+                    phx-click="start-canon-correction"
+                    phx-value-kind="resource"
+                    phx-value-target-id={field.key}
+                    class="mt-1 block min-h-8 rounded px-1 py-1 text-xs font-semibold text-amber-800 underline decoration-amber-700/40 underline-offset-2 hover:bg-amber-50"
+                  >
+                    {gettext("Correct")}<span class="sr-only">: {field.label}</span>
+                  </a>
                 </dd>
               </div>
             </dl>
@@ -1354,6 +1368,7 @@
               characters_by_id={@characters_by_id}
               playable={playable?(@session)}
               turn_blocked={blocking_turn?(@current_turn)}
+              can_correct={not is_nil(@correction_options) and not blocking_turn?(@current_turn)}
             />
           </ul>
           <details
@@ -1372,6 +1387,9 @@
                 characters_by_id={@characters_by_id}
                 playable={playable?(@session)}
                 turn_blocked={blocking_turn?(@current_turn)}
+                can_correct={
+                  not is_nil(@correction_options) and not blocking_turn?(@current_turn)
+                }
               />
             </ul>
           </details>
@@ -1383,9 +1401,13 @@
         <details
           :if={playable?(@session) && @correction_options}
           id="canon-corrections"
+          open={@correction_open?}
           class="play-sidebar-section rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
         >
-          <summary class="cursor-pointer list-none rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
+          <summary
+            phx-click="toggle-canon-corrections"
+            class="cursor-pointer list-none rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
             <span class="block text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
               {gettext("Campaign care")}
             </span>

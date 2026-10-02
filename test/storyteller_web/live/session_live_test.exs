@@ -153,14 +153,22 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(view, "#canon-corrections")
     refute has_element?(view, "#canon-corrections[open]")
     assert has_element?(view, "#campaign-fields", "12")
+    assert has_element?(view, "#correct-resource-wine_stock", "Correct")
 
     before_events = Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence)
     {:ok, options} = CanonCorrections.options(campaign.id, session.id)
 
-    view
-    |> form("#canon-correction-form", %{"correction" => %{"kind" => "resource"}})
-    |> render_change()
+    view |> element("#canon-corrections > summary") |> render_click()
+    assert has_element?(view, "#canon-corrections[open]")
+    view |> element("#canon-corrections > summary") |> render_click()
+    refute has_element?(view, "#canon-corrections[open]")
 
+    view |> element("#correct-resource-wine_stock") |> render_click()
+
+    assert has_element?(view, "#canon-corrections[open]")
+    assert has_element?(view, "#correction-kind option[value='resource'][selected]")
+    assert has_element?(view, "#correction-resource option[value='wine_stock'][selected]")
+    assert has_element?(view, "#correction-resource-value[value='12']")
     assert has_element?(view, "#correction-resource-value")
 
     correction = %{
@@ -188,6 +196,77 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence) ==
              before_events
+  end
+
+  test "a stale correction refreshes tracked state and keeps the player's draft", %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        panel_fields: [
+          %{
+            key: "wine_stock",
+            panel: "Cellar",
+            label: "Wine in storage",
+            value_type: "quantity",
+            unit: "bottles",
+            visibility: "public",
+            initial_value: "12"
+          }
+        ]
+      })
+
+    session = hd(campaign.sessions)
+    {:ok, stale_view, _html} = live_play(conn, campaign, session)
+    {:ok, fresh_view, _html} = live_play(conn, campaign, session)
+    {:ok, initial_options} = CanonCorrections.options(campaign.id, session.id)
+
+    stale_view |> element("#correct-resource-wine_stock") |> render_click()
+
+    stale_draft = %{
+      "kind" => "resource",
+      "target_id" => "wine_stock",
+      "value" => "9",
+      "reason" => "The first cellar recount is still being checked.",
+      "expected_revision" => Integer.to_string(initial_options.revision)
+    }
+
+    stale_view
+    |> form("#canon-correction-form", %{"correction" => stale_draft})
+    |> render_change()
+
+    fresh_correction = %{
+      stale_draft
+      | "value" => "8",
+        "reason" => "The final cellar count is confirmed."
+    }
+
+    fresh_view |> element("#correct-resource-wine_stock") |> render_click()
+
+    fresh_view
+    |> form("#canon-correction-form", %{"correction" => fresh_correction})
+    |> render_submit()
+
+    stale_view
+    |> form("#canon-correction-form", %{"correction" => stale_draft})
+    |> render_submit()
+
+    {:ok, updated_options} = CanonCorrections.options(campaign.id, session.id)
+
+    assert updated_options.revision > initial_options.revision
+    assert has_element?(stale_view, "#canon-corrections[open]")
+    assert has_element?(stale_view, "#correction-resource-value[value='9']")
+
+    assert has_element?(
+             stale_view,
+             "#canon-correction-form input[name='correction[expected_revision]'][value='#{updated_options.revision}']"
+           )
+
+    assert has_element?(
+             stale_view,
+             "#canon-corrections",
+             "The campaign changed while this correction was open. Review the current state and try again."
+           )
+
+    assert has_element?(stale_view, "#campaign-fields", "8")
   end
 
   test "player can edit public inventory details from the correction panel", %{conn: conn} do
@@ -229,20 +308,27 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, options} = CanonCorrections.options(campaign.id, session.id)
 
     view
+    |> render_click("start-canon-correction", %{
+      "kind" => "inventory",
+      "target-id" => "sealed-ledger"
+    })
+
+    refute has_element?(view, "#canon-corrections[open]")
+    view |> element("#correct-inventory-orchard-wine") |> render_click()
+
+    view
     |> form("#canon-correction-form", %{
       "correction" => %{
         "kind" => "inventory",
-        "action" => "edit"
+        "action" => "edit",
+        "target_id" => "orchard-wine"
       }
     })
     |> render_change()
 
-    view
-    |> form("#canon-correction-form", %{
-      "correction" => %{"target_id" => "orchard-wine"}
-    })
-    |> render_change()
-
+    assert has_element?(view, "#canon-corrections[open]")
+    assert has_element?(view, "#correction-item-edit-name[value='Reserve wine']")
+    assert has_element?(view, "#correction-item-edit-quantity[value='2']")
     assert has_element?(view, "#correction-item-edit-name")
     assert has_element?(view, "#correction-item-edit-quantity")
     assert has_element?(view, "#correction-item-edit-unit")

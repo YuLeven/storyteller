@@ -259,6 +259,17 @@ defmodule StorytellerWeb.LocaleLiveTest do
             unit: "viales",
             category: "Elixir"
           }
+        ],
+        panel_fields: [
+          %{
+            key: "silver",
+            panel: "Purse",
+            label: "Silver coins",
+            value_type: "quantity",
+            unit: "coins",
+            visibility: "public",
+            initial_value: "8"
+          }
         ]
       })
 
@@ -270,6 +281,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert spanish_html =~ "Tu personaje"
     assert spanish_html =~ "Poción de luz"
     assert spanish_html =~ "2 viales"
+    assert spanish_html =~ "Corregir"
     assert spanish_html =~ "La escena"
     assert spanish_html =~ "Contigo"
     assert spanish_html =~ "Vineyard gate"
@@ -281,6 +293,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Votre personnage"
     assert french_html =~ "Poción de luz"
     assert french_html =~ "2 viales"
+    assert french_html =~ "Corriger"
     assert french_html =~ "La scène"
     assert french_html =~ "Avec vous"
     assert french_html =~ "Vineyard gate"
