@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Show nearby places on the scene board
+
+- The scene board now lists public places one canonical route away from the player's current place, with the route's in-world travel time. Longer lists collapse after three destinations to keep the board concise.
+- The public projection omits private routes and private destinations. A LiveView regression exercises both privacy cases and verifies Spanish and French labels.
+- **Checks:** focused route/privacy/locale LiveView regression passed; full SessionLive suite passed (**56 tests, 0 failures**); test-environment warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. All Elixir commands ran in WSL against the isolated `storyteller_test` database; tests used fake providers only.
+
 ## 2026-10-02 — Make combined character voice limits visible
 
 - A profile can stay below each field's 280-character HTML limit while exceeding the server's 1,200-character total and being rejected. Campaign setup and campaign edit now share the validator's limits, show the live per-character total, and warn inline when the combined cap is exceeded. The edit error names both limits and retains the rejected draft; the atomic backend validation remains authoritative.

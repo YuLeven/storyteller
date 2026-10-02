@@ -430,6 +430,7 @@ defmodule Storyteller.Play do
 
       player = Enum.find(characters, &(&1.speaker_id == "player"))
       player_location = player && player.current_place && player.current_place.name
+      nearby_places = public_nearby_places(campaign_id, player && player.current_place_id, places)
 
       world =
         state.public_state
@@ -452,6 +453,7 @@ defmodule Storyteller.Play do
          world: world,
          elapsed_world_clock: elapsed_world_clock,
          places: places,
+         nearby_places: nearby_places,
          inventory: inventory,
          latest_inventory_changes: latest_public_inventory_changes(campaign_id, inventory),
          latest_place_changes: latest_public_canonical_changes(campaign_id, "place"),
@@ -465,6 +467,42 @@ defmodule Storyteller.Play do
     else
       nil -> {:error, :not_initialized}
     end
+  end
+
+  defp public_nearby_places(_campaign_id, nil, _places), do: []
+
+  defp public_nearby_places(campaign_id, current_place_id, places) do
+    places_by_id = Map.new(places, &{&1.place_id, &1})
+
+    Repo.all(
+      from edge in PlaceConnection,
+        where:
+          edge.campaign_id == ^campaign_id and edge.visibility == :public and
+            (edge.place_a_id == ^current_place_id or edge.place_b_id == ^current_place_id),
+        select: {edge.place_a_id, edge.place_b_id, edge.travel_minutes}
+    )
+    |> Enum.reduce(%{}, fn {place_a_id, place_b_id, travel_minutes}, nearby ->
+      other_place_id = if place_a_id == current_place_id, do: place_b_id, else: place_a_id
+
+      case Map.get(places_by_id, other_place_id) do
+        nil ->
+          nearby
+
+        place ->
+          Map.update(
+            nearby,
+            other_place_id,
+            %{place_id: place.place_id, name: place.name, travel_minutes: travel_minutes},
+            fn existing ->
+              if travel_minutes < existing.travel_minutes,
+                do: %{existing | travel_minutes: travel_minutes},
+                else: existing
+            end
+          )
+      end
+    end)
+    |> Map.values()
+    |> Enum.sort_by(&{String.downcase(&1.name), &1.place_id})
   end
 
   defp latest_public_panel_changes(_campaign_id, []), do: %{}

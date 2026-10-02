@@ -86,6 +86,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     Event,
     Objective,
     Place,
+    PlaceConnection,
     State,
     Turn
   }
@@ -730,6 +731,79 @@ defmodule StorytellerWeb.SessionLiveTest do
            )
 
     refute render(view) =~ "A hidden passage lies behind the shelves."
+  end
+
+  test "the scene board shows public nearby routes without leaking private routes or places", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture(%{starting_location: "Harbor"})
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    harbor = Repo.get_by!(Place, campaign_id: campaign.id, name: "Harbor")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "scene-board-bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    hidden_gallery =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "scene-board-hidden-gallery",
+          name: "Hidden Gallery",
+          visibility: :gm_private,
+          facts: %{}
+        })
+      )
+
+    private_road_destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "scene-board-private-road-end",
+          name: "Whispering Grove",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    insert_place_connection!(campaign.id, harbor, bodega, 40, :public)
+    insert_place_connection!(campaign.id, harbor, hidden_gallery, 12, :public)
+    insert_place_connection!(campaign.id, harbor, private_road_destination, 8, :gm_private)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#nearby-places", "Bodega")
+    assert has_element?(view, "#nearby-place-scene-board-bodega", "40 min")
+    refute has_element?(view, "#nearby-places", "Hidden Gallery")
+    refute has_element?(view, "#nearby-places", "Whispering Grove")
+
+    for {locale, label, travel_time} <- [
+          {"es", "Rutas cercanas", "Tiempo de viaje: 40 min"},
+          {"fr", "Itinéraires à proximité", "Durée du trajet : 40 min"}
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, localized_view, _html} = live_play(conn, campaign, session)
+
+      assert has_element?(localized_view, "#nearby-places", label)
+      assert has_element?(localized_view, "#nearby-place-scene-board-bodega", travel_time)
+      refute has_element?(localized_view, "#nearby-places", "Hidden Gallery")
+      refute has_element?(localized_view, "#nearby-places", "Whispering Grove")
+    end
+
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert [%{place_id: "scene-board-bodega", travel_minutes: 40}] = projection.nearby_places
+    refute Enum.any?(projection.places, &(&1.place_id == hidden_gallery.place_id))
   end
 
   test "remote NPC deliveries have a distinct timeline event and visual treatment", %{conn: conn} do
@@ -4091,6 +4165,26 @@ defmodule StorytellerWeb.SessionLiveTest do
       State.changeset(state, %{
         public_state: Map.put(state.public_state, "inventory", public_inventory),
         gm_private_state: Map.put(state.gm_private_state, "inventory", private_inventory)
+      })
+    )
+  end
+
+  defp insert_place_connection!(
+         campaign_id,
+         %Place{} = place_a,
+         %Place{} = place_b,
+         minutes,
+         visibility
+       ) do
+    [place_a_id, place_b_id] = Enum.sort([place_a.place_id, place_b.place_id])
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign_id,
+        place_a_id: place_a_id,
+        place_b_id: place_b_id,
+        travel_minutes: minutes,
+        visibility: visibility
       })
     )
   end
