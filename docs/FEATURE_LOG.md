@@ -1,10 +1,10 @@
 # Feature log
 
-## 2026-10-02 - Verify rendered campaign voice edits survive save and reload
+## 2026-10-02 - Trace campaign voice edits through the provider request
 
-- Strengthened the campaign editor regression to change accent, cadence, and mannerisms through the rendered form, then submit its current values without replaying the earlier `phx-change` payload. It checks the persisted character record and the reopened editor.
-- The current save path passes this case, so this investigation did not reproduce a source defect. To identify the reported runtime failure, the next useful evidence is whether values vanish after Save, disappear only after reopening/another tab, or remain stored but fail to affect later GM replies.
-- **Checks:** campaign-authoring LiveView (8 tests, 0 failures), authoring domain (13 tests, 0 failures), and `git diff --check` passed in WSL against `storyteller_test`. No development database, live campaign, Vineyard data, live provider, or OAuth used.
+- The rendered campaign-editor regression changes accent, cadence, and mannerisms, submits the current form without replaying the earlier `phx-change` payload, checks the persisted character record, and reopens the editor. It then starts a turn on the same fictional campaign with a fake provider that captures the production-built request. The exact edited accent, cadence, and mannerism values remain attached to the same present NPC in that request.
+- This verifies persistence-to-prompt delivery, not whether a model performs the voice convincingly. No save or prompt-delivery defect reproduced in the isolated regression.
+- **Checks:** campaign-authoring LiveView (8 tests, 0 failures), authoring domain (13 tests, 0 failures), formatter check, and `git diff --check` passed under WSL with `MIX_ENV=test`. The provider was an injected fake; no development database, live campaign, Vineyard data, live provider, or OAuth used.
 
 ## 2026-10-01 - Recall seasonal reserves from common set-aside paraphrases
 

@@ -170,17 +170,20 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
   } do
     campaign =
       campaign_fixture(%{
+        starting_location: "Quiet Observatory",
         player_character_name: "Ilya",
         player_character: "A patient courier.",
         gm_characters: [
           %{
             speaker_id: "keeper-elin",
             name: "Keeper Elin",
+            starting_place: "Quiet Observatory",
             voice_guidance: %{}
           }
         ]
       })
 
+    [session] = campaign.sessions
     {:ok, view, initial_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     refute has_element?(view, "#facts-keeper-elin details[open]")
     refute has_element?(view, "#campaign-correction-reason[required]")
@@ -239,6 +242,51 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert reopened_html =~ "A gentle island lilt."
     assert reopened_html =~ "Pauses before every answer."
     assert reopened_html =~ "Turns the brass key while she thinks."
+
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    proposal = %{
+      "narration" => "The keeper studies the late stars over the quiet observatory.",
+      "dialogue" => [],
+      "activities" => [],
+      "public_changes" => %{},
+      "private_changes" => %{},
+      "panel_changes" => [],
+      "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+      "time_advance_minutes" => 0,
+      "character_updates" => [],
+      "character_creations" => [],
+      "location_changes" => [],
+      "inventory_changes" => [],
+      "objective_changes" => [],
+      "continuity_changes" => [],
+      "roll_request" => nil
+    }
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "edited-voice-provider-context",
+               "Ask Keeper Elin about the star charts.",
+               provider: fn request ->
+                 context = decode_provider_request(request)
+                 Agent.update(captured_context, fn _ -> context end)
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    request_context = Agent.get(captured_context, & &1)
+    keeper = Enum.find(request_context["characters"], &(&1["speaker_id"] == "keeper-elin"))
+
+    assert keeper["current_place"]["name"] == "Quiet Observatory"
+
+    assert keeper["voice_guidance"] == %{
+             "accent_dialect" => "A gentle island lilt.",
+             "cadence" => "Pauses before every answer.",
+             "mannerisms" => "Turns the brass key while she thinks."
+           }
   end
 
   test "campaign editor saves voice guidance retained from change events", %{conn: conn} do
@@ -597,5 +645,10 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
       )
 
     assert private_correction.contains_private_changes
+  end
+
+  defp decode_provider_request(request) do
+    text = request.input |> hd() |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
+    Jason.decode!(text)
   end
 end
