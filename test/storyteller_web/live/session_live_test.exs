@@ -1219,7 +1219,7 @@ defmodule StorytellerWeb.SessionLiveTest do
       send(test_pid, {:failed_action_provider_attempt, attempt})
 
       if attempt == 0 do
-        {:error, :provider_error}
+        {:ok, "not-json"}
       else
         {:ok,
          %{
@@ -1250,7 +1250,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert_receive {:failed_action_provider_attempt, 0}, 1_000
 
     assert wait_until(fn ->
-             has_element?(view, "#turn-error", "The game master could not resolve this turn") and
+             has_element?(view, "#turn-error", "The GM's reply could not be used safely") and
                has_element?(view, "#story-pending-action", action)
            end)
 
@@ -1262,6 +1262,9 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     failed_turn = Play.public_current_turn(campaign.id)
     assert failed_turn.status == :failed
+    assert failed_turn.failure_code == "invalid_response"
+    assert failed_turn.failure_stage == :response_decoding
+    refute has_element?(view, "#turn-error", "not-json")
 
     assert has_element?(view, "#turn-error button[phx-click='retry-turn']", "Retry this turn")
     refute has_element?(view, "#composer-turn-status")

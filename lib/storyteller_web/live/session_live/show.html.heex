@@ -291,7 +291,7 @@
                 else: "mt-1 text-sm leading-6 text-rose-800"
             }
           >
-            {failure_message(@current_turn.failure_code, @plan_usage_paused?)}
+            {failure_message(@current_turn, @plan_usage_paused?)}
           </p>
           <p
             :if={

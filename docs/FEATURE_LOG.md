@@ -11,6 +11,12 @@
 - Added a fake-provider gameplay regression with two present NPCs and distinct voice notes. It inspects the exact context sent through the production request builder and verifies each speaker ID retains only its own profile and canonical shared location.
 - **Checked:** focused Play test passed. This proves prompt delivery and speaker association, not the model's ability to perform the voices distinctly; multi-turn live voice evaluation still needs an owner-approved provider request.
 
+## 2026-10-01 - Explain safely rejected GM replies
+
+- The turn-recovery card now uses the persisted safe failure stage for malformed or rejected GM responses to explain that none of the reply was added to story or canonical state. It keeps the submitted action visible and the existing same-turn retry path available without exposing raw output or private context.
+- Translated the new recovery message into Spanish and French. Updated the recovery acceptance brief and changed the retry regression to drive a malformed provider response, verify `response_decoding`, preserve the saved action, hide raw response text, and complete that same turn on retry.
+- **Checked:** SessionLive suite (55 tests, 0 failures), warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. Only the isolated `storyteller_test` database and fake provider were used.
+
 ## 2026-10-01  Show when streamed GM narration begins
 
 - A turn now gets a quiet progress update after the provider sends its first non-empty text delta. The player action stays visible; generated text is withheld until the entire response is complete, validated against campaign canon, and committed. Failed or incomplete streams never appear as story.

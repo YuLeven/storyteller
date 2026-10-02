@@ -1797,7 +1797,9 @@ defmodule StorytellerWeb.SessionLive.Show do
           gettext("Your turn is saved")
 
         true ->
-          gettext("This turn needs attention") <> ". " <> failure_message(turn.failure_code)
+          gettext("This turn needs attention") <>
+            ". " <>
+            failure_message(turn, plan_usage_paused?)
       end
 
     append_roll_result(prefix, result)
@@ -2397,7 +2399,20 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp failure_message("usage_limit", false),
     do: gettext("ChatGPT reported an account usage limit before the GM could respond.")
 
-  defp failure_message(failure_code, _plan_usage_paused?),
+  defp failure_message(
+         %{failure_code: "invalid_response", failure_stage: stage},
+         _plan_usage_paused?
+       )
+       when stage in [:response_decoding, :proposal_validation, :commit],
+       do:
+         gettext(
+           "The GM's reply could not be used safely. No narration or campaign changes from it were saved; your action remains here to retry."
+         )
+
+  defp failure_message(%{failure_code: failure_code}, plan_usage_paused?),
+    do: failure_message(failure_code, plan_usage_paused?)
+
+  defp failure_message(failure_code, _plan_usage_paused?) when is_binary(failure_code),
     do: failure_message(failure_code)
 
   defp reconnect_needed?(code),
