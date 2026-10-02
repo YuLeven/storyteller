@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 - Save voice guidance without a required explanation
+
+- Campaign voice and mannerism edits no longer get blocked by a required correction-reason field. The note is optional; when blank, the correction history receives a general campaign setup reason. A written explanation is retained when provided.
+- Updated the edit-page copy in English, Spanish, and French. Strengthened the voice-only LiveView regression to save without a note, verify the correction record and stored voice fields, and reload the editor.
+- **Checked:** campaign-authoring LiveView suite (7 tests, 0 failures); warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. The test used the isolated test database.
+
 ## 2026-10-01  Show when streamed GM narration begins
 
 - A turn now gets a quiet progress update after the provider sends its first non-empty text delta. The player action stays visible; generated text is withheld until the entire response is complete, validated against campaign canon, and committed. Failed or incomplete streams never appear as story.

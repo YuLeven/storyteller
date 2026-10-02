@@ -232,11 +232,14 @@ defmodule StorytellerWeb.CampaignLive.Edit do
   end
 
   defp put_default_correction_reason(attrs, default) do
-    if Map.has_key?(attrs, "correction_reason") or Map.has_key?(attrs, :correction_reason) do
-      attrs
-    else
-      Map.put(attrs, "correction_reason", default)
-    end
+    reason = draft_attr(attrs, "correction_reason", default)
+
+    reason =
+      if is_binary(reason) and String.trim(reason) != "",
+        do: reason,
+        else: gettext("Campaign setup updated")
+
+    Map.put(attrs, "correction_reason", reason)
   end
 
   defp merge_authoring_draft(attrs, draft) do

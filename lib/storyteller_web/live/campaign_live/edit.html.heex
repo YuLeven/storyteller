@@ -27,7 +27,7 @@
     <input type="hidden" name="campaign[expected_revision]" value={@state_revision} />
     <section class="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
       <label for="campaign-correction-reason" class="block text-sm font-medium text-stone-800">
-        {gettext("Why are you changing the setup?")}
+        {gettext("Correction note (optional)")}
       </label>
       <input
         id="campaign-correction-reason"
@@ -35,12 +35,11 @@
         name="campaign[correction_reason]"
         value={@correction_reason}
         maxlength="1000"
-        required
         class="block w-full rounded-lg border-stone-300 bg-white shadow-sm focus:border-amber-700 focus:ring-amber-700"
       />
       <p class="text-sm text-stone-600">
         {gettext(
-          "A reason is required when a setup value changes. Saving unchanged setup does not create a correction."
+          "Leave blank to save the change with a general campaign setup note in the correction history."
         )}
       </p>
     </section>

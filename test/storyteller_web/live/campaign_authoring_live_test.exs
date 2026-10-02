@@ -183,7 +183,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     {:ok, view, initial_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     refute has_element?(view, "#facts-keeper-elin details[open]")
-    assert has_element?(view, "#campaign-correction-reason[required]")
+    refute has_element?(view, "#campaign-correction-reason[required]")
 
     reason_position =
       initial_html |> :binary.match("id=\"campaign-correction-reason\"") |> elem(0)
@@ -217,21 +217,18 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert render(view) =~ "Turns the brass key while she thinks."
     assert has_element?(view, "#facts-keeper-elin details[open]")
 
-    failed_html =
-      render_submit(view, "save", %{"campaign" => %{"title" => campaign.title}})
-
-    assert failed_html =~ "Add a reason for changing the campaign setup."
-    assert failed_html =~ "Pauses before every answer."
-    assert failed_html =~ "Turns the brass key while she thinks."
-
-    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin").voice_guidance ==
-             %{}
-
-    attrs = Map.put(attrs, :correction_reason, "Clarify Elin's delivery.")
-
     html = view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
     assert html =~ "Campaign changes saved."
     assert has_element?(view, "#facts-keeper-elin details[open]")
+
+    correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
+    assert correction.reason == "Campaign setup updated"
+
+    saved_character =
+      Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+
+    assert saved_character.voice_guidance["cadence"] == "Pauses before every answer."
+    assert saved_character.voice_guidance["mannerisms"] == "Turns the brass key while she thinks."
 
     {:ok, reopened_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     reopened_html = render(reopened_view)
