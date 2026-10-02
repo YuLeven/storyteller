@@ -4,7 +4,7 @@
 
 - Voice and mannerism edits are stored as audited setup corrections, which require a reason. The edit form now marks that field as browser-required so a voice edit cannot appear to submit without the reason needed to commit it.
 - Added a LiveView behavior regression for a blank-reason save: the validation message appears while voice drafts remain visible; supplying a reason then saves the guidance and reopening the editor confirms it persisted.
-- **Checks:** campaign-authoring LiveView suite passed (**6 tests, 0 failures**). Tests use isolated fixtures; no live campaign or provider request was used.
+- **Checks:** campaign-authoring LiveView suite passed (**6 tests, 0 failures**); full WSL suite passed (**360 tests, 0 failures**); formatting, test-environment warnings-as-errors compilation, Gettext freshness, and `git diff --check` passed. Tests use isolated fixtures; no live campaign or provider request was used.
 
 ## 2026-10-01 — Require established public paths for remote NPC messages
 
