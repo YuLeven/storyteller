@@ -48,8 +48,6 @@
         )}
       </p>
     </section>
-    <p :if={@save_error} class="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{@save_error}</p>
-
     <.input field={@form[:title]} label={gettext("Campaign title")} maxlength="100" />
     <.input
       field={@form[:premise]}
@@ -268,6 +266,22 @@
       </div>
     </section>
 
+    <p
+      :if={@save_error}
+      id="campaign-edit-save-feedback"
+      role="alert"
+      class="rounded-lg bg-rose-50 p-3 text-sm text-rose-800"
+    >
+      {@save_error}
+    </p>
+    <p
+      :if={@save_succeeded}
+      id="campaign-edit-save-feedback"
+      role="status"
+      class="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"
+    >
+      {gettext("Campaign changes saved.")}
+    </p>
     <div class="flex flex-col-reverse gap-3 border-t border-stone-100 pt-6 sm:flex-row sm:justify-between">
       <.link
         navigate={~p"/campaigns/#{@campaign.id}"}

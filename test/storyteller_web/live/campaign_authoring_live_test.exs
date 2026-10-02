@@ -285,6 +285,13 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     html = view |> form("#campaign-edit-form") |> render_submit()
     assert html =~ "Campaign changes saved."
+
+    assert has_element?(
+             view,
+             "#campaign-edit-save-feedback[role='status']",
+             "Campaign changes saved."
+           )
+
     assert has_element?(view, "#facts-keeper-elin details[open]")
 
     correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
@@ -483,6 +490,12 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     html = view |> form("#campaign-edit-form") |> render_submit()
     assert html =~ "Campaign changes saved."
 
+    assert has_element?(
+             view,
+             "#campaign-edit-save-feedback[role='status']",
+             "Campaign changes saved."
+           )
+
     keeper = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
 
     assert keeper.voice_guidance == %{
@@ -561,6 +574,12 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     assert html =~
              "Voice notes must be 280 characters or fewer per field and 1200 characters total."
+
+    assert has_element?(
+             view,
+             "#campaign-edit-save-feedback[role='alert']",
+             "Voice notes must be 280 characters or fewer per field and 1200 characters total."
+           )
 
     assert html =~ "1250 of 1200 characters used"
 

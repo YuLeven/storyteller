@@ -3,11 +3,13 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
   import Phoenix.LiveViewTest
   import Storyteller.CampaignFixtures
+  import Ecto.Query, only: [from: 2]
 
   alias Storyteller.Campaigns
   alias Storyteller.Panels
   alias Storyteller.Play
   alias Storyteller.Play.Character
+  alias Storyteller.Play.Turn
   alias Storyteller.Repo
 
   setup do
@@ -139,6 +141,10 @@ defmodule StorytellerWeb.CampaignLiveTest do
     test_pid = self()
     previous_provider = Application.get_env(:storyteller, :gm_provider)
     player_action = "Use a moonpetal draught to soothe the blighted sapling."
+
+    time_passage_input =
+      "Let a few days pass, stopping at the next meaningful decision I need to make."
+
     later_action = "Check the remedy basket before the neighbor arrives."
 
     Application.put_env(:storyteller, :gm_provider, fn request ->
@@ -154,35 +160,64 @@ defmodule StorytellerWeb.CampaignLiveTest do
       })
 
       if context["interaction_mode"] == "opening_scene" do
+        send(test_pid, {:campaign_opening_context, context})
+      end
+
+      if context["interaction_mode"] == "time_passage" do
+        send(test_pid, {:campaign_time_passage_context, context})
+      end
+
+      if context["interaction_mode"] == "action" and context["player_action"] == later_action do
+        send(test_pid, {:campaign_later_action_context, context})
+      end
+
+      if context["interaction_mode"] == "opening_scene" do
         test_opening_scene_response(request)
       else
-        if context["player_action"] == player_action do
-          item = Enum.find(player_items, &(&1["name"] == "Moonpetal draught"))
-
-          if item do
-            {:ok,
-             %{
-               narration:
-                 "The draught calms the trembling leaves. One vial remains for the next difficult night.",
-               memory_update: %{public_summary: "", gm_private_summary: ""},
-               inventory_changes: [
-                 %{
-                   "type" => "consume",
-                   "item_id" => item["id"],
-                   "quantity" => 1,
-                   "reason" => "One vial is used to soothe the orchard's blighted sapling."
-                 }
-               ]
-             }}
-          else
-            {:error, :test_inventory_missing}
-          end
-        else
+        if context["interaction_mode"] == "time_passage" do
           {:ok,
            %{
-             narration: "One vial remains in the basket as the neighbor's lantern appears.",
-             memory_update: %{public_summary: "", gm_private_summary: ""}
+             narration:
+               "Three days pass. The orchard stirs under a pale morning sky, and the next choice is yours.",
+             public_changes: %{
+               "date" => "The fourth morning of frost",
+               "time" => "Morning"
+             },
+             time_advance_minutes: 4_320,
+             memory_update: %{
+               public_summary: "Three days pass at the orchard.",
+               gm_private_summary: ""
+             }
            }}
+        else
+          if context["player_action"] == player_action do
+            item = Enum.find(player_items, &(&1["name"] == "Moonpetal draught"))
+
+            if item do
+              {:ok,
+               %{
+                 narration:
+                   "The draught calms the trembling leaves. One vial remains for the next difficult night.",
+                 memory_update: %{public_summary: "", gm_private_summary: ""},
+                 inventory_changes: [
+                   %{
+                     "type" => "consume",
+                     "item_id" => item["id"],
+                     "quantity" => 1,
+                     "reason" => "One vial is used to soothe the orchard's blighted sapling."
+                   }
+                 ]
+               }}
+            else
+              {:error, :test_inventory_missing}
+            end
+          else
+            {:ok,
+             %{
+               narration: "One vial remains in the basket as the neighbor's lantern appears.",
+               memory_update: %{public_summary: "", gm_private_summary: ""}
+             }}
+          end
         end
       end
     end)
@@ -257,7 +292,10 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
     {:ok, first_view, _opening_html} = open_session(conn, campaign, first_session)
     assert_receive {:campaign_journey_request, "opening_scene", _, opening_items}, 1_000
+    assert_receive {:campaign_opening_context, first_opening_context}, 1_000
     assert [%{"name" => "Moonpetal draught", "quantity" => 2}] = opening_items
+    assert first_opening_context["world"]["public"]["date"] == "The first evening of frost"
+    assert first_opening_context["world"]["public"]["time"] == "Blue hour"
 
     assert wait_until(fn ->
              has_element?(
@@ -302,6 +340,98 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert has_element?(first_view, "#inventory-item-#{starting_draught_id}", "1")
     assert is_nil(Play.public_current_turn(campaign.id))
 
+    player_before_time_passage =
+      Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
+    first_view
+    |> element("#turn-composer button[phx-value-mode='time_passage']")
+    |> render_click()
+
+    first_view
+    |> element("#turn-composer button[phx-value-nudge_id='few-days']")
+    |> render_click()
+
+    assert render(first_view) =~ time_passage_input
+
+    first_view
+    |> form("#turn-composer")
+    |> render_submit()
+
+    assert_receive {
+                     :campaign_journey_request,
+                     "time_passage",
+                     ^time_passage_input,
+                     [%{"id" => ^starting_draught_id, "quantity" => 1}]
+                   },
+                   1_000
+
+    assert_receive {:campaign_time_passage_context, time_passage_context}, 1_000
+    assert time_passage_context["world"]["public"]["date"] == "The first evening of frost"
+    assert time_passage_context["elapsed_world_clock"]["total_minutes"] == 0
+
+    assert wait_until(fn ->
+             has_element?(
+               first_view,
+               "#story-timeline",
+               "Three days pass. The orchard stirs under a pale morning sky, and the next choice is yours."
+             )
+           end)
+
+    assert has_element?(first_view, "#world-date", "The fourth morning of frost")
+    assert has_element?(first_view, "#world-time", "Morning")
+
+    after_time_passage = Repo.get_by!(Storyteller.Play.State, campaign_id: campaign.id)
+    assert after_time_passage.public_state["date"] == "The fourth morning of frost"
+    assert after_time_passage.public_state["time"] == "Morning"
+    assert after_time_passage.elapsed_world_minutes == 4_320
+    assert after_time_passage.elapsed_world_anchor_minutes == 4_320
+
+    player_after_time_passage =
+      Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
+    assert player_after_time_passage.current_place_id ==
+             player_before_time_passage.current_place_id
+
+    assert player_after_time_passage.visible_facts == player_before_time_passage.visible_facts
+
+    assert player_after_time_passage.visible_activity ==
+             player_before_time_passage.visible_activity
+
+    assert {:ok, first_session_timeline} = Play.public_timeline(campaign.id)
+    time_passage_events = Enum.filter(first_session_timeline, &(&1.event_type == :time_passage))
+    assert length(time_passage_events) == 1
+
+    assert time_passage_events
+           |> hd()
+           |> Map.fetch!(:payload)
+           |> Map.fetch!("text") == time_passage_input
+
+    time_passage_turn_id = time_passage_events |> hd() |> Map.fetch!(:turn_id)
+
+    time_passage_turn_events =
+      Enum.filter(first_session_timeline, &(&1.turn_id == time_passage_turn_id))
+
+    assert Enum.count(time_passage_turn_events, &(&1.event_type == :time_passage)) == 1
+    assert Enum.count(time_passage_turn_events, &(&1.event_type == :gm_narration)) == 1
+
+    refute Enum.any?(
+             time_passage_turn_events,
+             &(&1.event_type in [:player_action, :roll_request, :player_roll])
+           )
+
+    first_session_turn_intents =
+      Repo.all(
+        from turn in Turn,
+          where: turn.campaign_id == ^campaign.id,
+          select: turn.intent
+      )
+
+    assert Enum.frequencies(first_session_turn_intents) == %{
+             opening_scene: 1,
+             action: 1,
+             time_passage: 1
+           }
+
     {:ok, later_campaign_view, _campaign_html} = live(conn, ~p"/campaigns/#{campaign.id}")
 
     later_campaign_view
@@ -331,13 +461,20 @@ defmodule StorytellerWeb.CampaignLiveTest do
                  later_view,
                  "#story-timeline",
                  "The draught calms the trembling leaves. One vial remains for the next difficult night."
+               ) and
+               has_element?(
+                 later_view,
+                 "#story-timeline",
+                 "Three days pass. The orchard stirs under a pale morning sky, and the next choice is yours."
                )
            end)
 
     assert has_element?(later_view, "#story-timeline", player_action)
     assert has_element?(later_view, "#current-place", "Moonpetal orchard")
-    assert has_element?(later_view, "#world-date", "The first evening of frost")
-    assert has_element?(later_view, "#world-time", "Blue hour")
+    assert has_element?(later_view, "#world-date", "The fourth morning of frost")
+    assert has_element?(later_view, "#world-time", "Morning")
+    assert has_element?(later_view, "#story-timeline", time_passage_input)
+    assert has_element?(later_view, "#story-timeline", "Three days pass.")
     assert has_element?(later_view, "#world-weather", "Cool mist")
     assert has_element?(later_view, "#world-location", "Moonpetal orchard")
     assert has_element?(later_view, "#inventory-item-#{starting_draught_id}", "1")
@@ -355,6 +492,30 @@ defmodule StorytellerWeb.CampaignLiveTest do
                      [%{"id" => ^starting_draught_id, "quantity" => 1}]
                    },
                    1_000
+
+    assert_receive {:campaign_later_action_context, later_action_context}, 1_000
+    assert later_action_context["world"]["public"]["date"] == "The fourth morning of frost"
+    assert later_action_context["world"]["public"]["time"] == "Morning"
+    assert later_action_context["elapsed_world_clock"]["total_minutes"] == 4_320
+    assert later_action_context["elapsed_world_clock"]["anchor_minutes"] == 4_320
+    assert later_action_context["elapsed_world_clock"]["minutes_since_anchor"] == 0
+
+    assert later_action_context["elapsed_world_clock"]["anchor"] == %{
+             "date" => "The fourth morning of frost",
+             "time" => "Morning"
+           }
+
+    passage_history_event =
+      Enum.find(later_action_context["history"], fn event ->
+        event["event_type"] == "time_passage" and event["session_id"] == first_session.id
+      end)
+
+    assert passage_history_event["payload"]["text"] == time_passage_input
+
+    assert Enum.any?(later_action_context["history"], fn event ->
+             event["payload"]["text"] ==
+               "Three days pass. The orchard stirs under a pale morning sky, and the next choice is yours."
+           end)
 
     assert wait_until(fn ->
              has_element?(

@@ -32,7 +32,8 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
-           save_error: nil
+           save_error: nil,
+           save_succeeded: false
          )}
     end
   end
@@ -50,7 +51,8 @@ defmodule StorytellerWeb.CampaignLive.Edit do
        form: to_form(%{changeset | action: :validate}, as: :campaign),
        authoring_draft: authoring_draft,
        correction_reason: Map.get(attrs, "correction_reason", socket.assigns.correction_reason),
-       save_error: nil
+       save_error: nil,
+       save_succeeded: false
      )}
   end
 
@@ -62,13 +64,14 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       |> omit_unchanged_duty_inputs(socket.assigns.gm_characters)
       |> put_default_correction_reason(socket.assigns.correction_reason)
 
+    socket = assign(socket, save_succeeded: false)
+
     case Campaigns.update_campaign_authoring(socket.assigns.campaign, attrs) do
       {:ok, campaign} ->
         {revision, elapsed_minutes} = campaign_clock(campaign.id)
 
         {:noreply,
          socket
-         |> put_flash(:info, gettext("Campaign changes saved."))
          |> assign(
            campaign: Campaigns.get_campaign!(campaign.id),
            state_revision: revision,
@@ -78,7 +81,8 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
-           save_error: nil
+           save_error: nil,
+           save_succeeded: true
          )}
 
       {:error, %Ecto.Changeset{} = changeset} ->

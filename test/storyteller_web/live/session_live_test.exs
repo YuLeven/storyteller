@@ -1679,6 +1679,16 @@ defmodule StorytellerWeb.SessionLiveTest do
   test "a paused plan leaves the opening scene saved until requests resume", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
+    test_pid = self()
+
+    set_handler(
+      fn request ->
+        send(test_pid, :opening_scene_provider_call)
+        FakeProvider.opening_scene_response(provider_context(request))
+      end,
+      handle_opening?: true
+    )
+
     pause_store = Application.fetch_env!(:storyteller, :plan_usage_token_store)
     assert :ok = TokenStore.pause_plan_usage(pause_store)
 
@@ -1694,6 +1704,9 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
     |> render_click()
 
+    assert wait_until(fn -> Repo.get!(Turn, opening_turn.id).status == :failed end)
+    refute_receive :opening_scene_provider_call, 1_000
+
     assert wait_until(fn ->
              not has_element?(view, "#plan-usage-paused") and
                has_element?(view, "#turn-error", "opening scene")
@@ -1702,6 +1715,8 @@ defmodule StorytellerWeb.SessionLiveTest do
     view
     |> element("#turn-error button[phx-click='retry-turn']")
     |> render_click()
+
+    assert_receive :opening_scene_provider_call, 1_000
 
     assert wait_until(fn ->
              has_element?(

@@ -1,5 +1,23 @@
 # Feature log
 
+## 2026-10-02 — Show campaign edit outcomes beside Save
+
+- Campaign edits now show a clear success status or blocking save error beside the form actions, where the player is already looking after saving. This replaces relying on a page-level flash at the top of the long editor; validation errors keep the draft visible and do not partially save voice notes.
+- Behavioral coverage asserts an edited character's notes are saved and reopened with an inline success status, while an over-limit save shows the inline alert and leaves stored notes unchanged. Existing coverage verifies the saved voice guidance is delivered to future GM context.
+- **Checks:** focused `CampaignAuthoringLiveTest` passed (12 tests, 0 failures); full WSL suite passed (395 tests, 0 failures); format, gettext extraction freshness, test-environment warnings-as-errors compilation, and `git diff --check` passed. Tests used fictional records, isolated `storyteller_test`, and fake providers only.
+
+## 2026-10-02 — Keep plan-pause resume separate from retry
+
+- Strengthened the opening-scene pause regression with a fake-provider call sentinel. Clearing the account pause does not call the GM; the saved opening remains failed and retryable, and the explicit Retry click is the action that calls the fake provider.
+- Source inspection found no production defect: resume reconciles outstanding pending turns into saved failed turns before clearing the pause. No turn-resolution or request behavior changed. The existing acceptance criteria already require resume itself to make no provider call.
+- **Checks:** SessionLive passed (**62 tests, 0 failures**); WSL formatter check and `git diff --check` passed. Tests use the isolated `storyteller_test` database and fake provider only; no dev database, port 4000, live account, model request, or Vineyard campaign was used.
+
+## 2026-10-02 — Carry a multi-day passage into the next session
+
+- Extended the fictional setup-to-session LiveView journey: after the GM-led opening and a player action, the player chooses **Pass a few days**. The fake GM advances the canonical date/time and exact clock by three days, while the player character stays in place and does not speak, act, or roll.
+- The new session board retains the accepted date/time and passage story. Its next fake-GM request receives the updated canonical world, elapsed clock and anchor, plus the originating time-passage event and narration from the previous session. The test also asserts one passage turn with no duplicate, player-action, or roll event.
+- **Checks:** the integrated setup journey passed; all CampaignLive tests passed (**20 tests, 0 failures**); the campaign LiveView test file is formatted; test-environment warnings-as-errors compilation and `git diff --check` passed. Elixir checks use WSL and isolated `storyteller_test` fixtures with a fake provider; no dev database, port 4000, live model, OAuth, or Vineyard data was used.
+
 ## 2026-10-02 — Keep known scene cues when one condition is unspecified
 
 - Scene artwork now composes time and weather independently. A known midnight still shows a moon when weather is unrecognized, and known mist or rain remains visible when the time of day is unclear; only a scene with neither dimension recognized receives the fully neutral cue.
