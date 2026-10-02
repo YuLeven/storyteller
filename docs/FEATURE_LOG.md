@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Add a GM character from campaign edit
+
+- The campaign editor has a collapsed add-character panel for an owner to enter a required name, optional player-visible facts, GM-only notes, and the five per-character voice-guidance fields. A selector offers only existing public canonical places; blank remains unplaced. Speaker IDs are generated on the server and made unique against the campaign roster.
+- Character creation joins the existing atomic authoring-correction transaction. New notes or voice guidance set the correction's private flag and keep it out of public correction history; public projections omit those fields. Invalid place IDs and over-limit voice guidance preserve the draft and commit no campaign or character changes. Creation is blocked during an unresolved turn so an older GM response cannot treat a new character as present.
+- Adding a character does not create a story event or change the elapsed world clock. The acceptance criteria now cover public-place selection, unknown presence, audit privacy, rollback, localized editor labels, and delivery of a saved voice profile to a fake-provider GM request.
+- **Checks:** `CampaignAuthoringLiveTest` and `LocaleLiveTest` passed (**28 tests, 0 failures**); the full isolated WSL test suite passed (**403 tests, 0 failures**). Gettext extraction freshness, formatting, warnings-as-errors compilation, and `git diff --check` passed. Tests use `MIX_ENV=test`, `storyteller_test`, and a fake provider. No dev/live database, port 4000, real model request, OAuth, or Vineyard campaign/data was used.
+
 ## 2026-10-02 — Prove the player-clicked D20 in a new campaign
 
 - Added a fictional wizard-to-play journey through the GM-led opening and a player action that requests a Balance check at Hard difficulty, target 14. The submitted action stays visible while the initial GM response waits and while the after-roll response is resolving.

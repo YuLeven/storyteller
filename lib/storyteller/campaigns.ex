@@ -7,7 +7,7 @@ defmodule Storyteller.Campaigns do
   alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
-  alias Storyteller.Play.{Character, State, Turn, VoiceGuidance}
+  alias Storyteller.Play.{Character, Place, State, Turn, VoiceGuidance}
   alias Storyteller.Play.Inventory
   alias Storyteller.Repo
 
@@ -105,19 +105,25 @@ defmodule Storyteller.Campaigns do
 
       unless changeset.valid?, do: Repo.rollback(changeset)
 
+      characters =
+        Repo.all(
+          from character in Character,
+            where: character.campaign_id == ^campaign_id,
+            order_by: [asc: character.speaker_id],
+            lock: "FOR UPDATE"
+        )
+
+      world_clock = Repo.get_by!(State, campaign_id: campaign_id)
+
       with {:ok, voice_updates} <- normalize_character_voice_updates(campaign_id, attrs),
            {:ok, fact_updates} <- normalize_character_fact_updates(campaign_id, attrs),
-           {:ok, duty_updates} <- normalize_character_duty_updates(campaign_id, attrs) do
-        characters =
-          Repo.all(
-            from character in Character,
-              where: character.campaign_id == ^campaign_id,
-              order_by: [asc: character.speaker_id],
-              lock: "FOR UPDATE"
-          )
-
-        world_clock = Repo.get_by!(State, campaign_id: campaign_id)
-
+           {:ok, duty_updates} <- normalize_character_duty_updates(campaign_id, attrs),
+           {:ok, new_character} <-
+             normalize_new_gm_character(
+               campaign_id,
+               attr(attrs, :new_gm_character),
+               characters
+             ) do
         plan =
           authoring_change_plan(
             campaign,
@@ -126,8 +132,19 @@ defmodule Storyteller.Campaigns do
             voice_updates,
             fact_updates,
             duty_updates,
+            new_character,
             world_clock.elapsed_world_minutes
           )
+
+        if not is_nil(plan.new_character) and
+             Repo.exists?(
+               from turn in Turn,
+                 where:
+                   turn.campaign_id == ^campaign_id and
+                     turn.status in [:pending, :resolving, :awaiting_roll]
+             ) do
+          Repo.rollback(:authoring_turn_in_progress)
+        end
 
         if map_size(plan.before_state) == 0 do
           campaign
@@ -193,6 +210,7 @@ defmodule Storyteller.Campaigns do
          voice_updates,
          fact_updates,
          duty_updates,
+         new_character,
          elapsed_world_minutes
        ) do
     by_speaker = Map.new(characters, &{&1.speaker_id, &1})
@@ -216,6 +234,9 @@ defmodule Storyteller.Campaigns do
         elapsed_world_minutes
       )
 
+    {gm_before, gm_after, private?} =
+      add_new_character_audit(gm_before, gm_after, private?, new_character)
+
     before_state =
       %{}
       |> put_nonempty("campaign", campaign_before)
@@ -233,8 +254,51 @@ defmodule Storyteller.Campaigns do
       after_state: after_state,
       player_attrs: player_attrs,
       gm_updates: gm_updates,
+      new_character: new_character,
       contains_private_changes: private?,
       duty_changed?: duty_changed?
+    }
+  end
+
+  defp add_new_character_audit(before, after_map, private?, nil),
+    do: {before, after_map, private?}
+
+  defp add_new_character_audit(before, after_map, private?, character) do
+    speaker_id = character.speaker_id
+
+    before_character = %{"name" => nil, "visible_facts" => %{}}
+
+    after_character = %{
+      "name" => character.name,
+      "visible_facts" => character.visible_facts,
+      "current_place_id" => character.current_place_id
+    }
+
+    {before_character, after_character} =
+      if map_size(character.gm_private_facts) > 0 do
+        {
+          Map.put(before_character, "gm_private_facts", %{}),
+          Map.put(after_character, "gm_private_facts", character.gm_private_facts)
+        }
+      else
+        {before_character, after_character}
+      end
+
+    {before_character, after_character} =
+      if map_size(character.voice_guidance) > 0 do
+        {
+          Map.put(before_character, "voice_guidance", %{}),
+          Map.put(after_character, "voice_guidance", character.voice_guidance)
+        }
+      else
+        {before_character, after_character}
+      end
+
+    {
+      Map.put(before, speaker_id, before_character),
+      Map.put(after_map, speaker_id, after_character),
+      private? or map_size(character.gm_private_facts) > 0 or
+        map_size(character.voice_guidance) > 0
     }
   end
 
@@ -539,6 +603,15 @@ defmodule Storyteller.Campaigns do
       end
     end)
 
+    if plan.new_character do
+      attrs = Map.merge(plan.new_character, %{campaign_id: campaign.id, role: :gm})
+
+      case Repo.insert(Character.changeset(%Character{}, attrs)) do
+        {:ok, _character} -> :ok
+        {:error, _changeset} -> Repo.rollback(:invalid_authoring_details)
+      end
+    end
+
     if plan.duty_changed? do
       case state
            |> State.changeset(%{revision: state.revision + 1})
@@ -836,6 +909,83 @@ defmodule Storyteller.Campaigns do
 
   defp maybe_put(map, _key, false, _value), do: map
   defp maybe_put(map, key, true, value), do: Map.put(map, key, value)
+
+  defp normalize_new_gm_character(_campaign_id, nil, _characters), do: {:ok, nil}
+
+  defp normalize_new_gm_character(campaign_id, row, characters) when is_map(row) do
+    keys = Enum.map(Map.keys(row), &key_name/1)
+
+    cond do
+      length(keys) > 6 or length(keys) != length(Enum.uniq(keys)) or
+          Enum.any?(
+            keys,
+            &(&1 not in ~w(name visible_facts_text private_notes place_id voice_guidance))
+          ) ->
+        {:error, :invalid_authoring_details}
+
+      blank_new_gm_character?(row) ->
+        {:ok, nil}
+
+      true ->
+        name = attr(row, :name)
+
+        with true <-
+               is_binary(name) and String.valid?(name) and
+                 String.length(String.trim(name)) in 1..300,
+             {:ok, visible_text} <- normalize_authoring_fact_text(row, :visible_facts_text),
+             {:ok, private_text} <- normalize_authoring_fact_text(row, :private_notes),
+             {:ok, place_id} <-
+               normalize_new_character_place(campaign_id, attr(row, :place_id, "")),
+             {:ok, voice_guidance} <- VoiceGuidance.normalize(attr(row, :voice_guidance, %{})) do
+          name = String.trim(name)
+
+          {:ok,
+           %{
+             speaker_id: generated_speaker_id(name, length(characters), characters),
+             name: name,
+             visible_facts:
+               if(visible_text in [nil, ""], do: %{}, else: %{"description" => visible_text}),
+             gm_private_facts:
+               if(private_text in [nil, ""], do: %{}, else: %{"notes" => private_text}),
+             voice_guidance: voice_guidance,
+             current_place_id: place_id
+           }}
+        else
+          {:error, :invalid_voice_guidance} -> {:error, :invalid_voice_guidance}
+          _ -> {:error, :invalid_authoring_details}
+        end
+    end
+  end
+
+  defp normalize_new_gm_character(_campaign_id, _row, _characters),
+    do: {:error, :invalid_authoring_details}
+
+  defp blank_new_gm_character?(row) do
+    Enum.all?([:name, :visible_facts_text, :private_notes, :place_id], fn key ->
+      attr(row, key) in [nil, ""]
+    end) and VoiceGuidance.normalize(attr(row, :voice_guidance, %{})) == {:ok, %{}}
+  end
+
+  defp normalize_new_character_place(_campaign_id, value) when value in [nil, ""],
+    do: {:ok, nil}
+
+  defp normalize_new_character_place(campaign_id, place_id)
+       when is_binary(place_id) and byte_size(place_id) <= 100 do
+    if String.valid?(place_id) and
+         Repo.exists?(
+           from place in Place,
+             where:
+               place.campaign_id == ^campaign_id and place.place_id == ^place_id and
+                 place.visibility == :public
+         ) do
+      {:ok, place_id}
+    else
+      {:error, :invalid_authoring_details}
+    end
+  end
+
+  defp normalize_new_character_place(_campaign_id, _place_id),
+    do: {:error, :invalid_authoring_details}
 
   defp normalize_character_voice_updates(campaign_id, attrs) do
     supplied = attr(attrs, :character_voice_guidance, %{})

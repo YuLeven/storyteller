@@ -7,6 +7,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
   alias Storyteller.Settings
   alias Storyteller.Play
   alias Storyteller.Play.Objective
+  alias Storyteller.Play.Turn
   alias Storyteller.Repo
   alias StorytellerWeb.LocaleLiveTest.FakeProvider
 
@@ -319,6 +320,71 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Chart the winter stars"
     assert french_html =~ "Close the unsafe cellar"
     refute french_html =~ "Find the hidden witness"
+  end
+
+  test "new GM character editor labels are translated", %{conn: conn} do
+    campaign = campaign_fixture(%{starting_location: "The Finca"})
+    [session] = campaign.sessions
+
+    Repo.insert!(
+      Turn.changeset(%Turn{}, %{
+        campaign_id: campaign.id,
+        session_id: session.id,
+        idempotency_key: "locale-new-character-pending-turn",
+        request_hash: String.duplicate("0", 64),
+        player_input: "Look around.",
+        intent: :action,
+        status: :pending,
+        resolution_phase: :initial,
+        attempts: 0
+      })
+    )
+
+    for {locale, labels, pending_error} <- [
+          {
+            "es",
+            [
+              "Añadir un personaje controlado por el director de juego",
+              "Nombre del personaje (obligatorio)",
+              "Datos visibles para el jugador (opcional)",
+              "Notas solo para el director de juego (opcional)",
+              "Lugar público actual (opcional)",
+              "Desconocido / sin ubicación",
+              "Permanecerá sin ubicación salvo que elijas un lugar público"
+            ],
+            "Espera a que el director de juego termine el turno antes de cambiar una tarea activa o añadir un personaje."
+          },
+          {
+            "fr",
+            [
+              "Ajouter un personnage contrôlé par le maître du jeu",
+              "Nom du personnage (obligatoire)",
+              "Informations visibles par le joueur (facultatif)",
+              "Notes réservées au maître du jeu (facultatif)",
+              "Lieu public actuel (facultatif)",
+              "Inconnu / sans lieu",
+              "Il reste sans lieu jusqu’à ce que vous choisissiez un lieu public"
+            ],
+            "Attendez que le maître du jeu termine le tour avant de modifier une tâche active ou d’ajouter un personnage."
+          }
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+      Enum.each(labels, fn label -> assert html =~ label end)
+
+      pending_html =
+        view
+        |> form("#campaign-edit-form",
+          campaign: %{
+            title: campaign.title,
+            new_gm_character: %{name: "Pending Arrival"}
+          }
+        )
+        |> render_submit()
+
+      assert pending_html =~ pending_error
+    end
   end
 
   defp submit_setup_step(view, attrs, direction) do

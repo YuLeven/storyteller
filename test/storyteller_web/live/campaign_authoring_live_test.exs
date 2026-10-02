@@ -3,13 +3,328 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
   import Phoenix.LiveViewTest
   import Storyteller.CampaignFixtures
+  import Ecto.Query, only: [from: 2]
 
   alias Storyteller.Campaigns
   alias Storyteller.Campaigns.AuthoringCorrection
   alias Storyteller.Play
   alias Storyteller.Play.Character
+  alias Storyteller.Play.Event
   alias Storyteller.Play.State
   alias Storyteller.Repo
+
+  test "campaign editor adds an unplaced GM character with private voice guidance", %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "Quiet Observatory",
+        player_character_name: "Ilya",
+        player_character: "A patient courier.",
+        gm_characters: [%{speaker_id: "mara_voss", name: "Existing Mara"}]
+      })
+
+    [session] = campaign.sessions
+    {:ok, initial_projection} = Play.public_projection(campaign.id)
+    [public_place | _] = initial_projection.places
+    state_before = Repo.get_by!(State, campaign_id: campaign.id)
+
+    event_count_before =
+      Repo.aggregate(from(event in Event, where: event.campaign_id == ^campaign.id), :count)
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    assert has_element?(
+             view,
+             "#new-gm-character:not([open]) summary",
+             "Add a GM-controlled character"
+           )
+
+    assert has_element?(
+             view,
+             "#new-gm-character option[value='#{public_place.place_id}']",
+             "Quiet Observatory"
+           )
+
+    new_character = %{
+      "name" => "Mara Voss",
+      "visible_facts_text" => "A patient keeper who tends the observatory lamps.",
+      "private_notes" => "She hid the original star chart beneath the west stair.",
+      "place_id" => "",
+      "voice_guidance" => %{
+        "quirks" => "Counts each lens before dusk.",
+        "accent_dialect" => "Soft island vowels.",
+        "cadence" => "Measured pauses.",
+        "vocabulary" => "Calls the telescope a skyglass.",
+        "mannerisms" => "Touches the brass ring when thinking."
+      }
+    }
+
+    render_change(view, "validate", %{"campaign" => %{"new_gm_character" => new_character}})
+    render_change(view, "validate", %{"campaign" => %{"title" => campaign.title}})
+
+    html =
+      render_submit(view, "save", %{"campaign" => %{"title" => campaign.title}})
+
+    assert html =~ "Campaign changes saved."
+    assert has_element?(view, "#new-gm-character:not([open]) summary")
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "mara_voss_2")
+    assert character.role == :gm
+    assert character.name == "Mara Voss"
+    assert is_nil(character.current_place_id)
+
+    assert character.visible_facts["description"] ==
+             "A patient keeper who tends the observatory lamps."
+
+    assert character.gm_private_facts["notes"] ==
+             "She hid the original star chart beneath the west stair."
+
+    assert character.voice_guidance == %{
+             "quirks" => "Counts each lens before dusk.",
+             "accent_dialect" => "Soft island vowels.",
+             "cadence" => "Measured pauses.",
+             "vocabulary" => "Calls the telescope a skyglass.",
+             "mannerisms" => "Touches the brass ring when thinking."
+           }
+
+    correction = Repo.get_by!(AuthoringCorrection, campaign_id: campaign.id)
+    assert correction.contains_private_changes
+
+    assert correction.after_state["gm_characters"][character.speaker_id]["voice_guidance"] ==
+             character.voice_guidance
+
+    assert Campaigns.list_public_authoring_corrections(campaign.id) == []
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    public_character = Enum.find(projection.characters, &(&1.speaker_id == character.speaker_id))
+    assert is_nil(public_character.current_place_id)
+    refute Jason.encode!(projection) =~ "west stair"
+    refute Jason.encode!(projection) =~ "Soft island vowels"
+
+    state_after = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state_after.elapsed_world_minutes == state_before.elapsed_world_minutes
+    assert state_after.event_sequence == state_before.event_sequence
+
+    assert Repo.aggregate(from(event in Event, where: event.campaign_id == ^campaign.id), :count) ==
+             event_count_before
+
+    {:ok, reopened_view, reopened_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    assert has_element?(reopened_view, "#facts-mara_voss_2")
+    assert reopened_html =~ "She hid the original star chart beneath the west stair."
+    assert reopened_html =~ "Counts each lens before dusk."
+    assert reopened_html =~ "Touches the brass ring when thinking."
+
+    captured_context = Agent.start_link(fn -> nil end) |> elem(1)
+
+    proposal = %{
+      "narration" => "Mara studies the lamps beside the telescope.",
+      "dialogue" => [],
+      "activities" => [],
+      "public_changes" => %{},
+      "private_changes" => %{},
+      "panel_changes" => [],
+      "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+      "time_advance_minutes" => 0,
+      "character_updates" => [],
+      "character_creations" => [],
+      "location_changes" => [],
+      "inventory_changes" => [],
+      "objective_changes" => [],
+      "continuity_changes" => [],
+      "roll_request" => nil
+    }
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "new-gm-character-voice-context",
+               "Ask Mara Voss what she noticed at the lamps.",
+               provider: fn request ->
+                 context = decode_provider_request(request)
+                 Agent.update(captured_context, fn _ -> context end)
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    context_character =
+      captured_context
+      |> Agent.get(& &1)
+      |> Map.fetch!("characters")
+      |> Enum.find(&(&1["speaker_id"] == "mara_voss_2"))
+
+    assert context_character["voice_guidance"] == character.voice_guidance
+  end
+
+  test "campaign editor rejects an invalid new character without partial writes", %{conn: conn} do
+    campaign = campaign_fixture(%{starting_location: "Quiet Observatory"})
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    draft = %{
+      "name" => "Mara Voss",
+      "visible_facts_text" => "A keeper.",
+      "private_notes" => "A private secret.",
+      "place_id" => "not-a-canonical-place",
+      "voice_guidance" => %{"accent_dialect" => "A soft island lilt."}
+    }
+
+    render_change(view, "validate", %{"campaign" => %{"new_gm_character" => draft}})
+
+    changed_title = "Must remain unchanged on rejected addition"
+
+    html =
+      render_submit(view, "save", %{"campaign" => %{"title" => changed_title}})
+
+    assert html =~
+             "Character details must use the listed fields and stay within the length limits."
+
+    assert has_element?(view, "input[name='campaign[new_gm_character][name]'][value='Mara Voss']")
+    assert has_element?(view, "#new-gm-character[open]")
+    assert Campaigns.get_campaign!(campaign.id).title == campaign.title
+    assert Repo.get_by(Character, campaign_id: campaign.id, speaker_id: "mara_voss") == nil
+
+    assert Repo.aggregate(
+             from(correction in AuthoringCorrection,
+               where: correction.campaign_id == ^campaign.id
+             ),
+             :count
+           ) == 0
+
+    {:ok, projection} = Play.public_projection(campaign.id)
+
+    over_limit_draft = %{
+      "name" => "Mara Voss",
+      "visible_facts_text" => "A keeper.",
+      "private_notes" => "A private secret.",
+      "place_id" => hd(projection.places).place_id,
+      "voice_guidance" => %{"accent_dialect" => String.duplicate("x", 281)}
+    }
+
+    render_change(view, "validate", %{"campaign" => %{"new_gm_character" => over_limit_draft}})
+
+    html =
+      render_submit(view, "save", %{"campaign" => %{"title" => campaign.title}})
+
+    assert html =~
+             "Voice notes must be 280 characters or fewer per field and 1200 characters total."
+
+    assert has_element?(view, "#new-gm-character[open]")
+
+    assert has_element?(
+             view,
+             "textarea[name='campaign[new_gm_character][voice_guidance][accent_dialect]']"
+           )
+
+    assert Campaigns.get_campaign!(campaign.id).title == campaign.title
+    assert Repo.get_by(Character, campaign_id: campaign.id, speaker_id: "mara_voss") == nil
+  end
+
+  test "blank add-character controls do not block other campaign edits", %{conn: conn} do
+    campaign = campaign_fixture()
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    blank_character = %{
+      "name" => "",
+      "visible_facts_text" => "",
+      "private_notes" => "",
+      "place_id" => "",
+      "voice_guidance" => %{
+        "quirks" => "",
+        "accent_dialect" => "",
+        "cadence" => "",
+        "vocabulary" => "",
+        "mannerisms" => ""
+      }
+    }
+
+    html =
+      render_submit(view, "save", %{
+        "campaign" => %{
+          "title" => "Edited with blank add-character controls",
+          "new_gm_character" => blank_character
+        }
+      })
+
+    assert html =~ "Campaign changes saved."
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
+    assert Repo.get_by(Character,
+             campaign_id: campaign.id,
+             speaker_id: "edited_with_blank_add_character_controls"
+           ) == nil
+  end
+
+  test "campaign editor places a new GM character only at the selected public place", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture(%{starting_location: "Quiet Observatory"})
+    {:ok, projection} = Play.public_projection(campaign.id)
+    public_place = hd(projection.places)
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    view
+    |> form("#campaign-edit-form",
+      campaign: %{
+        title: campaign.title,
+        new_gm_character: %{
+          name: "Tern Vale",
+          place_id: public_place.place_id
+        }
+      }
+    )
+    |> render_submit()
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "tern_vale")
+    assert character.current_place_id == public_place.place_id
+  end
+
+  test "campaign editor uses only an explicitly selected public place for a new character", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture(%{starting_location: "Quiet Observatory"})
+    {:ok, projection} = Play.public_projection(campaign.id)
+    public_place = hd(projection.places)
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    assert has_element?(view, "#new-gm-character option[value='#{public_place.place_id}']")
+
+    view
+    |> form("#campaign-edit-form",
+      campaign: %{
+        title: campaign.title,
+        new_gm_character: %{
+          name: "Tern Vale",
+          place_id: public_place.place_id
+        }
+      }
+    )
+    |> render_submit()
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "tern_vale")
+    assert character.current_place_id == public_place.place_id
+  end
+
+  test "campaign editor rejects adding a character while a turn is unresolved", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    assert {:ok, %{status: :pending}} =
+             Play.submit_turn(campaign.id, session.id, "pending-edit-turn", "Look around.")
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    html =
+      render_submit(view, "save", %{
+        "campaign" => %{
+          "title" => "Should wait until the turn finishes",
+          "new_gm_character" => %{"name" => "New Arrival"}
+        }
+      })
+
+    assert html =~ "Wait for the game master to finish the turn"
+    assert Campaigns.get_campaign!(campaign.id).title == campaign.title
+    assert Repo.get_by(Character, campaign_id: campaign.id, speaker_id: "new_arrival") == nil
+  end
 
   test "campaign setup captures bounded GM-only character voice guidance", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/campaigns/new")
@@ -269,8 +584,10 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
       player_character: campaign.player_character,
       character_voice_guidance: %{
         "keeper-elin" => %{
+          quirks: "Counts the shutters twice.",
           accent_dialect: "A gentle island lilt.",
           cadence: "Pauses before every answer.",
+          vocabulary: "Calls storms squalls.",
           mannerisms: "Turns the brass key while she thinks."
         }
       }
@@ -278,8 +595,10 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     view |> form("#campaign-edit-form", campaign: attrs) |> render_change()
 
+    assert render(view) =~ "Counts the shutters twice."
     assert render(view) =~ "A gentle island lilt."
     assert render(view) =~ "Pauses before every answer."
+    assert render(view) =~ "Calls storms squalls."
     assert render(view) =~ "Turns the brass key while she thinks."
     assert has_element?(view, "#facts-keeper-elin details[open]")
 
@@ -300,15 +619,19 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     saved_character =
       Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
 
+    assert saved_character.voice_guidance["quirks"] == "Counts the shutters twice."
     assert saved_character.voice_guidance["accent_dialect"] == "A gentle island lilt."
     assert saved_character.voice_guidance["cadence"] == "Pauses before every answer."
+    assert saved_character.voice_guidance["vocabulary"] == "Calls storms squalls."
     assert saved_character.voice_guidance["mannerisms"] == "Turns the brass key while she thinks."
 
     {:ok, reopened_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     reopened_html = render(reopened_view)
     assert has_element?(reopened_view, "#facts-keeper-elin details[open]")
+    assert reopened_html =~ "Counts the shutters twice."
     assert reopened_html =~ "A gentle island lilt."
     assert reopened_html =~ "Pauses before every answer."
+    assert reopened_html =~ "Calls storms squalls."
     assert reopened_html =~ "Turns the brass key while she thinks."
 
     captured_context = Agent.start_link(fn -> nil end) |> elem(1)
@@ -351,8 +674,10 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert keeper["current_place"]["name"] == "Quiet Observatory"
 
     assert keeper["voice_guidance"] == %{
+             "quirks" => "Counts the shutters twice.",
              "accent_dialect" => "A gentle island lilt.",
              "cadence" => "Pauses before every answer.",
+             "vocabulary" => "Calls storms squalls.",
              "mannerisms" => "Turns the brass key while she thinks."
            }
   end

@@ -30,6 +30,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
            authoring_draft: %{},
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
+           gm_character_places: public_places(campaign.id),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
            save_error: nil,
@@ -79,6 +80,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
            authoring_draft: %{},
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
+           gm_character_places: public_places(campaign.id),
            correction_reason: "",
            authoring_corrections: Campaigns.list_public_authoring_corrections(campaign.id),
            save_error: nil,
@@ -175,7 +177,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
-               "Wait for the game master to finish the turn before changing an active duty."
+               "Wait for the game master to finish the turn before changing an active duty or adding a character."
              )
          )}
 
@@ -215,6 +217,39 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       Map.get(character.voice_guidance || %{}, field, "")
     )
   end
+
+  defp new_character_value(field, draft, default \\ "") do
+    draft
+    |> draft_attr("new_gm_character", %{})
+    |> draft_attr(field, default)
+  end
+
+  defp new_character_open?(draft) do
+    Enum.any?(["name", "visible_facts_text", "private_notes", "place_id"], fn field ->
+      value = new_character_value(field, draft)
+      is_binary(value) and String.trim(value) != ""
+    end) or
+      Enum.any?(VoiceGuidance.fields(), fn field ->
+        value = new_voice_value(field, draft)
+        is_binary(value) and String.trim(value) != ""
+      end)
+  end
+
+  defp new_voice_value(field, draft) do
+    draft
+    |> draft_attr("new_gm_character", %{})
+    |> draft_attr("voice_guidance", %{})
+    |> draft_attr(field, "")
+  end
+
+  defp new_voice_guidance_count(draft) do
+    VoiceGuidance.character_count(
+      Map.new(VoiceGuidance.fields(), fn field -> {field, new_voice_value(field, draft)} end)
+    )
+  end
+
+  defp new_voice_guidance_over_limit?(draft),
+    do: new_voice_guidance_count(draft) > VoiceGuidance.max_total_length()
 
   defp voice_guidance_open?(character, draft) do
     draft_guidance =
@@ -256,7 +291,12 @@ defmodule StorytellerWeb.CampaignLive.Edit do
   defp draft_attr(_map, _key, default), do: default
 
   defp authoring_draft(attrs) do
-    Map.take(attrs, ["gm_character_setup", "character_active_duties", "character_voice_guidance"])
+    Map.take(attrs, [
+      "gm_character_setup",
+      "character_active_duties",
+      "character_voice_guidance",
+      "new_gm_character"
+    ])
     |> drop_unused_liveview_markers()
   end
 
@@ -276,7 +316,8 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       [
         {"gm_character_setup", :gm_character_setup},
         {"character_active_duties", :character_active_duties},
-        {"character_voice_guidance", :character_voice_guidance}
+        {"character_voice_guidance", :character_voice_guidance},
+        {"new_gm_character", :new_gm_character}
       ],
       attrs,
       fn {key, atom_key}, merged ->
@@ -371,6 +412,13 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
       _ ->
         {0, 0}
+    end
+  end
+
+  defp public_places(campaign_id) do
+    case Play.public_projection(campaign_id) do
+      {:ok, projection} -> projection.places
+      _ -> []
     end
   end
 
