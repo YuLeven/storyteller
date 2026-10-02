@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 - Verify rendered campaign voice edits survive save and reload
+
+- Strengthened the campaign editor regression to change accent, cadence, and mannerisms through the rendered form, then submit its current values without replaying the earlier `phx-change` payload. It checks the persisted character record and the reopened editor.
+- The current save path passes this case, so this investigation did not reproduce a source defect. To identify the reported runtime failure, the next useful evidence is whether values vanish after Save, disappear only after reopening/another tab, or remain stored but fail to affect later GM replies.
+- **Checks:** campaign-authoring LiveView (8 tests, 0 failures), authoring domain (13 tests, 0 failures), and `git diff --check` passed in WSL against `storyteller_test`. No development database, live campaign, Vineyard data, live provider, or OAuth used.
+
 ## 2026-10-01 - Recall seasonal reserves from common set-aside paraphrases
 
 - Added a small set of reviewed English (`save`/`saved`), Spanish (`apartamos`/`separamos` and participles), and French (`garder`/`gardé`/`gardée`/`gardons`) aliases for the existing allocation concept. Seasonal retrieval still requires both the allocation concept and tasting/event support, so same-tasting schedule and menu details stay compact when the player asks specifically about the reserve.

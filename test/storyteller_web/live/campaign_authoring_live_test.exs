@@ -205,6 +205,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
       player_character: campaign.player_character,
       character_voice_guidance: %{
         "keeper-elin" => %{
+          accent_dialect: "A gentle island lilt.",
           cadence: "Pauses before every answer.",
           mannerisms: "Turns the brass key while she thinks."
         }
@@ -213,11 +214,12 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     view |> form("#campaign-edit-form", campaign: attrs) |> render_change()
 
+    assert render(view) =~ "A gentle island lilt."
     assert render(view) =~ "Pauses before every answer."
     assert render(view) =~ "Turns the brass key while she thinks."
     assert has_element?(view, "#facts-keeper-elin details[open]")
 
-    html = view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
+    html = view |> form("#campaign-edit-form") |> render_submit()
     assert html =~ "Campaign changes saved."
     assert has_element?(view, "#facts-keeper-elin details[open]")
 
@@ -227,12 +229,14 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     saved_character =
       Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
 
+    assert saved_character.voice_guidance["accent_dialect"] == "A gentle island lilt."
     assert saved_character.voice_guidance["cadence"] == "Pauses before every answer."
     assert saved_character.voice_guidance["mannerisms"] == "Turns the brass key while she thinks."
 
     {:ok, reopened_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     reopened_html = render(reopened_view)
     assert has_element?(reopened_view, "#facts-keeper-elin details[open]")
+    assert reopened_html =~ "A gentle island lilt."
     assert reopened_html =~ "Pauses before every answer."
     assert reopened_html =~ "Turns the brass key while she thinks."
   end
