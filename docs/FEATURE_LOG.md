@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Exercise voice edits across multiple character cards
+
+- Hardened the campaign-editor regression for the reported voice/mannerism persistence issue. The native rendered form now exercises edits to all five guidance fields on one character and edits plus a cleared mannerism on another, followed by a partial validation and a save without replaying the full form values.
+- The test verifies both saved database maps and all remaining values after mounting a fresh edit page. It uses fictional fixture characters and the isolated test database; no application code or campaign data changed in this slice. The current edit handler already strips Phoenix `_unused_*` markers and merges drafts before validation/persistence.
+- **Checks:** focused `CampaignAuthoringLiveTest` passed (12 tests, 0 failures, 11 excluded); full WSL `MIX_ENV=test mix test --max-cases 1` passed (393 tests, 0 failures); formatter check, warnings-as-errors compilation, and `git diff --check` passed. Tests use the isolated `storyteller_test` database and fictional fixtures only.
+
 ## 2026-10-02 — Bring the player character onto the play board
 
 - The play page showed “Playing as [name]” in its header, while the description and personal facts were buried in the generic, collapsed Characters list. Added a compact “Your character” card beside the scene and inventory with the player's name and public description, three stable public facts, and a disclosure for additional details; the mobile section bar links directly to it.

@@ -418,6 +418,118 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert reopened_html =~ "Taps the wine thief against the barrel before speaking."
   end
 
+  test "campaign editor saves voice changes across multiple characters after partial validation",
+       %{
+         conn: conn
+       } do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            voice_guidance: %{
+              "quirks" => "Counts the shutters.",
+              "accent_dialect" => "Old harbor vowels.",
+              "cadence" => "Slow and deliberate.",
+              "vocabulary" => "Uses lighthouse terms.",
+              "mannerisms" => "Touches a brass key."
+            }
+          },
+          %{
+            speaker_id: "captain-ren",
+            name: "Captain Ren",
+            voice_guidance: %{
+              "quirks" => "Taps the compass twice.",
+              "accent_dialect" => "North-coast lilt.",
+              "cadence" => "Short measured phrases.",
+              "vocabulary" => "Uses sailing terms.",
+              "mannerisms" => "Checks the tide chart."
+            }
+          }
+        ]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    voice_edits = %{
+      "keeper-elin" => %{
+        quirks: "Counts the windows before opening them.",
+        accent_dialect: "A gentle island lilt.",
+        cadence: "Pauses before every answer.",
+        vocabulary: "Calls storms squalls.",
+        mannerisms: "Turns the brass key while she thinks."
+      },
+      "captain-ren" => %{
+        accent_dialect: "A clipped, formal harbor accent.",
+        mannerisms: ""
+      }
+    }
+
+    render_change(view, "validate", %{
+      "campaign" => %{"character_voice_guidance" => voice_edits}
+    })
+
+    assert has_element?(view, "#facts-keeper-elin details[open]")
+    assert has_element?(view, "#facts-captain-ren details[open]")
+    assert render(view) =~ "Turns the brass key while she thinks."
+    assert render(view) =~ "A clipped, formal harbor accent."
+
+    # A subsequent partial validation must not discard the nested voice draft.
+    render_change(view, "validate", %{"campaign" => %{"title" => campaign.title}})
+
+    # Submit the rendered form without replaying the voice values in test params,
+    # as a player does after making changes in the editor.
+    html = view |> form("#campaign-edit-form") |> render_submit()
+    assert html =~ "Campaign changes saved."
+
+    keeper = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+
+    assert keeper.voice_guidance == %{
+             "quirks" => "Counts the windows before opening them.",
+             "accent_dialect" => "A gentle island lilt.",
+             "cadence" => "Pauses before every answer.",
+             "vocabulary" => "Calls storms squalls.",
+             "mannerisms" => "Turns the brass key while she thinks."
+           }
+
+    captain = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "captain-ren")
+
+    assert captain.voice_guidance == %{
+             "quirks" => "Taps the compass twice.",
+             "accent_dialect" => "A clipped, formal harbor accent.",
+             "cadence" => "Short measured phrases.",
+             "vocabulary" => "Uses sailing terms."
+           }
+
+    {:ok, reopened_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    for {speaker_id, field, value} <- [
+          {"keeper-elin", "quirks", "Counts the windows before opening them."},
+          {"keeper-elin", "accent_dialect", "A gentle island lilt."},
+          {"keeper-elin", "cadence", "Pauses before every answer."},
+          {"keeper-elin", "vocabulary", "Calls storms squalls."},
+          {"keeper-elin", "mannerisms", "Turns the brass key while she thinks."},
+          {"captain-ren", "quirks", "Taps the compass twice."},
+          {"captain-ren", "accent_dialect", "A clipped, formal harbor accent."},
+          {"captain-ren", "cadence", "Short measured phrases."},
+          {"captain-ren", "vocabulary", "Uses sailing terms."}
+        ] do
+      assert has_element?(
+               reopened_view,
+               "textarea[name='campaign[character_voice_guidance][#{speaker_id}][#{field}]']",
+               value
+             )
+    end
+
+    cleared_mannerisms =
+      reopened_view
+      |> element("textarea[name='campaign[character_voice_guidance][captain-ren][mannerisms]']")
+      |> render()
+
+    refute cleared_mannerisms =~ "Checks the tide chart."
+  end
+
   test "campaign editor explains and preserves voice notes over the combined limit", %{
     conn: conn
   } do
