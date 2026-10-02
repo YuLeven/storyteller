@@ -6,6 +6,12 @@
 - The test verifies both saved database maps and all remaining values after mounting a fresh edit page. It uses fictional fixture characters and the isolated test database; no application code or campaign data changed in this slice. The current edit handler already strips Phoenix `_unused_*` markers and merges drafts before validation/persistence.
 - **Checks:** focused `CampaignAuthoringLiveTest` passed (12 tests, 0 failures, 11 excluded); full WSL `MIX_ENV=test mix test --max-cases 1` passed (393 tests, 0 failures); formatter check, warnings-as-errors compilation, and `git diff --check` passed. Tests use the isolated `storyteller_test` database and fictional fixtures only.
 
+## 2026-10-02 — Carry vineyard resources into the next session
+
+- Added a player-facing regression for the resource campaign contract: selling reserve wine applies a money increase to the Finca cash panel and a stock decrease to the Bodega cellar panel. Change receipts stay beside their values, not in the story timeline.
+- The later session shows both updated balances, and its next fake-provider request receives those canonical values. This covers the vineyard/resource genre through the LiveView and production turn boundary; it uses a fictional QA fixture rather than the owner's Vineyard campaign.
+- **Checks:** focused WSL LiveView regression passed (1 selected, 60 excluded); full `SessionLiveTest` passed (61 tests, 0 failures); full WSL `MIX_ENV=test mix test --max-cases 1` passed (394 tests, 0 failures); formatter check, warnings-as-errors compilation, and `git diff --check` passed. Tests use the isolated `storyteller_test` database and injected fake providers only.
+
 ## 2026-10-02 — Bring the player character onto the play board
 
 - The play page showed “Playing as [name]” in its header, while the description and personal facts were buried in the generic, collapsed Characters list. Added a compact “Your character” card beside the scene and inventory with the player's name and public description, three stable public facts, and a disclosure for additional details; the mobile section bar links directly to it.

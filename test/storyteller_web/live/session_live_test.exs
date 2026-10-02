@@ -2527,6 +2527,168 @@ defmodule StorytellerWeb.SessionLiveTest do
              "A customer pays for one basket of apples."
   end
 
+  test "vineyard resources stay on the board and reach the GM in a later session", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        title: "The Quiet Vineyard QA",
+        setting: "A fictional family vineyard outside Siena",
+        starting_location: "The Finca",
+        panel_fields: %{
+          "0" => %{
+            key: "cash_on_hand",
+            panel: "Finca ledger",
+            label: "Cash on hand",
+            value_type: "money",
+            unit: "florins",
+            visibility: "public",
+            initial_value: "42.50"
+          },
+          "1" => %{
+            key: "wine_in_cellar",
+            panel: "Bodega ledger",
+            label: "Wine in the cellar",
+            value_type: "quantity",
+            unit: "barrels",
+            visibility: "public",
+            initial_value: "18"
+          }
+        }
+      })
+
+    [first_session] = campaign.sessions
+    captured_contexts = Agent.start_link(fn -> [] end) |> elem(1)
+
+    set_handler(fn request ->
+      context = provider_context(request)
+      call_index = Agent.get(captured_contexts, &length/1)
+      Agent.update(captured_contexts, &[context | &1])
+
+      panel_changes =
+        if call_index == 0 do
+          [
+            %{
+              type: "delta",
+              key: "cash_on_hand",
+              delta: "6.25",
+              reason: "Sell two barrels of the reserve wine."
+            },
+            %{
+              type: "delta",
+              key: "wine_in_cellar",
+              delta: -2,
+              reason: "Two barrels leave the cellar for the sale."
+            }
+          ]
+        else
+          []
+        end
+
+      {:ok,
+       %{
+         narration:
+           if(call_index == 0,
+             do: "Two barrels are sold, and the ledger is balanced.",
+             else: "The updated harvest ledger is ready for review."
+           ),
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         panel_changes: panel_changes,
+         character_updates: [],
+         character_creations: [],
+         inventory_changes: [],
+         location_changes: [],
+         objective_changes: [],
+         continuity_changes: [],
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, first_view, _html} = live_play(conn, campaign, first_session)
+
+    first_view
+    |> form(
+      "#turn-composer",
+      turn: %{input: "Sell two barrels of reserve wine for 6.25 florins."}
+    )
+    |> render_submit()
+
+    assert wait_until(fn ->
+             has_element?(first_view, "#story-timeline", "Two barrels are sold") and
+               has_element?(
+                 first_view,
+                 "#campaign-fields [data-panel-watch='resource-cash_on_hand']",
+                 "48.75"
+               ) and
+               has_element?(
+                 first_view,
+                 "#campaign-fields [data-panel-watch='resource-wine_in_cellar']",
+                 "16"
+               )
+           end)
+
+    assert has_element?(
+             first_view,
+             "#campaign-fields details",
+             "Cash on hand: 42.5 florins → 48.75 florins"
+           )
+
+    assert has_element?(
+             first_view,
+             "#campaign-fields details",
+             "Wine in the cellar: 18 barrels → 16 barrels"
+           )
+
+    refute has_element?(first_view, "#story-timeline", "Cash on hand: 42.5 florins")
+    refute has_element?(first_view, "#story-timeline", "Wine in the cellar: 18 barrels")
+
+    [first_action_context] = Agent.get(captured_contexts, &Enum.reverse/1)
+    first_action_panels = Map.new(first_action_context["panels"], &{&1["key"], &1["value"]})
+
+    assert first_action_panels["cash_on_hand"] == "42.5"
+    assert first_action_panels["wine_in_cellar"] == 18
+
+    {:ok, later_session} =
+      Storyteller.Campaigns.start_session(
+        Storyteller.Campaigns.get_campaign!(campaign.id),
+        %{title: "After the reserve sale"}
+      )
+
+    {:ok, later_view, _html} = live_play(conn, campaign, later_session)
+
+    assert has_element?(
+             later_view,
+             "#campaign-fields [data-panel-watch='resource-cash_on_hand']",
+             "48.75"
+           )
+
+    assert has_element?(
+             later_view,
+             "#campaign-fields [data-panel-watch='resource-wine_in_cellar']",
+             "16"
+           )
+
+    later_view
+    |> form("#turn-composer", turn: %{input: "Review the latest harvest ledger."})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             has_element?(later_view, "#story-timeline", "The updated harvest ledger is ready")
+           end)
+
+    [first_action_context, later_action_context] = Agent.get(captured_contexts, &Enum.reverse/1)
+    later_action_panels = Map.new(later_action_context["panels"], &{&1["key"], &1["value"]})
+
+    assert later_action_panels["cash_on_hand"] == "48.75"
+    assert later_action_panels["wine_in_cellar"] == 16
+    assert first_action_context["campaign"]["title"] == "The Quiet Vineyard QA"
+    assert later_action_context["campaign"]["title"] == "The Quiet Vineyard QA"
+  end
+
   test "public inventory receipts stay collapsed beside current items and outside the story feed",
        %{
          conn: conn
