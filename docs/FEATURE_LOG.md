@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Keep known scene cues when one condition is unspecified
+
+- Scene artwork now composes time and weather independently. A known midnight still shows a moon when weather is unrecognized, and known mist or rain remains visible when the time of day is unclear; only a scene with neither dimension recognized receives the fully neutral cue.
+- Added rendered LiveView coverage for both partial-cue cases and the fully unknown fallback. The adjacent written game-time and weather remain authoritative.
+- **Checks:** Full `SessionLiveTest` suite passed (62 tests, 0 failures), and the full WSL suite passed (395 tests, 0 failures); format check, `MIX_ENV=test mix compile --warnings-as-errors`, and `git diff --check` passed. Tests used isolated `storyteller_test` fixtures only; no dev database, live model, or OAuth was used.
+
 ## 2026-10-02 — Clarify the GM model's reasoning setting
 
 - The account settings already showed the preferred or automatically selected GM model, but did not explain its reasoning effort. Added a localized note stating that Storyteller sends no explicit effort override and the selected model's default applies. This is kept in account/model settings and does not change latency or quality behavior.

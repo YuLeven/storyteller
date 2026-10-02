@@ -1842,25 +1842,40 @@ defmodule StorytellerWeb.SessionLiveTest do
       {:ok, view, _html} = live_play(conn, campaign, session)
       assert has_element?(view, "#scene-weather-cue[data-time-mode='#{mode}'] svg")
     end
+  end
 
-    for {time, weather} <- [
-          {"first watch", "unfamiliar sky"},
-          {"22:00", "unclear"},
-          {"22:00", "train"}
+  test "scene cues preserve a known time or weather when the other is unknown", %{conn: conn} do
+    for {time, weather, cue, time_mode, weather_mode, sky_icon, weather_icon} <- [
+          {"Midnight", "unfamiliar sky", "night-unknown", "night", "unknown", "moon", nil},
+          {"first watch", "Cool mist", "unknown-mist", "unknown", "mist", "neutral", "mist"},
+          {"first watch", "Rain", "unknown-rain", "unknown", "rain", "neutral", "rain"},
+          {"first watch", "unfamiliar sky", "neutral", "unknown", "unknown", "neutral", nil}
         ] do
-      fallback_campaign = campaign_fixture()
-      fallback_session = hd(fallback_campaign.sessions)
-      fallback_state = Repo.get_by!(State, campaign_id: fallback_campaign.id)
+      campaign = campaign_fixture()
+      session = hd(campaign.sessions)
+      state = Repo.get_by!(State, campaign_id: campaign.id)
 
       Repo.update!(
-        State.changeset(fallback_state, %{
-          public_state:
-            Map.merge(fallback_state.public_state, %{"time" => time, "weather" => weather})
+        State.changeset(state, %{
+          public_state: Map.merge(state.public_state, %{"time" => time, "weather" => weather})
         })
       )
 
-      {:ok, fallback_view, _html} = live_play(conn, fallback_campaign, fallback_session)
-      assert has_element?(fallback_view, "#scene-weather-cue[data-scene-cue='neutral'] svg")
+      {:ok, view, _html} = live_play(conn, campaign, session)
+
+      assert has_element?(
+               view,
+               "#scene-weather-cue[data-scene-cue='#{cue}'][data-time-mode='#{time_mode}'][data-weather-mode='#{weather_mode}'] svg"
+             )
+
+      assert has_element?(view, "#scene-weather-cue [data-sky-icon='#{sky_icon}']")
+
+      if weather_icon do
+        assert has_element?(view, "#scene-weather-cue [data-weather-icon='cloud']")
+        assert has_element?(view, "#scene-weather-cue [data-weather-icon='#{weather_icon}']")
+      else
+        refute has_element?(view, "#scene-weather-cue [data-weather-icon]")
+      end
     end
   end
 

@@ -2256,27 +2256,22 @@ defmodule StorytellerWeb.SessionLive.Show do
         true -> :unknown
       end
 
-    if time_mode == :unknown or not weather_known? do
-      %{
-        name: "neutral",
-        time: :unknown,
-        weather: :unknown,
-        cloud?: false,
-        mist?: false,
-        rain?: false,
-        snow?: false
-      }
-    else
-      %{
-        name: "#{time_mode}-#{weather_mode}",
-        time: time_mode,
-        weather: weather_mode,
-        cloud?: cloud?,
-        mist?: mist?,
-        rain?: rain?,
-        snow?: snow?
-      }
-    end
+    weather_mode = if weather_known?, do: weather_mode, else: :unknown
+
+    name =
+      if time_mode == :unknown and weather_mode == :unknown,
+        do: "neutral",
+        else: "#{time_mode}-#{weather_mode}"
+
+    %{
+      name: name,
+      time: time_mode,
+      weather: weather_mode,
+      cloud?: cloud?,
+      mist?: mist?,
+      rain?: rain?,
+      snow?: snow?
+    }
   end
 
   defp scene_weather_cue(_world),
