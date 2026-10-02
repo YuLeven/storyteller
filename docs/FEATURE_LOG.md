@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-01 — Recall a Spanish set-aside fact without tasting decoys
+
+- Added the single bounded alias `guardamos` → `allocation:set-aside`. With the existing `cata` and `otoño` cues, the question “¿Qué guardamos para la cata de otoño?” now requires both a tasting and set-aside match. Other notes about the same tasting, such as its schedule or menu, remain compact.
+- Added a fake-provider regression that establishes the reserve fact and two same-topic decoys in a fictional Quiet Observatory session, starts a later session, and checks the captured request context. The earlier behavior already included the reserve but also expanded the schedule decoy; the new cue keeps both decoys to stable identity/status metadata. The test checks provenance points to the earlier session and enforces the 24,000-byte preflight bound.
+- **Checks:** focused context-budget, Play, and story-memory suites passed (**107 tests, 0 failures**); WSL formatting check and `git diff --check` passed. Tests use the isolated `storyteller_test` database and fake providers; no live provider, OAuth flow, Vineyard campaign, or development database was used.
+- **Limit:** this covers the exact Spanish form `guardamos` with `cata` and `otoño`. Other inflections, paraphrases, and general semantic retrieval remain untested and unsupported.
+
 ## 2026-10-01 — Preserve voice edits when game time advances
 
 - A campaign edit page shows the remaining duration for active GM-character duties. If game time advanced while the page stayed open, submitting those unchanged durations could make them look like new duty edits and reject otherwise valid voice or mannerism changes as stale.

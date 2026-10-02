@@ -5699,6 +5699,102 @@ defmodule Storyteller.PlayTest do
     assert Repo.get!(ContinuityEntry, unrelated_memory.id) == unrelated_memory
   end
 
+  test "a later Spanish indirect tasting question retrieves the old reserve but not tasting decoys" do
+    {campaign, first_session} = play_campaign("The Quiet Observatory Autumn Gathering")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-autumn-gathering-facts",
+               "We prepare for the observatory's autumn gathering.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "autumn-tasting-reserve",
+                         "kind" => "fact",
+                         "title" => "Reserve for the autumn tasting",
+                         "details" =>
+                           "Six bottles of starflower cordial are kept aside for the autumn tasting.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The group sets cordial aside for the gathering."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "autumn-tasting-schedule",
+                         "kind" => "fact",
+                         "title" => "Autumn tasting schedule",
+                         "details" => "The autumn tasting begins at dusk when the comet returns.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The group fixes the tasting time."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "autumn-tasting-menu",
+                         "kind" => "fact",
+                         "title" => "Autumn tasting menu",
+                         "details" =>
+                           "Pear cakes and spiced cider will be served at the autumn tasting.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The cook plans the tasting menu."
+                     }
+                   ]
+                 })
+             )
+
+    reserve =
+      Repo.get_by!(ContinuityEntry,
+        campaign_id: campaign.id,
+        entry_id: "autumn-tasting-reserve"
+      )
+
+    assert reserve.source_event_id
+    source_event = Repo.get!(Event, reserve.source_event_id)
+    assert source_event.session_id == first_session.id
+    {:ok, later_session} = Campaigns.start_session(campaign)
+    captured = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(captured, fn _ -> {request, decode_request(request)} end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               later_session.id,
+               "ask-about-autumn-gathering-in-spanish",
+               "¿Qué guardamos para la cata de otoño?",
+               intent: :question,
+               provider: provider,
+               model: "test-model"
+             )
+
+    {request, context} = Agent.get(captured, & &1)
+    entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+
+    assert entries["autumn-tasting-reserve"]["details"] == reserve.details
+    assert entries["autumn-tasting-reserve"]["source_sequence"] == source_event.sequence
+
+    for decoy_id <- ["autumn-tasting-schedule", "autumn-tasting-menu"] do
+      assert entries[decoy_id]["status"] == "active"
+      refute Map.has_key?(entries[decoy_id], "title")
+      refute Map.has_key?(entries[decoy_id], "details")
+    end
+
+    assert request.local_context_metrics.conservative_input_token_upper_bound <= 24_000
+    assert request.local_context_metrics.budget_tokens == 24_000
+    assert context["context_completeness"]["continuity_memory_details_omitted"]
+  end
+
   test "later-session meeting and reply questions retrieve old social commitments across locales" do
     {campaign, first_session} = play_campaign("The Observatory Correspondence")
 

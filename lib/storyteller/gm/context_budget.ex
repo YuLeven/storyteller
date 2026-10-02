@@ -68,6 +68,7 @@ defmodule Storyteller.GM.ContextBudget do
     "reserved" => "allocation:set-aside",
     "aside" => "allocation:set-aside",
     "reservamos" => "allocation:set-aside",
+    "guardamos" => "allocation:set-aside",
     "reservar" => "allocation:set-aside",
     "reservado" => "allocation:set-aside",
     "reservada" => "allocation:set-aside",
