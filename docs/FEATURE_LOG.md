@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 - Protect campaign voice edits across open tabs
+
+- Campaign edit forms now submit the current setup-correction sequence. A stale tab cannot silently restore older voice or mannerism fields over newer saved values; it shows a conflict, keeps its own draft visible, refreshes to the latest revision, and can save again after review.
+- Added a two-tab LiveView behavior test that verifies the newer mannerism survives the stale save, the pending accent remains visible, and an intentional retry combines both values. Updated the campaign-edit acceptance scenario and removed stale wording that still described correction notes as required.
+- **Checked:** new two-tab scenario and campaign-authoring unit/LiveView suites passed (**21 tests, 0 failures**); full isolated WSL suite passed (**374 tests, 0 failures**); warnings-as-errors compilation, formatting, Gettext freshness, and `git diff --check` passed. Tests used `storyteller_test` and fake providers only.
+
 ## 2026-10-01 - Save voice guidance without a required explanation
 
 - Campaign voice and mannerism edits no longer get blocked by a required correction-reason field. The note is optional; when blank, the correction history receives a general campaign setup reason. A written explanation is retained when provided.

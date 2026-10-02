@@ -72,6 +72,15 @@ defmodule Storyteller.Campaigns do
     end)
   end
 
+  @doc "Returns the latest durable setup-correction sequence for optimistic edit checks."
+  def authoring_revision(campaign_id) do
+    Repo.one(
+      from correction in AuthoringCorrection,
+        where: correction.campaign_id == ^campaign_id,
+        select: max(correction.sequence)
+    ) || 0
+  end
+
   @doc "Atomically records and applies an auditable post-creation setup correction."
   def update_campaign_authoring(%Campaign{id: campaign_id}, attrs) when is_map(attrs) do
     Repo.transaction(fn -> apply_campaign_authoring_correction(campaign_id, attrs) end)
@@ -123,6 +132,8 @@ defmodule Storyteller.Campaigns do
         if map_size(plan.before_state) == 0 do
           campaign
         else
+          validate_authoring_revision!(campaign_id, attrs)
+
           reason = normalized_correction_reason(attr(attrs, :correction_reason))
           if is_nil(reason), do: Repo.rollback(:invalid_correction_reason)
 
@@ -470,6 +481,32 @@ defmodule Storyteller.Campaigns do
   end
 
   defp normalized_correction_reason(_), do: nil
+
+  defp validate_authoring_revision!(campaign_id, attrs) do
+    case attr(attrs, :expected_authoring_revision) do
+      nil ->
+        :ok
+
+      expected when is_integer(expected) and expected >= 0 ->
+        if expected == authoring_revision(campaign_id),
+          do: :ok,
+          else: Repo.rollback(:stale_authoring_revision)
+
+      expected when is_binary(expected) ->
+        case Integer.parse(expected) do
+          {revision, ""} when revision >= 0 ->
+            if revision == authoring_revision(campaign_id),
+              do: :ok,
+              else: Repo.rollback(:stale_authoring_revision)
+
+          _ ->
+            Repo.rollback(:stale_authoring_revision)
+        end
+
+      _ ->
+        Repo.rollback(:stale_authoring_revision)
+    end
+  end
 
   defp persist_campaign_correction!(campaign, characters, changeset, plan, state) do
     updated_campaign =

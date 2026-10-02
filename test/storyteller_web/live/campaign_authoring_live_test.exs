@@ -281,6 +281,88 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert reopened_html =~ "Taps the wine thief against the barrel before speaking."
   end
 
+  test "campaign editor rejects stale voice edits from another tab and preserves them for review",
+       %{
+         conn: conn
+       } do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            voice_guidance: %{"mannerisms" => "Turns a brass key."}
+          }
+        ]
+      })
+
+    {:ok, first_view, _first_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    {:ok, stale_view, _stale_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    first_html =
+      first_view
+      |> form("#campaign-edit-form",
+        campaign: %{
+          expected_authoring_revision: "0",
+          character_voice_guidance: %{
+            "keeper-elin" => %{mannerisms: "Turns the brass key while she thinks."}
+          }
+        }
+      )
+      |> render_submit()
+
+    assert first_html =~ "Campaign changes saved."
+
+    stale_html =
+      stale_view
+      |> form("#campaign-edit-form",
+        campaign: %{
+          expected_authoring_revision: "0",
+          character_voice_guidance: %{
+            "keeper-elin" => %{
+              accent_dialect: "A soft coastal lilt.",
+              mannerisms: "Turns a brass key."
+            }
+          }
+        }
+      )
+      |> render_submit()
+
+    assert stale_html =~ "campaign changed while this setup was open"
+    assert stale_html =~ "A soft coastal lilt."
+    assert stale_html =~ "Turns a brass key."
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+
+    assert character.voice_guidance == %{
+             "mannerisms" => "Turns the brass key while she thinks."
+           }
+
+    retry_html =
+      stale_view
+      |> form("#campaign-edit-form",
+        campaign: %{
+          expected_authoring_revision: "1",
+          character_voice_guidance: %{
+            "keeper-elin" => %{
+              accent_dialect: "A soft coastal lilt.",
+              mannerisms: "Turns the brass key while she thinks."
+            }
+          }
+        }
+      )
+      |> render_submit()
+
+    assert retry_html =~ "Campaign changes saved."
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+
+    assert character.voice_guidance == %{
+             "accent_dialect" => "A soft coastal lilt.",
+             "mannerisms" => "Turns the brass key while she thinks."
+           }
+  end
+
   test "campaign editor saves voice guidance when world time advances without changing a duty", %{
     conn: conn
   } do

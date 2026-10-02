@@ -25,6 +25,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            page_title: gettext("Edit campaign"),
            campaign: campaign,
            state_revision: revision,
+           authoring_revision: Campaigns.authoring_revision(campaign.id),
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
            authoring_draft: %{},
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
@@ -70,6 +71,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
          |> assign(
            campaign: Campaigns.get_campaign!(campaign.id),
            state_revision: revision,
+           authoring_revision: Campaigns.authoring_revision(campaign.id),
            form: to_form(Campaigns.change_campaign(campaign), as: :campaign),
            authoring_draft: %{},
            gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
@@ -138,17 +140,24 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
       {:error, :stale_authoring_revision} ->
         {revision, elapsed_minutes} = campaign_clock(socket.assigns.campaign.id)
+        campaign = Campaigns.get_campaign!(socket.assigns.campaign.id)
 
         {:noreply,
          assign(socket,
+           campaign: campaign,
            state_revision: revision,
-           gm_characters:
-             gm_characters_with_duty_time(socket.assigns.campaign.id, elapsed_minutes),
+           authoring_revision: Campaigns.authoring_revision(campaign.id),
+           form:
+             to_form(
+               Campaigns.change_campaign(campaign, Map.take(attrs, @editable_fields)),
+               as: :campaign
+             ),
+           gm_characters: gm_characters_with_duty_time(campaign.id, elapsed_minutes),
            authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
            save_error:
              gettext(
-               "The campaign changed while this setup was open. Review the current state and try again."
+               "The campaign changed while this setup was open. Your draft is still here; review the latest campaign state before saving again."
              )
          )}
 
