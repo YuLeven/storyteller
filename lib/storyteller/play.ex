@@ -4584,6 +4584,12 @@ defmodule Storyteller.Play do
         local_context_metrics: metrics
       }
 
+      request =
+        case Keyword.get(opts, :on_first_output) do
+          callback when is_function(callback, 0) -> Map.put(request, :on_first_output, callback)
+          _ -> request
+        end
+
       case model do
         model when is_binary(model) and model != "" -> {:ok, Map.put(request, :model, model)}
         _ -> {:ok, request}

@@ -220,8 +220,16 @@
           <div>
             <h2 class="font-semibold text-amber-950">
               {cond do
+                opening_scene?(@current_turn) and
+                    @turn_first_output_id == @current_turn.id ->
+                  gettext("The opening scene is taking shape")
+
                 opening_scene?(@current_turn) ->
                   gettext("The game master is preparing the opening scene")
+
+                @worker_turn_id == @current_turn.id and
+                    @turn_first_output_id == @current_turn.id ->
+                  gettext("The game master is shaping the scene")
 
                 @worker_turn_id == @current_turn.id ->
                   gettext("The game master is responding")
@@ -232,8 +240,18 @@
             </h2>
             <p class="mt-1 text-sm leading-6 text-amber-900">
               {cond do
+                opening_scene?(@current_turn) and
+                    @turn_first_output_id == @current_turn.id ->
+                  gettext("You can begin your first turn as soon as the opening scene is ready.")
+
                 opening_scene?(@current_turn) ->
                   gettext("The opening scene must be ready before you take your first action.")
+
+                @worker_turn_id == @current_turn.id and
+                    @turn_first_output_id == @current_turn.id ->
+                  gettext(
+                    "Your action is saved. The GM's reply will appear here once the scene is ready."
+                  )
 
                 @worker_turn_id == @current_turn.id ->
                   gettext(

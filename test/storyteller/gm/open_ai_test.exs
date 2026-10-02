@@ -194,6 +194,187 @@ defmodule Storyteller.GM.OpenAITest do
              )
   end
 
+  test "calls local first-output callback once before completion and emits numeric latency",
+       context do
+    test_pid = self()
+    handler_id = {__MODULE__, make_ref()}
+    task_ready = make_ref()
+
+    first_delta =
+      event_frame("response.output_text.delta", %{
+        "type" => "response.output_text.delta",
+        "delta" => "The "
+      })
+
+    second_delta =
+      event_frame("response.output_text.delta", %{
+        "type" => "response.output_text.delta",
+        "delta" => "answer"
+      })
+
+    completed =
+      event_frame("response.completed", %{
+        "type" => "response.completed",
+        "response" => %{"status" => "completed", "output" => []}
+      })
+
+    body =
+      Stream.resource(
+        fn -> :first_delta end,
+        fn
+          :first_delta ->
+            {[first_delta], :wait_for_test}
+
+          :wait_for_test ->
+            send(test_pid, :waiting_before_completion)
+
+            receive do
+              :continue_stream -> {[second_delta, completed], :done}
+            after
+              5_000 -> raise "test did not release the fake response stream"
+            end
+
+          :done ->
+            {:halt, :done}
+        end,
+        fn _state -> :ok end
+      )
+
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      send(test_pid, {:responses_request, options})
+      %{status: 200, body: body}
+    end
+
+    telemetry_event = [:storyteller, :gm, :provider, :first_text_delta, :stop]
+
+    task =
+      Task.async(fn ->
+        receive do
+          ^task_ready ->
+            OpenAI.stream_response(
+              %{
+                instructions: "Return text.",
+                input: [%{role: "user", content: "Hello"}],
+                model: "fixture-model",
+                on_first_output: fn -> send(test_pid, :first_output) end
+              },
+              store: context.store,
+              http: http
+            )
+        end
+      end)
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               telemetry_event,
+               fn event, measurements, metadata, _config ->
+                 if self() == task.pid do
+                   send(test_pid, {:first_text_delta_metric, event, measurements, metadata})
+                 end
+               end,
+               nil
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    send(task.pid, task_ready)
+    assert_receive :first_output, 1_000
+    assert_receive {:first_text_delta_metric, ^telemetry_event, %{duration: duration}, %{}}, 1_000
+    assert is_integer(duration) and duration >= 0
+    assert_receive :waiting_before_completion, 1_000
+    assert Task.yield(task, 0) == nil
+    refute_receive :first_output
+
+    send(task.pid, :continue_stream)
+    assert {:ok, %{text: "The answer"}} = Task.await(task, 1_000)
+    refute_receive :first_output
+    refute_receive {:first_text_delta_metric, ^telemetry_event, _, _}
+
+    assert_receive {:responses_request, options}
+    request_body = Keyword.fetch!(options, :json)
+
+    assert Map.keys(request_body) |> Enum.sort() == [
+             "input",
+             "instructions",
+             "model",
+             "store",
+             "stream"
+           ]
+
+    refute Jason.encode!(request_body) =~ "on_first_output"
+  end
+
+  test "signals first output once for failed and incomplete streams but not empty streams",
+       context do
+    parent = self()
+    telemetry_event = [:storyteller, :gm, :provider, :first_text_delta, :stop]
+    handler_id = {__MODULE__, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               telemetry_event,
+               fn event, measurements, metadata, _config ->
+                 if self() == parent do
+                   send(parent, {:first_text_delta_metric, event, measurements, metadata})
+                 end
+               end,
+               nil
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    first_delta =
+      event_frame("response.output_text.delta", %{
+        "type" => "response.output_text.delta",
+        "delta" => "partial"
+      })
+
+    cases = [
+      {first_delta <>
+         event_frame("response.failed", %{
+           "type" => "response.failed",
+           "response" => %{"error" => %{"code" => "server_error"}}
+         }), :provider_error, true},
+      {first_delta <>
+         event_frame("response.incomplete", %{
+           "type" => "response.incomplete",
+           "response" => %{"incomplete_details" => %{"reason" => "max_output_tokens"}}
+         }), :stream_incomplete, true},
+      {event_frame("response.incomplete", %{
+         "type" => "response.incomplete",
+         "response" => %{"incomplete_details" => %{"reason" => "max_output_tokens"}}
+       }), :stream_incomplete, false}
+    ]
+
+    Enum.each(cases, fn {stream, expected_error, has_output?} ->
+      callback_tag = make_ref()
+
+      assert {:error, ^expected_error} =
+               OpenAI.stream_response(
+                 %{
+                   instructions: "Return text.",
+                   input: [%{role: "user", content: "Hello"}],
+                   model: "fixture-model",
+                   on_first_output: fn -> send(parent, {:first_output, callback_tag}) end
+                 },
+                 store: context.store,
+                 http: provider_http(self(), stream)
+               )
+
+      if has_output? do
+        assert_receive {:first_output, ^callback_tag}
+        refute_receive {:first_output, ^callback_tag}
+        assert_receive {:first_text_delta_metric, ^telemetry_event, %{duration: duration}, %{}}
+        assert is_integer(duration) and duration >= 0
+      else
+        refute_receive {:first_output, ^callback_tag}
+        refute_receive {:first_text_delta_metric, ^telemetry_event, _, _}
+      end
+    end)
+  end
+
   test "uses streamed output text when the terminal response omits its output array", context do
     stream =
       "event: response.output_text.delta\ndata: " <>
@@ -523,6 +704,10 @@ defmodule Storyteller.GM.OpenAITest do
         %{"slug" => "hidden-model", "display_name" => "Hidden", "visibility" => "hidden"}
       ]
     }
+  end
+
+  defp event_frame(event, payload) do
+    "event: #{event}\ndata: #{Jason.encode!(payload)}\n\n"
   end
 
   defp completion_event(text, usage \\ nil) do

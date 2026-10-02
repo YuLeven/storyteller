@@ -30,13 +30,16 @@ defmodule Storyteller.GM.OpenAI do
 
   @doc false
   def stream_response(request, opts) when is_map(request) do
+    started_at = System.monotonic_time()
+
     with {:ok, access_token} <- log_stage_error(:oauth, OAuth.access_token(opts)),
          {:ok, model} <- resolve_model(request, access_token, opts),
          {:ok, body} <- log_stage_error(:request_validation, request_body(request, model)),
          {:ok, response} <-
            log_stage_error(:responses_request, post_response(access_token, body, opts)),
          :ok <- require_http_success(response, :responses),
-         {:ok, result} <- completed_response(response) do
+         {:ok, result} <-
+           completed_response(response, local_callback(request, :on_first_output), started_at) do
       {:ok, result}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
@@ -191,8 +194,8 @@ defmodule Storyteller.GM.OpenAI do
 
   defp error_for_status(_status, reason), do: reason
 
-  defp completed_response(response) do
-    case consume_sse(response_body(response)) do
+  defp completed_response(response, on_first_output, started_at) do
+    case consume_sse(response_body(response), on_first_output, started_at) do
       {:completed, text, usage} ->
         result = %{text: text}
         result = if map_size(usage) > 0, do: Map.put(result, :usage, usage), else: result
@@ -249,21 +252,25 @@ defmodule Storyteller.GM.OpenAI do
     end
   end
 
-  defp consume_sse(body) when is_binary(body), do: consume_chunks([body])
+  defp consume_sse(body, on_first_output, started_at) when is_binary(body),
+    do: consume_chunks([body], on_first_output, started_at)
 
-  defp consume_sse(body) do
-    if Enumerable.impl_for(body), do: consume_chunks(body), else: {:incomplete, :malformed}
+  defp consume_sse(body, on_first_output, started_at) do
+    if Enumerable.impl_for(body),
+      do: consume_chunks(body, on_first_output, started_at),
+      else: {:incomplete, :malformed}
   end
 
-  defp consume_chunks(chunks) do
-    initial = {:ok, "", {:waiting, [], 0}}
+  defp consume_chunks(chunks, on_first_output, started_at) do
+    initial = {:ok, "", {:waiting, [], 0, false}}
 
     result =
       Enum.reduce_while(chunks, initial, fn
-        chunk, {:ok, buffer, status} when is_binary(chunk) ->
+        chunk, {:ok, buffer, {:waiting, _deltas, _size, _first_output?} = status}
+        when is_binary(chunk) ->
           {frames, rest} = split_frames(buffer <> chunk)
 
-          case process_frames(frames, rest, status) do
+          case process_frames(frames, rest, status, on_first_output, started_at) do
             {:ok, next_buffer, next_status} -> {:cont, {:ok, next_buffer, next_status}}
             {:halt, terminal} -> {:halt, terminal}
           end
@@ -273,12 +280,12 @@ defmodule Storyteller.GM.OpenAI do
       end)
 
     case result do
-      {:ok, buffer, status} ->
+      {:ok, buffer, {:waiting, _deltas, _size, _first_output?} = status} ->
         final_status =
           if String.trim(buffer) == "" do
             status
           else
-            process_frame(buffer, status)
+            process_frame(buffer, status, on_first_output, started_at)
           end
 
         case final_status do
@@ -307,51 +314,72 @@ defmodule Storyteller.GM.OpenAI do
     end
   end
 
-  defp process_frames(frames, buffer, status) do
+  defp process_frames(frames, buffer, status, on_first_output, started_at) do
     Enum.reduce_while(frames, {:ok, buffer, status}, fn frame, {:ok, rest, current} ->
-      case process_frame(frame, current) do
-        {:waiting, _deltas, _size} = waiting -> {:cont, {:ok, rest, waiting}}
-        terminal -> {:halt, {:halt, terminal}}
+      case process_frame(frame, current, on_first_output, started_at) do
+        {:waiting, _deltas, _size, _first_output?} = waiting ->
+          {:cont, {:ok, rest, waiting}}
+
+        terminal ->
+          {:halt, {:halt, terminal}}
       end
     end)
   end
 
-  defp process_frame(_frame, {:completed, _, _} = completed), do: completed
-  defp process_frame(_frame, {:failed, _} = failed), do: failed
-  defp process_frame(_frame, {:incomplete, _} = incomplete), do: incomplete
+  defp process_frame(_frame, {:completed, _, _} = completed, _callback, _started_at),
+    do: completed
 
-  defp process_frame(frame, {:waiting, deltas, size}) do
+  defp process_frame(_frame, {:failed, _} = failed, _callback, _started_at), do: failed
+
+  defp process_frame(_frame, {:incomplete, _} = incomplete, _callback, _started_at),
+    do: incomplete
+
+  defp process_frame(frame, {:waiting, deltas, size, first_output?}, on_first_output, started_at) do
     {event, data} = parse_frame(frame)
 
     case data do
       nil ->
-        {:waiting, deltas, size}
+        {:waiting, deltas, size, first_output?}
 
       "[DONE]" ->
-        {:waiting, deltas, size}
+        {:waiting, deltas, size, first_output?}
 
       encoded ->
         case Jason.decode(encoded) do
-          {:ok, payload} when is_map(payload) -> process_event(event, payload, deltas, size)
-          _ -> {:incomplete, :invalid_sse_json}
+          {:ok, payload} when is_map(payload) ->
+            process_event(
+              event,
+              payload,
+              deltas,
+              size,
+              first_output?,
+              on_first_output,
+              started_at
+            )
+
+          _ ->
+            {:incomplete, :invalid_sse_json}
         end
     end
   end
 
-  defp process_frame(frame, _status) do
+  defp process_frame(frame, _status, on_first_output, started_at) do
     {event, data} = parse_frame(frame)
 
     case data do
       nil ->
-        {:waiting, [], 0}
+        {:waiting, [], 0, false}
 
       "[DONE]" ->
-        {:waiting, [], 0}
+        {:waiting, [], 0, false}
 
       encoded ->
         case Jason.decode(encoded) do
-          {:ok, payload} when is_map(payload) -> process_event(event, payload, [], 0)
-          _ -> {:incomplete, :invalid_sse_json}
+          {:ok, payload} when is_map(payload) ->
+            process_event(event, payload, [], 0, false, on_first_output, started_at)
+
+          _ ->
+            {:incomplete, :invalid_sse_json}
         end
     end
   end
@@ -382,7 +410,7 @@ defmodule Storyteller.GM.OpenAI do
     {event, data}
   end
 
-  defp process_event(event, payload, deltas, size) do
+  defp process_event(event, payload, deltas, size, first_output?, on_first_output, started_at) do
     case payload["type"] || event do
       "response.completed" ->
         usage = response_usage(payload["response"])
@@ -399,7 +427,23 @@ defmodule Storyteller.GM.OpenAI do
         end
 
       "response.output_text.delta" ->
-        append_output_delta(deltas, size, payload["delta"])
+        delta = payload["delta"]
+
+        first_output? =
+          if not first_output? and is_binary(delta) and delta != "" do
+            notify_first_output(on_first_output, started_at)
+            true
+          else
+            first_output?
+          end
+
+        case append_output_delta(deltas, size, delta) do
+          {:waiting, next_deltas, next_size} ->
+            {:waiting, next_deltas, next_size, first_output?}
+
+          terminal ->
+            terminal
+        end
 
       "response.failed" ->
         {:failed,
@@ -414,9 +458,44 @@ defmodule Storyteller.GM.OpenAI do
         {:failed, response_error_details(payload["error"] || payload)}
 
       _ ->
-        {:waiting, deltas, size}
+        {:waiting, deltas, size, first_output?}
     end
   end
+
+  defp notify_first_output(on_first_output, started_at) do
+    duration = System.monotonic_time() - started_at
+
+    emit_first_text_delta_latency(duration)
+    safely_call(on_first_output)
+  end
+
+  defp safely_call(callback) when is_function(callback, 0) do
+    try do
+      callback.()
+    rescue
+      _error -> :ok
+    catch
+      _kind, _reason -> :ok
+    end
+  end
+
+  defp safely_call(_callback), do: :ok
+
+  defp emit_first_text_delta_latency(duration) when is_integer(duration) and duration >= 0 do
+    :telemetry.execute(
+      [:storyteller, :gm, :provider, :first_text_delta, :stop],
+      %{duration: duration},
+      %{}
+    )
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp emit_first_text_delta_latency(_duration), do: :ok
 
   defp append_output_delta(deltas, size, delta) when is_binary(delta) do
     if size + byte_size(delta) <= @max_output_text_bytes do
@@ -655,6 +734,13 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   defp system_message?(_), do: false
+
+  defp local_callback(request, key) do
+    case field(request, key) do
+      callback when is_function(callback, 0) -> callback
+      _ -> nil
+    end
+  end
 
   defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   defp field(_map, _key), do: nil

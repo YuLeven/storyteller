@@ -2976,6 +2976,143 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert action_occurrences == 1
   end
 
+  test "opening scene progress changes only after the GM begins composing", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+
+    set_handler(
+      fn request ->
+        context = provider_context(request)
+        send(test_pid, {:opening_provider_waiting, self(), Map.fetch!(request, :on_first_output)})
+
+        receive do
+          :begin_output ->
+            callback = Map.fetch!(request, :on_first_output)
+            callback.()
+            send(test_pid, :opening_first_output_reported)
+        after
+          5_000 -> flunk("the opening provider was not released to begin output")
+        end
+
+        receive do
+          :finish_response -> :ok
+        after
+          5_000 -> flunk("the opening response was not released to complete")
+        end
+
+        FakeProvider.opening_scene_response(context)
+      end,
+      handle_opening?: true
+    )
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+    assert_receive {:opening_provider_waiting, provider_pid, _callback}, 1_000
+    assert has_element?(view, "#turn-status", "The game master is preparing the opening scene")
+    assert has_element?(view, "#turn-input[disabled]")
+
+    send(provider_pid, :begin_output)
+    assert_receive :opening_first_output_reported, 1_000
+
+    assert wait_until(fn ->
+             has_element?(view, "#turn-status", "The opening scene is taking shape")
+           end)
+
+    assert has_element?(
+             view,
+             "#turn-status",
+             "You can begin your first turn as soon as the opening scene is ready."
+           )
+
+    assert has_element?(view, "#turn-input[disabled]")
+    refute has_element?(view, "#story-timeline", "The scene takes shape")
+
+    send(provider_pid, :finish_response)
+
+    assert wait_until(fn ->
+             has_element?(view, "#current-place #current-situation", "The scene takes shape")
+           end)
+
+    assert has_element?(view, "#turn-input:not([disabled])")
+  end
+
+  test "first GM output updates the wait status without exposing unvalidated text", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+
+    set_handler(fn request ->
+      send(
+        test_pid,
+        {:provider_waiting_for_output, self(), Map.fetch!(request, :on_first_output)}
+      )
+
+      receive do
+        :begin_output ->
+          callback = Map.fetch!(request, :on_first_output)
+          callback.()
+          send(test_pid, :first_output_reported)
+      after
+        5_000 -> flunk("the fake provider was not released to begin output")
+      end
+
+      receive do
+        :finish_response -> :ok
+      after
+        5_000 -> flunk("the fake response was not released to complete")
+      end
+
+      {:ok,
+       %{
+         narration: "The lanterns glow along the harbor wall.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         character_updates: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: "I light the harbor lanterns."})
+    |> render_submit()
+
+    assert_receive {:provider_waiting_for_output, provider_pid, first_output_callback}, 1_000
+    assert is_function(first_output_callback, 0)
+    assert has_element?(view, "#story-pending-action", "I light the harbor lanterns.")
+    assert has_element?(view, "#turn-status", "The game master is responding")
+
+    send(provider_pid, :begin_output)
+    assert_receive :first_output_reported, 1_000
+
+    assert wait_until(fn ->
+             has_element?(view, "#turn-status", "The game master is shaping the scene")
+           end)
+
+    assert has_element?(view, "#turn-status", "Your action is saved.")
+    assert has_element?(view, "#story-pending-action", "I light the harbor lanterns.")
+    refute has_element?(view, "#story-timeline", "The lanterns glow along the harbor wall.")
+
+    send(provider_pid, :finish_response)
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "The lanterns glow along the harbor wall.")
+           end)
+
+    refute has_element?(view, "#story-pending-action")
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    [player_action] = Enum.filter(timeline, &(&1.event_type == :player_action))
+    turn_events = Enum.filter(timeline, &(&1.turn_id == player_action.turn_id))
+    assert Enum.map(turn_events, & &1.event_type) == [:player_action, :gm_narration]
+  end
+
   test "completion announcements are localized and are not replayed on reconnect", %{conn: conn} do
     for {locale, completion} <- [
           {"es", "Tu turno se ha completado."},

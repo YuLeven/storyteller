@@ -100,6 +100,10 @@ defmodule StorytellerWeb.Telemetry do
       ),
       sum("storyteller.gm.provider.stop.success"),
       sum("storyteller.gm.provider.stop.failure"),
+      summary("storyteller.gm.provider.first_text_delta.stop.duration",
+        unit: {:native, :millisecond},
+        description: "Time from the start of a provider call to its first streamed text delta"
+      ),
       summary("storyteller.gm.resolution.stop.duration",
         unit: {:native, :millisecond},
         description:

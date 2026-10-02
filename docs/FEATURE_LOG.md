@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-01  Show when streamed GM narration begins
+
+- A turn now gets a quiet progress update after the provider sends its first non-empty text delta. The player action stays visible; generated text is withheld until the entire response is complete, validated against campaign canon, and committed. Failed or incomplete streams never appear as story.
+- Opening scenes receive the same honest progress cue and still keep the player composer disabled until the opening scene commits. Resolution now starts from the connected LiveView, so its progress signal reaches the active play screen instead of a disconnected render process.
+- Added numeric-only time-to-first-text-delta telemetry and fake-SSE plus LiveView regressions for exactly-once notification on the first non-empty chunk, no callback when a stream has no text, no callback leakage into the HTTP body, saved-action visibility, and canonical-only narration; an error after partial text still cannot surface generated content.
+- Checks: adapter and SessionLive suites (74 tests, 0 failures); full isolated suite (372 tests, 0 failures); warnings-as-errors compilation, formatter, Gettext freshness, and git diff --check passed. All Elixir work ran in WSL against storyteller_test; no live provider, OAuth, development campaign, or Vineyard data was used.
+- Limit: the progress cue means streamed text has started, not that a valid GM response is ready. The latency measurement includes OAuth access and request setup, is transient Telemetry only, and does not persist per-turn timings.
+
 ## 2026-10-01 — Recall a Spanish set-aside fact without tasting decoys
 
 - Added the single bounded alias `guardamos` → `allocation:set-aside`. With the existing `cata` and `otoño` cues, the question “¿Qué guardamos para la cata de otoño?” now requires both a tasting and set-aside match. Other notes about the same tasting, such as its schedule or menu, remain compact.

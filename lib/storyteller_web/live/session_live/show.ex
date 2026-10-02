@@ -57,6 +57,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             worker_monitor_ref: nil,
             worker_tag: nil,
             worker_attempt: nil,
+            turn_first_output_id: nil,
             poll_scheduled?: false,
             correction_options: nil,
             correction_receipts: [],
@@ -573,6 +574,22 @@ defmodule StorytellerWeb.SessionLive.Show do
   def handle_info({:turn_resolution_claimed, turn_id, worker_tag, attempt}, socket) do
     if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag do
       {:noreply, assign(socket, worker_attempt: attempt)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:turn_first_output, turn_id, worker_tag}, socket) do
+    current_turn = socket.assigns.current_turn
+
+    if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag and
+         same_turn?(current_turn, to_string(turn_id)) and current_turn.status in @turn_in_progress do
+      {:noreply,
+       assign(socket,
+         turn_first_output_id: turn_id,
+         turn_announcement:
+           first_output_announcement(current_turn, socket.assigns.current_turn_roll)
+       )}
     else
       {:noreply, socket}
     end
@@ -1262,7 +1279,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp maybe_start_resolution(socket, turn) do
-    if not socket.assigns.plan_usage_paused? and not is_nil(turn) and
+    if connected?(socket) and not socket.assigns.plan_usage_paused? and not is_nil(turn) and
          turn.session_id == socket.assigns.session.id and
          playable?(socket.assigns.session) do
       case turn.status do
@@ -1303,6 +1320,9 @@ defmodule StorytellerWeb.SessionLive.Show do
                token_store: plan_usage_store(),
                on_claim: fn claimed_turn_id, attempt ->
                  send(owner, {:turn_resolution_claimed, claimed_turn_id, worker_tag, attempt})
+               end,
+               on_first_output: fn ->
+                 send(owner, {:turn_first_output, turn_id, worker_tag})
                end
              )
            end) do
@@ -1315,7 +1335,8 @@ defmodule StorytellerWeb.SessionLive.Show do
               worker_pid: pid,
               worker_monitor_ref: ref,
               worker_tag: worker_tag,
-              worker_attempt: nil
+              worker_attempt: nil,
+              turn_first_output_id: nil
             )
 
           if connected?(socket) and
@@ -1362,7 +1383,8 @@ defmodule StorytellerWeb.SessionLive.Show do
       worker_pid: nil,
       worker_monitor_ref: nil,
       worker_tag: nil,
-      worker_attempt: nil
+      worker_attempt: nil,
+      turn_first_output_id: nil
     )
   end
 
@@ -1720,16 +1742,20 @@ defmodule StorytellerWeb.SessionLive.Show do
         socket
 
       true ->
-        assign(
-          socket,
-          turn_announcement:
+        announcement =
+          if current_turn.status in @turn_in_progress and
+               socket.assigns.turn_first_output_id == current_turn.id do
+            first_output_announcement(current_turn, current_turn_roll)
+          else
             turn_announcement(
               current_turn,
               current_turn_roll,
               socket.assigns.worker_turn_id,
               socket.assigns.plan_usage_paused?
             )
-        )
+          end
+
+        assign(socket, turn_announcement: announcement)
     end
   end
 
@@ -1783,6 +1809,16 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: append_roll_result(gettext("The game master is responding"), result)
 
   defp responding_announcement(_turn, _result), do: gettext("The game master is responding")
+
+  defp first_output_announcement(%{intent: :opening_scene}, _result),
+    do: gettext("The opening scene is taking shape")
+
+  defp first_output_announcement(%{resolution_phase: :after_roll}, result)
+       when not is_nil(result),
+       do: append_roll_result(gettext("The game master is shaping the scene"), result)
+
+  defp first_output_announcement(_turn, _result),
+    do: gettext("The game master is shaping the scene")
 
   defp append_roll_result(message, nil), do: message
 
