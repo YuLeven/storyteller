@@ -1000,6 +1000,90 @@ defmodule Storyteller.PlayTest do
     assert lyra.visible_activity == nil
   end
 
+  test "keeps each present NPC's voice notes attached to its speaker in the provider request" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Finca",
+        gm_characters: [
+          %{
+            speaker_id: "npc:marcel",
+            name: "Marcel",
+            starting_place: "The Finca",
+            visible_facts: %{"description" => "A French beaver cook from Lyon."},
+            voice_guidance: %{
+              "accent_dialect" =>
+                "French from Lyon; suggest naturally through cadence, never spelling.",
+              "vocabulary" => "Uses kitchen and cellar words.",
+              "mannerisms" => "Taps his wooden spoon against his apron while thinking."
+            }
+          },
+          %{
+            speaker_id: "npc:ines",
+            name: "Ines",
+            starting_place: "The Finca",
+            visible_facts: %{"description" => "A precise keeper of the vineyard accounts."},
+            voice_guidance: %{
+              "cadence" => "Measured, complete sentences with a pause before a warning.",
+              "vocabulary" => "Uses figures, ledgers, and harvest terms.",
+              "mannerisms" => "Squares the corners of any paper within reach."
+            }
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+    captured = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(captured, fn _ -> decode_request(request) end)
+
+      proposal =
+        ordinary_proposal(%{
+          "dialogue" => [
+            %{"speaker_id" => "npc:marcel", "text" => "The cellar wants a little patience."},
+            %{"speaker_id" => "npc:ines", "text" => "We have enough wine for the tasting."}
+          ],
+          "activities" => [],
+          "character_updates" => []
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "separate-voices",
+               "Ask what remains to do.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    request_context = Agent.get(captured, & &1)
+    characters = Map.new(request_context["characters"], &{&1["speaker_id"], &1})
+
+    assert characters["npc:marcel"]["name"] == "Marcel"
+
+    assert characters["npc:marcel"]["voice_guidance"] == %{
+             "accent_dialect" =>
+               "French from Lyon; suggest naturally through cadence, never spelling.",
+             "vocabulary" => "Uses kitchen and cellar words.",
+             "mannerisms" => "Taps his wooden spoon against his apron while thinking."
+           }
+
+    assert characters["npc:ines"]["name"] == "Ines"
+
+    assert characters["npc:ines"]["voice_guidance"] == %{
+             "cadence" => "Measured, complete sentences with a pause before a warning.",
+             "vocabulary" => "Uses figures, ledgers, and harvest terms.",
+             "mannerisms" => "Squares the corners of any paper within reach."
+           }
+
+    assert characters["npc:marcel"]["current_place"]["name"] == "The Finca"
+    assert characters["npc:ines"]["current_place"]["name"] == "The Finca"
+  end
+
   test "loads a module provider before checking its callback" do
     {campaign, session} = play_campaign("The Glass Observatory")
     provider = Storyteller.PlayTest.LazyModuleProvider

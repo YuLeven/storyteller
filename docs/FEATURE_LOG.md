@@ -6,6 +6,11 @@
 - Updated the edit-page copy in English, Spanish, and French. Strengthened the voice-only LiveView regression to save without a note, verify the correction record and stored voice fields, and reload the editor.
 - **Checked:** campaign-authoring LiveView suite (7 tests, 0 failures); warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. The test used the isolated test database.
 
+## 2026-10-01 - Verify character voices in the final GM request
+
+- Added a fake-provider gameplay regression with two present NPCs and distinct voice notes. It inspects the exact context sent through the production request builder and verifies each speaker ID retains only its own profile and canonical shared location.
+- **Checked:** focused Play test passed. This proves prompt delivery and speaker association, not the model's ability to perform the voices distinctly; multi-turn live voice evaluation still needs an owner-approved provider request.
+
 ## 2026-10-01  Show when streamed GM narration begins
 
 - A turn now gets a quiet progress update after the provider sends its first non-empty text delta. The player action stays visible; generated text is withheld until the entire response is complete, validated against campaign canon, and committed. Failed or incomplete streams never appear as story.
