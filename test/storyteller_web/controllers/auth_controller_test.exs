@@ -39,23 +39,27 @@ defmodule StorytellerWeb.AuthControllerTest do
       _ = TokenStore.sign_out(fn _credentials -> :ok end)
     end)
 
-    for {locale, expected} <- [
+    for {locale, expected, reasoning_note} <- [
           {
             "en",
-            "Automatic (first model in account list: Fixture Model (fixture-model))"
+            "Automatic (first model in account list: Fixture Model (fixture-model))",
+            "No explicit reasoning effort is set; the selected model uses its default."
           },
           {
             "es",
-            "Automático (primer modelo de la lista de la cuenta: Fixture Model (fixture-model))"
+            "Automático (primer modelo de la lista de la cuenta: Fixture Model (fixture-model))",
+            "No se establece un nivel de razonamiento explícito; se usa el valor predeterminado del modelo elegido."
           },
           {
             "fr",
-            "Automatique (premier modèle de la liste du compte : Fixture Model (fixture-model))"
+            "Automatique (premier modèle de la liste du compte : Fixture Model (fixture-model))",
+            "Aucun niveau de raisonnement explicite n’est défini ; le modèle choisi utilise sa valeur par défaut."
           }
         ] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
       html = conn |> recycle() |> get("/auth/connect") |> html_response(200)
       assert model_summary_text(html) == expected
+      assert html =~ reasoning_note
     end
   end
 
@@ -80,6 +84,9 @@ defmodule StorytellerWeb.AuthControllerTest do
 
     assert html =~
              "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
+
+    assert html =~
+             "No explicit reasoning effort is set; the selected model uses its default."
 
     assert html =~ "value=\"automatic\" selected"
   end

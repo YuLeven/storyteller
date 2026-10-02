@@ -90,6 +90,9 @@
             "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
           )}
         </p>
+        <p class="mt-2 text-sm leading-6 text-stone-600">
+          {gettext("No explicit reasoning effort is set; the selected model uses its default.")}
+        </p>
         <%= if @catalog_available? do %>
           <.form
             for={%{}}

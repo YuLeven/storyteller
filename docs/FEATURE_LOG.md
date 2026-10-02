@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Clarify the GM model's reasoning setting
+
+- The account settings already showed the preferred or automatically selected GM model, but did not explain its reasoning effort. Added a localized note stating that Storyteller sends no explicit effort override and the selected model's default applies. This is kept in account/model settings and does not change latency or quality behavior.
+- Added English, Spanish, and French page assertions using the fake account model catalog. The clarification adds no inference call and does not alter the model request.
+- **Checks:** `AuthControllerTest` passed (7 tests, 0 failures), including the account model summary and the new note in all three interface locales. The full isolated suite passed (394 tests, 0 failures). `mix gettext.extract --check-up-to-date`, `mix format --check-formatted`, `MIX_ENV=test mix compile --warnings-as-errors`, and `git diff --check` passed. Tests used the fake model catalog and isolated auth-test credentials; no live model or OAuth call was made.
+
 ## 2026-10-02 — Recall agreement nouns across supported languages
 
 - Extended the production-boundary long-campaign commitment regression with “¿Cuál fue nuestro acuerdo?” and “Quel était notre accord ?”. Before adding aliases, the English, Spanish, and French decision forms passed, then the Spanish noun form reproduced an omission of the saved commitment detail; the French noun form is now covered by the same regression.

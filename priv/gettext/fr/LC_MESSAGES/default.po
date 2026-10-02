@@ -3027,6 +3027,11 @@ msgstr "Choisissez un modèle parmi ceux disponibles sur le compte connecté."
 msgid "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
 msgstr "Choisissez le modèle disponible du compte qui résoudra les prochains tours. Le mode automatique utilise le premier modèle renvoyé par le catalogue du compte."
 
+#: lib/storyteller_web/controllers/auth_html/connect.html.heex:94
+#, elixir-autogen, elixir-format
+msgid "No explicit reasoning effort is set; the selected model uses its default."
+msgstr "Aucun niveau de raisonnement explicite n’est défini ; le modèle choisi utilise sa valeur par défaut."
+
 #: lib/storyteller_web/controllers/auth_controller.ex:173
 #, elixir-autogen, elixir-format
 msgid "Automatic (first model in account list: %{model})"
