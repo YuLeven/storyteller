@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Follow a new campaign into its next session
+
+- Added one integrated fake-provider LiveView journey that creates a fictional campaign through the actual setup wizard, accepts the GM-led opening at the configured public location, and carries a starting owned item into play.
+- A player action consumes one item through the validated inventory path. The play board shows the remaining quantity; after starting a later session, the earlier action and GM narration, current place, and remaining item remain visible. A subsequent player move confirms the later GM request receives the current inventory quantity.
+- This test covers user flow and canonical continuity, not live-model writing quality, latency, OAuth, or account eligibility. It uses no persistent campaign data.
+- **Checks:** focused journey passed (1 selected, 0 failures); the full isolated WSL suite passed (386 tests, 0 failures), including CampaignLive (20), SessionLive (59), and CampaignAuthoringLive (11); formatting, Gettext freshness, test-environment warnings-as-errors compilation, and `git diff --check` passed. Elixir commands used the isolated `storyteller_test` database and fake provider; no dev database, port 4000, live model, OAuth flow, or Vineyard campaign was used.
+
 ## 2026-10-02 — Keep current companions in view on the scene board
 
 - The scene card previously hid present characters and their activity under place lore, and the separate character list was also collapsed. The board now shows up to three canonically co-present public companions with their current visible activity; any larger cast stays behind a collapsed “See more” disclosure. Place description and facts remain in the separate collapsed Place details section, and the duplicate people list was removed.

@@ -134,6 +134,241 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert_redirect(view, ~p"/campaigns/#{campaign.id}")
   end
 
+  test "a campaign from setup opens, resolves a player move, and continues with its story and inventory",
+       %{conn: conn} do
+    test_pid = self()
+    previous_provider = Application.get_env(:storyteller, :gm_provider)
+    player_action = "Use a moonpetal draught to soothe the blighted sapling."
+    later_action = "Check the remedy basket before the neighbor arrives."
+
+    Application.put_env(:storyteller, :gm_provider, fn request ->
+      context = decode_request(request)
+
+      player_items = get_in(context, ["inventory", "player_visible"]) || []
+
+      send(test_pid, {
+        :campaign_journey_request,
+        context["interaction_mode"],
+        context["player_action"],
+        player_items
+      })
+
+      if context["interaction_mode"] == "opening_scene" do
+        test_opening_scene_response(request)
+      else
+        if context["player_action"] == player_action do
+          item = Enum.find(player_items, &(&1["name"] == "Moonpetal draught"))
+
+          if item do
+            {:ok,
+             %{
+               narration:
+                 "The draught calms the trembling leaves. One vial remains for the next difficult night.",
+               memory_update: %{public_summary: "", gm_private_summary: ""},
+               inventory_changes: [
+                 %{
+                   "type" => "consume",
+                   "item_id" => item["id"],
+                   "quantity" => 1,
+                   "reason" => "One vial is used to soothe the orchard's blighted sapling."
+                 }
+               ]
+             }}
+          else
+            {:error, :test_inventory_missing}
+          end
+        else
+          {:ok,
+           %{
+             narration: "One vial remains in the basket as the neighbor's lantern appears.",
+             memory_update: %{public_summary: "", gm_private_summary: ""}
+           }}
+        end
+      end
+    end)
+
+    on_exit(fn ->
+      case previous_provider do
+        nil -> Application.delete_env(:storyteller, :gm_provider)
+        provider -> Application.put_env(:storyteller, :gm_provider, provider)
+      end
+    end)
+
+    {:ok, wizard, _html} = live(conn, ~p"/campaigns/new")
+
+    story = %{
+      title: "The Moonpetal Orchard",
+      premise: "A blight has silvered the leaves before the harvest.",
+      setting: "A small orchard on a fictional northern coast",
+      tone: "Gentle, curious, and grounded",
+      narration_language: "English"
+    }
+
+    player = %{
+      player_character_name: "Mara Vale",
+      player_character: "An attentive orchard keeper who notices small changes."
+    }
+
+    opening = %{
+      starting_location: "Moonpetal orchard",
+      starting_date: "The first evening of frost",
+      world_time: "Blue hour",
+      weather: "Cool mist"
+    }
+
+    submit_wizard_step(wizard, story, "continue")
+    submit_wizard_step(wizard, Map.merge(story, player), "continue")
+    wizard |> element("button[phx-click=add-starting-item]") |> render_click()
+
+    starting_item = %{
+      "0" => %{
+        name: "Moonpetal draught",
+        quantity: "2",
+        unit: "vials",
+        category: "Remedy",
+        description: "A clear infusion made from the orchard's night-blooming petals."
+      }
+    }
+
+    opening_attrs =
+      story
+      |> Map.merge(player)
+      |> Map.merge(opening)
+      |> Map.put(:inventory, starting_item)
+
+    submit_wizard_step(wizard, opening_attrs, "continue")
+    submit_wizard_step(wizard, opening_attrs, "continue")
+    assert render(wizard) =~ "Review your campaign"
+    assert Campaigns.list_campaigns() == []
+
+    wizard |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    assert campaign.title == "The Moonpetal Orchard"
+    [first_session] = campaign.sessions
+    assert_redirect(wizard, ~p"/campaigns/#{campaign.id}")
+
+    {:ok, campaign_view, campaign_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert campaign_html =~ "Resume current session"
+
+    assert has_element?(
+             campaign_view,
+             "a[href='/campaigns/#{campaign.id}/sessions/#{first_session.id}']"
+           )
+
+    {:ok, first_view, _opening_html} = open_session(conn, campaign, first_session)
+    assert_receive {:campaign_journey_request, "opening_scene", _, opening_items}, 1_000
+    assert [%{"name" => "Moonpetal draught", "quantity" => 2}] = opening_items
+
+    assert wait_until(fn ->
+             has_element?(
+               first_view,
+               "#story-timeline",
+               "The scene takes shape, and a clear choice is yours."
+             )
+           end)
+
+    assert has_element?(first_view, "#current-place", "Moonpetal orchard")
+    assert has_element?(first_view, "#world-date", "The first evening of frost")
+    assert has_element?(first_view, "#world-time", "Blue hour")
+    assert has_element?(first_view, "#world-weather", "Cool mist")
+    assert has_element?(first_view, "#world-location", "Moonpetal orchard")
+    assert {:ok, opening_projection} = Play.public_projection(campaign.id)
+    [starting_draught] = opening_projection.inventory
+    starting_draught_id = starting_draught["id"]
+    assert has_element?(first_view, "#inventory-item-#{starting_draught_id}", "2")
+
+    first_view
+    |> form("#turn-composer", turn: %{input: player_action})
+    |> render_submit()
+
+    assert_receive {
+                     :campaign_journey_request,
+                     "action",
+                     ^player_action,
+                     [%{"id" => ^starting_draught_id, "quantity" => 2}]
+                   },
+                   1_000
+
+    assert wait_until(fn ->
+             has_element?(
+               first_view,
+               "#story-timeline",
+               "The draught calms the trembling leaves. One vial remains for the next difficult night."
+             )
+           end),
+           "player turn did not complete: #{inspect(Play.public_current_turn(campaign.id))}"
+
+    assert has_element?(first_view, "#story-timeline", player_action)
+    assert has_element?(first_view, "#inventory-item-#{starting_draught_id}", "1")
+    assert is_nil(Play.public_current_turn(campaign.id))
+
+    {:ok, later_campaign_view, _campaign_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+
+    later_campaign_view
+    |> form("form[phx-submit=start-session]", session: %{title: "The Second Frost"})
+    |> render_submit()
+
+    refreshed_campaign = Campaigns.get_campaign!(campaign.id)
+    first_session = Enum.find(refreshed_campaign.sessions, &(&1.id == first_session.id))
+    later_session = Enum.find(refreshed_campaign.sessions, &(&1.title == "The Second Frost"))
+    assert first_session.status == :completed
+    assert later_session.status == :active
+
+    assert_redirect(
+      later_campaign_view,
+      ~p"/campaigns/#{campaign.id}/sessions/#{later_session.id}"
+    )
+
+    {:ok, later_view, _later_html} = open_session(conn, campaign, later_session)
+
+    assert wait_until(fn ->
+             has_element?(
+               later_view,
+               "#story-timeline",
+               "The scene takes shape, and a clear choice is yours."
+             ) and
+               has_element?(
+                 later_view,
+                 "#story-timeline",
+                 "The draught calms the trembling leaves. One vial remains for the next difficult night."
+               )
+           end)
+
+    assert has_element?(later_view, "#story-timeline", player_action)
+    assert has_element?(later_view, "#current-place", "Moonpetal orchard")
+    assert has_element?(later_view, "#world-date", "The first evening of frost")
+    assert has_element?(later_view, "#world-time", "Blue hour")
+    assert has_element?(later_view, "#world-weather", "Cool mist")
+    assert has_element?(later_view, "#world-location", "Moonpetal orchard")
+    assert has_element?(later_view, "#inventory-item-#{starting_draught_id}", "1")
+    assert is_nil(Play.public_current_turn(campaign.id))
+    assert has_element?(later_view, "#turn-input:not([disabled])")
+
+    later_view
+    |> form("#turn-composer", turn: %{input: later_action})
+    |> render_submit()
+
+    assert_receive {
+                     :campaign_journey_request,
+                     "action",
+                     ^later_action,
+                     [%{"id" => ^starting_draught_id, "quantity" => 1}]
+                   },
+                   1_000
+
+    assert wait_until(fn ->
+             has_element?(
+               later_view,
+               "#story-timeline",
+               "One vial remains in the basket as the neighbor's lantern appears."
+             )
+           end)
+
+    assert has_element?(later_view, "#story-timeline", later_action)
+    assert has_element?(later_view, "#inventory-item-#{starting_draught_id}", "1")
+    assert is_nil(Play.public_current_turn(campaign.id))
+  end
+
   test "campaign review shows every GM character field before persistence and keeps private guidance off the board",
        %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/campaigns/new")
