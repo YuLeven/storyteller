@@ -575,8 +575,7 @@
     flex-direction: column;
     gap: 0.45rem;
     overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior-y: auto;
+    overflow-y: hidden;
   }
 
   .play-page > div:has(> #campaign-panels) > .grid:has(> main) > main > :not([hidden]) ~ :not([hidden]) {

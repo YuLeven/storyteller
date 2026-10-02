@@ -1928,6 +1928,84 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute reloaded_html =~ "A stale world location"
   end
 
+  test "objective status-only updates pulse in the panel and stay out of chat", %{conn: conn} do
+    campaign = campaign_fixture(%{starting_location: "Harbor"})
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    Repo.insert!(
+      Objective.changeset(%Objective{}, %{
+        campaign_id: campaign.id,
+        objective_id: "glasshouse-roof",
+        title: "Repair the glasshouse roof",
+        details: "Finish the last section before the frost.",
+        status: :open,
+        visibility: :public
+      })
+    )
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#objective-glasshouse-roof[data-panel-watch-state='open']")
+    assert has_element?(view, "#campaign-objectives [data-panel-watch='objective-count']", "1")
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "The last pane settles into place.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: [],
+         objective_changes: [
+           %{
+             type: "update",
+             objective_id: "glasshouse-roof",
+             status: "completed",
+             reason: "The roof repairs are finished."
+           }
+         ],
+         character_updates: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         roll_request: nil
+       }}
+    end)
+
+    view
+    |> form("#turn-composer", turn: %{input: "Finish the glasshouse roof."})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             has_element?(view, "#objective-glasshouse-roof[data-panel-watch-state='completed']")
+           end)
+
+    html = render(view)
+    doc = Floki.parse_document!(html)
+
+    completed_section =
+      doc
+      |> Floki.find("#campaign-objectives section")
+      |> Enum.find(fn section ->
+        section |> Floki.find("h3") |> Floki.text() |> String.trim() == "Completed"
+      end)
+
+    assert completed_section
+
+    assert Floki.find(
+             completed_section,
+             "#objective-glasshouse-roof[data-panel-watch-state='completed']"
+           ) != []
+
+    assert has_element?(view, "#campaign-objectives [data-panel-watch='objective-count']", "1")
+    assert has_element?(view, "#story-timeline", "The last pane settles into place.")
+    refute has_element?(view, "#story-timeline", "The roof repairs are finished.")
+    refute has_element?(view, "#story-timeline", "Updated objective:")
+
+    assert {:ok, %{events: story_events}} = Play.public_story_timeline_page(campaign.id)
+    refute Enum.any?(story_events, &(&1.event_type == :state_change))
+  end
+
   test "game time appears once per turn and repeats only when the clock changes", %{conn: conn} do
     campaign = campaign_fixture()
     [first_session] = campaign.sessions

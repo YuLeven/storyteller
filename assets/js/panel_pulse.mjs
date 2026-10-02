@@ -1,12 +1,11 @@
 const watchedValues = root =>
   new Map(
-    Array.from(root.querySelectorAll("[data-panel-watch]")).map(element => [
-      element.dataset.panelWatch,
-      {
-        element,
-        value: (element.textContent || "").replace(/\s+/gu, " ").trim()
-      }
-    ])
+    Array.from(root.querySelectorAll("[data-panel-watch]")).map(element => {
+      const text = (element.textContent || "").replace(/\s+/gu, " ").trim()
+      const state = element.dataset.panelWatchState || ""
+
+      return [element.dataset.panelWatch, {element, value: `${text}\u0000${state}`}]
+    })
   )
 
 const markChanged = (element, timers) => {

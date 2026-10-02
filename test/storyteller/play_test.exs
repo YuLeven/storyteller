@@ -58,7 +58,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "opening scene needs a public player place and presence for its speaking characters" do
-    {campaign, session} = play_campaign("The Unplaced Observatory")
+    {campaign, session} = play_campaign("The Unplaced Observatory", starting_location: nil)
     assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
 
     unanchored =
@@ -459,7 +459,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "location corrections use only public people and places and do not create travel time" do
-    {campaign, session} = play_campaign("The Vineyard Map")
+    {campaign, session} = play_campaign("The Vineyard Map", starting_location: nil)
     finca = establish_starting_place!(campaign, "Finca")
 
     bodega =
@@ -1345,6 +1345,9 @@ defmodule Storyteller.PlayTest do
       })
 
     session = hd(campaign.sessions)
+    terrace = establish_starting_place!(campaign, "East terrace")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: terrace.place_id}))
     captured_context = Agent.start_link(fn -> nil end) |> elem(1)
 
     first_provider = fn request ->
@@ -1566,7 +1569,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "public projections separate private world and character facts" do
-    {campaign, session} = play_campaign("The Glass Observatory")
+    {campaign, session} = play_campaign("The Glass Observatory", starting_location: nil)
     upper_dome = establish_starting_place!(campaign, "Upper dome")
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
     Repo.update!(Character.changeset(lyra, %{current_place_id: upper_dome.place_id}))
@@ -2325,7 +2328,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "the finca to bodega route computes 40 minutes and reaches the next GM context" do
-    {campaign, session} = play_campaign("The Finca and Bodega")
+    {campaign, session} = play_campaign("The Finca and Bodega", starting_location: nil)
     finca = establish_starting_place!(campaign, "Finca")
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
     Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
@@ -2445,7 +2448,9 @@ defmodule Storyteller.PlayTest do
   end
 
   test "a finca employee cannot speak or act at the bodega until canonical travel moves them across sessions" do
-    {campaign, first_session} = play_campaign("The Finca and Bodega Presence")
+    {campaign, first_session} =
+      play_campaign("The Finca and Bodega Presence", starting_location: nil)
+
     finca = establish_starting_place!(campaign, "Finca")
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
     Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
@@ -2924,7 +2929,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "elapsed time sums each character's sequential route legs and takes the max across concurrent trips" do
-    {campaign, session} = play_campaign("The Orchard Road")
+    {campaign, session} = play_campaign("The Orchard Road", starting_location: nil)
     finca = establish_starting_place!(campaign, "Finca")
 
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
@@ -3267,7 +3272,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "new character introduction requires accepted canonical arrival in the scene" do
-    {campaign, session} = play_campaign("An Introduced Character")
+    {campaign, session} = play_campaign("An Introduced Character", starting_location: nil)
     finca = establish_starting_place!(campaign, "Finca")
 
     proposal =
@@ -3314,7 +3319,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "places seed character presence, persist across turns, and keep private locations out of player views" do
-    {campaign, session} = play_campaign("The Quiet Vineyard")
+    {campaign, session} = play_campaign("The Quiet Vineyard", starting_location: nil)
     state = Repo.get_by!(State, campaign_id: campaign.id)
 
     Repo.update!(
@@ -3488,7 +3493,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "the final player movement in one proposal determines canonical world location" do
-    {campaign, session} = play_campaign("The Quiet Vineyard")
+    {campaign, session} = play_campaign("The Quiet Vineyard", starting_location: nil)
     orchard_gate = establish_starting_place!(campaign, "Orchard gate")
 
     location_changes =
@@ -3556,7 +3561,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "introduces a new GM character who can speak, act, carry an item, and be publicly present immediately" do
-    {campaign, session} = play_campaign("The Amber Orchard")
+    {campaign, session} = play_campaign("The Amber Orchard", starting_location: nil)
     south_gate = establish_starting_place!(campaign, "South Gate")
 
     creation = %{
@@ -3886,7 +3891,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "moving a character without new activity clears their stale public activity across sessions" do
-    {campaign, session} = play_campaign("The Amber Orchard")
+    {campaign, session} = play_campaign("The Amber Orchard", starting_location: nil)
     orchard_walk = establish_starting_place!(campaign, "Orchard Walk")
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
     Repo.update!(Character.changeset(lyra, %{current_place_id: orchard_walk.place_id}))
@@ -4118,7 +4123,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "free-form world changes cannot teleport the player or overwrite the canonical location" do
-    {campaign, session} = play_campaign("The Quiet Vineyard")
+    {campaign, session} = play_campaign("The Quiet Vineyard", starting_location: nil)
     state = Repo.get_by!(State, campaign_id: campaign.id)
 
     Repo.update!(
@@ -5380,7 +5385,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "a follow-up look-around question gets vantage guidance without changing the scene" do
-    {campaign, session} = play_campaign("The Glass Observatory Follow-up")
+    {campaign, session} = play_campaign("The Glass Observatory Follow-up", starting_location: nil)
 
     known_public_item = %{
       "id" => "field-notes",
@@ -5497,8 +5502,8 @@ defmodule Storyteller.PlayTest do
   end
 
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
-    {first, first_session} = play_campaign("The Glass Observatory")
-    {second, second_session} = play_campaign("The Copper Archive")
+    {first, first_session} = play_campaign("The Glass Observatory", starting_location: nil)
+    {second, second_session} = play_campaign("The Copper Archive", starting_location: nil)
     dome = establish_starting_place!(first, "Dome")
     archive = establish_starting_place!(second, "Archive")
 
@@ -5825,7 +5830,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "GM context retrieves old connected-place and scene-speaker facts across sessions" do
-    {campaign, first_session} = play_campaign("The Bodega Journey")
+    {campaign, first_session} = play_campaign("The Bodega Journey", starting_location: nil)
     finca = establish_starting_place!(campaign, "The Finca")
 
     bodega =
@@ -7063,7 +7068,7 @@ defmodule Storyteller.PlayTest do
   end
 
   test "a reclaimed resolution attempt fences a late successful provider result" do
-    {campaign, session} = play_campaign("The Glass Observatory")
+    {campaign, session} = play_campaign("The Glass Observatory", starting_location: nil)
     fresh_place = establish_starting_place!(campaign, "Fresh worker")
 
     assert {:ok, pending} =
@@ -7206,7 +7211,7 @@ defmodule Storyteller.PlayTest do
     assert Play.public_projection(campaign.id)
            |> elem(1)
            |> Map.fetch!(:world)
-           |> Map.get("location") == nil
+           |> Map.get("location") == "The Glass Observatory"
 
     assert {:ok, []} = Play.public_timeline(campaign.id)
 
@@ -7263,7 +7268,7 @@ defmodule Storyteller.PlayTest do
     assert Play.public_projection(campaign.id)
            |> elem(1)
            |> Map.fetch!(:world)
-           |> Map.get("location") == nil
+           |> Map.get("location") == "The Glass Observatory"
 
     assert {:ok, []} = Play.public_timeline(campaign.id)
 
@@ -7299,7 +7304,7 @@ defmodule Storyteller.PlayTest do
 
     assert failed.status == :failed
     assert {:ok, projection} = Play.public_projection(campaign.id)
-    assert projection.world["location"] == nil
+    assert projection.world["location"] == "The Glass Observatory"
     assert {:ok, []} = Play.public_timeline(campaign.id)
 
     other = campaign_fixture(%{title: "The Copper Archive"})
@@ -7351,7 +7356,7 @@ defmodule Storyteller.PlayTest do
     )
   end
 
-  defp play_campaign(title) do
+  defp play_campaign(title, opts \\ []) do
     campaign = campaign_fixture(%{title: title})
     session = hd(campaign.sessions)
 
@@ -7382,6 +7387,16 @@ defmodule Storyteller.PlayTest do
                  }
                ]
              })
+
+    case Keyword.get(opts, :starting_location, "The Glass Observatory") do
+      nil ->
+        :ok
+
+      starting_location ->
+        place = establish_starting_place!(campaign, starting_location)
+        lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+        Repo.update!(Character.changeset(lyra, %{current_place_id: place.place_id}))
+    end
 
     {campaign, session}
   end

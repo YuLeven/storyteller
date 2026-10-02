@@ -172,7 +172,7 @@ defmodule Storyteller.Play.TravelGraphTest do
              "finca"
            )
 
-    assert TravelGraph.public_lines_in_scene?(lines, %{"npc:keeper" => nil}, nil)
+    refute TravelGraph.public_lines_in_scene?(lines, %{"npc:keeper" => nil}, nil)
 
     assert {:ok, _moves, final_locations} =
              TravelGraph.validate_movements(

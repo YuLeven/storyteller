@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-02 — Keep the play board anchored while history scrolls
+
+- On roomy desktop viewports, the central play column could scroll far enough to move the composer away from the world and campaign panels. Keep the main column anchored and make the story timeline the history scroll surface; retain normal page scrolling on narrow or short viewports.
+- Added a layout regression for the desktop breakpoint and scroll ownership. Existing panel-pulse coverage now also catches objective status-only changes, and the related LiveView regression keeps objective audit details out of story chat.
+- **Checks:** full isolated WSL suite passed (**382 tests, 0 failures**); objective status LiveView regression (**1 selected, 0 failures**) and layout regression (**1 test, 0 failures**) passed; panel hook unit tests passed (**3 tests, 0 failures**) in Windows Node. Formatter check, warnings-as-errors test compilation, and `git diff --check` passed. No live campaign, provider request, or OAuth flow was used.
+
+## 2026-10-02 — Cue objective status changes in the campaign panel
+
+- Objective rows kept the same watched text when their status changed, even though they moved between Open, Completed, and Abandoned groups. The panel hook therefore skipped its change pulse and live announcement when only status changed.
+- Objective panel watches now include status alongside displayed text. Status transitions pulse and announce in the Objectives panel; the state audit remains outside the story timeline.
+- Added a fake-provider LiveView regression for an open objective becoming completed, plus a panel-hook unit test that verifies a status-only change triggers the pulse.
+- **Checks:** the focused fake-provider objective-status LiveView regression passed (**1 selected, 0 failures; 56 excluded**), and the panel hook unit suite passed (**3 tests, 0 failures**). Test-environment warnings-as-errors compilation, formatter check, and `git diff --check` passed. LiveView behavior uses the isolated `storyteller_test` database; no live provider, campaign, or OAuth flow was used.
+
 ## 2026-10-02 — Require a known player scene for NPC dialogue
 
 - A missing canonical player place was being treated as if every NPC were present. A fake-provider behavior regression reproduced a completed turn with public dialogue and activity from an NPC whose canonical place was Finca while the player had no known place.

@@ -11,8 +11,8 @@ const fakeClassList = () => {
   }
 }
 
-const fakeElement = (key, value) => ({
-  dataset: {panelWatch: key},
+const fakeElement = (key, value, state = "") => ({
+  dataset: {panelWatch: key, panelWatchState: state},
   textContent: value,
   classList: fakeClassList(),
   offsetWidth: 100
@@ -59,4 +59,17 @@ test("newly added public panel values also receive a change pulse", t => {
 
   assert.equal(count.classList.contains("board-state-changed"), true)
   assert.equal(newItem.classList.contains("board-state-changed"), true)
+})
+
+test("state-only changes also pulse watched panel values", t => {
+  const objective = fakeElement("objective-glasshouse", "Repair the glasshouse roof", "open")
+  const hook = fakeHook([objective])
+  hook.mounted()
+  t.after(() => hook.destroyed())
+
+  hook.beforeUpdate()
+  objective.dataset.panelWatchState = "completed"
+  hook.updated()
+
+  assert.equal(objective.classList.contains("board-state-changed"), true)
 })

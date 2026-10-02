@@ -1018,6 +1018,7 @@
                   :for={objective <- objectives_for_status(@projection.objectives, status)}
                   id={"objective-#{objective.objective_id}"}
                   data-panel-watch={"objective-#{objective.objective_id}"}
+                  data-panel-watch-state={objective.status}
                   class="rounded-xl bg-white/80 px-3 py-3"
                 >
                   <h4 class="font-semibold text-stone-900">{objective.title}</h4>
