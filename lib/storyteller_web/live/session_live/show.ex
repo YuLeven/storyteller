@@ -117,7 +117,11 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   def handle_event("save-canon-correction", %{"correction" => params}, socket)
       when is_map(params) do
-    values = Map.take(params, ~w(action name quantity unit owner_id value place_id))
+    values =
+      Map.take(
+        params,
+        ~w(action name quantity unit category description owner_id properties value place_id)
+      )
 
     attrs = %{
       "kind" => Map.get(params, "kind"),
@@ -1391,7 +1395,7 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp maybe_fill_correction_default(params, previous, options) do
     inventory_item_changed? =
-      params["kind"] == "inventory" and params["action"] == "set" and
+      params["kind"] == "inventory" and params["action"] in ["set", "edit"] and
         not is_nil(params["target_id"]) and
         (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"] or
            params["action"] != previous["action"])
@@ -1407,8 +1411,18 @@ defmodule StorytellerWeb.SessionLive.Show do
     cond do
       inventory_item_changed? ->
         case Enum.find(options[:inventory] || [], &(&1.id == params["target_id"])) do
-          nil -> params
-          item -> Map.put(params, "quantity", to_string(item.quantity))
+          nil ->
+            params
+
+          item ->
+            params
+            |> Map.put("quantity", to_string(item.quantity))
+            |> Map.put("name", item.name)
+            |> Map.put("unit", item.unit || "")
+            |> Map.put("category", item.category || "")
+            |> Map.put("description", item.description || "")
+            |> Map.put("owner_id", item.owner_id || "")
+            |> Map.put("properties", Jason.encode!(item.properties, pretty: true))
         end
 
       resource_changed? ->

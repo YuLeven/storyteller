@@ -268,6 +268,131 @@ defmodule Storyteller.PlayTest do
            ]
   end
 
+  test "inventory detail corrections preserve public item identity and reject hidden items" do
+    {campaign, session} = play_campaign("The Orchard Item Ledger")
+
+    public_item = %{
+      "id" => "orchard-wine",
+      "name" => "Reserve wine",
+      "quantity" => 2,
+      "unit" => "bottles",
+      "category" => "wine",
+      "description" => "The last two bottles from the 1566 harvest.",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{"vintage" => "1566", "condition" => "clear"}
+    }
+
+    hidden_item = %{
+      "id" => "sealed-ledger",
+      "name" => "Secret cellar ledger",
+      "quantity" => 1,
+      "unit" => "book",
+      "owner_id" => "player",
+      "visibility" => "gm_private",
+      "properties" => %{}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", [public_item, hidden_item])
+      })
+    )
+
+    assert {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+    assert Enum.map(options.inventory, & &1.id) == ["orchard-wine"]
+    assert hd(options.inventory).properties == public_item["properties"]
+    refute inspect(options.inventory) =~ "Secret cellar ledger"
+
+    values = %{
+      "action" => "edit",
+      "name" => "Barrel-aged reserve",
+      "quantity" => "3",
+      "unit" => "small casks",
+      "category" => "cellar reserve",
+      "description" => "Three casks held back for the autumn tasting.",
+      "owner_id" => "party",
+      "properties" => ~s({"vintage":"1567","condition":"sealed","notes":{"rack":"north"}})
+    }
+
+    assert {:ok, receipt} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "inventory",
+               "target_id" => "orchard-wine",
+               "expected_revision" => options.revision,
+               "reason" => "The cellar inventory was checked against the physical casks.",
+               "values" => values
+             })
+
+    record = Repo.get_by!(CanonCorrection, campaign_id: campaign.id, sequence: receipt.sequence)
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    corrected = Enum.find(state.public_state["inventory"], &(&1["id"] == "orchard-wine"))
+
+    assert record.before_state == %{"item" => public_item}
+    assert record.after_state["item"] == corrected
+
+    assert corrected == %{
+             "id" => "orchard-wine",
+             "name" => "Barrel-aged reserve",
+             "quantity" => 3,
+             "unit" => "small casks",
+             "category" => "cellar reserve",
+             "description" => "Three casks held back for the autumn tasting.",
+             "owner_id" => "party",
+             "visibility" => "public",
+             "properties" => %{
+               "vintage" => "1567",
+               "condition" => "sealed",
+               "notes" => %{"rack" => "north"}
+             }
+           }
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert Enum.find(projection.inventory, &(&1["id"] == "orchard-wine")) == corrected
+
+    assert Enum.find(state.public_state["inventory"], &(&1["id"] == "sealed-ledger")) ==
+             hidden_item
+
+    assert state.event_sequence == 0
+    assert state.elapsed_world_minutes == 0
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    assert {:error, :not_found} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "inventory",
+               "target_id" => "sealed-ledger",
+               "expected_revision" => state.revision,
+               "reason" => "This hidden item must not be available in player corrections.",
+               "values" => %{
+                 "action" => "edit",
+                 "name" => "Exposed ledger",
+                 "quantity" => "1",
+                 "properties" => "{}"
+               }
+             })
+
+    before_invalid_edit = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:error, :invalid_value} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               "kind" => "inventory",
+               "target_id" => "orchard-wine",
+               "expected_revision" => before_invalid_edit.revision,
+               "reason" => "This malformed correction should be rejected.",
+               "values" => %{
+                 "action" => "edit",
+                 "name" => "Barrel-aged reserve",
+                 "quantity" => "3",
+                 "properties" => "[]"
+               }
+             })
+
+    assert Repo.get_by!(State, campaign_id: campaign.id) == before_invalid_edit
+    assert length(CanonCorrections.list_receipts(campaign.id)) == 1
+  end
+
   test "resource corrections use the field type and remain private outside tracked public fields" do
     {campaign, session} = play_campaign("The Cellar Ledger")
 

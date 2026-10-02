@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-01 — Correct public inventory item details in place
+
+- Added a reasoned, revision-checked inventory `edit` correction for item name, quantity, unit, category, description, owner, and the complete flexible-properties JSON object. The item is normalized through the inventory domain validator; its stable ID and visibility are retained, and full before/after snapshots stay in the correction ledger. Existing add, quantity/owner set, and remove actions keep their behavior.
+- Exposed the edit action from the campaign correction panel and prefilled the selected item's current values. Public correction options continue to omit GM-private inventory, and attempts to edit a private item are rejected. Zero quantity remains available through the existing set/remove path rather than silently deleting during an edit.
+- Added service and LiveView behavior coverage for all editable fields, nested properties, stable identity, audit snapshots, the updated public projection, private-item exclusion, and out-of-story correction behavior.
+- **Checks:** focused Play and SessionLive suites (**133 tests, 0 failures**); full WSL suite (**364 tests, 0 failures**); `MIX_ENV=test mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix gettext.extract --check-up-to-date`, and `git diff --check` passed. Tests use the isolated `storyteller_test` database and fake providers; no live provider, Vineyard campaign, or OAuth flow was used.
+
 ## 2026-10-01 — Keep the campaign save requirement in view
 
 - Moved the required correction-reason field and save feedback to the beginning of the campaign edit form. The requirement is now visible before character voice and mannerism fields, rather than appearing after the long form where a blocked save could look like edits were ignored.

@@ -189,6 +189,117 @@ defmodule StorytellerWeb.SessionLiveTest do
              before_events
   end
 
+  test "player can edit public inventory details from the correction panel", %{conn: conn} do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+
+    public_item = %{
+      "id" => "orchard-wine",
+      "name" => "Reserve wine",
+      "quantity" => 2,
+      "unit" => "bottles",
+      "category" => "wine",
+      "description" => "Two bottles from the last harvest.",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{"vintage" => "1566"}
+    }
+
+    hidden_item = %{
+      "id" => "sealed-ledger",
+      "name" => "Secret cellar ledger",
+      "quantity" => 1,
+      "unit" => "book",
+      "owner_id" => "player",
+      "visibility" => "gm_private",
+      "properties" => %{}
+    }
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", [public_item]),
+        gm_private_state: Map.put(state.gm_private_state, "inventory", [hidden_item])
+      })
+    )
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    {:ok, options} = CanonCorrections.options(campaign.id, session.id)
+
+    view
+    |> form("#canon-correction-form", %{
+      "correction" => %{
+        "kind" => "inventory",
+        "action" => "edit"
+      }
+    })
+    |> render_change()
+
+    view
+    |> form("#canon-correction-form", %{
+      "correction" => %{"target_id" => "orchard-wine"}
+    })
+    |> render_change()
+
+    assert has_element?(view, "#correction-item-edit-name")
+    assert has_element?(view, "#correction-item-edit-quantity")
+    assert has_element?(view, "#correction-item-edit-unit")
+    assert has_element?(view, "#correction-item-edit-category")
+    assert has_element?(view, "#correction-item-edit-description")
+    assert has_element?(view, "#correction-item-edit-owner")
+    assert has_element?(view, "#correction-item-edit-properties")
+    assert has_element?(view, "#correction-item-edit-name[value='Reserve wine']")
+    refute has_element?(view, "#inventory-item-sealed-ledger")
+    refute render(view) =~ "Secret cellar ledger"
+
+    correction = %{
+      "kind" => "inventory",
+      "action" => "edit",
+      "target_id" => "orchard-wine",
+      "name" => "Autumn reserve",
+      "quantity" => "4",
+      "unit" => "casks",
+      "category" => "cellar reserve",
+      "description" => "Saved for the village gathering.",
+      "owner_id" => "party",
+      "properties" => ~s({"vintage":"1567","seal":{"intact":true}}),
+      "reason" => "A cellar count corrected the item record.",
+      "expected_revision" => Integer.to_string(options.revision)
+    }
+
+    view
+    |> form("#canon-correction-form", %{"correction" => correction})
+    |> render_submit()
+
+    assert has_element?(view, "#inventory-item-orchard-wine", "Autumn reserve")
+    assert has_element?(view, "#inventory-item-orchard-wine", "4 casks")
+
+    assert has_element?(
+             view,
+             "#recent-canon-corrections",
+             "A cellar count corrected the item record."
+           )
+
+    refute has_element?(view, "#story-live-timeline", "A cellar count corrected the item record.")
+
+    updated_state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert Enum.find(updated_state.public_state["inventory"], &(&1["id"] == "orchard-wine")) == %{
+             "id" => "orchard-wine",
+             "name" => "Autumn reserve",
+             "quantity" => 4,
+             "unit" => "casks",
+             "category" => "cellar reserve",
+             "description" => "Saved for the village gathering.",
+             "owner_id" => "party",
+             "visibility" => "public",
+             "properties" => %{"vintage" => "1567", "seal" => %{"intact" => true}}
+           }
+
+    assert updated_state.gm_private_state["inventory"] == [hidden_item]
+  end
+
   test "weather correction updates canon without rewriting story history or elapsed time", %{
     conn: conn
   } do

@@ -86,6 +86,10 @@ defmodule Storyteller.Play.CanonCorrections do
             name: item["name"],
             quantity: item["quantity"],
             unit: item["unit"],
+            category: item["category"],
+            description: item["description"],
+            owner_id: item["owner_id"],
+            properties: item["properties"] || %{},
             owner_name: Map.get(owners_by_id, item["owner_id"]),
             owner_is_known?: MapSet.member?(owner_ids, item["owner_id"])
           }
@@ -272,6 +276,7 @@ defmodule Storyteller.Play.CanonCorrections do
     case action do
       "add" -> add_item(inventory, values, owners)
       "set" -> set_item(inventory, target_id, values, owners)
+      "edit" -> edit_item(inventory, target_id, values, owners)
       "remove" -> remove_item(inventory, target_id)
       _ -> {:error, :invalid_correction}
     end
@@ -721,6 +726,51 @@ defmodule Storyteller.Play.CanonCorrections do
 
   defp set_item(_inventory, _target_id, _values, _owners), do: {:error, :not_found}
 
+  defp edit_item(inventory, target_id, values, owners) when is_binary(target_id) do
+    case find_public_item(inventory, target_id) do
+      nil ->
+        {:error, :not_found}
+
+      item ->
+        owner_id = normalize_owner_id(attr(values, :owner_id))
+        owner_id = if owner_id in [nil, ""], do: item["owner_id"], else: owner_id
+        quantity = parse_integer(attr(values, :quantity))
+
+        with {:ok, properties} <- parse_properties(attr(values, :properties)),
+             candidate <- %{
+               "id" => item["id"],
+               "name" => attr(values, :name),
+               "quantity" => quantity,
+               "unit" => blank_to_nil(attr(values, :unit)),
+               "category" => blank_to_nil(attr(values, :category)),
+               "description" => blank_to_nil(attr(values, :description)),
+               "owner_id" => owner_id,
+               "visibility" => item["visibility"],
+               "properties" => properties
+             },
+             validation_owners <- owners |> MapSet.new() |> MapSet.put(item["owner_id"]),
+             {:ok, [normalized]} <- Inventory.normalize_initial([candidate], validation_owners) do
+          next_inventory =
+            Enum.map(inventory, fn current ->
+              if current["id"] == target_id, do: normalized, else: current
+            end)
+
+          if item == normalized do
+            {:error, :no_change}
+          else
+            before_state = %{"item" => item}
+            after_state = %{"item" => normalized}
+            update = fn state -> put_public_inventory(state, next_inventory) end
+            {:ok, target_id, before_state, after_state, update}
+          end
+        else
+          _ -> {:error, :invalid_value}
+        end
+    end
+  end
+
+  defp edit_item(_inventory, _target_id, _values, _owners), do: {:error, :not_found}
+
   defp remove_item(inventory, target_id) when is_binary(target_id) do
     case find_public_item(inventory, target_id) do
       nil ->
@@ -856,6 +906,17 @@ defmodule Storyteller.Play.CanonCorrections do
   end
 
   defp parse_integer(_), do: nil
+
+  defp parse_properties(value) when is_map(value), do: {:ok, value}
+
+  defp parse_properties(value) when is_binary(value) and byte_size(value) <= 10_000 do
+    case Jason.decode(value) do
+      {:ok, properties} when is_map(properties) -> {:ok, properties}
+      _ -> {:error, :invalid_properties}
+    end
+  end
+
+  defp parse_properties(_), do: {:error, :invalid_properties}
 
   defp parse_nonnegative_integer(value) do
     case parse_integer(value) do
