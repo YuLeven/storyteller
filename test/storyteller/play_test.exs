@@ -6670,6 +6670,13 @@ defmodule Storyteller.PlayTest do
       Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "charter-reply")
 
     expected_details = %{meeting.entry_id => meeting.details, reply.entry_id => reply.details}
+
+    expected_source_sequences =
+      Map.new([meeting, reply], fn entry ->
+        source_event = Repo.get!(Event, entry.source_event_id)
+        {entry.entry_id, source_event.sequence}
+      end)
+
     {:ok, next_session} = Campaigns.start_session(campaign)
     captured_contexts = Agent.start_link(fn -> [] end) |> elem(1)
 
@@ -6687,6 +6694,8 @@ defmodule Storyteller.PlayTest do
       {"When is our appointment?", meeting.entry_id},
       {"¿Cuándo quedamos para vernos?", meeting.entry_id},
       {"Où devions-nous retrouver quelqu'un ?", meeting.entry_id},
+      {"Où se rencontrent-ils demain ?", meeting.entry_id},
+      {"Où se retrouvent-ils demain ?", meeting.entry_id},
       {"Did she answer us yet?", reply.entry_id},
       {"¿Ya nos contestó?", reply.entry_id},
       {"A-t-elle répondu ?", reply.entry_id}
@@ -6716,6 +6725,9 @@ defmodule Storyteller.PlayTest do
 
       entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
       assert entries[expected_entry_id]["details"] == expected_details[expected_entry_id]
+
+      assert entries[expected_entry_id]["source_sequence"] ==
+               expected_source_sequences[expected_entry_id]
 
       for decoy_id <-
             [

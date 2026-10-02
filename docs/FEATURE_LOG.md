@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Recall natural French future-meeting questions
+
+- Added the French present-plural forms “rencontrent” and “retrouvent” to the bounded meeting concept. A later-session question such as “Où se retrouvent-ils demain ?” can now retrieve a typed public meeting commitment without restating names or location.
+- Extended both compiler-level and production-boundary fake-provider regressions across English, Spanish, and French. Same-topic ordinary appointment facts stay compact, unrelated commitments are excluded, and the 24,000-byte conservative preflight bound remains enforced.
+- **Checks:** focused context-budget and play suites passed (107 tests, 0 failures); the full WSL `MIX_ENV=test mix test --max-cases 1` suite passed (403 tests, 0 failures); formatter check and warnings-as-errors compilation passed.
+
 ## 2026-10-02 — Add a GM character from campaign edit
 
 - The campaign editor has a collapsed add-character panel for an owner to enter a required name, optional player-visible facts, GM-only notes, and the five per-character voice-guidance fields. A selector offers only existing public canonical places; blank remains unplaced. Speaker IDs are generated on the server and made unique against the campaign roster.

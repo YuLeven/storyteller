@@ -611,6 +611,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
           {"When is our appointment?", meeting.entry_id},
           {"¿Cuándo quedamos para vernos?", meeting.entry_id},
           {"Où devions-nous retrouver quelqu'un ?", meeting.entry_id},
+          {"Où se rencontrent-ils demain ?", meeting.entry_id},
+          {"Où se retrouvent-ils demain ?", meeting.entry_id},
           {"Did she answer us yet?", reply.entry_id},
           {"¿Ya nos contestó?", reply.entry_id},
           {"A-t-elle répondu ?", reply.entry_id}
