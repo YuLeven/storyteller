@@ -2348,7 +2348,7 @@ msgstr "Historique des corrections de configuration"
 #: lib/storyteller_web/live/session_live/show.ex:1780
 #, elixir-autogen, elixir-format
 msgid "Wait at %{location} for the next development. Advance time only until a decision is needed."
-msgstr ""
+msgstr "Attendez à %{location} jusqu'à ce qu'il se passe quelque chose. N'avancez le temps que jusqu'à ce qu'une décision soit nécessaire."
 
 #: lib/storyteller_web/live/session_live/show.ex:1740
 #, elixir-autogen, elixir-format
@@ -2359,7 +2359,7 @@ msgstr "Attendez ici"
 #: lib/storyteller_web/live/session_live/show.ex:1794
 #, elixir-autogen, elixir-format
 msgid "Wait here for the next development. Advance time only until a decision is needed."
-msgstr ""
+msgstr "Attendez ici jusqu'à ce qu'il se passe quelque chose. N'avancez le temps que jusqu'à ce qu'une décision soit nécessaire."
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:434
 #, elixir-autogen, elixir-format

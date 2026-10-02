@@ -8052,9 +8052,9 @@ defmodule Storyteller.PlayTest do
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
 
     assert normalized_instructions =~
-             "resolve routine activity over the interval in a concise montage"
+             "Resolve routine activity across the interval as a coherent montage"
 
-    assert normalized_instructions =~ "do not stop after each incidental action"
+    assert normalized_instructions =~ "Do not stop after each incidental action"
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.public_state["date"] == "Day 22"

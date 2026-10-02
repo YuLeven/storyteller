@@ -5,8 +5,15 @@
 - Reviewed the owner's shared campaign as a pacing reference. Its routine vineyard work advances over days in broad strokes, while a tasting or live social exchange can stay close to the conversation. The desired quality is that shift in rhythm, not a universal response length. No transcript or plot-specific state was copied into the repository.
 - The GM prompt no longer asks for one concise beat or at most one utterance per character per turn. It now distinguishes focused choice/dialogue beats from clearly scoped ongoing work and explicit time passage, while keeping player actions and follow-through under player control.
 - Explicit time passage now instructs the GM to resolve routine developments together rather than stopping after each incidental action. Canonical time validation remains in place.
+- Refined the pacing language to match the interval's natural scale and removed the general "stay brief" constraint that could undercut a useful workday montage.
 - Added production-request assertions for adaptive pace and the interval montage guidance. Automated provider behavior remains a fake-provider boundary check; live prose pacing still needs the owner to review in play.
-- **Checks:** focused context/play/LiveView suite (**184 tests, 0 failures**), full suite (**421 tests, 0 failures**), `mix compile --warnings-as-errors`, `mix format --check-formatted`, and `mix assets.build` passed in WSL. No live model request was made.
+- **Checks:** full suite (**421 tests, 0 failures**), test/dev warnings-as-errors compilation, format check, Gettext freshness check, and asset build passed in WSL. No live model request was made.
+
+## 2026-10-02 — Localize the time-passage wait nudge
+
+- The contextual wait action had untranslated copy in Spanish and French even though the main time-passage controls were localized.
+- Added natural Spanish and French text for both the location-aware and location-free wait instructions. Extended the LiveView regression to activate the nudge in English, Spanish, and French and assert the resulting player draft includes the correctly interpolated place.
+- **Checks:** targeted time-passage and pacing tests passed (**2 tests, 0 failures**); full suite passed (**421 tests, 0 failures**); test/dev warnings-as-errors compilation, format check, and Gettext freshness check passed in WSL. The localization assertion reads only isolated fake-provider LiveView fixtures.
 
 ## 2026-10-02 — Recover modest GM context overflows without dropping canon
 
@@ -47,7 +54,7 @@
 
 - A player could ask “What was our plan again?” in a later session and lose the agreed action when the question and commitment shared no subject words.
 - Added reviewed English, Spanish, and French plan/intention cues that retrieve active typed commitments. Retrieval stays bounded to the latest eight detailed entries per visibility; completed commitments and ordinary facts that merely mention a plan remain compact metadata.
-- Added compiler-level coverage for localized paraphrases and decoys, plus a production `Play.submit_turn` fake-provider regression that saves a plan, starts a later session, asks the English plan question, and verifies the commitment detail and source-event provenance arrive while same-topic and unrelated facts stay compact. The request's conservative serialized-byte upper bound remains under the configured 24,000 input-token budget.
+- Added compiler-level coverage for localized paraphrases and decoys, plus a production `Play.submit_turn` fake-provider regression that saves a plan, starts a later session, asks the English plan question, and verifies the commitment detail and source-event provenance arrive while same-topic and unrelated facts stay compact. The request's estimated serialized-byte size remains under Storyteller's configured 24,000-byte preflight bound.
 - Documented a dedicated `MIX_TEST_PARTITION=qa` database for persistent browser QA so it cannot contaminate the default ExUnit database.
 - **Checks:** focused GM context and Play suites passed (**112 tests, 0 failures**); the full WSL suite passed (**412 tests, 0 failures**). `MIX_ENV=test mix compile --warnings-as-errors`, `mix format --check-formatted`, Gettext extraction freshness, and `git diff --check` passed. Tests used `storyteller_test` and fake providers; no live model request, OAuth, development campaign, or Vineyard campaign was used.
 

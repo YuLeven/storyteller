@@ -1237,29 +1237,58 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert state_after.revision == state_before.revision
   end
 
-  test "the time-passage wait nudge uses the player's current location", %{conn: conn} do
+  test "the time-passage wait nudge uses the player's location in each locale", %{conn: conn} do
     campaign = campaign_fixture(%{starting_location: "The orchard gate"})
     [session] = campaign.sessions
-    {:ok, view, _html} = live_play(conn, campaign, session)
 
-    assert has_element?(view, "#world-location", "The orchard gate")
+    for {locale, wait_label, expected_text} <- [
+          {
+            "en",
+            "Wait here",
+            "Wait at The orchard gate for the next development. Advance time only until a decision is needed."
+          },
+          {
+            "es",
+            "Espera aquí",
+            "Espera en The orchard gate hasta que ocurra algo. Avanza el tiempo solo hasta que haya que tomar una decisión."
+          },
+          {
+            "fr",
+            "Attendez ici",
+            "Attendez à The orchard gate jusqu'à ce qu'il se passe quelque chose. N'avancez le temps que jusqu'à ce qu'une décision soit nécessaire."
+          }
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, view, _html} = live_play(conn, campaign, session)
 
-    view
-    |> element("#turn-composer button[phx-value-mode='time_passage']")
-    |> render_click()
+      assert has_element?(view, "#world-location", "The orchard gate")
 
-    assert has_element?(
-             view,
-             "#turn-composer button[phx-value-nudge_id='wait-here']",
-             "Wait here"
-           )
+      view
+      |> element("#turn-composer button[phx-value-mode='time_passage']")
+      |> render_click()
 
-    view
-    |> element("#turn-composer button[phx-value-nudge_id='wait-here']")
-    |> render_click()
+      assert has_element?(
+               view,
+               "#turn-composer button[phx-value-nudge_id='wait-here']",
+               wait_label
+             )
 
-    assert render(view) =~
-             "Wait at The orchard gate for the next development. Advance time only until a decision is needed."
+      view
+      |> element("#turn-composer button[phx-value-nudge_id='wait-here']")
+      |> render_click()
+
+      input_text =
+        view
+        |> render()
+        |> Floki.parse_document!()
+        |> Floki.find("#turn-input")
+        |> Floki.text()
+        |> String.replace("&#39;", "'")
+
+      assert input_text == expected_text
+    end
+
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
   end
 
   test "Let time pass advances the requested interval and returns control at a decision", %{

@@ -312,7 +312,7 @@ defmodule Storyteller.Play do
   a relevant group exchange unfold in the same scene beat when it helps. Do not
   require every character to speak. Avoid filler and repeated gestures.
   Update panels only for meaningful activity, leaving them unchanged otherwise.
-  Stay brief without omitting consequences or state changes.
+  Avoid padding; include the meaningful progress and consequences the scope warrants.
   Memory and state operations update panels/ledgers, never extra story messages.
 
   CONSEQUENCES AND DICE: Keep consequences proportionate; ordinary actions may
@@ -5038,8 +5038,9 @@ defmodule Storyteller.Play do
     meaningful decision is due. Keep calendar, time, weather, and other world
     changes canonical and consistent. Set time_advance_minutes to the total
     fictional minutes that pass, including travel. The request authorizes passage of time
-    only: resolve routine activity over the interval in a concise montage,
-    bringing relevant work and conversation together; do not stop after each
+    only. Resolve routine activity across the interval as a coherent montage
+    at the requested scale, bringing relevant progress and conversation
+    together. Do not stop after each
     incidental action. Pause at the next meaningful player decision. Do not
     choose or narrate actions, speech, thoughts, or decisions for
     the player's character, do not move or update that character, and do not
