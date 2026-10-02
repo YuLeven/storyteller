@@ -3154,6 +3154,11 @@ msgstr "Deja el campo en blanco para guardar el cambio con una nota general en e
 msgid "The GM's reply could not be used safely. No narration or campaign changes from it were saved; your action remains here to retry."
 msgstr "No se pudo usar la respuesta del director de juego de forma segura. No se guardaron su narración ni sus cambios; tu acción sigue aquí para que puedas volver a intentarlo."
 
+#: lib/storyteller_web/live/session_live/show.html.heex:310
+#, elixir-autogen, elixir-format
+msgid "If the request involved character movement, make sure a valid route connects the current location to the destination. The GM can establish a supported route in the same response; then retry."
+msgstr "Si la solicitud implicaba mover a un personaje, comprueba que haya una ruta válida entre su ubicación actual y el destino. El director de juego puede establecer una ruta respaldada por la historia en la misma respuesta; luego, vuelve a intentarlo."
+
 #: lib/storyteller_web/live/campaign_live/edit.ex:169
 #, elixir-autogen, elixir-format
 msgid "The campaign changed while this setup was open. Your draft is still here; review the latest campaign state before saving again."

@@ -1595,6 +1595,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(view, "#turn-error button[phx-click='retry-turn']", "Retry this turn")
     refute has_element?(view, "#composer-turn-status")
+    refute has_element?(view, "#turn-error", "If the request involved character movement")
 
     view
     |> element("#turn-error button[phx-click='retry-turn']")
@@ -1610,6 +1611,91 @@ defmodule StorytellerWeb.SessionLiveTest do
                has_element?(view, "#story-timeline", "The keeper points toward the bodega road.")
            end),
            "retry did not complete: #{inspect(Repo.get!(Turn, failed_turn.id))}"
+  end
+
+  test "a disconnected character move gets safe route guidance without exposing proposal details",
+       %{
+         conn: conn
+       } do
+    campaign = campaign_fixture(%{starting_location: "Observatory Guest Room"})
+    [session] = campaign.sessions
+    guest_room = Repo.get_by!(Place, campaign_id: campaign.id, name: "Observatory Guest Room")
+
+    corridor =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "observatory-guest-corridor",
+          name: "Observatory Guest Corridor",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    mira =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:mira",
+          name: "Mira",
+          role: :gm,
+          current_place_id: corridor.place_id,
+          visible_facts: %{},
+          gm_private_facts: %{}
+        })
+      )
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "Mira steps into the guest room.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         panel_changes: [],
+         character_updates: [],
+         character_creations: [],
+         inventory_changes: [],
+         location_changes: [
+           %{
+             "type" => "move_character",
+             "speaker_id" => mira.speaker_id,
+             "place_id" => guest_room.place_id,
+             "reason" => "Mira follows the route into the guest room."
+           }
+         ],
+         travel_changes: [],
+         objective_changes: [],
+         continuity_changes: [],
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    action = "Ask Mira to come from the corridor into the guest room."
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    recovery_hint =
+      "If the request involved character movement, make sure a valid route connects the current location to the destination."
+
+    assert wait_until(fn -> has_element?(view, "#turn-error", recovery_hint) end)
+
+    failed_turn = Play.public_current_turn(campaign.id)
+    assert failed_turn.status == :failed
+    assert failed_turn.failure_code == "invalid_response"
+    assert failed_turn.failure_stage == :proposal_validation
+    assert Repo.get!(Character, mira.id).current_place_id == corridor.place_id
+    refute has_element?(view, "#turn-error", "Mira")
+    refute has_element?(view, "#turn-error", "observatory-guest-corridor")
+    refute has_element?(view, "#turn-error", "unconnected_move")
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    refute Enum.any?(events, &(&1.turn_id == failed_turn.id and &1.event_type == :gm_narration))
   end
 
   test "a follow-up submitted during resolution stays in the composer until sent", %{conn: conn} do

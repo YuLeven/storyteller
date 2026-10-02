@@ -301,6 +301,17 @@
           </p>
           <p
             :if={
+              @current_turn.failure_code == "invalid_response" and
+                @current_turn.failure_stage == :proposal_validation
+            }
+            class="mt-2 text-sm leading-6 text-rose-800"
+          >
+            {gettext(
+              "If the request involved character movement, make sure a valid route connects the current location to the destination. The GM can establish a supported route in the same response; then retry."
+            )}
+          </p>
+          <p
+            :if={
               !opening_scene?(@current_turn) and
                 not (@current_turn.failure_code == "usage_limit" and @plan_usage_paused?) and
                 not (@current_turn.failure_code == "usage_limit" and

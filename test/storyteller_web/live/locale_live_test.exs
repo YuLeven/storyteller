@@ -322,6 +322,46 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Toute son histoire reste enregistrée."
   end
 
+  test "proposal validation route recovery guidance follows the saved UI locale", %{conn: conn} do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+
+    Repo.insert!(
+      Turn.changeset(%Turn{}, %{
+        campaign_id: campaign.id,
+        session_id: session.id,
+        idempotency_key: "localized-route-recovery-turn",
+        request_hash: String.duplicate("0", 64),
+        player_input: "Ask a character to meet me.",
+        intent: :action,
+        status: :failed,
+        resolution_phase: :initial,
+        attempts: 1,
+        failure_code: "invalid_response",
+        failure_stage: :proposal_validation
+      })
+    )
+
+    for {locale, hint} <- [
+          {
+            "en",
+            "If the request involved character movement, make sure a valid route connects the current location to the destination."
+          },
+          {
+            "es",
+            "Si la solicitud implicaba mover a un personaje, comprueba que haya una ruta válida entre su ubicación actual y el destino."
+          },
+          {
+            "fr",
+            "Si la demande impliquait de déplacer un personnage, vérifiez qu’un itinéraire valide relie son lieu actuel à sa destination."
+          }
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, _view, html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+      assert html =~ hint
+    end
+  end
+
   test "the objectives board localizes statuses and excludes GM-private objectives", %{
     conn: conn
   } do
