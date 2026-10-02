@@ -311,7 +311,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
            }
   end
 
-  test "campaign editor saves voice guidance retained from change events", %{conn: conn} do
+  test "campaign editor strips unused input markers and retains voice drafts", %{conn: conn} do
     campaign =
       campaign_fixture(%{
         gm_characters: [
@@ -321,10 +321,34 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
 
+    # Phoenix adds `_unused_*` metadata for untouched controls during
+    # phx-change. A later partial submit must not pass those UI markers to
+    # the strict campaign authoring validators.
     validated_attrs = %{
       "correction_reason" => "Clarify how Marcel speaks and moves.",
+      "gm_character_setup" => %{
+        "npc:cellar-keeper" => %{
+          "_unused_visible_facts_text" => "",
+          "_unused_private_notes" => "",
+          "visible_facts_text" => "",
+          "private_notes" => ""
+        }
+      },
+      "character_active_duties" => %{
+        "npc:cellar-keeper" => %{
+          "_unused_duty_name" => "",
+          "_unused_duty_duration_minutes" => "",
+          "duty_name" => "",
+          "duty_duration_minutes" => ""
+        }
+      },
       "character_voice_guidance" => %{
         "npc:cellar-keeper" => %{
+          "_unused_accent_dialect" => "",
+          "_unused_mannerisms" => "",
+          "_unused_cadence" => "",
+          "_unused_quirks" => "",
+          "_unused_vocabulary" => "",
           "accent_dialect" => "Warm French vowels.",
           "mannerisms" => "Taps the wine thief against the barrel before speaking."
         }

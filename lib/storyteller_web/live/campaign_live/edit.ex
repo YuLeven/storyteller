@@ -253,6 +253,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   defp authoring_draft(attrs) do
     Map.take(attrs, ["gm_character_setup", "character_active_duties", "character_voice_guidance"])
+    |> drop_unused_liveview_markers()
   end
 
   defp put_default_correction_reason(attrs, default) do
@@ -275,8 +276,18 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       ],
       attrs,
       fn {key, atom_key}, merged ->
-        submitted = attrs |> draft_attr(key, %{}) |> stringify_nested_keys()
-        validated = draft |> draft_attr(key, %{}) |> stringify_nested_keys()
+        submitted =
+          attrs
+          |> draft_attr(key, %{})
+          |> stringify_nested_keys()
+          |> drop_unused_liveview_markers()
+
+        validated =
+          draft
+          |> draft_attr(key, %{})
+          |> stringify_nested_keys()
+          |> drop_unused_liveview_markers()
+
         combined = deep_merge(validated, submitted)
 
         merged
@@ -321,6 +332,25 @@ defmodule StorytellerWeb.CampaignLive.Edit do
   end
 
   defp stringify_nested_keys(value), do: value
+
+  # phx-change adds these markers for untouched nested controls. They are UI
+  # metadata, not campaign authoring fields, and cannot reach the validators.
+  defp drop_unused_liveview_markers(%_{} = struct), do: struct
+
+  defp drop_unused_liveview_markers(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {key, drop_unused_liveview_markers(value)} end)
+    |> Map.reject(fn {key, _value} -> unused_liveview_marker?(key) end)
+  end
+
+  defp drop_unused_liveview_markers(value), do: value
+
+  defp unused_liveview_marker?(key) when is_atom(key),
+    do: unused_liveview_marker?(Atom.to_string(key))
+
+  defp unused_liveview_marker?(key) when is_binary(key),
+    do: String.starts_with?(key, "_unused_")
+
+  defp unused_liveview_marker?(_key), do: false
 
   defp deep_merge(left, right) when is_map(left) and is_map(right) do
     Map.merge(left, right, fn _key, left_value, right_value ->

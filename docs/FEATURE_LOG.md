@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Save character voice notes from the campaign editor
+
+- Phoenix LiveView adds `_unused_*` markers for untouched nested form inputs during change events. Those markers were retained in the editor draft and later rejected by strict authoring validation, so real browser saves showed a false voice-limit error and did not persist the notes.
+- The editor now strips only those framework markers from authoring drafts and submit data before validation. Other unexpected keys still reach the strict validators and remain rejected.
+- Expanded the behavioral regression with realistic unused markers across character facts, active duties, and all voice fields. It proves a later partial submit saves the voice notes to the character and a reopened edit form reads them back. A local browser repro against the isolated `storyteller_test` database also confirmed the failure before the fix and successful save/reload afterward; no live model request was made.
+- **Checks:** WSL targeted edit tests (10 passed), full suite (379 tests, 0 failures), warnings-as-errors compilation, formatter check, Gettext extraction/freshness, and `git diff --check`. A real edit/save/reload in the browser was verified against the isolated `storyteller_test` database; synthetic QA rows and the temporary server were removed afterward.
+
 ## 2026-10-02 — Recall a prior agreement from “What did we decide?”
 
 - Added bounded English `decide`/`decided` aliases for typed campaign commitments, so a later-session question can retrieve an earlier agreement even when its saved details say “agreed.” The shared typed concept does not expand detail retrieval for an ordinary fact merely because it also says “decided.”

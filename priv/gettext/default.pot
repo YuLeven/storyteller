@@ -627,7 +627,7 @@ msgstr ""
 msgid "Panel name"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:356
+#: lib/storyteller_web/live/campaign_live/edit.ex:386
 #: lib/storyteller_web/live/campaign_live/show.html.heex:51
 #, elixir-autogen, elixir-format
 msgid "Player character"
@@ -2328,13 +2328,13 @@ msgstr ""
 msgid "Add a reason for changing the campaign setup."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:355
-#: lib/storyteller_web/live/campaign_live/edit.ex:359
+#: lib/storyteller_web/live/campaign_live/edit.ex:385
+#: lib/storyteller_web/live/campaign_live/edit.ex:389
 #, elixir-autogen, elixir-format
 msgid "Campaign setup"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:357
+#: lib/storyteller_web/live/campaign_live/edit.ex:387
 #, elixir-autogen, elixir-format
 msgid "Character details"
 msgstr ""
@@ -3148,7 +3148,7 @@ msgstr ""
 msgid "You can begin your first turn as soon as the opening scene is ready."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:264
+#: lib/storyteller_web/live/campaign_live/edit.ex:265
 #, elixir-autogen, elixir-format
 msgid "Campaign setup updated"
 msgstr ""
