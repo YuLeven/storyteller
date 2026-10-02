@@ -30,7 +30,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     event_count_before =
       Repo.aggregate(from(event in Event, where: event.campaign_id == ^campaign.id), :count)
 
-    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
 
     assert has_element?(
              view,
@@ -43,6 +43,16 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
              "#new-gm-character option[value='#{public_place.place_id}']",
              "Quiet Observatory"
            )
+
+    assert has_element?(
+             view,
+             "#new-gm-character",
+             "Describe how they sound, such as measured pauses, short phrases, or careful word choice."
+           )
+
+    assert has_element?(view, "#new-gm-character", "This profile guides the GM")
+    assert has_element?(view, "#new-gm-character", "Each field allows up to 280 characters")
+    assert html =~ "avoid phonetic spelling or stereotyped accents"
 
     new_character = %{
       "name" => "Mara Voss",
@@ -329,9 +339,19 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
   test "campaign setup captures bounded GM-only character voice guidance", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/campaigns/new")
 
-    view |> element("button[phx-click='add-character']") |> render_click()
+    html = view |> element("button[phx-click='add-character']") |> render_click()
 
     assert has_element?(view, "#gm-character-0 details > summary", "Character voice guidance")
+
+    assert has_element?(
+             view,
+             "#gm-character-0",
+             "Describe how they sound, such as measured pauses"
+           )
+
+    assert has_element?(view, "#gm-character-0", "This profile guides the GM")
+    assert has_element?(view, "#gm-character-0", "Each field allows up to 280 characters")
+    assert html =~ "avoid phonetic spelling or stereotyped accents"
 
     attrs = %{
       title: "The Lantern Watch",
@@ -462,6 +482,15 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     assert has_element?(view, "#facts-keeper-elin details > summary", "Voice and mannerisms")
     refute has_element?(view, "h2", "Character voice guidance")
+
+    assert has_element?(
+             view,
+             "#facts-keeper-elin",
+             "Describe how they sound, such as measured pauses"
+           )
+
+    assert has_element?(view, "#facts-keeper-elin", "This profile guides the GM")
+    assert has_element?(view, "#facts-keeper-elin", "Each field allows up to 280 characters")
 
     assert has_element?(
              view,
@@ -680,6 +709,37 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
              "vocabulary" => "Calls storms squalls.",
              "mannerisms" => "Turns the brass key while she thinks."
            }
+  end
+
+  test "campaign editor explains a rejected save and retains voice edits", %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        gm_characters: [%{speaker_id: "keeper-elin", name: "Keeper Elin", voice_guidance: %{}}]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    voice = %{"keeper-elin" => %{"mannerisms" => "Turns a brass key while thinking."}}
+
+    render_change(view, "validate", %{"campaign" => %{"character_voice_guidance" => voice}})
+
+    html =
+      render_submit(view, "save", %{
+        "campaign" => %{"title" => String.duplicate("x", 101)}
+      })
+
+    assert html =~ "Campaign changes could not be saved. Review the fields and try again."
+
+    assert has_element?(
+             view,
+             "#campaign-edit-save-feedback[role=alert]",
+             "Campaign changes could not be saved. Review the fields and try again."
+           )
+
+    assert render(view) =~ "Turns a brass key while thinking."
+    assert Campaigns.get_campaign!(campaign.id).title == campaign.title
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+    assert character.voice_guidance == %{}
   end
 
   test "campaign editor strips unused input markers and retains voice drafts", %{conn: conn} do

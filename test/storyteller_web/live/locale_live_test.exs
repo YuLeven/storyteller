@@ -125,6 +125,45 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "lieu public distinct"
   end
 
+  test "character voice coaching and limits are translated in setup and edit cards", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{gm_characters: [%{speaker_id: "keeper-elin", name: "Keeper Elin"}]})
+
+    for {locale, example, delivery_guidance, limit_guidance} <- [
+          {
+            "es",
+            "Describe cómo suena, por ejemplo, con pausas medidas, frases breves o palabras bien elegidas.",
+            "Este perfil guía cómo el director de juego interpreta al personaje",
+            "Cada campo admite hasta 280 caracteres; todas las notas juntas permiten 1200."
+          },
+          {
+            "fr",
+            "Décrivez sa façon de parler, par exemple avec des pauses mesurées, des phrases courtes ou des mots choisis avec soin.",
+            "Ce profil guide la façon dont le maître de jeu interprète le personnage",
+            "Chaque champ accepte jusqu’à 280 caractères"
+          }
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+
+      {:ok, setup_view, _html} = live(conn, ~p"/campaigns/new")
+      setup_html = setup_view |> element("button[phx-click=add-character]") |> render_click()
+
+      assert has_element?(setup_view, "#gm-character-0", example)
+      assert setup_html =~ delivery_guidance
+      assert setup_html =~ limit_guidance
+
+      {:ok, edit_view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+      for card <- ["#facts-keeper-elin", "#new-gm-character"] do
+        assert has_element?(edit_view, card, example)
+        assert has_element?(edit_view, card, delivery_guidance)
+        assert has_element?(edit_view, card, limit_guidance)
+      end
+    end
+  end
+
   test "active duty setup, editor guidance, and validation are translated", %{conn: conn} do
     campaign =
       campaign_fixture(%{

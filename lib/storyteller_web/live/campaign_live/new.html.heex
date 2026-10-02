@@ -535,7 +535,12 @@
               </summary>
               <p class="mt-2 text-sm text-stone-600">
                 {gettext(
-                  "Keep delivery notes separate from character facts. Each field allows up to %{field_limit} characters; all notes together allow %{total_limit}.",
+                  "Describe how they sound, such as measured pauses, short phrases, or careful word choice. This profile guides the GM's delivery; avoid phonetic spelling or stereotyped accents."
+                )}
+              </p>
+              <p class="mt-1 text-xs text-stone-500">
+                {gettext(
+                  "Each field allows up to %{field_limit} characters; all notes together allow %{total_limit}.",
                   field_limit: VoiceGuidance.max_field_length(),
                   total_limit: VoiceGuidance.max_total_length()
                 )}

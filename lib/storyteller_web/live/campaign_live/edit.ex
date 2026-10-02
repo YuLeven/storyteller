@@ -93,7 +93,8 @@ defmodule StorytellerWeb.CampaignLive.Edit do
            form: to_form(%{changeset | action: :validate}, as: :campaign),
            authoring_draft: authoring_draft(attrs),
            correction_reason: Map.get(attrs, "correction_reason", ""),
-           save_error: nil
+           save_error:
+             gettext("Campaign changes could not be saved. Review the fields and try again.")
          )}
 
       {:error, :invalid_voice_guidance} ->

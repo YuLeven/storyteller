@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Clarify character voice setup and edit-save feedback
+
+- Replaced the generic character voice length-limit helper in campaign setup, existing-character edit cards, and the add-character card with a concise example of audible cues: measured pauses, short phrases, and careful word choice. The helper says these profiles guide GM delivery and discourages phonetic spelling and stereotyped accents; live character counts still communicate the limits.
+- Updated Spanish and French copy. When a campaign field error rejects the atomic save, the edit page now shows an explicit save-failed alert and keeps the voice draft visible so the player can correct the form without losing their notes or mistaking it for a successful save.
+- Added rendered coverage for setup/edit guidance and translations, rejected-save feedback, retained drafts, and persistence of all five fields through reload into later GM context.
+- **Checks:** authoring and locale LiveViews **30 tests, 0 failures**; full WSL suite **405 tests, 0 failures**; warnings-as-errors compile, formatter, Gettext freshness, and `git diff --check` passed. All test data was created in isolated `storyteller_test`; no development campaign data or live provider request was accessed.
+
 ## 2026-10-02 — Recall natural French future-meeting questions
 
 - Added the French present-plural forms “rencontrent” and “retrouvent” to the bounded meeting concept. A later-session question such as “Où se retrouvent-ils demain ?” can now retrieve a typed public meeting commitment without restating names or location.
