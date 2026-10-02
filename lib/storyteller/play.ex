@@ -55,6 +55,117 @@ defmodule Storyteller.Play do
   @max_history_entity_terms 24
   @max_history_scene_speakers 32
   @max_history_connected_places 24
+  @scene_action_pattern ~r/
+                         \b(?:
+                           approach(?:es)?
+                           | arrive(?:s)?
+                           | appear(?:s)?
+                           | ask(?:s)?
+                           | answer(?:s)?
+                           | call(?:s)?
+                           | come(?:s)?
+                           | cross(?:es)?
+                           | enter(?:s)?
+                           | gestur(?:e|es)
+                           | join(?:s)?
+                           | laugh(?:s)?
+                           | lean(?:s)?
+                           | look(?:s)?
+                           | move(?:s)?
+                           | nod(?:s)?
+                           | offer(?:s)?
+                           | open(?:s)?
+                           | pass(?:es)?
+                           | peek(?:s)?
+                           | reach(?:es)?
+                           | remain(?:s)?
+                           | respond(?:s)?
+                           | say(?:s)?
+                           | sit(?:s)?
+                           | smile(?:s)?
+                           | speak(?:s)?
+                           | stand(?:s)?
+                           | step(?:s)?
+                           | turn(?:s)?
+                           | walk(?:s)?
+                           | wave(?:s)?
+                           | saluda?n?
+                           | entra?n?
+                           | aparece?n?
+                           | llega?n?
+                           | viene?n?
+                           | camina?n?
+                           | pasa?n?
+                           | cruza?n?
+                           | acerca?n?
+                           | sienta?n?
+                           | levanta?n?
+                           | queda?n?
+                           | sonrie?n?
+                           | mira?n?
+                           | espera?n?
+                           | responde?n?
+                           | dice?n?
+                           | llama?n?
+                           | abre?n?
+                           | asoma?n?
+                           | fait\s+signe
+                           | approche(?:nt)?
+                           | arrive(?:nt)?
+                           | apparait
+                           | entre(?:nt)?
+                           | passe(?:nt)?
+                           | traverse(?:nt)?
+                           | marche(?:nt)?
+                           | rejoint
+                           | rejoignent
+                           | s\s+approche
+                           | s\s+assoit
+                           | se\s+tient
+                           | attend
+                           | sourit
+                           | dit
+                           | repond
+                           | appelle
+                           | ouvre
+                           | salue
+                           | est
+                           | esta
+                           | is
+                           | are
+                         )\b
+                       /ux
+  @scene_location_pattern ~r/
+                           \b(?:
+                             here
+                             | door(?:way)?
+                             | room
+                             | table
+                             | beside\s+you
+                             | next\s+to\s+you
+                             | by\s+your\s+side
+                             | across\s+from\s+you
+                             | in\s+front\s+of\s+you
+                             | behind\s+you
+                             | aqui
+                             | puerta
+                             | habitacion
+                             | mesa
+                             | junto\s+a\s+ti
+                             | a\s+tu\s+lado
+                             | frente\s+a\s+ti
+                             | cerca\s+de\s+ti
+                             | ici
+                             | porte
+                             | salle
+                             | table
+                             | a\s+cote\s+de\s+toi
+                             | a\s+tes\s+cotes
+                             | face\s+a\s+toi
+                             | pres\s+de\s+toi
+                             | devant\s+toi
+                           )\b
+                         /ux
   @history_observation_terms MapSet.new(~w(
     look looks looking looked see sees seeing seen notice notices noticing noticed
     observe observes observing observed inspect inspects inspecting inspected hear hears
@@ -2816,8 +2927,10 @@ defmodule Storyteller.Play do
            ),
          :ok <-
            validate_public_scene_presence(
+             narration,
              dialogue,
              activities,
+             characters,
              final_locations,
              player_place_id,
              turn.campaign_id,
@@ -3559,8 +3672,10 @@ defmodule Storyteller.Play do
   end
 
   defp validate_public_scene_presence(
+         narration,
          dialogue,
          activities,
+         characters,
          locations,
          player_place_id,
          campaign_id,
@@ -3574,9 +3689,104 @@ defmodule Storyteller.Play do
         Map.get(speaker_visibility, line.speaker_id, :public) == :public
       end)
 
-    if TravelGraph.public_lines_in_scene?(public_lines, locations, scene_id),
-      do: :ok,
-      else: {:error, :invalid_response}
+    cond do
+      not TravelGraph.public_lines_in_scene?(public_lines, locations, scene_id) ->
+        {:error, :invalid_response}
+
+      narration_claims_off_scene_presence?(
+        narration,
+        characters,
+        locations,
+        scene_id,
+        speaker_visibility,
+        public_place_names_after_changes(campaign_id, location_changes)
+      ) ->
+        {:error, :invalid_response}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp narration_claims_off_scene_presence?(
+         narration,
+         characters,
+         locations,
+         scene_id,
+         visibility,
+         places
+       ) do
+    scene_name = Map.get(places, scene_id)
+    sentences = String.split(narration, ~r/(?<=[.!?])\s+|[\r\n]+/u, trim: true)
+
+    Enum.any?(characters, fn character ->
+      character.role == :gm and
+        Map.get(visibility, character.speaker_id, :public) == :public and
+        Map.get(locations, character.speaker_id) != scene_id and
+        Enum.any?(sentences, fn sentence ->
+          sentence_mentions_character?(sentence, character.name) and
+            scene_presence_claim?(sentence, scene_name, scene_id, places)
+        end)
+    end)
+  end
+
+  defp scene_presence_claim?(sentence, scene_name, scene_id, places) do
+    normalized = normalize_presence_text(sentence)
+    named_scene? = is_binary(scene_name) and contains_presence_phrase?(normalized, scene_name)
+    local_cue? = Regex.match?(@scene_location_pattern, normalized)
+
+    other_place? =
+      Enum.any?(places, fn {place_id, name} ->
+        place_id != scene_id and contains_presence_phrase?(normalized, name)
+      end)
+
+    (named_scene? or local_cue?) and not other_place? and
+      Regex.match?(@scene_action_pattern, normalized)
+  end
+
+  defp sentence_mentions_character?(sentence, name) do
+    contains_presence_phrase?(normalize_presence_text(sentence), name)
+  end
+
+  defp contains_presence_phrase?(_normalized_sentence, name) when not is_binary(name), do: false
+
+  defp contains_presence_phrase?(normalized_sentence, name) do
+    normalized_name = normalize_presence_text(name)
+
+    normalized_name != "" and
+      String.contains?(" " <> normalized_sentence <> " ", " " <> normalized_name <> " ")
+  end
+
+  defp normalize_presence_text(text) do
+    text
+    |> String.normalize(:nfd)
+    |> String.replace(~r/\p{Mn}/u, "")
+    |> String.downcase()
+    |> String.replace(~r/[^\p{L}\p{N}]+/u, " ")
+    |> String.trim()
+  end
+
+  defp public_place_names_after_changes(campaign_id, location_changes) do
+    persisted =
+      Repo.all(
+        from place in Place,
+          where: place.campaign_id == ^campaign_id and place.visibility == :public,
+          select: {place.place_id, place.name}
+      )
+
+    proposed =
+      Enum.flat_map(location_changes, fn
+        %{
+          "type" => "create_place",
+          "place" => %{"place_id" => place_id, "name" => name, "visibility" => "public"}
+        } ->
+          [{place_id, name}]
+
+        _ ->
+          []
+      end)
+
+    Map.new(persisted ++ proposed)
   end
 
   defp validate_opening_scene_player_place(

@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Reject clear narration-only NPC teleportation
+
+- The continuity audit found that canonical presence checks covered public dialogue and activities, but missed narration that said an off-scene character was physically acting at the player's current location. Added a proposal-validation check before the turn transaction commits.
+- The regression builds a fictional Finca/Bodega route with Lyra at the Finca and the player at the Bodega. English, Spanish, and French narration that puts Lyra at the Bodega doorway is rejected without adding a story event or changing canon; an ordinary recollection of Lyra's advice is accepted.
+- This check is deliberately lexical: it combines a character name, a current-scene/location cue, and a present-action cue while allowing sentences that name another public place. It reduces a tested class of hallucinations, but does not understand prose generally and can miss paraphrases or flag ambiguous sentences. Broader language understanding remains open.
+- **Checks:** focused fake-provider regression passed (1 selected, 0 failures); the full isolated WSL suite passed (**410 tests, 0 failures**). Formatting, `MIX_ENV=test mix compile --warnings-as-errors`, Gettext extraction freshness, and `git diff --check` passed. Test fixtures use isolated `storyteller_test`; no campaign data, development database, live model, OAuth flow, or Vineyard campaign was used.
+
 ## 2026-10-02 — Put canon corrections beside public values
 
 - The audited correction form was hidden below the play board, so correcting an item or resource required opening the panel, choosing its type, finding the target, and re-entering the current value.

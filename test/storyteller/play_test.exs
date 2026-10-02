@@ -3233,6 +3233,135 @@ defmodule Storyteller.PlayTest do
     assert Enum.any?(events, &(&1.turn_id == arrived.id and &1.event_type == :npc_dialogue))
   end
 
+  test "rejects narration that places an off-scene NPC in the player's current scene" do
+    {campaign, session} = play_campaign("The Narrated Teleport", starting_location: "Finca")
+    finca = Repo.get_by!(Place, campaign_id: campaign.id, name: "Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{}
+        })
+      )
+
+    insert_travel_connection!(campaign.id, finca.place_id, bodega.place_id, 40)
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(player, %{current_place_id: bodega.place_id}))
+    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "location", "Bodega")})
+    )
+
+    before_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert {:ok, before_timeline} = Play.public_timeline(campaign.id)
+
+    narration_only_appearance =
+      ordinary_proposal(%{
+        "narration" => "Lyra waves from the Bodega doorway.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => []
+      })
+
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation} = failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "narration-only-lyra-appearance",
+               "I arrive at the Bodega and look for Lyra.",
+               provider: fn _request -> {:ok, Jason.encode!(narration_only_appearance)} end,
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id) == before_state
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra").current_place_id ==
+             finca.place_id
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             bodega.place_id
+
+    assert {:ok, ^before_timeline} = Play.public_timeline(campaign.id)
+
+    refute Enum.any?(
+             before_timeline,
+             &(&1.turn_id == failed.id and &1.event_type == :gm_narration)
+           )
+
+    for {key, narration} <- [
+          {"narration-only-lyra-appearance-es", "Lyra saluda desde la puerta de la Bodega."},
+          {"narration-only-lyra-appearance-fr", "Lyra fait signe depuis la porte de la Bodega."}
+        ] do
+      translated_appearance =
+        ordinary_proposal(%{
+          "narration" => narration,
+          "dialogue" => [],
+          "activities" => [],
+          "character_updates" => []
+        })
+
+      assert {:ok, %{status: :failed, failure_stage: :proposal_validation}} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 key,
+                 "I look for Lyra at the Bodega.",
+                 provider: fn _request -> {:ok, Jason.encode!(translated_appearance)} end,
+                 model: "test-model"
+               )
+    end
+
+    remembered_reference =
+      ordinary_proposal(%{
+        "narration" => "You remember Lyra's advice about keeping the cellar book dry.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => []
+      })
+
+    assert {:ok, %{status: :completed} = remembered} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "remember-off-scene-lyra",
+               "I think back to what Lyra told me about the cellar book.",
+               provider: fn _request -> {:ok, Jason.encode!(remembered_reference)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, remembered_timeline} = Play.public_timeline(campaign.id)
+
+    assert Enum.any?(remembered_timeline, fn event ->
+             event.turn_id == remembered.id and event.event_type == :gm_narration
+           end)
+
+    remote_scene_reference =
+      ordinary_proposal(%{
+        "narration" => "At the Finca doorway, Lyra waves to a passing courier.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => []
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "describe-lyra-at-her-canonical-place",
+               "I wonder what Lyra might be doing back at the Finca.",
+               provider: fn _request -> {:ok, Jason.encode!(remote_scene_reference)} end,
+               model: "test-model"
+             )
+  end
+
   test "public NPC dialogue requires an established player scene" do
     {campaign, session} = play_campaign("The Unplaced Player")
     finca = establish_starting_place!(campaign, "Finca")
