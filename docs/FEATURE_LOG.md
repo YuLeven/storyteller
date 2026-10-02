@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Validate OAuth codes before persisting registration
+
+- A loopback callback with valid state and an issued client ID could omit its authorization code yet persist that unverified ID. A later sign-in would reuse it, potentially preventing first-time registration from recovering.
+- The callback now rejects missing, empty, or whitespace-only codes before persisting the ID. Persistence still happens before token exchange, so an issued ID remains reusable when exchange fails transiently.
+- Added a fake-OIDC regression that retries after each incomplete callback and verifies registration still uses the dynamic client and its first-registration hint.
+- **Checks:** focused WSL OAuth suite passed (**20 tests, 0 failures**); the full isolated suite passed (**408 tests, 0 failures**). `mix format --check-formatted`, `MIX_ENV=test mix compile --warnings-as-errors`, and `git diff --check` passed. Tests used fake OIDC responses and no live OAuth consent, token exchange, or inference.
+
 ## 2026-10-02 — Recall known details when travel and looking happen together
 
 - Observation recall used only the scene the player occupied before the turn, so an explicit “go to the Bodega and look around” action could reach the destination while the GM prompt omitted older facts established there.

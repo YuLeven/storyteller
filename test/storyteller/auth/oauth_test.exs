@@ -98,6 +98,30 @@ defmodule Storyteller.Auth.OAuthTest do
     assert query_params(authorization_url)["redirect_uri"] == opts[:callback_uri]
   end
 
+  test "an incomplete callback cannot persist an unverified client ID", context do
+    opts = [store: context.store, oidc: FakeOIDC]
+
+    for code <- [nil, "", "   "] do
+      assert {:ok, authorization_url} = OAuth.start_authorization(opts)
+      query = query_params(authorization_url)
+
+      callback = %{
+        "state" => query["state"],
+        "client_id" => "malformed-issued-client"
+      }
+
+      callback = if is_nil(code), do: callback, else: Map.put(callback, "code", code)
+
+      assert {:error, :invalid_authorization_response} = OAuth.callback(callback, opts)
+      assert TokenStore.registration(context.store) == nil
+
+      assert {:ok, retry_url} = OAuth.start_authorization(opts)
+      retry_query = query_params(retry_url)
+      assert retry_query["client_id"] == "dynamic_agent_client"
+      assert retry_query["agent_name_hint"] == "Storyteller"
+    end
+  end
+
   test "a newly issued client ID survives exchange failure and is reused on retry", context do
     issued_client_id = "fixture-issued-client"
 

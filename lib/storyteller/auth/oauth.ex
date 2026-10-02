@@ -59,8 +59,9 @@ defmodule Storyteller.Auth.OAuth do
          {:ok, attempt} <- TokenStore.consume_attempt(state, store),
          :ok <- callback_error(params),
          {:ok, client_id} <- callback_client_id(params, attempt),
+         code when is_binary(code) <- params["code"],
+         true <- String.trim(code) != "",
          :ok <- TokenStore.remember_client_id(client_id, store),
-         code when is_binary(code) and code != "" <- params["code"],
          {:ok, token_response} <-
            exchange_code(metadata(oidc, http), code, client_id, attempt, http),
          {:ok, credentials} <-
