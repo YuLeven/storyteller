@@ -2490,8 +2490,8 @@ msgstr "Que puis-je voir d'ici que je n'ai pas encore remarqué ?"
 
 #: lib/storyteller_web/live/session_live/show.ex:2472
 #, elixir-autogen, elixir-format
-msgid "The campaign context is too large for the configured GM input budget. Your action is saved. Review campaign details, then retry this turn."
-msgstr "Le contexte de la campagne dépasse la limite d’entrée configurée pour le MJ. Votre action est enregistrée. Vérifiez les détails de la campagne, puis réessayez ce tour."
+msgid "Storyteller could not fit the required campaign details into its local GM request-size limit. Your action is saved, and the request was not sent. Shorten unusually long campaign instructions or notes, then retry this turn."
+msgstr "Storyteller n'a pas pu inclure les détails nécessaires de la campagne dans sa limite locale de taille de requête au MJ. Votre action est enregistrée et la requête n'a pas été envoyée. Raccourcissez les instructions ou notes de campagne exceptionnellement longues, puis réessayez ce tour."
 
 #: lib/storyteller_web/live/session_live/show.ex:2286
 #, elixir-autogen, elixir-format

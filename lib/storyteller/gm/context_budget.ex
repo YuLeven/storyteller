@@ -1,11 +1,9 @@
 defmodule Storyteller.GM.ContextBudget do
   @moduledoc """
-  Builds a deterministic, relevance-ranked GM context within an input budget.
-
-  Before the provider returns its authoritative token count, UTF-8 bytes in the
-  exact instruction and context text form a conservative upper bound for the
-  byte-pair tokenizers used by the supported OpenAI models. A fixed allowance
-  covers request framing. Completed Responses usage is recorded separately.
+  Builds a deterministic, relevance-ranked GM context within a local
+  serialized-byte limit. This is an application safety bound, not the model's
+  context window, an account usage limit, or a token count. Successful
+  Responses usage is recorded separately when the provider reports it.
   """
 
   @default_budget 24_000
@@ -19,6 +17,12 @@ defmodule Storyteller.GM.ContextBudget do
   @memory_summary_chars 1_500
   @detailed_continuity_count 12
   @max_continuity_memory_details 8
+  @history_budget_fallback_tiers [
+    {4, 1_600, 600},
+    {4, 1_200, 400},
+    {2, 800, 200},
+    {1, 600, 100}
+  ]
   @memory_stopwords MapSet.new(~w(
     a about above after again against all am an and any are as at be because been before being
     below between both but by can could did do does doing down during each few for from further
@@ -346,6 +350,18 @@ defmodule Storyteller.GM.ContextBudget do
           constellation constellations constelación constelaciones constelacion
         )),
       MapSet.new(~w(chart charts map maps mapa mapas carte cartes))
+    ],
+    # Require both the object and concealment cue so a query about keys or
+    # hidden objects alone does not retrieve a concealed-key clue.
+    "clue:concealed-key" => [
+      MapSet.new(~w(key keys llave llaves clé clés clef clefs)),
+      MapSet.new(~w(
+          hid hide hides hidden hiding conceal concealed conceals concealing
+          escondido escondida escondidos escondidas esconder escondió escondieron escondimos
+          oculto oculta ocultos ocultas ocultar ocultó ocultaron ocultamos
+          caché cachée cachés cachées cacher cachons dissimulé dissimulée dissimulés
+          dissimulées dissimuler dissimule
+        ))
     ]
   }
   @memory_compound_concepts MapSet.new(Map.keys(@memory_compound_term_groups))
@@ -424,7 +440,7 @@ defmodule Storyteller.GM.ContextBudget do
 
   def compile(context, instructions, model, opts)
       when is_map(context) and is_binary(instructions) do
-    budget = token_budget(model, opts)
+    budget = byte_budget(model, opts)
     {selected_context, retrieval_omitted?} = retrieve_relevant_continuity_details(context)
 
     selected_context =
@@ -449,7 +465,7 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
     cond do
-      full.conservative_input_token_upper_bound <= budget ->
+      full.estimated_request_bytes <= budget ->
         {:ok, %{context: selected_context, metrics: full}}
 
       true ->
@@ -457,11 +473,24 @@ defmodule Storyteller.GM.ContextBudget do
         omissions = Enum.uniq(retrieval_omissions ++ compacted.omissions)
         metrics = measure(compacted.context, instructions, budget, true, omissions)
 
-        if metrics.conservative_input_token_upper_bound <= budget do
+        if metrics.estimated_request_bytes <= budget do
           {:ok, %{context: compacted.context, metrics: metrics}}
         else
-          emit_metrics(metrics)
-          {:error, :context_budget_exceeded}
+          {context, _compacted_omissions, metrics} =
+            compact_history_to_budget(
+              compacted.context,
+              instructions,
+              budget,
+              omissions,
+              metrics
+            )
+
+          if metrics.estimated_request_bytes <= budget do
+            {:ok, %{context: context, metrics: metrics}}
+          else
+            emit_metrics(metrics)
+            {:error, :context_budget_exceeded}
+          end
         end
     end
   rescue
@@ -480,8 +509,8 @@ defmodule Storyteller.GM.ContextBudget do
     measurements =
       metrics
       |> Map.take([
-        :budget_tokens,
-        :conservative_input_token_upper_bound,
+        :budget_bytes,
+        :estimated_request_bytes,
         :instructions_bytes,
         :context_json_bytes
       ])
@@ -497,11 +526,11 @@ defmodule Storyteller.GM.ContextBudget do
 
   def emit_metrics(_metrics, _provider_usage), do: :ok
 
-  defp token_budget(model, opts) do
-    configured = Application.get_env(:storyteller, :gm_context_token_budgets, %{})
+  defp byte_budget(model, opts) do
+    configured = Application.get_env(:storyteller, :gm_context_byte_budgets, %{})
 
     budget =
-      Keyword.get(opts, :context_input_token_budget) ||
+      Keyword.get(opts, :context_input_byte_budget) ||
         Map.get(configured, model, Map.get(configured, "default", @default_budget))
 
     if is_integer(budget) and budget > 0, do: budget, else: 0
@@ -520,11 +549,10 @@ defmodule Storyteller.GM.ContextBudget do
     context_json_bytes = byte_size(context_json)
 
     %{
-      budget_tokens: budget,
+      budget_bytes: budget,
       instructions_bytes: instructions_bytes,
       context_json_bytes: context_json_bytes,
-      conservative_input_token_upper_bound:
-        instructions_bytes + context_json_bytes + @framing_allowance,
+      estimated_request_bytes: instructions_bytes + context_json_bytes + @framing_allowance,
       section_bytes: section_bytes,
       compacted?: compacted?,
       omissions: omissions
@@ -609,6 +637,74 @@ defmodule Storyteller.GM.ContextBudget do
         completeness,
         &Map.merge(&1, completeness)
       )
+
+  # If the first relevance pass still leaves an oversized request, shorten
+  # narration in progressively smaller steps. Canonical world, character,
+  # place, inventory, resource, objective, and continuity records are kept;
+  # only event prose is compressed further.
+  defp compact_history_to_budget(context, instructions, budget, omissions, metrics) do
+    Enum.reduce_while(
+      @history_budget_fallback_tiers,
+      {context, omissions, metrics},
+      fn {recent_count, recent_chars, older_chars},
+         {current_context, current_omissions, _current_metrics} ->
+        {history, changed?} =
+          compact_history_for_budget(
+            value(current_context, :history),
+            recent_count,
+            recent_chars,
+            older_chars
+          )
+
+        if changed? do
+          updated_omissions = Enum.uniq(current_omissions ++ [:history])
+
+          updated_context =
+            current_context
+            |> put_context_value("history", history)
+            |> context_with_completeness(%{history_compacted: true})
+
+          updated_metrics =
+            measure(updated_context, instructions, budget, true, updated_omissions)
+
+          if updated_metrics.estimated_request_bytes <= budget do
+            {:halt, {updated_context, updated_omissions, updated_metrics}}
+          else
+            {:cont, {updated_context, updated_omissions, updated_metrics}}
+          end
+        else
+          {:cont, {current_context, current_omissions, metrics}}
+        end
+      end
+    )
+  end
+
+  defp compact_history_for_budget(history, recent_count, recent_chars, older_chars)
+       when is_list(history) do
+    story_events = Enum.filter(history, &conversation_event?/1)
+
+    recent_sequences =
+      story_events |> Enum.take(-recent_count) |> MapSet.new(&event_sequence/1)
+
+    compacted =
+      Enum.map(history, fn event ->
+        if conversation_event?(event) do
+          max_text_chars =
+            if MapSet.member?(recent_sequences, event_sequence(event)),
+              do: recent_chars,
+              else: older_chars
+
+          compact_event(event, max_text_chars)
+        else
+          event
+        end
+      end)
+
+    {compacted, compacted != history}
+  end
+
+  defp compact_history_for_budget(history, _recent_count, _recent_chars, _older_chars),
+    do: {history, false}
 
   # Durable continuity entries remain complete in storage and on the campaign
   # board. Send detail only for a bounded, relevant set from each visibility

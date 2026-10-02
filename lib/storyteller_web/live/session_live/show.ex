@@ -2470,7 +2470,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp failure_message("context_budget_exceeded"),
     do:
       gettext(
-        "The campaign context is too large for the configured GM input budget. Your action is saved. Review campaign details, then retry this turn."
+        "Storyteller could not fit the required campaign details into its local GM request-size limit. Your action is saved, and the request was not sent. Shorten unusually long campaign instructions or notes, then retry this turn."
       )
 
   defp failure_message("timeout"),

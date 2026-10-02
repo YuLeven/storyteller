@@ -1,7 +1,7 @@
 # Product benchmark: coherent play, not feature count
 
 **Reviewed:** 2026-10-02
-**Method:** Review of public first-party product pages and Apple Human Interface Guidelines. No competitor account or feature was hands-on tested. Storyteller evidence below is limited to the separate fictional QA campaign and named automated tests. No Vineyard campaign data was opened or reproduced. No live model request or OAuth flow was performed for this review.
+**Method:** Review of public first-party product pages, Apple Human Interface Guidelines, and the owner's shared campaign for pace only. No competitor account or feature was hands-on tested. Storyteller evidence below is limited to the separate fictional QA campaign and named automated tests. The separate local Vineyard comparison campaign was not opened; no campaign transcript or state is retained here. No live model request or OAuth flow was performed for this review.
 
 ## Product question
 
@@ -21,6 +21,12 @@ These products inform the benchmark through their stated approaches, not a featu
 ## Interaction guidance applied
 
 Apple’s HIG recommends giving essential information room and placing it by importance; hiding secondary detail until relevant; and keeping routine status feedback near the thing it describes. These principles map well to a tabletop board: orient the player first, disclose deeper details in context, and show a state change where it belongs rather than interrupting narration with bookkeeping. Apple guidance is a design reference, not a claim that Storyteller is an Apple-platform product. [Layout](https://developer.apple.com/design/human-interface-guidelines/layout) · [Disclosure controls](https://developer.apple.com/design/human-interface-guidelines/disclosure-controls) · [Feedback](https://developer.apple.com/design/human-interface-guidelines/feedback)
+
+## Campaign pace reviewed against the owner's reference
+
+The user-supplied ChatGPT campaign demonstrates two rhythms in one continuing story: routine vineyard work can move forward across days in a compact scene, while a consequential tasting or live social exchange can unfold line by line. The product goal is this responsiveness to intent and stakes, not uniformly short or long GM turns. A player should not have to prompt each incidental worker action; when a moment depends on the player's reply, the GM should stop at that moment. The shared transcript and its setting details are intentionally not copied into this repository.
+
+This leads to a product constraint: player agency does not mean the world waits after every single NPC action. The existing Act, Ask, and Pass time controls let the player state an action, ask directly, or authorize time passage; the GM must still resolve the requested scope naturally while leaving the player's actions and decisions to them. A new pace toggle is not justified until human play review shows that prompt/context adaptation is insufficient.
 
 ## Implications for the next player-facing iteration
 
@@ -47,4 +53,4 @@ Additional first-party pages were reviewed for this update. Some Friends & Fable
 - Kanka advertises optional campaign categories, role-tailored dashboards, inventories on entries, and custom calendars. Its documentation also warns that too many dashboard widgets can make a campaign harder to use. This supports flexible campaign state while cautioning against putting every tracked field on the play board. [Features](https://kanka.io/features) · [Dashboard guide](https://docs.kanka.io/en/latest/guides/dashboard.html) · [Inventory guide](https://docs.kanka.io/en/latest/features/inventory.html)
 - Apple's refreshed design principles emphasize purpose, agency, familiarity, feedback, simplicity, craft, and delight; its simplicity guidance explicitly values “exactly enough,” while natural animations can help preserve context. This supports the current scene-led board and restrained panel feedback rather than visual decoration or a dashboard packed with fields. [Design principles](https://developer.apple.com/design/human-interface-guidelines/design-principles)
 
-Product decision: keep pacing player-led through the existing Act, Ask, and Pass time controls until QA shows that a separate pacing setting solves a real problem. Keep the immediate board limited to the current scene, present characters, and the campaign's relevant inventory/resources. Prioritize a matched Finca/Bodega continuity task and an old-commitment recall task over additional maps, dashboards, or provider-side memory features. This is an inference from the published patterns and Storyteller's goal; no competitor was used hands-on, and no product was ranked.
+Product decision: keep the immediate board limited to the current scene, present characters, and the campaign's relevant inventory/resources. Keep player control explicit while letting GM pacing adapt to the scene's scope. Prioritize a matched travel/presence continuity task and an old-commitment recall task over additional maps, dashboards, or provider-side memory features. This is an inference from the published patterns and Storyteller's goal; no competitor was used hands-on, and no product was ranked.

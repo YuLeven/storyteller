@@ -662,24 +662,7 @@
   }
 
   .play-page .play-sidebar #campaign-fields dl {
-    display: grid;
     margin-top: 0.35rem;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.35rem 0.65rem;
-  }
-
-  .play-page .play-sidebar #campaign-fields dl > div {
-    align-items: center;
-    gap: 0.25rem;
-    margin-top: 0 !important;
-  }
-
-  .play-page .play-sidebar #campaign-fields dl > div > div {
-    flex: 1 1 auto;
-  }
-
-  .play-page .play-sidebar #campaign-fields dl > div > dd.shrink-0 {
-    font-size: 0.75rem;
   }
 
   .play-page .play-sidebar #current-place > div:has(#current-situation) {

@@ -2497,7 +2497,7 @@ msgstr ""
 
 #: lib/storyteller_web/live/session_live/show.ex:2472
 #, elixir-autogen, elixir-format
-msgid "The campaign context is too large for the configured GM input budget. Your action is saved. Review campaign details, then retry this turn."
+msgid "Storyteller could not fit the required campaign details into its local GM request-size limit. Your action is saved, and the request was not sent. Shorten unusually long campaign instructions or notes, then retry this turn."
 msgstr ""
 
 #: lib/storyteller_web/live/session_live/show.ex:2286

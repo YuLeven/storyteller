@@ -1173,6 +1173,11 @@ defmodule Storyteller.PlayTest do
     instructions = String.replace(request.instructions, ~r/\s+/, " ")
 
     assert instructions =~ "Distinct NPC voices:"
+    assert instructions =~ "SENSORY AUTHORITY: The GM owns external and sensory facts."
+    assert instructions =~ "Never ask the player to invent how the world or an object tastes"
+
+    assert instructions =~
+             "The player owns their character's words, actions, and subjective response"
 
     assert instructions =~
              "use each speaker_id's own accent/dialect, vocabulary, cadence, quirks, and mannerisms"
@@ -2084,7 +2089,7 @@ defmodule Storyteller.PlayTest do
                "continuity-overflow",
                "Establish another durable fact.",
                model: "test-model",
-               context_input_token_budget: 50_000,
+               context_input_byte_budget: 50_000,
                provider:
                  ordinary_provider(%{
                    "continuity_changes" => [
@@ -5643,7 +5648,7 @@ defmodule Storyteller.PlayTest do
     raw_instructions = Agent.get(instructions_agent, & &1)
     instructions = String.replace(raw_instructions, ~r/\s+/, " ")
 
-    assert byte_size(raw_instructions) < 10_000
+    assert byte_size(raw_instructions) < 11_000
 
     assert instructions =~
              "The player alone chooses their character's actions, words, thoughts, movement"
@@ -5689,9 +5694,16 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "A read-only ledger review changes nothing"
     assert instructions =~ "Request a player D20 only for an uncertain, consequential outcome"
 
-    assert instructions =~ "Use one concise, relevant utterance per character per turn"
+    assert instructions =~
+             "ADAPTIVE PACE: Fit the response to intent and scope, not a fixed length."
 
-    assert instructions =~ "combine related lines into one bubble."
+    assert instructions =~
+             "Clearly ongoing work or an uninterrupted interval gets one flowing summary"
+
+    assert instructions =~ "never assume the player's follow-through"
+    assert instructions =~ "Keep dialogue proportional"
+    refute instructions =~ "Use one concise, relevant utterance per character per turn"
+    assert instructions =~ "combine related lines into one bubble"
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
@@ -5774,7 +5786,7 @@ defmodule Storyteller.PlayTest do
 
     metrics = request.local_context_metrics
     assert metrics.instructions_bytes == byte_size(request.instructions)
-    assert metrics.conservative_input_token_upper_bound <= metrics.budget_tokens
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
     assert context["interaction_mode"] == "question"
     assert context["player_action"] == question
     assert context["world"]["public"]["location"] == "The Glass Observatory"
@@ -5994,10 +6006,10 @@ defmodule Storyteller.PlayTest do
 
       assert instructions =~ "Omitted context is unknown; never infer it."
       assert instructions =~ "If action needs untracked detail, ask or state uncertainty."
-      assert request.local_context_metrics.budget_tokens == 24_000
+      assert request.local_context_metrics.budget_bytes == 24_000
 
-      assert request.local_context_metrics.conservative_input_token_upper_bound <=
-               request.local_context_metrics.budget_tokens
+      assert request.local_context_metrics.estimated_request_bytes <=
+               request.local_context_metrics.budget_bytes
 
       after_state = Repo.get_by!(State, campaign_id: campaign.id)
       assert after_state.public_state == before_state.public_state
@@ -6128,8 +6140,8 @@ defmodule Storyteller.PlayTest do
                bodega.place_id in [connection["place_a_id"], connection["place_b_id"]]
            end)
 
-    assert request.local_context_metrics.conservative_input_token_upper_bound <=
-             request.local_context_metrics.budget_tokens
+    assert request.local_context_metrics.estimated_request_bytes <=
+             request.local_context_metrics.budget_bytes
 
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
     assert player.current_place_id == bodega.place_id
@@ -6192,8 +6204,8 @@ defmodule Storyteller.PlayTest do
                event["payload"]["text"] == scenario.archive_decoy_text
              end)
 
-      assert request.local_context_metrics.conservative_input_token_upper_bound <=
-               request.local_context_metrics.budget_tokens
+      assert request.local_context_metrics.estimated_request_bytes <=
+               request.local_context_metrics.budget_bytes
 
       player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
       assert player.current_place_id == bodega.place_id
@@ -6530,11 +6542,11 @@ defmodule Storyteller.PlayTest do
     metrics = request.local_context_metrics
 
     configured_budget =
-      Application.fetch_env!(:storyteller, :gm_context_token_budgets)["gpt-6-astra"]
+      Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["gpt-6-astra"]
 
-    compact_serialized_bytes = metrics.conservative_input_token_upper_bound
+    compact_serialized_bytes = metrics.estimated_request_bytes
 
-    assert metrics.budget_tokens == configured_budget
+    assert metrics.budget_bytes == configured_budget
     assert compact_serialized_bytes <= configured_budget
 
     assert compact_serialized_bytes ==
@@ -6663,8 +6675,8 @@ defmodule Storyteller.PlayTest do
 
     metrics = request.local_context_metrics
     assert metrics.compacted?
-    assert metrics.conservative_input_token_upper_bound <= metrics.budget_tokens
-    assert metrics.budget_tokens == 24_000
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert metrics.budget_bytes == 24_000
   end
 
   test "Spanish wine question sends matching public memory but omits unrelated note" do
@@ -6861,9 +6873,115 @@ defmodule Storyteller.PlayTest do
         refute Map.has_key?(entries[decoy_id], "details")
       end
 
-      assert request.local_context_metrics.conservative_input_token_upper_bound <= 24_000
-      assert request.local_context_metrics.budget_tokens == 24_000
+      assert request.local_context_metrics.estimated_request_bytes <= 24_000
+      assert request.local_context_metrics.budget_bytes == 24_000
       assert context["context_completeness"]["continuity_memory_details_omitted"]
+    end)
+  end
+
+  test "production GM request recalls a French concealed-key clue across later sessions" do
+    {campaign, first_session} = play_campaign("The Cross-Language Crypt")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-french-concealed-key",
+               "We preserve the crypt's old clue.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "french-concealed-key",
+                         "kind" => "fact",
+                         "title" => "La clef de cuivre",
+                         "details" =>
+                           "La clef de cuivre a été cachée sous la pierre de la crypte.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The French-language clue is established for later play."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "french-copper-key",
+                         "kind" => "fact",
+                         "title" => "La clef de cuivre",
+                         "details" => "La clef de cuivre ouvre la porte nord.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "A key fact without a concealment clue is also recorded."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "french-hidden-seal",
+                         "kind" => "fact",
+                         "title" => "Le sceau caché",
+                         "details" => "Le sceau de cire a été caché sous la table du conseil.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "A hidden object without a key clue is also recorded."
+                     }
+                   ]
+                 }),
+               model: "test-model"
+             )
+
+    target_memory =
+      Repo.get_by!(ContinuityEntry, campaign_id: campaign.id, entry_id: "french-concealed-key")
+
+    target_source = Repo.get!(Event, target_memory.source_event_id)
+    caller = self()
+
+    questions = [
+      "Where did we hide the copper key?",
+      "¿Dónde escondieron la llave de cobre?",
+      "Où avons-nous caché la clef de cuivre ?"
+    ]
+
+    Enum.with_index(questions)
+    |> Enum.each(fn {question, index} ->
+      {:ok, query_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+
+      provider = fn request ->
+        send(
+          caller,
+          {:concealed_key_memory_request, index, request, decode_request(request)}
+        )
+
+        {:ok, Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))}
+      end
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 query_session.id,
+                 "ask-for-concealed-key-#{index}",
+                 question,
+                 intent: :question,
+                 provider: provider,
+                 model: "gpt-6-astra"
+               )
+
+      assert_receive {:concealed_key_memory_request, ^index, request, context}, 2_000
+
+      public_entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+      assert public_entries["french-concealed-key"]["details"] == target_memory.details
+      assert public_entries["french-concealed-key"]["source_sequence"] == target_source.sequence
+
+      for decoy_id <- ["french-copper-key", "french-hidden-seal"] do
+        assert public_entries[decoy_id]["status"] == "active"
+        refute Map.has_key?(public_entries[decoy_id], "title")
+        refute Map.has_key?(public_entries[decoy_id], "details")
+      end
+
+      assert request.local_context_metrics.budget_bytes == 24_000
+
+      assert request.local_context_metrics.estimated_request_bytes <=
+               request.local_context_metrics.budget_bytes
     end)
   end
 
@@ -7065,10 +7183,10 @@ defmodule Storyteller.PlayTest do
         assert MapSet.subset?(latest_sequences, sent_sequences)
       end
 
-      assert request.local_context_metrics.budget_tokens == 24_000
+      assert request.local_context_metrics.budget_bytes == 24_000
 
-      assert request.local_context_metrics.conservative_input_token_upper_bound <=
-               request.local_context_metrics.budget_tokens
+      assert request.local_context_metrics.estimated_request_bytes <=
+               request.local_context_metrics.budget_bytes
     end)
 
     assert length(historical_events) == 2_400
@@ -7206,8 +7324,8 @@ defmodule Storyteller.PlayTest do
     assert length(captured) == length(questions)
 
     for {{question, expected_entry_id}, {context, metrics}} <- Enum.zip(questions, captured) do
-      assert metrics.conservative_input_token_upper_bound <= 24_000
-      assert metrics.budget_tokens == 24_000
+      assert metrics.estimated_request_bytes <= 24_000
+      assert metrics.budget_bytes == 24_000
 
       entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
       assert entries[expected_entry_id]["details"] == expected_details[expected_entry_id]
@@ -7411,10 +7529,10 @@ defmodule Storyteller.PlayTest do
 
     assert context["context_completeness"]["continuity_memory_details_omitted"]
     metrics = request.local_context_metrics
-    assert metrics.budget_tokens == 24_000
-    assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.budget_bytes == 24_000
+    assert metrics.estimated_request_bytes <= 24_000
 
-    assert metrics.conservative_input_token_upper_bound ==
+    assert metrics.estimated_request_bytes ==
              metrics.instructions_bytes + metrics.context_json_bytes + 512
   end
 
@@ -7552,10 +7670,10 @@ defmodule Storyteller.PlayTest do
 
       assert context["context_completeness"]["continuity_memory_details_omitted"]
       metrics = request.local_context_metrics
-      assert metrics.budget_tokens == 24_000
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.budget_bytes == 24_000
+      assert metrics.estimated_request_bytes <= 24_000
 
-      assert metrics.conservative_input_token_upper_bound ==
+      assert metrics.estimated_request_bytes ==
                metrics.instructions_bytes + metrics.context_json_bytes + 512
     end
   end
@@ -7657,10 +7775,10 @@ defmodule Storyteller.PlayTest do
 
       assert context["context_completeness"]["continuity_memory_details_omitted"]
       metrics = request.local_context_metrics
-      assert metrics.budget_tokens == 24_000
-      assert metrics.conservative_input_token_upper_bound <= metrics.budget_tokens
+      assert metrics.budget_bytes == 24_000
+      assert metrics.estimated_request_bytes <= metrics.budget_bytes
 
-      assert metrics.conservative_input_token_upper_bound ==
+      assert metrics.estimated_request_bytes ==
                metrics.instructions_bytes + metrics.context_json_bytes + 512
     end
   end
@@ -7720,14 +7838,14 @@ defmodule Storyteller.PlayTest do
     encoded_context = request.input |> hd() |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
 
     assert context["interaction_mode"] == "question"
-    assert metrics.budget_tokens == 24_000
+    assert metrics.budget_bytes == 24_000
     assert metrics.instructions_bytes == byte_size(request.instructions)
     assert metrics.context_json_bytes == byte_size(encoded_context)
 
-    assert metrics.conservative_input_token_upper_bound ==
+    assert metrics.estimated_request_bytes ==
              metrics.instructions_bytes + metrics.context_json_bytes + 512
 
-    assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.estimated_request_bytes <= 24_000
   end
 
   test "a context-size pause keeps the submitted action available for retry" do
@@ -7743,7 +7861,7 @@ defmodule Storyteller.PlayTest do
              Play.submit_turn(campaign.id, session.id, "context-retry", "Check the wine casks.",
                provider: provider,
                model: "test-model",
-               context_input_token_budget: 1
+               context_input_byte_budget: 1
              )
 
     assert failed.player_input == "Check the wine casks."
@@ -7754,7 +7872,7 @@ defmodule Storyteller.PlayTest do
              Play.retry_turn(failed.id,
                provider: provider,
                model: "test-model",
-               context_input_token_budget: 24_000
+               context_input_byte_budget: 24_000
              )
 
     assert retried.player_input == failed.player_input
@@ -7931,6 +8049,12 @@ defmodule Storyteller.PlayTest do
     assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions}
     assert instructions =~ "multi-day durations"
     assert instructions =~ "Advance NPC/world events only"
+    normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
+
+    assert normalized_instructions =~
+             "resolve routine activity over the interval in a concise montage"
+
+    assert normalized_instructions =~ "do not stop after each incidental action"
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.public_state["date"] == "Day 22"

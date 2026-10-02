@@ -35,11 +35,11 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
-               context_input_token_budget: 20_000
+               context_input_byte_budget: 20_000
              )
 
     assert metrics.compacted?
-    assert metrics.conservative_input_token_upper_bound <= 20_000
+    assert metrics.estimated_request_bytes <= 20_000
     assert length(compacted.history) <= 20
     assert Enum.any?(compacted.history, &(&1["sequence"] == 5))
     assert Enum.any?(compacted.history, &(&1["sequence"] == 50))
@@ -95,7 +95,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
                ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
 
       assert metrics.compacted?
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.estimated_request_bytes <= 24_000
       assert length(compiled.history) <= 20
       assert Enum.any?(compiled.history, &(&1["sequence"] == 5))
       assert Enum.any?(compiled.history, &(&1["sequence"] == 17))
@@ -105,7 +105,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
   test "keeps a long campaign request near the short-campaign baseline" do
     instructions = production_gm_policy()
-    budget = Application.fetch_env!(:storyteller, :gm_context_token_budgets)["default"]
+    budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
 
     base =
       base_context()
@@ -133,7 +133,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: short_compiled, metrics: short_metrics}} =
              ContextBudget.compile(short_context, instructions, "gpt-6-astra",
-               context_input_token_budget: budget
+               context_input_byte_budget: budget
              )
 
     assert short_compiled == short_context
@@ -141,16 +141,16 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: long_compiled, metrics: long_metrics}} =
              ContextBudget.compile(long_context, instructions, "gpt-6-astra",
-               context_input_token_budget: budget
+               context_input_byte_budget: budget
              )
 
     assert long_metrics.compacted?
-    assert long_metrics.conservative_input_token_upper_bound <= budget
+    assert long_metrics.estimated_request_bytes <= budget
     assert long_compiled.context_completeness.history_compacted
 
     full_history_request_bytes = request_bytes(long_context, instructions)
-    bounded_history_request_bytes = long_metrics.conservative_input_token_upper_bound
-    short_request_bytes = short_metrics.conservative_input_token_upper_bound
+    bounded_history_request_bytes = long_metrics.estimated_request_bytes
+    short_request_bytes = short_metrics.estimated_request_bytes
 
     assert full_history_request_bytes >= bounded_history_request_bytes * 5
     assert bounded_history_request_bytes <= short_request_bytes + 2_000
@@ -211,6 +211,57 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert public_place_identity.(long_compiled) == public_place_identity.(long_context)
   end
 
+  test "shortens recent narration in stages when the canonical request slightly exceeds its budget" do
+    instructions = production_gm_policy()
+    budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
+
+    history =
+      Enum.map(1..12, fn sequence ->
+        %{
+          "sequence" => sequence,
+          "session_id" => 1,
+          "event_type" => "gm_narration",
+          "visibility" => "public",
+          "speaker_id" => nil,
+          "payload" => %{
+            "text" =>
+              "Scene detail #{sequence}. " <>
+                String.duplicate("A barrel rests by the cellar door. ", 48)
+          }
+        }
+      end)
+
+    context = Map.put(base_context(), :history, history)
+    assert request_bytes(context, instructions) > budget
+
+    assert {:ok, %{context: compacted, metrics: metrics}} =
+             ContextBudget.compile(context, instructions, "gpt-6-astra",
+               context_input_byte_budget: budget
+             )
+
+    assert metrics.compacted?
+    assert :history in metrics.omissions
+    assert metrics.estimated_request_bytes <= budget
+    assert compacted.context_completeness.history_compacted
+    assert Enum.map(compacted.history, & &1["sequence"]) == Enum.to_list(1..12)
+
+    older_texts = compacted.history |> Enum.take(8) |> Enum.map(& &1["payload"]["text"])
+    newest_texts = compacted.history |> Enum.take(-4) |> Enum.map(& &1["payload"]["text"])
+
+    assert Enum.all?(older_texts, &(byte_size(&1) <= 600))
+    assert Enum.all?(newest_texts, &(byte_size(&1) > 600))
+
+    assert compacted.world == context.world
+    assert compacted.inventory == context.inventory
+    assert compacted.travel_connections == context.travel_connections
+
+    assert compacted.places.public |> Enum.map(& &1.place_id) ==
+             context.places.public |> Enum.map(& &1.place_id)
+
+    assert Enum.find(compacted.characters, &(&1.speaker_id == "marisol")).gm_private_facts ==
+             Enum.find(context.characters, &(&1.speaker_id == "marisol")).gm_private_facts
+  end
+
   test "keeps relevant active continuity details while compacting unrelated history" do
     context = base_context()
 
@@ -265,11 +316,11 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
-               context_input_token_budget: 24_000
+               context_input_byte_budget: 24_000
              )
 
     assert metrics.compacted?
-    assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.estimated_request_bytes <= 24_000
 
     compacted_entries = compacted.continuity.public
 
@@ -334,7 +385,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
-               context_input_token_budget: 20_000
+               context_input_byte_budget: 20_000
              )
 
     assert metrics.compacted?
@@ -405,13 +456,16 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
              ContextBudget.compile(context, policy, "gpt-6-astra",
-               context_input_token_budget: 24_000
+               context_input_byte_budget: 24_000
              )
 
     assert metrics.compacted?
-    assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.estimated_request_bytes <= 24_000
 
     policy = String.replace(policy, ~r/\s+/, " ")
+    assert policy =~ "SENSORY AUTHORITY: The GM owns external and sensory facts."
+    assert policy =~ "Never ask the player to invent how the world or an object tastes"
+    assert policy =~ "The player owns their character's words, actions, and subjective response"
     assert policy =~ "Distinct NPC voices:"
     assert policy =~ "never blend profiles or flatten multiple speakers into one generic voice"
     assert policy =~ "natural word choice and rhythm, never phonetic spelling or caricature"
@@ -464,7 +518,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert {:ok, %{context: compiled, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
 
-    assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.estimated_request_bytes <= 24_000
     assert metrics.compacted?
     assert metrics.omissions == [:continuity_memory_details]
 
@@ -523,10 +577,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
                ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
-                 context_input_token_budget: 24_000
+                 context_input_byte_budget: 24_000
                )
 
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.estimated_request_bytes <= 24_000
 
       assert metrics.section_bytes.section_continuity_bytes <
                byte_size(Jason.encode!(context.continuity))
@@ -601,10 +655,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
                ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
-                 context_input_token_budget: 24_000
+                 context_input_byte_budget: 24_000
                )
 
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.estimated_request_bytes <= 24_000
       assert metrics.section_bytes.section_continuity_bytes < byte_size(Jason.encode!(continuity))
       assert metrics.context_json_bytes < byte_size(Jason.encode!(request_context))
 
@@ -654,7 +708,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
       assert {:ok, %{context: compiled}} =
                ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
-                 context_input_token_budget: 24_000
+                 context_input_byte_budget: 24_000
                )
 
       entry = hd(compiled.continuity.public)
@@ -733,10 +787,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
                ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
-                 context_input_token_budget: 24_000
+                 context_input_byte_budget: 24_000
                )
 
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.estimated_request_bytes <= 24_000
 
       detailed_ids =
         compiled.continuity.public
@@ -746,6 +800,84 @@ defmodule Storyteller.GM.ContextBudgetTest do
       assert detailed_ids == [expected_entry_id]
       assert compiled.context_completeness.continuity_memory_details_omitted
       assert :continuity_memory_details in metrics.omissions
+    end
+  end
+
+  test "cross-language concealed-key recall requires both the key and concealment cues" do
+    concealed_key = %{
+      entry_id: "french-concealed-key",
+      kind: "fact",
+      title: "La clef de cuivre",
+      details: "La clef de cuivre a été cachée sous la pierre de la crypte.",
+      status: "active",
+      visibility: "public",
+      source_sequence: 14,
+      player_managed: false
+    }
+
+    key_only = %{
+      entry_id: "french-copper-key",
+      kind: "fact",
+      title: "La clef de cuivre",
+      details: "La clef de cuivre ouvre la porte nord.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    hidden_object_only = %{
+      entry_id: "french-hidden-seal",
+      kind: "fact",
+      title: "Le sceau caché",
+      details: "Le sceau de cire a été caché sous la table du conseil.",
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    context =
+      base_context()
+      |> Map.put(:continuity, %{
+        public: [concealed_key, key_only, hidden_object_only],
+        gm_private: []
+      })
+
+    for action <- [
+          "Where did we hide the copper key?",
+          "¿Dónde escondieron la llave de cobre?",
+          "Où avons-nous caché la clef de cuivre ?"
+        ] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_byte_budget: 24_000
+               )
+
+      assert metrics.estimated_request_bytes <= 24_000
+
+      entries = Map.new(compiled.continuity.public, &{&1.entry_id, &1})
+      assert entries["french-concealed-key"].details == concealed_key.details
+      assert entries["french-concealed-key"].source_sequence == 14
+
+      for entry_id <- ["french-copper-key", "french-hidden-seal"] do
+        refute Map.has_key?(entries[entry_id], :title)
+        refute Map.has_key?(entries[entry_id], :details)
+      end
+    end
+
+    for action <- ["What is the copper key?", "What was hidden under the table?"] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_byte_budget: 24_000
+               )
+
+      assert metrics.estimated_request_bytes <= 24_000
+      entry = Enum.find(compiled.continuity.public, &(&1.entry_id == concealed_key.entry_id))
+      refute Map.has_key?(entry, :title)
+      refute Map.has_key?(entry, :details)
     end
   end
 
@@ -782,7 +914,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
                  "gpt-6-astra"
                )
 
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.estimated_request_bytes <= 24_000
 
       assert Enum.find(compiled.continuity.public, &(&1.entry_id == "wine-reserve")).details ==
                player_memory.details
@@ -862,10 +994,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
                ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
-                 context_input_token_budget: 24_000
+                 context_input_byte_budget: 24_000
                )
 
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.estimated_request_bytes <= 24_000
 
       assert metrics.section_bytes.section_continuity_bytes <
                byte_size(Jason.encode!(context.continuity))
@@ -899,10 +1031,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
                ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
-                 context_input_token_budget: 24_000
+                 context_input_byte_budget: 24_000
                )
 
-      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.estimated_request_bytes <= 24_000
 
       employment =
         Enum.find(compiled.continuity.public, &(&1.entry_id == employment_memory.entry_id))
@@ -919,7 +1051,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: toll_compiled}} =
              ContextBudget.compile(toll_context, "Short GM policy", "gpt-6-astra",
-               context_input_token_budget: 24_000
+               context_input_byte_budget: 24_000
              )
 
     toll_details =
@@ -952,7 +1084,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert {:ok, %{context: compiled, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
 
-    assert metrics.conservative_input_token_upper_bound <= 24_000
+    assert metrics.estimated_request_bytes <= 24_000
 
     detailed_entry_ids =
       compiled.continuity.public
@@ -1059,7 +1191,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:error, :context_budget_exceeded} =
              ContextBudget.compile(context, "Policy", "gpt-6-astra",
-               context_input_token_budget: 5_000
+               context_input_byte_budget: 5_000
              )
   end
 
@@ -1068,7 +1200,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:ok, %{context: ^context, metrics: metrics}} =
              ContextBudget.compile(context, "Policy", "gpt-6-astra",
-               context_input_token_budget: 20_000
+               context_input_byte_budget: 20_000
              )
 
     assert metrics.compacted? == false
@@ -1085,7 +1217,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:error, :context_budget_exceeded} =
              ContextBudget.compile(context, "Policy", "gpt-6-astra",
-               context_input_token_budget: 2_000
+               context_input_byte_budget: 2_000
              )
   end
 
@@ -1132,11 +1264,11 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert {:error, :context_budget_exceeded} =
              ContextBudget.compile(base_context(), "Hidden instruction test", "test-model",
-               context_input_token_budget: 1
+               context_input_byte_budget: 1
              )
 
     assert_receive {:rejected_context_metrics, measurements, %{}}
-    assert measurements.budget_tokens == 1
+    assert measurements.budget_bytes == 1
     assert Enum.all?(Map.values(measurements), &is_number/1)
     refute Jason.encode!(measurements) =~ "Hidden instruction test"
     :telemetry.detach({__MODULE__, ref})

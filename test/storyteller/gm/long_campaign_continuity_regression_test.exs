@@ -9,7 +9,7 @@ defmodule Storyteller.GM.LongCampaignContinuityRegressionTest do
         "Use older history only when it bears on the player's current action."
 
     budget =
-      Application.fetch_env!(:storyteller, :gm_context_token_budgets)["gpt-6-astra"]
+      Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["gpt-6-astra"]
 
     history = long_campaign_history(2_400)
     assert length(Enum.uniq_by(history, & &1["session_id"])) == 100
@@ -34,7 +34,7 @@ defmodule Storyteller.GM.LongCampaignContinuityRegressionTest do
              ContextBudget.compile(long_context, instructions, "gpt-6-astra")
 
     assert long_metrics.compacted?
-    assert long_metrics.conservative_input_token_upper_bound <= budget
+    assert long_metrics.estimated_request_bytes <= budget
     assert long_compiled.context_completeness.history_compacted
 
     retained_sequences = MapSet.new(long_compiled.history, & &1["sequence"])
@@ -64,10 +64,10 @@ defmodule Storyteller.GM.LongCampaignContinuityRegressionTest do
     assert long_compiled.inventory == long_context.inventory
 
     full_request_bytes = byte_size(instructions) + byte_size(Jason.encode!(long_context)) + 512
-    short_request_bytes = short_metrics.conservative_input_token_upper_bound
+    short_request_bytes = short_metrics.estimated_request_bytes
 
-    assert full_request_bytes >= long_metrics.conservative_input_token_upper_bound * 5
-    assert long_metrics.conservative_input_token_upper_bound <= short_request_bytes + 2_000
+    assert full_request_bytes >= long_metrics.estimated_request_bytes * 5
+    assert long_metrics.estimated_request_bytes <= short_request_bytes + 2_000
   end
 
   defp base_context do

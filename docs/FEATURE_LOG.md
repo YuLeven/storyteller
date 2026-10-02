@@ -1,5 +1,21 @@
 # Feature log
 
+## 2026-10-02 — Let scene pace follow the player's intent
+
+- Reviewed the owner's shared campaign as a pacing reference. Its routine vineyard work advances over days in broad strokes, while a tasting or live social exchange can stay close to the conversation. The desired quality is that shift in rhythm, not a universal response length. No transcript or plot-specific state was copied into the repository.
+- The GM prompt no longer asks for one concise beat or at most one utterance per character per turn. It now distinguishes focused choice/dialogue beats from clearly scoped ongoing work and explicit time passage, while keeping player actions and follow-through under player control.
+- Explicit time passage now instructs the GM to resolve routine developments together rather than stopping after each incidental action. Canonical time validation remains in place.
+- Added production-request assertions for adaptive pace and the interval montage guidance. Automated provider behavior remains a fake-provider boundary check; live prose pacing still needs the owner to review in play.
+- **Checks:** focused context/play/LiveView suite (**184 tests, 0 failures**), full suite (**421 tests, 0 failures**), `mix compile --warnings-as-errors`, `mix format --check-formatted`, and `mix assets.build` passed in WSL. No live model request was made.
+
+## 2026-10-02 — Recover modest GM context overflows without dropping canon
+
+- A read-only diagnostic of the saved failed turn showed a local preflight rejection, not a provider or ChatGPT-plan usage error. The compacted prompt was 24,568 serialized bytes against Storyteller's configured 24,000-byte ceiling: 10,168 instruction bytes plus 13,888 context JSON bytes and 512 bytes of framing. No model request or retry was made.
+- The failure exposed a gap in the first compaction pass: it bounded each recent narration to 1,600 characters but did not shrink short-campaign history further when campaign setup and canon left the request a few hundred bytes over budget.
+- Added a progressive fallback that first shortens narration older than the newest four events, then shortens the newest events only if needed. Canonical state and private facts remain untouched; the complete event history remains saved locally and the model receives a completeness marker. The compiler option/configuration and telemetry now say bytes explicitly, and the player-facing failure notice identifies a local request-size limit and confirms the failed request was not sent.
+- Added an isolated context-compiler regression with a long recent transcript and production GM instructions. It verifies the request reaches the fake provider's boundary within the configured byte bound, all 12 event identities remain available, the newest four receive more context than older narration, and canonical state plus GM-private facts remain unchanged.
+- **Checks:** context/play/LiveView tests and the full suite passed (**421 tests, 0 failures**); warnings-as-errors compilation, format check, and dev asset build passed in WSL. Tests use `storyteller_test` with synthetic context and fake providers; no local comparison campaign or live model call is used as an automated test.
+
 ## 2026-10-02 — Refresh the comparative design evidence
 
 - Added an October 2 review of first-party product sources for Friends & Fables, Kanka, and Apple's refreshed Human Interface Guidelines. Dated Friends & Fables posts are labelled by year and treated as historical vendor descriptions; no competitor account or campaign was used.

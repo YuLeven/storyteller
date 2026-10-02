@@ -76,7 +76,7 @@ defmodule StorytellerWeb.Telemetry do
       ),
 
       # Safe GM context diagnostics: counts and byte sizes only, never prompt data.
-      summary("storyteller.gm.context.conservative_input_token_upper_bound"),
+      summary("storyteller.gm.context.estimated_request_bytes"),
       summary("storyteller.gm.context.provider_input_tokens"),
       summary("storyteller.gm.context.provider_output_tokens"),
       summary("storyteller.gm.context.instructions_bytes"),

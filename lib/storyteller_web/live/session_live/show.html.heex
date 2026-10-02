@@ -706,14 +706,17 @@
           >
             <h3 class="font-semibold text-stone-900">{panel.name}</h3>
             <dl class="mt-3 space-y-3">
-              <div :for={field <- panel.fields} class="flex items-start justify-between gap-4">
-                <div class="min-w-0">
-                  <dt class="text-sm text-stone-600">{field.label}</dt>
-                  <dd :if={field.unit} class="text-xs text-stone-400">{field.unit}</dd>
-                </div>
+              <div
+                :for={field <- panel.fields}
+                class="min-w-0 border-t border-stone-100 pt-3 first:border-0 first:pt-0"
+              >
+                <dt class="break-words text-sm text-stone-600">{field.label}</dt>
+                <dd :if={field.unit} class="mt-0.5 break-words text-xs text-stone-400">
+                  {field.unit}
+                </dd>
                 <dd
                   data-panel-watch={"resource-#{field.key}"}
-                  class="max-w-64 shrink-0 text-right text-sm font-semibold text-stone-900"
+                  class="mt-1 min-w-0 whitespace-pre-wrap break-words text-left text-sm font-semibold text-stone-900"
                 >
                   {if is_nil(field.value) or field.value == "",
                     do: gettext("Not recorded"),

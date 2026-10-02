@@ -2643,6 +2643,250 @@ defmodule StorytellerWeb.SessionLiveTest do
              "A customer pays for one basket of apples."
   end
 
+  test "tracked resources created in setup render through campaign detail and live play", %{
+    conn: conn
+  } do
+    {:ok, setup_view, _html} = live(conn, ~p"/campaigns/new")
+
+    story_attrs = %{
+      title: "The Copper Orchard Fixture",
+      premise: "A harvest ledger needs careful tending.",
+      setting: "A fictional orchard",
+      tone: "Grounded and warm",
+      narration_language: "English"
+    }
+
+    long_note =
+      "The east rows are ready. The inventory note includes a very long uninterrupted cellar reference: cellarledgerreference-2026-autumn-inventory-identified-by-the-vintner-and-not-for-retail."
+
+    setup_view
+    |> form("#campaign-form", campaign: story_attrs)
+    |> put_submitter("button[name=direction][value=continue]")
+    |> render_submit()
+
+    character_attrs =
+      Map.merge(story_attrs, %{
+        player_character_name: "Mara",
+        player_character: "A careful keeper of the orchard records."
+      })
+
+    setup_view
+    |> form("#campaign-form", campaign: character_attrs)
+    |> put_submitter("button[name=direction][value=continue]")
+    |> render_submit()
+
+    for _ <- 1..6 do
+      setup_view |> element("button[phx-click=add-panel-field]") |> render_click()
+    end
+
+    attrs = %{
+      title: story_attrs.title,
+      premise: story_attrs.premise,
+      setting: story_attrs.setting,
+      tone: story_attrs.tone,
+      narration_language: story_attrs.narration_language,
+      player_character_name: "Mara",
+      player_character: "A careful keeper of the orchard records.",
+      starting_location: "The orchard storehouse",
+      panel_fields: %{
+        "0" => %{
+          key: "cash_on_hand",
+          panel: "Orchard ledger",
+          label: "Cash on hand",
+          value_type: "money",
+          unit: "florins",
+          visibility: "public",
+          initial_value: "42.50"
+        },
+        "1" => %{
+          key: "wine_in_cellar",
+          panel: "Cellar ledger",
+          label: "Wine in the cellar",
+          value_type: "quantity",
+          unit: "barrels",
+          visibility: "public",
+          initial_value: "18"
+        },
+        "2" => %{
+          key: "harvest_status",
+          panel: "Harvest notes",
+          label: "Harvest status",
+          value_type: "status",
+          unit: "",
+          visibility: "public",
+          initial_value: "Ripening"
+        },
+        "3" => %{
+          key: "next_harvest",
+          panel: "Harvest notes",
+          label: "Next harvest",
+          value_type: "date",
+          unit: "",
+          visibility: "public",
+          initial_value: "2026-10-30"
+        },
+        "4" => %{
+          key: "field_notes",
+          panel: "Harvest notes",
+          label: "Field notes",
+          value_type: "text",
+          unit: "",
+          visibility: "public",
+          initial_value: long_note
+        },
+        "5" => %{
+          key: "reserve_stock",
+          panel: "GM ledger",
+          label: "Private reserve",
+          value_type: "quantity",
+          unit: "crates",
+          visibility: "gm_private",
+          initial_value: "90"
+        }
+      }
+    }
+
+    setup_view
+    |> form("#campaign-form", campaign: attrs)
+    |> put_submitter("button[name=direction][value=continue]")
+    |> render_submit()
+
+    review_html =
+      setup_view
+      |> form("#campaign-form", campaign: attrs)
+      |> put_submitter("button[name=direction][value=continue]")
+      |> render_submit()
+
+    assert review_html =~ "Orchard ledger / Cash on hand"
+    assert review_html =~ "42.5 florins"
+    assert review_html =~ "Cellar ledger / Wine in the cellar"
+    assert review_html =~ "18 barrels"
+    assert review_html =~ "Ripening"
+    assert review_html =~ "2026-10-30"
+    assert review_html =~ long_note
+    assert review_html =~ "GM ledger / Private reserve"
+
+    setup_view |> element("button[phx-click=create]") |> render_click()
+
+    campaign =
+      Storyteller.Campaigns.list_campaigns()
+      |> Enum.find(&(&1.title == attrs.title))
+
+    assert campaign
+    [session] = campaign.sessions
+
+    {:ok, detail_view, detail_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert has_element?(detail_view, "#public-campaign-panels", "Orchard ledger")
+    assert has_element?(detail_view, "#public-campaign-panels", "Cash on hand")
+    assert has_element?(detail_view, "#public-campaign-panels", "42.5 florins")
+    assert has_element?(detail_view, "#public-campaign-panels", "Wine in the cellar")
+    assert has_element?(detail_view, "#public-campaign-panels", "18 barrels")
+    assert has_element?(detail_view, "#public-campaign-panels", "Harvest status")
+    assert has_element?(detail_view, "#public-campaign-panels", "Ripening")
+    assert has_element?(detail_view, "#public-campaign-panels", "2026-10-30")
+    assert has_element?(detail_view, "#public-campaign-panels", long_note)
+    assert detail_html =~ "break-words"
+    assert detail_html =~ long_note
+    refute detail_html =~ "Private reserve"
+    refute detail_html =~ "90 crates"
+
+    contexts = Agent.start_link(fn -> [] end) |> elem(1)
+
+    set_handler(fn request ->
+      context = provider_context(request)
+      Agent.update(contexts, &[context | &1])
+
+      {:ok,
+       %{
+         narration: "The ledger reflects the confirmed sale.",
+         dialogue: [],
+         activities: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: [
+           %{
+             type: "delta",
+             key: "cash_on_hand",
+             delta: "6.25",
+             reason: "The orchard's reserve wine is sold."
+           },
+           %{
+             type: "delta",
+             key: "wine_in_cellar",
+             delta: -2,
+             reason: "Two barrels leave the cellar."
+           }
+         ],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         character_updates: [],
+         character_creations: [],
+         inventory_changes: [],
+         location_changes: [],
+         objective_changes: [],
+         continuity_changes: [],
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, play_view, play_html} = live_play(conn, campaign, session)
+
+    for {key, value, unit} <- [
+          {"cash_on_hand", "42.5", "florins"},
+          {"wine_in_cellar", "18", "barrels"},
+          {"harvest_status", "Ripening", nil},
+          {"next_harvest", "2026-10-30", nil},
+          {"field_notes", long_note, nil}
+        ] do
+      assert has_element?(
+               play_view,
+               "#campaign-fields [data-panel-watch='resource-#{key}']",
+               value
+             )
+
+      if unit do
+        assert has_element?(play_view, "#campaign-fields", unit)
+      end
+    end
+
+    refute render(play_view) =~ "Private reserve"
+    refute render(play_view) =~ "90 crates"
+    assert play_html =~ "break-words"
+    assert play_html =~ long_note
+
+    play_view
+    |> form("#turn-composer", turn: %{input: "Sell two barrels of reserve wine."})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             has_element?(play_view, "#story-timeline", "The ledger reflects the confirmed sale") and
+               has_element?(
+                 play_view,
+                 "#campaign-fields [data-panel-watch='resource-cash_on_hand']",
+                 "48.75"
+               ) and
+               has_element?(
+                 play_view,
+                 "#campaign-fields [data-panel-watch='resource-wine_in_cellar']",
+                 "16"
+               )
+           end)
+
+    assert has_element?(play_view, "#campaign-fields", "florins")
+    assert has_element?(play_view, "#campaign-fields", "barrels")
+
+    {:ok, latest_detail, latest_detail_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert has_element?(latest_detail, "#public-campaign-panels", "48.75 florins")
+    assert has_element?(latest_detail, "#public-campaign-panels", "16 barrels")
+    refute latest_detail_html =~ "Private reserve"
+
+    [action_context] = Agent.get(contexts, &Enum.reverse/1)
+    action_panels = Map.new(action_context["panels"], &{&1["key"], &1})
+    assert action_panels["cash_on_hand"]["value"] == "42.5"
+    assert action_panels["wine_in_cellar"]["value"] == 18
+    assert action_panels["reserve_stock"]["visibility"] == "gm_private"
+    assert action_panels["reserve_stock"]["value"] == 90
+  end
+
   test "vineyard resources stay on the board and reach the GM in a later session", %{
     conn: conn
   } do
