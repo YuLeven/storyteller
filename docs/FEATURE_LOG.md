@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Recall active next steps across sessions
+
+- Later-session prompts such as “What should we do next?” did not reliably retrieve an older active agreement unless the prompt reused the commitment’s original subject words; shared topic words could also expand ordinary facts.
+- Added bounded English, Spanish, and French next-step cues that retrieve active typed commitments. Same-topic facts, unrelated facts, and resolved commitments stay compact.
+- A production `Play.submit_turn` fake-provider regression verifies all three languages, source-event provenance, decoy omission, the continuity omission marker, and the existing 24,000-byte conservative input bound.
+- **Checks:** focused regression passed; `play_test.exs` passed (**94 tests, 0 failures**); `context_budget_test.exs` passed (**19 tests, 0 failures**); the full WSL suite passed (**413 tests, 0 failures**). Formatter check, warnings-as-errors compilation, Gettext freshness, and `git diff --check` passed. Tests used fake providers and isolated `storyteller_test` fixtures; no campaign data, live model request, or OAuth flow was used.
+
 ## 2026-10-02 — Recall cross-session work plans
 
 - A player could ask “What was our plan again?” in a later session and lose the agreed action when the question and commitment shared no subject words.

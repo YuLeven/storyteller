@@ -193,6 +193,8 @@ defmodule Storyteller.GM.ContextBudget do
     "plan" => "campaign:plan",
     "plans" => "campaign:plan",
     "planned" => "campaign:plan",
+    "next" => "campaign:next-step",
+    "upcoming" => "campaign:next-step",
     "intended" => "campaign:plan",
     "intending" => "campaign:plan",
     "intention" => "campaign:plan",
@@ -203,12 +205,28 @@ defmodule Storyteller.GM.ContextBudget do
     "prevista" => "campaign:plan",
     "previstos" => "campaign:plan",
     "previstas" => "campaign:plan",
+    "siguiente" => "campaign:next-step",
+    "siguientes" => "campaign:next-step",
+    "próximo" => "campaign:next-step",
+    "próxima" => "campaign:next-step",
+    "próximos" => "campaign:next-step",
+    "próximas" => "campaign:next-step",
+    "después" => "campaign:next-step",
+    "despues" => "campaign:next-step",
+    "luego" => "campaign:next-step",
     "prévu" => "campaign:plan",
     "prévue" => "campaign:plan",
     "prévus" => "campaign:plan",
     "prévues" => "campaign:plan",
     "prévoir" => "campaign:plan",
     "prevoir" => "campaign:plan",
+    "ensuite" => "campaign:next-step",
+    "prochain" => "campaign:next-step",
+    "prochaine" => "campaign:next-step",
+    "prochains" => "campaign:next-step",
+    "prochaines" => "campaign:next-step",
+    "suivant" => "campaign:next-step",
+    "suivante" => "campaign:next-step",
     "décider" => "campaign:commitment",
     "décidé" => "campaign:commitment",
     "décidée" => "campaign:commitment",
@@ -650,6 +668,7 @@ defmodule Storyteller.GM.ContextBudget do
   defp memory_relevant?(entry, query_terms) do
     note_text = entry_text(entry)
     note_terms = meaningful_terms(note_text)
+    typed_commitment? = value(entry, :kind) in ["commitment", :commitment]
 
     meaningful_query_terms =
       normalize_memory_terms(query_terms)
@@ -690,6 +709,12 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
     cond do
+      # A "what's next?" prompt asks for active obligations. Do not let a
+      # shared topic word pull in an ordinary object/place fact or a closed
+      # commitment just because it appears in the same scene.
+      MapSet.member?(meaningful_query_terms, "campaign:next-step") ->
+        typed_commitment? and value(entry, :status) in ["active", :active]
+
       not MapSet.disjoint?(meaningful_query_terms, @memory_compound_concepts) ->
         not MapSet.disjoint?(note_terms, @memory_compound_concepts)
 

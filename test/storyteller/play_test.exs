@@ -7310,6 +7310,145 @@ defmodule Storyteller.PlayTest do
              metrics.instructions_bytes + metrics.context_json_bytes + 512
   end
 
+  test "later-session next-step paraphrases recall an older commitment without topic decoys" do
+    {campaign, first_session} = play_campaign("The Quiet Observatory Next Steps")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-next-step-and-decoys",
+               "Mira and Lyra discuss what to do at the eastern lens.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "eastern-lens-next-step",
+                         "kind" => "commitment",
+                         "title" => "Inspect the eastern lens",
+                         "details" =>
+                           "Mira will inspect the eastern lens before the first frost.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "Mira agrees to check the lens before frost."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "lens-plan-display-fact",
+                         "kind" => "fact",
+                         "title" => "The lens plan on the wall",
+                         "details" =>
+                           "A faded plan of the eastern lens hangs beside the stairwell.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The map is an object in the observatory, not an obligation."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "harbor-gull-fact",
+                         "kind" => "fact",
+                         "title" => "Gulls at the harbor",
+                         "details" => "Gulls nest above the northern harbor pilings.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "This harbor detail is unrelated to the lens work."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "old-west-shutter-duty",
+                         "kind" => "commitment",
+                         "title" => "Repair the western shutter",
+                         "details" => "Lyra repaired the western shutter last week.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The western shutter repair is already finished."
+                     }
+                   ]
+                 })
+             )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "close-finished-shutter-duty",
+               "Lyra confirms the western shutter was repaired last week.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "update",
+                       "entry_id" => "old-west-shutter-duty",
+                       "status" => "resolved",
+                       "reason" => "Lyra finished repairing the shutter last week."
+                     }
+                   ]
+                 })
+             )
+
+    commitment =
+      Repo.get_by!(ContinuityEntry,
+        campaign_id: campaign.id,
+        entry_id: "eastern-lens-next-step"
+      )
+
+    source_event = Repo.get!(Event, commitment.source_event_id)
+
+    for {locale, action} <- [
+          {"en", "What should we do next about the eastern lens?"},
+          {"es", "¿Qué deberíamos hacer después con la lente oriental?"},
+          {"fr", "Que devrions-nous faire ensuite pour la lentille orientale ?"}
+        ] do
+      {:ok, later_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+      captured_request = Agent.start_link(fn -> nil end) |> elem(1)
+
+      provider = fn request ->
+        Agent.update(captured_request, fn _ -> {request, decode_request(request)} end)
+        {:ok, Jason.encode!(ordinary_proposal())}
+      end
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 later_session.id,
+                 "ask-next-step-#{locale}",
+                 action,
+                 intent: :question,
+                 provider: provider,
+                 model: "test-model"
+               )
+
+      {request, context} = Agent.get(captured_request, & &1)
+      entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+
+      assert entries[commitment.entry_id]["details"] == commitment.details
+      assert entries[commitment.entry_id]["source_sequence"] == source_event.sequence
+
+      for decoy_id <- ["lens-plan-display-fact", "harbor-gull-fact"] do
+        assert entries[decoy_id]["status"] == "active"
+        refute Map.has_key?(entries[decoy_id], "title")
+        refute Map.has_key?(entries[decoy_id], "details")
+      end
+
+      assert entries["old-west-shutter-duty"]["status"] == "resolved"
+      refute Map.has_key?(entries["old-west-shutter-duty"], "title")
+      refute Map.has_key?(entries["old-west-shutter-duty"], "details")
+
+      assert context["context_completeness"]["continuity_memory_details_omitted"]
+      metrics = request.local_context_metrics
+      assert metrics.budget_tokens == 24_000
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+
+      assert metrics.conservative_input_token_upper_bound ==
+               metrics.instructions_bytes + metrics.context_json_bytes + 512
+    end
+  end
+
   test "later-session decision and agreement questions retrieve typed commitments in all supported locales" do
     {campaign, first_session} = play_campaign("The Quiet Observatory Decisions")
 
