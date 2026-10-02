@@ -166,6 +166,18 @@ defmodule Storyteller.Play do
                              | devant\s+toi
                            )\b
                          /ux
+  # Only the first distinctive name token can act as a shorthand for a
+  # multiword GM-character name. Titles and roles are intentionally excluded:
+  # otherwise “the keeper” could be mistaken for a character named “Keeper Bell”.
+  @presence_non_name_tokens MapSet.new(~w(
+    a an the el la los las un una unos unas de del des du le les la
+    mr mrs ms miss monsieur madame mademoiselle monsieur docteur docteure dr
+    señor senora señora senorita don doña dona sir dame lady lord saint st
+    chef cook keeper guard guardian sentry soldier knight captain capitan capitán
+    doctor professor priest monk abbess father mother brother sister
+    cocinero cocinera guardia guardian guardián guardiana capitan capitana
+    cuisinier cuisiniere cuisinier cuisinière gardien gardienne capitaine
+  ))
   @history_observation_terms MapSet.new(~w(
     look looks looking looked see sees seeing seen notice notices noticing noticed
     observe observes observing observed inspect inspects inspecting inspected hear hears
@@ -3718,13 +3730,18 @@ defmodule Storyteller.Play do
        ) do
     scene_name = Map.get(places, scene_id)
     sentences = String.split(narration, ~r/(?<=[.!?])\s+|[\r\n]+/u, trim: true)
+    unique_name_tokens = unique_public_character_name_tokens(characters, visibility)
 
     Enum.any?(characters, fn character ->
       character.role == :gm and
         Map.get(visibility, character.speaker_id, :public) == :public and
         Map.get(locations, character.speaker_id) != scene_id and
         Enum.any?(sentences, fn sentence ->
-          sentence_mentions_character?(sentence, character.name) and
+          sentence_mentions_character?(
+            sentence,
+            character.name,
+            Map.get(unique_name_tokens, character.speaker_id)
+          ) and
             scene_presence_claim?(sentence, scene_name, scene_id, places)
         end)
     end)
@@ -3744,8 +3761,47 @@ defmodule Storyteller.Play do
       Regex.match?(@scene_action_pattern, normalized)
   end
 
-  defp sentence_mentions_character?(sentence, name) do
-    contains_presence_phrase?(normalize_presence_text(sentence), name)
+  defp sentence_mentions_character?(sentence, name, unique_name_token) do
+    normalized_sentence = normalize_presence_text(sentence)
+
+    contains_presence_phrase?(normalized_sentence, name) or
+      contains_presence_phrase?(normalized_sentence, unique_name_token)
+  end
+
+  defp unique_public_character_name_tokens(characters, visibility) do
+    named_public_characters =
+      Enum.filter(characters, fn character ->
+        character.role == :gm and
+          Map.get(visibility, character.speaker_id, :public) == :public
+      end)
+
+    tokens_by_speaker =
+      Map.new(named_public_characters, fn character ->
+        tokens =
+          character.name
+          |> normalize_presence_text()
+          |> String.split(" ", trim: true)
+          |> Enum.uniq()
+
+        {character.speaker_id, tokens}
+      end)
+
+    token_counts =
+      tokens_by_speaker
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.frequencies()
+
+    Map.new(tokens_by_speaker, fn {speaker_id, tokens} ->
+      distinctive_token =
+        Enum.find(tokens, fn token ->
+          String.length(token) >= 2 and
+            not MapSet.member?(@presence_non_name_tokens, token) and
+            Map.get(token_counts, token) == 1
+        end)
+
+      {speaker_id, distinctive_token}
+    end)
   end
 
   defp contains_presence_phrase?(_normalized_sentence, name) when not is_binary(name), do: false

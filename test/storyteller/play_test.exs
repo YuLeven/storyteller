@@ -3252,7 +3252,10 @@ defmodule Storyteller.PlayTest do
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
     Repo.update!(Character.changeset(player, %{current_place_id: bodega.place_id}))
-    Repo.update!(Character.changeset(lyra, %{current_place_id: finca.place_id}))
+
+    Repo.update!(
+      Character.changeset(lyra, %{name: "Lyra Bell", current_place_id: finca.place_id})
+    )
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
 
@@ -3360,6 +3363,67 @@ defmodule Storyteller.PlayTest do
                provider: fn _request -> {:ok, Jason.encode!(remote_scene_reference)} end,
                model: "test-model"
              )
+
+    distinctive_alias_case = fn key, narration ->
+      proposal =
+        ordinary_proposal(%{
+          "narration" => narration,
+          "dialogue" => [],
+          "activities" => [],
+          "character_updates" => []
+        })
+
+      Play.submit_turn(campaign.id, session.id, key, "I look around the Bodega.",
+        provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+        model: "test-model"
+      )
+    end
+
+    # A role/title word must not be treated as a distinctive character name.
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:keeper-bell",
+        name: "Keeper Bell",
+        role: :gm,
+        current_place_id: finca.place_id
+      })
+    )
+
+    assert {:ok, %{status: :completed}} =
+             distinctive_alias_case.(
+               "generic-keeper-title-is-not-an-alias",
+               "The keeper waves from the Bodega doorway."
+             )
+
+    # When two public GM characters share a first name, that short name is
+    # ambiguous and must not reject a scene where one of them is present.
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:lyra-vale",
+        name: "Lyra Vale",
+        role: :gm,
+        current_place_id: bodega.place_id
+      })
+    )
+
+    assert {:ok, %{status: :completed}} =
+             distinctive_alias_case.(
+               "ambiguous-lyra-alias-is-not-rejected",
+               "Lyra waves from the Bodega doorway."
+             )
+
+    # The full stored name remains a precise cue even after the first-name
+    # alias became ambiguous.
+    assert {:ok, %{status: :failed, failure_stage: :proposal_validation}} =
+             distinctive_alias_case.(
+               "full-lyra-name-still-rejected-off-scene",
+               "Lyra Bell waves from the Bodega doorway."
+             )
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra").current_place_id ==
+             finca.place_id
   end
 
   test "public NPC dialogue requires an established player scene" do
