@@ -1,7 +1,7 @@
 # Product benchmark: coherent play, not feature count
 
 **Reviewed:** 2026-10-02
-**Method:** Review of public first-party product pages, Apple Human Interface Guidelines, and the owner's shared campaign for pace only. No competitor account or feature was hands-on tested. Storyteller evidence below is limited to the separate fictional QA campaign and named automated tests. One owner-authorized live QA request and one same-turn retry were made in the separate Quiet Observatory campaign; both failed proposal validation and committed no response or world-state changes. The separate local Vineyard comparison campaign was not opened, and no source transcript or campaign state is retained here.
+**Method:** Review of public first-party product pages, Apple Human Interface Guidelines, and the owner's shared campaign for pace only. No competitor account or feature was hands-on tested. Storyteller evidence below is limited to the separate fictional QA campaign and named automated tests. One owner-authorized live QA request and one same-turn retry were made in the separate Quiet Observatory campaign; both failed proposal validation and committed no response or world-state changes. The local Vineyard comparison campaign received no action, GM request, or state change; the user's preexisting browser view reconnected read-only when the local server restarted. No source transcript or campaign state is retained here.
 
 ## Product question
 
