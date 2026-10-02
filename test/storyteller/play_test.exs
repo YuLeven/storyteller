@@ -1035,7 +1035,7 @@ defmodule Storyteller.PlayTest do
     captured = Agent.start_link(fn -> nil end) |> elem(1)
 
     provider = fn request ->
-      Agent.update(captured, fn _ -> decode_request(request) end)
+      Agent.update(captured, fn _ -> {request, decode_request(request)} end)
 
       proposal =
         ordinary_proposal(%{
@@ -1060,8 +1060,19 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    request_context = Agent.get(captured, & &1)
+    {request, request_context} = Agent.get(captured, & &1)
     characters = Map.new(request_context["characters"], &{&1["speaker_id"], &1})
+    instructions = String.replace(request.instructions, ~r/\s+/, " ")
+
+    assert instructions =~ "Distinct NPC voices:"
+
+    assert instructions =~
+             "use each speaker_id's own accent/dialect, vocabulary, cadence, quirks, and mannerisms"
+
+    assert instructions =~
+             "never blend profiles or flatten multiple speakers into one generic voice"
+
+    assert instructions =~ "natural word choice and rhythm, never phonetic spelling or caricature"
 
     assert characters["npc:marcel"]["name"] == "Marcel"
 
@@ -5349,11 +5360,10 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "If action needs untracked detail, ask or state uncertainty."
 
-    assert instructions =~
-             "Preserve distinct NPC knowledge, motives, work, and voices. Apply voice_guidance only to its speaker_id; never mix profiles."
-
-    assert instructions =~
-             "Avoid forced/invented accents, phonetic spelling, stereotypes, and repeated quirks."
+    assert instructions =~ "Preserve distinct NPC knowledge, motives, work, and voices."
+    assert instructions =~ "Distinct NPC voices:"
+    assert instructions =~ "never blend profiles"
+    assert instructions =~ "natural word choice and rhythm, never phonetic spelling or caricature"
 
     assert instructions =~
              "Persisted state and approved history outrank prose and campaign instructions"

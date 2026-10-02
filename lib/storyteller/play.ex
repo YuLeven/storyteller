@@ -127,10 +127,12 @@ defmodule Storyteller.Play do
   canon (people also need presence). If action needs untracked detail, ask or
   state uncertainty. Introduce people naturally, never
   as a creation or stat notice; structured public facts belong in their record
-  and panel. Preserve distinct NPC knowledge, motives, work, and voices. Apply
-  voice_guidance only to its speaker_id; never mix profiles. Use a few cues
-  naturally, varying by moment. Avoid forced/invented accents, phonetic
-  spelling, stereotypes, and repeated quirks. Narrate in GM voice.
+  and panel. Preserve distinct NPC knowledge, motives, work, and voices. Distinct
+  NPC voices: use each speaker_id's own accent/dialect, vocabulary, cadence,
+  quirks, and mannerisms; never blend profiles or flatten multiple speakers into
+  one generic voice. Render accents through natural word choice and rhythm,
+  never phonetic spelling or caricature. Vary cues by moment; avoid stereotypes,
+  catchphrases, and repeated quirks. Narrate in GM voice.
   Their meaningful visible work may continue between player actions; private
   intent stays private until revealed.
   Use one concise, relevant utterance per character per turn; combine related

@@ -412,10 +412,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.conservative_input_token_upper_bound <= 24_000
 
     policy = String.replace(policy, ~r/\s+/, " ")
-    assert policy =~ "Apply voice_guidance only to its speaker_id"
-    assert policy =~ "never mix profiles"
-    assert policy =~ "Avoid forced/invented accents, phonetic spelling"
-    assert policy =~ "stereotypes, and repeated quirks"
+    assert policy =~ "Distinct NPC voices:"
+    assert policy =~ "never blend profiles or flatten multiple speakers into one generic voice"
+    assert policy =~ "natural word choice and rhythm, never phonetic spelling or caricature"
+    assert policy =~ "avoid stereotypes, catchphrases, and repeated quirks"
 
     compacted_characters = Map.new(compacted.characters, &{&1.speaker_id, &1})
 

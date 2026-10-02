@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Keep character voices distinct and route setup errors to their step
+
+- The GM policy now directs the model to keep each speaker's own accent/dialect, vocabulary, cadence, quirks, and mannerisms recognizable without blending profiles, flattening the cast into one voice, or using phonetic caricature. The policy addition is concise because it is repeated in each GM request.
+- Character voice profiles remain attached to their own present character through the production context builder and context compaction. A regression checks the actual request instructions and distinct voice guidance for two contrasting NPCs. Live model output was not requested, so audible/visible voice distinctness remains a human play-review item.
+- Campaign setup now routes changeset errors for starting location, date, time, and weather back to the Opening scene step, rather than the final People and details step. A rendered-form regression enters overlong weather, verifies the correction step and field error, and confirms no campaign is created.
+- **Checks:** full isolated WSL suite passed (**383 tests, 0 failures**); focused Play and campaign-authoring suites passed (**98 tests, 0 failures**); GM context-budget suite passed (**18 tests, 0 failures**); formatter, Gettext extraction freshness, warnings-as-errors compilation, and `git diff --check` passed. Tests used `storyteller_test` and fake providers; no live model request, OAuth consent, or Vineyard campaign was used.
+
 ## 2026-10-02 — Keep the play board anchored while history scrolls
 
 - On roomy desktop viewports, the central play column could scroll far enough to move the composer away from the world and campaign panels. Keep the main column anchored and make the story timeline the history scroll surface; retain normal page scrolling on narrow or short viewports.

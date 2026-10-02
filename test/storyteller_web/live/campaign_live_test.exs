@@ -1,5 +1,5 @@
 defmodule StorytellerWeb.CampaignLiveTest do
-  use StorytellerWeb.ConnCase, async: true
+  use StorytellerWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Storyteller.CampaignFixtures
@@ -9,6 +9,20 @@ defmodule StorytellerWeb.CampaignLiveTest do
   alias Storyteller.Play
   alias Storyteller.Play.Character
   alias Storyteller.Repo
+
+  setup do
+    previous_provider = Application.get_env(:storyteller, :gm_provider, :not_configured)
+    Application.put_env(:storyteller, :gm_provider, &test_opening_scene_response/1)
+
+    on_exit(fn ->
+      case previous_provider do
+        :not_configured -> Application.delete_env(:storyteller, :gm_provider)
+        provider -> Application.put_env(:storyteller, :gm_provider, provider)
+      end
+    end)
+
+    :ok
+  end
 
   test "campaign list keeps two stories in separate cards and links to the right sessions", %{
     conn: conn
@@ -260,8 +274,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
     {:ok, _campaign_view, campaign_html} = live(conn, ~p"/campaigns/#{campaign.id}")
 
-    {:ok, _session_view, session_html} =
-      live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, _session_view, session_html} = open_session(conn, campaign, session)
 
     assert session_html =~ "Marcel"
     assert session_html =~ "The river bodega"
@@ -677,7 +690,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
     view |> element("button[phx-click=create]") |> render_click()
     campaign = hd(Campaigns.list_campaigns())
     session = hd(campaign.sessions)
-    {:ok, play_view, play_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, play_view, play_html} = open_session(conn, campaign, session)
 
     assert has_element?(play_view, "#character-inventory")
     assert play_html =~ "Healing potion"
@@ -722,8 +735,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
     campaign = hd(Campaigns.list_campaigns())
     session = hd(campaign.sessions)
 
-    {:ok, _play_view, play_html} =
-      live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, _play_view, play_html} = open_session(conn, campaign, session)
 
     assert play_html =~ "Known details"
     assert play_html =~ "Health"
@@ -884,7 +896,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
     campaign = campaign_fixture(%{title: "The Glass Observatory"})
     [session] = campaign.sessions
 
-    {:ok, _view, html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, _view, html} = open_session(conn, campaign, session)
     assert html =~ campaign.title
     assert html =~ session.title
     assert html =~ campaign.player_character_name
@@ -906,6 +918,69 @@ defmodule StorytellerWeb.CampaignLiveTest do
     |> form("#campaign-form", campaign: attrs)
     |> put_submitter("button[name=direction][value=#{direction}]")
     |> render_submit()
+  end
+
+  defp open_session(conn, campaign, session) do
+    result = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert wait_until(fn -> is_nil(Play.public_current_turn(campaign.id)) end),
+           "opening scene did not finish; current turn: #{inspect(Play.public_current_turn(campaign.id))}"
+
+    result
+  end
+
+  defp wait_until(fun, attempts \\ 120)
+  defp wait_until(fun, 0), do: fun.()
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(25)
+      wait_until(fun, attempts - 1)
+    end
+  end
+
+  defp test_opening_scene_response(request) do
+    context =
+      request.input
+      |> hd()
+      |> Map.fetch!(:content)
+      |> hd()
+      |> Map.fetch!(:text)
+      |> Jason.decode!()
+
+    current_location = get_in(context, ["world", "public", "location"])
+
+    location_changes =
+      if is_binary(current_location) and String.trim(current_location) != "" do
+        []
+      else
+        [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "campaign-live-opening-place",
+              "name" => "The Opening Scene",
+              "visibility" => "public"
+            },
+            "reason" => "The test GM establishes the opening location."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "campaign-live-opening-place",
+            "reason" => "The player starts in the opening scene."
+          }
+        ]
+      end
+
+    {:ok,
+     %{
+       narration: "The scene takes shape, and a clear choice is yours.",
+       memory_update: %{public_summary: "", gm_private_summary: ""},
+       location_changes: location_changes
+     }}
   end
 
   defp decode_request(request) do

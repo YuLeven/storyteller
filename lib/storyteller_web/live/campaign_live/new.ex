@@ -282,6 +282,11 @@ defmodule StorytellerWeb.CampaignLive.New do
        do: 1
 
   defp field_step(field) when field in [:player_character_name, :player_character], do: 2
+
+  defp field_step(field)
+       when field in [:starting_location, :starting_date, :world_time, :weather],
+       do: 3
+
   defp field_step(_field), do: 4
 
   defp setup_error_step(message) do

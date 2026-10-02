@@ -77,6 +77,45 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert html =~ "These notes exceed the combined limit. Shorten them to continue."
   end
 
+  test "campaign setup routes opening-scene field errors to the opening-scene step", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/new")
+
+    attrs = %{
+      title: "The Lantern Watch",
+      premise: "A signal has returned to the empty harbor.",
+      setting: "A quiet coastal town",
+      tone: "Grounded and mysterious",
+      narration_language: "English",
+      player_character_name: "Ilya",
+      player_character: "A patient courier.",
+      weather: String.duplicate("w", 501)
+    }
+
+    for step <- 1..3 do
+      view
+      |> form("#campaign-form", campaign: attrs)
+      |> put_submitter("button[name=direction][value=continue]")
+      |> render_submit()
+
+      if step < 3 do
+        assert has_element?(view, "#campaign-setup-step-#{step + 1}:not([hidden])")
+      end
+    end
+
+    html =
+      view
+      |> form("#campaign-form", campaign: attrs)
+      |> put_submitter("button[name=direction][value=continue]")
+      |> render_submit()
+
+    assert has_element?(view, "#campaign-setup-step-3:not([hidden])")
+    refute has_element?(view, "#campaign-setup-step-4:not([hidden])")
+    assert html =~ "should be at most 500 character(s)"
+    assert Campaigns.list_campaigns() == []
+  end
+
   test "campaign editor saves story setup and known character voices", %{conn: conn} do
     campaign =
       campaign_fixture(%{
