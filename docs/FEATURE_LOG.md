@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Recall known details when travel and looking happen together
+
+- Observation recall used only the scene the player occupied before the turn, so an explicit “go to the Bodega and look around” action could reach the destination while the GM prompt omitted older facts established there.
+- Added a bounded arrival anchor for an Act action only when it names a public destination, a public direct route connects it to the current public place, and an explicit travel cue appears before the destination. Ask GM questions and speculative phrasing without that affirmative cue stay at the current vantage; private destinations/routes and other connected places are excluded.
+- A production `Play.submit_turn` regression reproduces the old omission, verifies the destination fact is retrieved after 50 unrelated events, rejects a same-wording Copper Archive decoy, and checks canonical arrival and the 40-minute route floor. The same behavior is covered with Spanish and French travel/look phrasing. Requests remain under the configured serialized-byte bound.
+- **Checks:** focused English/Spanish/French production-boundary cases passed (**2 selected, 0 failures**); full WSL suite passed (**407 tests, 0 failures**), including Play and context-budget coverage; formatter check, warnings-as-errors compilation, and `git diff --check` passed. Tests use fictional fixtures, `storyteller_test`, and fake providers; no live campaign, model request, OAuth, or Vineyard data was used.
+
 ## 2026-10-02 — Clarify character voice setup and edit-save feedback
 
 - Replaced the generic character voice length-limit helper in campaign setup, existing-character edit cards, and the add-character card with a concise example of audible cues: measured pauses, short phrases, and careful word choice. The helper says these profiles guide GM delivery and discourages phonetic spelling and stereotyped accents; live character counts still communicate the limits.

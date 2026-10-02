@@ -5715,6 +5715,191 @@ defmodule Storyteller.PlayTest do
     end)
   end
 
+  test "same-turn travel and look recalls destination facts but not an unvisited archive" do
+    scenario = destination_observation_scenario!("Travel and Look Recall")
+    %{campaign: campaign, bodega: bodega, finca: finca} = scenario
+    %{session: next_session, source_event: source_event} = scenario
+    old_destination_fact = scenario.old_destination_fact
+    archive_decoy_text = scenario.archive_decoy_text
+    owner = self()
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "ask-about-unvisited-bodega",
+               "What would I see at the Bodega if I went there?",
+               intent: :question,
+               provider: fn request ->
+                 send(owner, {:unvisited_bodega_context, decode_request(request)})
+
+                 {:ok,
+                  Jason.encode!(
+                    ordinary_proposal(%{
+                      "dialogue" => [],
+                      "activities" => [],
+                      "character_updates" => []
+                    })
+                  )}
+               end,
+               model: "test-model"
+             )
+
+    assert_receive {:unvisited_bodega_context, unvisited_context}, 2_000
+
+    refute Enum.any?(unvisited_context["history"], fn event ->
+             event["sequence"] == source_event.sequence
+           end)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "wonder-about-bodega-trip",
+               "I wonder what I would see at the Bodega if I went there.",
+               intent: :action,
+               provider: fn request ->
+                 send(owner, {:hypothetical_bodega_context, decode_request(request)})
+
+                 {:ok,
+                  Jason.encode!(
+                    ordinary_proposal(%{
+                      "dialogue" => [],
+                      "activities" => [],
+                      "character_updates" => []
+                    })
+                  )}
+               end,
+               model: "test-model"
+             )
+
+    assert_receive {:hypothetical_bodega_context, hypothetical_context}, 2_000
+
+    refute Enum.any?(hypothetical_context["history"], fn event ->
+             event["sequence"] == source_event.sequence
+           end)
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" => "After the forty-minute ride, the Bodega's oak door comes into view.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => bodega.place_id,
+            "reason" => "The player travels by the established route to the Bodega."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               next_session.id,
+               "travel-to-bodega-and-look",
+               "I go to the Bodega and look around.",
+               provider: fn request ->
+                 send(owner, {:travel_observation_context, request, decode_request(request)})
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    assert_receive {:travel_observation_context, request, context}, 2_000
+
+    assert context["world"]["public"]["location"] == "Finca"
+
+    assert Enum.any?(context["history"], fn event ->
+             event["sequence"] == source_event.sequence and
+               event["payload"]["text"] == old_destination_fact
+           end)
+
+    refute Enum.any?(context["history"], fn event ->
+             event["payload"]["text"] == archive_decoy_text
+           end)
+
+    assert Enum.any?(context["travel_connections"]["public"], fn connection ->
+             connection["travel_minutes"] == 40 and
+               finca.place_id in [connection["place_a_id"], connection["place_b_id"]] and
+               bodega.place_id in [connection["place_a_id"], connection["place_b_id"]]
+           end)
+
+    assert request.local_context_metrics.conservative_input_token_upper_bound <=
+             request.local_context_metrics.budget_tokens
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == bodega.place_id
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.elapsed_world_minutes == 40
+  end
+
+  test "same-turn travel and look recalls destination facts in Spanish and French" do
+    for {title, input} <- [
+          {"Spanish Travel and Look Recall", "Voy a la Bodega y miro alrededor."},
+          {"French Travel and Look Recall", "Je vais à la Bodega et je regarde autour."}
+        ] do
+      scenario = destination_observation_scenario!(title)
+      %{campaign: campaign, bodega: bodega} = scenario
+      %{session: session, source_event: source_event} = scenario
+      owner = self()
+
+      proposal =
+        ordinary_proposal(%{
+          "narration" => "The journey ends at the Bodega's oak door.",
+          "dialogue" => [],
+          "activities" => [],
+          "character_updates" => [],
+          "location_changes" => [
+            %{
+              "type" => "move_character",
+              "speaker_id" => "player",
+              "place_id" => bodega.place_id,
+              "reason" => "The player reaches the named place over the public route."
+            }
+          ]
+        })
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 "localized-travel-observation",
+                 input,
+                 provider: fn request ->
+                   send(
+                     owner,
+                     {:localized_travel_context, input, request, decode_request(request)}
+                   )
+
+                   {:ok, Jason.encode!(proposal)}
+                 end,
+                 model: "test-model"
+               )
+
+      assert_receive {:localized_travel_context, ^input, request, context}, 2_000
+
+      assert Enum.any?(context["history"], fn event ->
+               event["sequence"] == source_event.sequence and
+                 event["payload"]["text"] == scenario.old_destination_fact
+             end)
+
+      refute Enum.any?(context["history"], fn event ->
+               event["payload"]["text"] == scenario.archive_decoy_text
+             end)
+
+      assert request.local_context_metrics.conservative_input_token_upper_bound <=
+               request.local_context_metrics.budget_tokens
+
+      player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+      assert player.current_place_id == bodega.place_id
+      assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 40
+    end
+  end
+
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
     {first, first_session} = play_campaign("The Glass Observatory", starting_location: nil)
     {second, second_session} = play_campaign("The Copper Archive", starting_location: nil)
@@ -7775,6 +7960,101 @@ defmodule Storyteller.PlayTest do
              )
 
     assert Keyword.has_key?(changeset.errors, :session_id)
+  end
+
+  defp destination_observation_scenario!(title) do
+    {campaign, first_session} = play_campaign(title, starting_location: nil)
+    finca = establish_starting_place!(campaign, "Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{"purpose" => "wine cellar"}
+        })
+      )
+
+    archive =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "copper-archive",
+          name: "Copper Archive",
+          visibility: :public
+        })
+      )
+
+    insert_travel_connection!(campaign.id, finca.place_id, bodega.place_id, 40)
+    insert_travel_connection!(campaign.id, bodega.place_id, archive.place_id, 25)
+
+    old_destination_fact =
+      "At the Bodega, a pale blue chalk line crosses the cellar's western oak door."
+
+    assert {:ok, %{status: :completed, id: seed_turn_id}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "seed-old-bodega-observation",
+               "I review the cellar ledger before setting out.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" => old_destination_fact,
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [],
+                   "private_changes" => %{}
+                 }),
+               model: "test-model"
+             )
+
+    {:ok, seed_timeline} = Play.public_timeline(campaign.id)
+    source_event = Enum.find(seed_timeline, &(&1.payload["text"] == old_destination_fact))
+    assert source_event
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    first_synthetic_sequence = state.event_sequence + 1
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    archive_decoy_text =
+      "At the Copper Archive, a pale blue chalk line crosses the map cabinet's side door."
+
+    unrelated_events =
+      Enum.map(1..50, fn offset ->
+        text =
+          if offset <= 8,
+            do: archive_decoy_text,
+            else: "Unrelated market ledger entry #{offset} records a routine grain total."
+
+        %{
+          campaign_id: campaign.id,
+          session_id: first_session.id,
+          turn_id: seed_turn_id,
+          sequence: first_synthetic_sequence + offset - 1,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{"text" => text},
+          inserted_at: now
+        }
+      end)
+
+    assert {50, nil} = Repo.insert_all(Event, unrelated_events)
+    last_synthetic_sequence = first_synthetic_sequence + 49
+    Repo.update!(State.changeset(state, %{event_sequence: last_synthetic_sequence}))
+
+    {:ok, session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+
+    %{
+      campaign: campaign,
+      session: session,
+      finca: finca,
+      bodega: bodega,
+      source_event: source_event,
+      old_destination_fact: old_destination_fact,
+      archive_decoy_text: archive_decoy_text
+    }
   end
 
   defp establish_starting_place!(campaign, name) do

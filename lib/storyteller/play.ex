@@ -72,6 +72,19 @@ defmodule Storyteller.Play do
     entendre entends entend entendons entendez entendent entendant entendu
     sentir sens sent sentons sentez sentent sentant senti
   ))
+  @history_explicit_travel_terms MapSet.new(~w(
+    travel travels traveled travelling traveling trip trips journey journeys journeyed journeying
+    go goes going went take takes took taking head heads headed heading walk walks walked walking
+    ride rides rode riding drive drives drove driving arrive arrives arrived arriving move moves
+    moved moving
+    viajar viajo viajas viaja viajamos viajan viajando viajé viajó ir voy va vas vamos van fui fueron
+    caminar camino caminas camina caminamos caminan caminando llegar llego llegas llega llegamos
+    llegan llegando llegué llegó mover muevo mueves mueve movemos mueven moviendo
+    aller allé allée allés allées vais va allons allez vont marcher marche marches marchons marchez
+    marchent voyager voyage voyages voyageons voyagez voyagent partir pars part partons partez partent
+    arriver arrive arrives arrivons arrivez arrivent traverser traverse traverses traversons traversez
+    traversent
+  ))
   @history_search_stopwords MapSet.new(~w(
     a about above after again against all am an and any are as at be because been before being below
     between both but by can could did do does doing down during each few for from further had has
@@ -4966,8 +4979,16 @@ defmodule Storyteller.Play do
       Enum.uniq(current_place_terms ++ connected_place_terms ++ scene_character_terms)
       |> Enum.take(@max_history_entity_terms)
 
+    explicit_destination_anchors =
+      explicit_observation_destination_anchors(
+        turn,
+        places_by_id,
+        player_place_id,
+        connections
+      )
+
     observation_anchors =
-      [current_place_name | Enum.map(scene_characters, & &1.name)]
+      [current_place_name | explicit_destination_anchors ++ Enum.map(scene_characters, & &1.name)]
       |> Enum.filter(&is_binary/1)
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
@@ -4985,6 +5006,85 @@ defmodule Storyteller.Play do
 
     {entity_terms, observation_anchors, action_terms, scene_speaker_ids}
   end
+
+  defp explicit_observation_destination_anchors(
+         %Turn{intent: :action, player_input: input},
+         places_by_id,
+         player_place_id,
+         connections
+       )
+       when is_binary(input) and is_binary(player_place_id) do
+    current_place = Map.get(places_by_id, player_place_id)
+    travel_terms = explicit_travel_words(input)
+
+    if match?(%Place{visibility: :public}, current_place) do
+      connections
+      |> Enum.filter(fn connection ->
+        connection.visibility == :public and
+          (connection.place_a_id == player_place_id or connection.place_b_id == player_place_id)
+      end)
+      |> Enum.map(fn connection ->
+        if connection.place_a_id == player_place_id,
+          do: connection.place_b_id,
+          else: connection.place_a_id
+      end)
+      |> Enum.uniq()
+      |> Enum.flat_map(fn destination_id ->
+        case Map.get(places_by_id, destination_id) do
+          %Place{visibility: :public, name: name} when is_binary(name) ->
+            destination_terms =
+              name
+              |> history_tokens()
+              |> Enum.reject(&MapSet.member?(@history_search_stopwords, &1))
+
+            if destination_terms != [] and
+                 explicit_travel_to_destination?(travel_terms, destination_terms) do
+              [Enum.join(destination_terms, " ")]
+            else
+              []
+            end
+
+          _ ->
+            []
+        end
+      end)
+    else
+      []
+    end
+  end
+
+  defp explicit_observation_destination_anchors(
+         _turn,
+         _places_by_id,
+         _player_place_id,
+         _connections
+       ),
+       do: []
+
+  defp explicit_travel_to_destination?(input_terms, destination_terms) do
+    input_terms
+    |> Enum.chunk_every(length(destination_terms), 1, :discard)
+    |> Enum.with_index()
+    |> Enum.any?(fn {candidate, destination_index} ->
+      if candidate == destination_terms do
+        input_terms
+        |> Enum.take(destination_index)
+        |> Enum.take(-5)
+        |> Enum.any?(&MapSet.member?(@history_explicit_travel_terms, &1))
+      else
+        false
+      end
+    end)
+  end
+
+  defp explicit_travel_words(text) when is_binary(text) do
+    text
+    |> String.downcase()
+    |> then(&Regex.scan(~r/[\p{L}\p{N}]{2,}/u, &1))
+    |> List.flatten()
+  end
+
+  defp explicit_travel_words(_text), do: []
 
   defp observation_history_query?(turn) do
     turn.player_input
