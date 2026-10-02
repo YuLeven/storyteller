@@ -1036,6 +1036,9 @@ defmodule Storyteller.GM.ContextBudget do
     action_specific_terms = MapSet.difference(action_terms, @history_broad_action_terms)
     place_and_character_terms = raw_meaningful_terms([scene_text, place_text] |> Enum.join(" "))
 
+    focused_character_terms =
+      focused_off_scene_character_terms(context, player_place_id, action_terms)
+
     speaker_terms =
       scene_characters
       |> Enum.reject(&(value(&1, :speaker_id) == "player"))
@@ -1049,40 +1052,83 @@ defmodule Storyteller.GM.ContextBudget do
     %{
       terms: MapSet.union(action_terms, anchor_terms),
       action_terms: MapSet.difference(action_specific_terms, anchor_terms),
-      anchor_terms: anchor_terms
+      anchor_terms: anchor_terms,
+      focused_character_terms: focused_character_terms
     }
   end
+
+  defp focused_off_scene_character_terms(_context, player_place_id, _action_terms)
+       when not is_binary(player_place_id),
+       do: MapSet.new()
+
+  defp focused_off_scene_character_terms(context, player_place_id, action_terms) do
+    context
+    |> value(:characters)
+    |> List.wrap()
+    |> Enum.reduce(MapSet.new(), fn character, terms ->
+      current_place_id = value(character, :current_place_id)
+      name_terms = raw_meaningful_terms(value(character, :name))
+
+      mentioned_name_terms = MapSet.intersection(name_terms, action_terms)
+
+      if value(character, :speaker_id) != "player" and is_binary(current_place_id) and
+           current_place_id != player_place_id and MapSet.size(mentioned_name_terms) > 0 do
+        speaker_id = value(character, :speaker_id)
+
+        terms
+        |> MapSet.union(mentioned_name_terms)
+        |> maybe_put_speaker_id(speaker_id)
+      else
+        terms
+      end
+    end)
+  end
+
+  defp maybe_put_speaker_id(terms, speaker_id) when is_binary(speaker_id),
+    do: MapSet.put(terms, String.downcase(speaker_id))
+
+  defp maybe_put_speaker_id(terms, _speaker_id), do: terms
 
   defp history_relevance_score(event, %{action_terms: action_terms} = query)
        when is_map(event) do
     text = event_text(event)
 
-    if MapSet.size(action_terms) < 2 do
-      relevance_score(text, query.anchor_terms)
+    event_terms =
+      case value(event, :speaker_id) do
+        speaker_id when is_binary(speaker_id) ->
+          MapSet.put(raw_meaningful_terms(text), String.downcase(speaker_id))
+
+        _ ->
+          raw_meaningful_terms(text)
+      end
+
+    focused_character_terms = Map.get(query, :focused_character_terms, MapSet.new())
+
+    focused_character_match? =
+      MapSet.size(focused_character_terms) == 0 or
+        not MapSet.disjoint?(event_terms, focused_character_terms)
+
+    if not focused_character_match? do
+      0
     else
-      event_terms =
-        case value(event, :speaker_id) do
-          speaker_id when is_binary(speaker_id) ->
-            MapSet.put(raw_meaningful_terms(text), String.downcase(speaker_id))
+      if MapSet.size(action_terms) < 2 do
+        relevance_score(text, query.anchor_terms)
+      else
+        action_matches = MapSet.intersection(event_terms, action_terms)
+        anchor_matches = MapSet.intersection(event_terms, query.anchor_terms)
+        action_match_count = MapSet.size(action_matches)
+        anchor_match_count = MapSet.size(anchor_matches)
 
-          _ ->
-            raw_meaningful_terms(text)
+        cond do
+          action_match_count >= 2 ->
+            action_match_count + anchor_match_count
+
+          action_match_count >= 1 and anchor_match_count >= 1 ->
+            action_match_count + anchor_match_count
+
+          true ->
+            0
         end
-
-      action_matches = MapSet.intersection(event_terms, action_terms)
-      anchor_matches = MapSet.intersection(event_terms, query.anchor_terms)
-      action_match_count = MapSet.size(action_matches)
-      anchor_match_count = MapSet.size(anchor_matches)
-
-      cond do
-        action_match_count >= 2 ->
-          action_match_count + anchor_match_count
-
-        action_match_count >= 1 and anchor_match_count >= 1 ->
-          action_match_count + anchor_match_count
-
-        true ->
-          0
       end
     end
   end

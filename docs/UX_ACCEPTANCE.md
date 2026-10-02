@@ -122,6 +122,10 @@ The campaign board now includes player-managed public story memory as a small ba
 - **Product benchmark:** Compare the player board, inventory model, location/context navigation, secrets, and campaign memory against AI-native tools and system-agnostic campaign managers. Record what is public product documentation, what was hands-on tested, and what is a Storyteller design decision. Use the comparison to improve core tasks, not to chase feature count. The initial public-source and isolated QA review is in [`docs/PRODUCT_BENCHMARK.md`](PRODUCT_BENCHMARK.md); it is a qualitative baseline, not a completed comparative test.
 - **Interaction principles:** Apply purpose, player agency, responsibility, familiar mental models, clear feedback, responsive flexibility, simplicity, craft, and delight. Make accepted changes understandable and reversible where safe; keep settings and state-management details close to the content they affect.
 
+## Named off-scene history retrieval
+
+- In a noisy, multi-session campaign, when the player names an away character and asks whether they can join the current scene (for example, “Could Marisol join us here for the pressing?”), retrieve older history that grounds that character's canonical location or duty without requiring the player to repeat the route, distance, or assignment. Keep the latest 12 story events and canonical place, duty, and route in context; omit same-place/topic history that does not mention the named character; stay within the configured 24,000-byte preflight bound. Queries without an explicitly named away character continue using the existing bounded scene-anchor scoring; this focused cue is not general semantic search.
+
 ## Open design choices to resolve
 
 - Confirm whether sessions are always continuous resumable segments or whether campaign branches are desired; the plan currently selects continuous history.

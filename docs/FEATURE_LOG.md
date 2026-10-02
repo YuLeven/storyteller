@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Recall canon from natural questions about absent characters
+
+- Strengthened the production-boundary `Play.submit_turn` regression across 100 sessions and 2,400 saved events. The player asks “Could Marisol join us here for the pressing?” without restating her location, the route, travel time, or duty.
+- When an action explicitly names a GM character at a different canonical place, older-event retrieval now requires the event to refer to that character. This keeps same-place pressing decoys from displacing the relevant Finca/Bodega history; requests without a named away character retain the existing bounded scene-anchor scoring.
+- The regression verifies the older location/duty evidence, all 12 newest story events, canonical Marisol location/duty and route, exclusion of eight same-place/topic decoys, and the configured 24,000-byte preflight bound. Added the matching UX acceptance criterion. This is a narrow entity-focused cue, not general semantic search.
+- **Checks:** production-boundary regression passed (1 selected, 0 failures); ContextBudget and long-campaign continuity suites passed (**19 tests, 0 failures**); full `PlayTest` suite passed (**87 tests, 0 failures**); `mix compile --warnings-as-errors`, `mix format --check-formatted`, and `git diff --check` passed. Elixir commands used WSL with `MIX_ENV=test` and the isolated `storyteller_test` database; no dev database, port 4000, live campaign, model request, OAuth, or Vineyard campaign was used. The full repository suite was not run for this slice.
+
 ## 2026-10-02 — Follow a new campaign into its next session
 
 - Added one integrated fake-provider LiveView journey that creates a fictional campaign through the actual setup wizard, accepts the GM-led opening at the configured public location, and carries a starting owned item into play.

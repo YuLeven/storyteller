@@ -5631,7 +5631,7 @@ defmodule Storyteller.PlayTest do
              Play.public_timeline_page(campaign.id, before_sequence: 0)
   end
 
-  test "production GM request keeps relevant canon through 100 sessions and 2,400 stored events" do
+  test "production GM request recalls a named remote character through 100 sessions and 2,400 events" do
     {campaign, first_session} = play_campaign("The Quiet Observatory Long Chronicle")
     finca = establish_starting_place!(campaign, "Finca")
 
@@ -5714,6 +5714,9 @@ defmodule Storyteller.PlayTest do
             sequence == 7 ->
               "The Bodega is a forty-minute trip from Finca. Marisol and the Finca staff stay at the vineyard until harvest work is finished."
 
+            sequence in 30..37 ->
+              "At the Bodega, the village pressers demonstrate pressing grapes for passing visitors; no Finca staff are involved."
+
             sequence >= 2_389 ->
               "Recent observatory entry #{sequence}: Mira checks the comet chart and records a new star position."
 
@@ -5736,6 +5739,14 @@ defmodule Storyteller.PlayTest do
       end)
 
     assert {2_400, nil} = Repo.insert_all(Event, historical_events)
+
+    pressing_decoys = Enum.filter(historical_events, &(&1.sequence in 30..37))
+    assert length(pressing_decoys) == 8
+
+    assert Enum.all?(pressing_decoys, fn event ->
+             text = event.payload["text"]
+             text =~ "Bodega" and text =~ "pressing" and not (text =~ "Marisol")
+           end)
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
     Repo.update!(State.changeset(state, %{event_sequence: 2_400}))
@@ -5786,7 +5797,7 @@ defmodule Storyteller.PlayTest do
                campaign.id,
                final_session.id,
                "long-history-production-request",
-               "At the Bodega after the forty-minute trip from Finca, can Marisol and the Finca workers reach the cellar while harvest work is still underway?",
+               "Could Marisol join us here for the pressing?",
                intent: :question,
                provider: provider,
                model: "gpt-6-astra"
@@ -5803,6 +5814,10 @@ defmodule Storyteller.PlayTest do
     relevant_event = Enum.find(context["history"], &(&1["sequence"] == 7))
     assert relevant_event["session_id"] == Enum.at(sessions, 0).id
     assert relevant_event["payload"]["text"] =~ "forty-minute trip from Finca"
+
+    refute Enum.any?(context["history"], fn event ->
+             event["sequence"] in 30..37
+           end)
 
     assert Enum.all?(2_389..2_400, fn sequence ->
              Enum.any?(context["history"], fn event ->
