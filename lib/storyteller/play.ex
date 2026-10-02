@@ -46,6 +46,7 @@ defmodule Storyteller.Play do
     current_place current_place_id current_place_name place_id place_name
   )
   @resolution_lease_seconds 120
+  @resolution_lease_refresh_interval_ms 30_000
   @max_active_duty_duration_minutes 525_600
   @max_turn_text 20_000
   @max_provider_output_bytes 100_000
@@ -1143,7 +1144,7 @@ defmodule Storyteller.Play do
     end)
   end
 
-  @doc "Returns whether a resolving turn's 120-second claim lease has expired."
+  @doc "Returns whether a resolving turn's 120-second progress lease has expired."
   def resolution_lease_expired?(turn, now \\ utc_now())
   def resolution_lease_expired?(%{resolution_started_at: nil}, _now), do: true
 
@@ -1236,7 +1237,16 @@ defmodule Storyteller.Play do
            {:ok, :ok} <- resolution_plan_check(opts),
            {:ok, context} <- run_resolution_stage(:context, fn -> model_context(turn.id) end),
            {:ok, request} <-
-             run_resolution_stage(:context, fn -> provider_request(context, opts, turn.intent) end),
+             run_resolution_stage(:context, fn ->
+               request_opts =
+                 Keyword.put(
+                   opts,
+                   :on_stream_activity,
+                   resolution_lease_heartbeat(turn.id, attempt_token)
+                 )
+
+               provider_request(context, request_opts, turn.intent)
+             end),
            {:ok, :ok} <- resolution_plan_check(opts),
            {:ok, response} <-
              run_resolution_stage(:provider, fn ->
@@ -4926,11 +4936,52 @@ defmodule Storyteller.Play do
           _ -> request
         end
 
+      request =
+        case Keyword.get(opts, :on_stream_activity) do
+          callback when is_function(callback, 0) ->
+            Map.put(request, :on_stream_activity, callback)
+
+          _ ->
+            request
+        end
+
       case model do
         model when is_binary(model) and model != "" -> {:ok, Map.put(request, :model, model)}
         _ -> {:ok, request}
       end
     end
+  end
+
+  defp resolution_lease_heartbeat(turn_id, attempt_token) do
+    last_renewal = :atomics.new(1, signed: true)
+
+    :atomics.put(
+      last_renewal,
+      1,
+      System.monotonic_time(:millisecond) - @resolution_lease_refresh_interval_ms
+    )
+
+    fn ->
+      now_monotonic = System.monotonic_time(:millisecond)
+      previous_renewal = :atomics.get(last_renewal, 1)
+
+      if now_monotonic - previous_renewal >= @resolution_lease_refresh_interval_ms do
+        renew_resolution_lease(turn_id, attempt_token)
+        :atomics.put(last_renewal, 1, now_monotonic)
+      end
+    end
+  end
+
+  defp renew_resolution_lease(turn_id, attempt_token) do
+    Repo.update_all(
+      from(turn in Turn,
+        where:
+          turn.id == ^turn_id and turn.status == :resolving and turn.attempts == ^attempt_token
+      ),
+      set: [resolution_started_at: utc_now()]
+    )
+
+    :ok
   end
 
   defp emit_context_usage(request, response) do

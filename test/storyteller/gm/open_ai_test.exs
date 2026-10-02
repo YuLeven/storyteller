@@ -256,7 +256,8 @@ defmodule Storyteller.GM.OpenAITest do
                 instructions: "Return text.",
                 input: [%{role: "user", content: "Hello"}],
                 model: "fixture-model",
-                on_first_output: fn -> send(test_pid, :first_output) end
+                on_first_output: fn -> send(test_pid, :first_output) end,
+                on_stream_activity: fn -> send(test_pid, :stream_activity) end
               },
               store: context.store,
               http: http
@@ -279,6 +280,7 @@ defmodule Storyteller.GM.OpenAITest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     send(task.pid, task_ready)
+    assert_receive :stream_activity, 1_000
     assert_receive :first_output, 1_000
     assert_receive {:first_text_delta_metric, ^telemetry_event, %{duration: duration}, %{}}, 1_000
     assert is_integer(duration) and duration >= 0
@@ -287,11 +289,13 @@ defmodule Storyteller.GM.OpenAITest do
     refute_receive :first_output
 
     send(task.pid, :continue_stream)
+    assert_receive :stream_activity, 1_000
     assert {:ok, %{text: "The answer"}} = Task.await(task, 1_000)
     refute_receive :first_output
     refute_receive {:first_text_delta_metric, ^telemetry_event, _, _}
 
     assert_receive {:responses_request, options}
+    assert Keyword.fetch!(options, :receive_timeout) == 90_000
     request_body = Keyword.fetch!(options, :json)
 
     assert Map.keys(request_body) |> Enum.sort() == [
@@ -303,6 +307,7 @@ defmodule Storyteller.GM.OpenAITest do
            ]
 
     refute Jason.encode!(request_body) =~ "on_first_output"
+    refute Jason.encode!(request_body) =~ "on_stream_activity"
   end
 
   test "signals first output once for failed and incomplete streams but not empty streams",

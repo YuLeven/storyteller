@@ -3589,6 +3589,82 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert action_occurrences == 1
   end
 
+  test "a reconnect keeps a slow active stream on the saved turn without duplicating it", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    action = "I keep watch while the distant bell sounds."
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    set_handler(fn request ->
+      send(
+        test_pid,
+        {:slow_response_waiting, self(), request.on_stream_activity}
+      )
+
+      receive do
+        :finish_slow_response ->
+          {:ok,
+           %{
+             narration: "The bell fades, and the quiet watch continues.",
+             dialogue: [],
+             activities: [],
+             public_changes: %{},
+             private_changes: %{},
+             character_updates: [],
+             memory_update: %{public_summary: "", gm_private_summary: ""},
+             roll_request: nil
+           }}
+      after
+        5_000 -> flunk("the fake slow response was not released")
+      end
+    end)
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:slow_response_waiting, provider_pid, on_stream_activity}, 1_000
+    assert has_element?(view, "#story-pending-action", action)
+
+    turn = Play.public_current_turn(campaign.id)
+    assert turn.status == :resolving
+
+    stale_at = DateTime.add(DateTime.utc_now(), -121, :second) |> DateTime.truncate(:microsecond)
+
+    Repo.update!(Turn.changeset(Repo.get!(Turn, turn.id), %{resolution_started_at: stale_at}))
+    assert Play.resolution_lease_expired?(Play.public_current_turn(campaign.id))
+
+    on_stream_activity.()
+    refute Play.resolution_lease_expired?(Play.public_current_turn(campaign.id))
+
+    {:ok, reconnected, _html} = live(conn, session_path(campaign, session))
+    assert has_element?(reconnected, "#story-pending-action", action)
+    refute_receive {:slow_response_waiting, _, _}, 250
+
+    send(provider_pid, :finish_slow_response)
+
+    assert wait_until(fn ->
+             has_element?(
+               reconnected,
+               "#story-timeline",
+               "The bell fades, and the quiet watch continues."
+             )
+           end)
+
+    refute has_element?(reconnected, "#story-pending-action")
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    assert Enum.count(
+             timeline,
+             &(&1.event_type == :player_action and &1.payload["text"] == action)
+           ) == 1
+  end
+
   test "opening scene progress changes only after the GM begins composing", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions

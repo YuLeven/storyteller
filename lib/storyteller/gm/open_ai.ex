@@ -14,6 +14,7 @@ defmodule Storyteller.GM.OpenAI do
 
   @models_url "https://api.openai.com/v1/models"
   @responses_url "https://api.openai.com/v1/responses"
+  @response_stream_receive_timeout 90_000
   @max_error_body_bytes 65_536
   @max_output_text_bytes 100_000
 
@@ -39,7 +40,12 @@ defmodule Storyteller.GM.OpenAI do
            log_stage_error(:responses_request, post_response(access_token, body, opts)),
          :ok <- require_http_success(response, :responses),
          {:ok, result} <-
-           completed_response(response, local_callback(request, :on_first_output), started_at) do
+           completed_response(
+             response,
+             local_callback(request, :on_first_output),
+             local_callback(request, :on_stream_activity),
+             started_at
+           ) do
       {:ok, result}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
@@ -165,7 +171,8 @@ defmodule Storyteller.GM.OpenAI do
       [
         headers: bearer_headers(access_token, "text/event-stream"),
         json: body,
-        into: :self
+        into: :self,
+        receive_timeout: @response_stream_receive_timeout
       ],
       http(opts)
     )
@@ -194,8 +201,8 @@ defmodule Storyteller.GM.OpenAI do
 
   defp error_for_status(_status, reason), do: reason
 
-  defp completed_response(response, on_first_output, started_at) do
-    case consume_sse(response_body(response), on_first_output, started_at) do
+  defp completed_response(response, on_first_output, on_stream_activity, started_at) do
+    case consume_sse(response_body(response), on_first_output, on_stream_activity, started_at) do
       {:completed, text, usage} ->
         result = %{text: text}
         result = if map_size(usage) > 0, do: Map.put(result, :usage, usage), else: result
@@ -252,22 +259,24 @@ defmodule Storyteller.GM.OpenAI do
     end
   end
 
-  defp consume_sse(body, on_first_output, started_at) when is_binary(body),
-    do: consume_chunks([body], on_first_output, started_at)
+  defp consume_sse(body, on_first_output, on_stream_activity, started_at)
+       when is_binary(body),
+       do: consume_chunks([body], on_first_output, on_stream_activity, started_at)
 
-  defp consume_sse(body, on_first_output, started_at) do
+  defp consume_sse(body, on_first_output, on_stream_activity, started_at) do
     if Enumerable.impl_for(body),
-      do: consume_chunks(body, on_first_output, started_at),
+      do: consume_chunks(body, on_first_output, on_stream_activity, started_at),
       else: {:incomplete, :malformed}
   end
 
-  defp consume_chunks(chunks, on_first_output, started_at) do
+  defp consume_chunks(chunks, on_first_output, on_stream_activity, started_at) do
     initial = {:ok, "", {:waiting, [], 0, false}}
 
     result =
       Enum.reduce_while(chunks, initial, fn
         chunk, {:ok, buffer, {:waiting, _deltas, _size, _first_output?} = status}
         when is_binary(chunk) ->
+          safely_call(on_stream_activity)
           {frames, rest} = split_frames(buffer <> chunk)
 
           case process_frames(frames, rest, status, on_first_output, started_at) do
@@ -376,7 +385,15 @@ defmodule Storyteller.GM.OpenAI do
       encoded ->
         case Jason.decode(encoded) do
           {:ok, payload} when is_map(payload) ->
-            process_event(event, payload, [], 0, false, on_first_output, started_at)
+            process_event(
+              event,
+              payload,
+              [],
+              0,
+              false,
+              on_first_output,
+              started_at
+            )
 
           _ ->
             {:incomplete, :invalid_sse_json}

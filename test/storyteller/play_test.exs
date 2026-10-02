@@ -40,6 +40,114 @@ defmodule Storyteller.PlayTest do
     )
   end
 
+  test "provider stream activity renews only its own resolving turn lease" do
+    {campaign, session} = play_campaign("The Slow Stream Observatory")
+    test_pid = self()
+
+    assert {:ok, pending} =
+             Play.submit_turn(campaign.id, session.id, "slow-stream-turn", "I wait.",
+               provider: nil
+             )
+
+    provider = fn request ->
+      send(test_pid, {:stream_activity_callback, self(), request.on_stream_activity})
+
+      receive do
+        :finish_stream -> {:ok, Jason.encode!(ordinary_proposal())}
+      after
+        5_000 -> flunk("the fake provider stream was not released")
+      end
+    end
+
+    task =
+      Task.async(fn ->
+        Play.retry_turn(pending.id, provider: provider, model: "test-model")
+      end)
+
+    assert_receive {:stream_activity_callback, provider_pid, callback}, 2_000
+    assert is_function(callback, 0)
+
+    stale_at = DateTime.add(DateTime.utc_now(), -121, :second) |> DateTime.truncate(:microsecond)
+    Repo.update!(Turn.changeset(Repo.get!(Turn, pending.id), %{resolution_started_at: stale_at}))
+    assert Play.resolution_lease_expired?(Repo.get!(Turn, pending.id))
+
+    callback.()
+
+    refreshed_turn = Repo.get!(Turn, pending.id)
+    refute Play.resolution_lease_expired?(refreshed_turn)
+    assert DateTime.compare(refreshed_turn.resolution_started_at, stale_at) == :gt
+
+    send(provider_pid, :finish_stream)
+    assert {:ok, %{status: :completed}} = Task.await(task, 5_000)
+  end
+
+  test "superseded stream callbacks and outcomes cannot change a newer resolution attempt" do
+    for {case_name, provider_outcome} <- [
+          {:late_success, {:ok, Jason.encode!(ordinary_proposal())}},
+          {:late_failure, {:error, :timeout}}
+        ] do
+      {campaign, session} = play_campaign("The Fenced Stream Observatory #{case_name}")
+      test_pid = self()
+
+      assert {:ok, pending} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 "fenced-stream-#{case_name}",
+                 "I keep watch.",
+                 provider: nil
+               )
+
+      provider = fn request ->
+        send(
+          test_pid,
+          {:old_stream_waiting, case_name, self(), request.on_stream_activity}
+        )
+
+        receive do
+          :release_old_stream -> provider_outcome
+        after
+          5_000 -> flunk("the fake old stream was not released")
+        end
+      end
+
+      task =
+        Task.async(fn ->
+          Play.retry_turn(pending.id, provider: provider, model: "test-model")
+        end)
+
+      assert_receive {:old_stream_waiting, ^case_name, old_provider_pid, old_callback}, 2_000
+
+      newer_lease_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      newer_attempt = pending.attempts + 2
+
+      Repo.update!(
+        Turn.changeset(Repo.get!(Turn, pending.id), %{
+          attempts: newer_attempt,
+          resolution_started_at: newer_lease_at
+        })
+      )
+
+      old_callback.()
+
+      newer_turn = Repo.get!(Turn, pending.id)
+      assert newer_turn.status == :resolving
+      assert newer_turn.attempts == newer_attempt
+      assert newer_turn.resolution_started_at == newer_lease_at
+
+      send(old_provider_pid, :release_old_stream)
+
+      assert {:ok, %{status: :resolving, attempts: ^newer_attempt}} = Task.await(task, 5_000)
+
+      unchanged_turn = Repo.get!(Turn, pending.id)
+      assert unchanged_turn.status == :resolving
+      assert unchanged_turn.attempts == newer_attempt
+      assert unchanged_turn.resolution_started_at == newer_lease_at
+      assert is_nil(unchanged_turn.failure_code)
+      assert {:ok, []} = Play.public_timeline(campaign.id)
+    end
+  end
+
   test "a saved GM model is passed into turn resolution when no call override is supplied" do
     {campaign, session} = play_campaign("The Model Preference Observatory")
     assert {:ok, _preference} = Settings.set_preferred_gm_model("fixture-model")

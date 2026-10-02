@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Keep slow GM streams attached to the saved turn
+
+- The shared HTTP boundary's 20-second receive timeout also applied to the Responses SSE stream. Separately, each resolving turn's fixed 120-second lease expired even when the provider was still sending output, allowing a reconnect to start another attempt while the original response remained active.
+- GM response reads now allow up to 90 seconds between chunks; OAuth and model-catalog requests keep their shorter default. Stream activity refreshes the in-flight attempt lease at most every 30 seconds, and the database update is fenced by turn ID and attempt number. A healthy long response therefore remains attached to its saved turn; an idle stream still times out and follows the existing same-turn recovery path.
+- Added adapter coverage for the dedicated stream timeout and activity callback, a play-boundary check that renews an expired fake stream lease, and a reconnect journey that keeps the submitted action visible without starting another provider attempt. Superseded attempts are fenced: a captured old callback cannot renew the newer lease, and either its late success or failure leaves the newer resolving turn and empty timeline untouched.
+- **Checks:** focused WSL adapter, play-domain, and LiveView regressions passed (**179 tests, 0 failures**); the full isolated suite passed (**416 tests, 0 failures**). Warnings-as-errors compilation, formatting, Gettext freshness, and `git diff --check` passed. The test runtime was capped at four schedulers to keep its PostgreSQL pool within local connection limits. All inference uses fake providers and isolated `storyteller_test`; no live model, OAuth, or persistent campaign data was used.
+
 ## 2026-10-02 — Recall active next steps across sessions
 
 - Later-session prompts such as “What should we do next?” did not reliably retrieve an older active agreement unless the prompt reused the commitment’s original subject words; shared topic words could also expand ordinary facts.
