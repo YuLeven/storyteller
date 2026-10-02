@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Verify voice-note persistence in a real browser
+
+- After a report that voice and mannerism edits were not persisting, repeated the edit-save-reload flow in a real browser against the fictional Quiet Observatory QA campaign (campaign 50262) in the isolated `storyteller_test` database. The test server used a fail-closed fake provider; no GM inference was requested.
+- Saved Keeper Elin's mannerism, reloaded the editor, then saved her accent on a later visit and reloaded again. Both exact values remained in their fields, and a direct read of the QA test database confirmed both persisted.
+- This did not reproduce a persistence defect in the current code. Existing LiveView coverage also exercises multi-character partial updates, clearing a mannerism, save errors, editor remounts, and delivery into later GM context. The player's exact sequence/running app instance remains the unresolved difference; saved guidance affects future GM requests and does not rewrite earlier story messages.
+- **Checks:** real-browser save/reload verified for separate mannerism and accent edits; the isolated full WSL suite on the same source revision passed (**410 tests, 0 failures**). No development database, campaign 1, Vineyard campaign, live model, or OAuth was accessed.
+
 ## 2026-10-02 — Reject clear narration-only NPC teleportation
 
 - The continuity audit found that canonical presence checks covered public dialogue and activities, but missed narration that said an off-scene character was physically acting at the player's current location. Added a proposal-validation check before the turn transaction commits.
