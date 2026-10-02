@@ -182,9 +182,9 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     refute has_element?(view, "#facts-keeper-elin details[open]")
+    assert has_element?(view, "#campaign-correction-reason[required]")
 
     attrs = %{
-      correction_reason: "Clarify Elin's delivery.",
       title: campaign.title,
       premise: campaign.premise,
       setting: campaign.setting,
@@ -205,6 +205,15 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert render(view) =~ "Pauses before every answer."
     assert render(view) =~ "Turns the brass key while she thinks."
     assert has_element?(view, "#facts-keeper-elin details[open]")
+
+    failed_html =
+      render_submit(view, "save", %{"campaign" => %{"title" => campaign.title}})
+
+    assert failed_html =~ "Add a reason for changing the campaign setup."
+    assert failed_html =~ "Pauses before every answer."
+    assert failed_html =~ "Turns the brass key while she thinks."
+
+    attrs = Map.put(attrs, :correction_reason, "Clarify Elin's delivery.")
 
     html = view |> form("#campaign-edit-form", campaign: attrs) |> render_submit()
     assert html =~ "Campaign changes saved."

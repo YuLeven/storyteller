@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 — Make campaign correction reasons an explicit save requirement
+
+- Voice and mannerism edits are stored as audited setup corrections, which require a reason. The edit form now marks that field as browser-required so a voice edit cannot appear to submit without the reason needed to commit it.
+- Added a LiveView behavior regression for a blank-reason save: the validation message appears while voice drafts remain visible; supplying a reason then saves the guidance and reopening the editor confirms it persisted.
+- **Checks:** campaign-authoring LiveView suite passed (**6 tests, 0 failures**). Tests use isolated fixtures; no live campaign or provider request was used.
+
 ## 2026-10-01 — Require established public paths for remote NPC messages
 
 - Added an explicit public communication-path ledger to serialized campaign state. A known NPC may establish a path only while publicly present with the player, with a path operation citing the exact public dialogue line as its basis and naming the usable endpoint plainly in that line. `public_changes` and its case/separator-normalized aliases cannot seed the ledger. Establishment/deactivation write public before/after `state_change` audit records atomically, outside the story timeline. Remote deliveries require the previously persisted active path ID and matching sender; the message turn cannot move characters, edit travel routes, or advance world time. Ordinary off-scene dialogue and activity checks remain unchanged.
