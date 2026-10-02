@@ -6331,6 +6331,103 @@ defmodule Storyteller.PlayTest do
     assert context["context_completeness"]["continuity_memory_details_omitted"]
   end
 
+  test "a later-session decision question retrieves a typed agreement without decision decoys" do
+    {campaign, first_session} = play_campaign("The Quiet Observatory Decisions")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-observatory-decision",
+               "Mira and Lyra leave the observatory after settling the lens work.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "eastern-lens-agreement",
+                         "kind" => "commitment",
+                         "title" => "Eastern lens work agreement",
+                         "details" =>
+                           "The expedition agreed to inspect the eastern lens before the first frost.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "Mira agrees to inspect the lens."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "lens-condition-fact",
+                         "kind" => "fact",
+                         "title" => "The eastern lens condition",
+                         "details" =>
+                           "The expedition decided the eastern lens had a hairline crack before first frost.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "This records the lens condition, not a commitment."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "kitchen-key-fact",
+                         "kind" => "fact",
+                         "title" => "The kitchen key",
+                         "details" => "The brass key hangs on a hook beside the kitchen door.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "This unrelated key detail remains campaign canon."
+                     }
+                   ]
+                 })
+             )
+
+    agreement =
+      Repo.get_by!(ContinuityEntry,
+        campaign_id: campaign.id,
+        entry_id: "eastern-lens-agreement"
+      )
+
+    {:ok, later_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+    captured_request = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(captured_request, fn _ -> {request, decode_request(request)} end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               later_session.id,
+               "ask-what-we-decided",
+               "What did we decide?",
+               intent: :question,
+               provider: provider,
+               model: "test-model"
+             )
+
+    {request, context} = Agent.get(captured_request, & &1)
+    entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+
+    assert entries[agreement.entry_id]["details"] == agreement.details
+    assert entries[agreement.entry_id]["source_sequence"]
+
+    for decoy_id <- ["lens-condition-fact", "kitchen-key-fact"] do
+      assert entries[decoy_id]["status"] == "active"
+      refute Map.has_key?(entries[decoy_id], "title")
+      refute Map.has_key?(entries[decoy_id], "details")
+    end
+
+    assert context["context_completeness"]["continuity_memory_details_omitted"]
+    metrics = request.local_context_metrics
+    assert metrics.budget_tokens == 24_000
+    assert metrics.conservative_input_token_upper_bound <= metrics.budget_tokens
+
+    assert metrics.conservative_input_token_upper_bound ==
+             metrics.instructions_bytes + metrics.context_json_bytes + 512
+  end
+
   test "Ask GM reaches the provider with a modest conversation history inside the default bound" do
     {campaign, session} = play_campaign("The Lantern Observatory")
     owner = self()

@@ -178,6 +178,8 @@ defmodule Storyteller.GM.ContextBudget do
     "agrees" => "campaign:commitment",
     "agreed" => "campaign:commitment",
     "agreement" => "campaign:commitment",
+    "decide" => "campaign:commitment",
+    "decided" => "campaign:commitment",
     "promesa" => "campaign:commitment",
     "promesas" => "campaign:commitment",
     "prometer" => "campaign:commitment",
@@ -285,6 +287,7 @@ defmodule Storyteller.GM.ContextBudget do
                                   "allocation:set-aside"
                                 ])
   @event_subconcepts MapSet.new(["occasion:tasting"])
+  @typed_commitment_concepts MapSet.new(["campaign:commitment"])
   @social_memory_concepts MapSet.new(["campaign:meeting", "campaign:response"])
   @employment_memory_concepts MapSet.new([
                                 "employment:work",
@@ -607,6 +610,7 @@ defmodule Storyteller.GM.ContextBudget do
     other_matched_concepts =
       matched_concepts
       |> MapSet.difference(@employment_memory_concepts)
+      |> MapSet.difference(@typed_commitment_concepts)
       |> MapSet.difference(@social_memory_concepts)
 
     employment_matches = MapSet.intersection(matched_concepts, @employment_memory_concepts)

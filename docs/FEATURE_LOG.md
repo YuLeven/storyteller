@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Recall a prior agreement from “What did we decide?”
+
+- Added bounded English `decide`/`decided` aliases for typed campaign commitments, so a later-session question can retrieve an earlier agreement even when its saved details say “agreed.” The shared typed concept does not expand detail retrieval for an ordinary fact merely because it also says “decided.”
+- Added a fake-provider regression through production `Play.submit_turn`: the older agreement and provenance reach GM context, while a same-topic decision stored as an ordinary fact and an unrelated fact retain identity/status only. The request is checked against the 24,000-byte conservative serialized-byte preflight bound.
+- **Limit:** this proves the exact question “What did we decide?” and the note-side past tense “decided.” Other English forms, Spanish/French decision wording, other paraphrases, and broad semantic retrieval remain open; no semantic-retrieval claim is made.
+- **Checks:** WSL `MIX_ENV=test mix test` (379 tests, 0 failures), warnings-as-errors compilation, formatter check, Gettext freshness check, and `git diff --check`.
+
 ## 2026-10-02 — Show nearby places on the scene board
 
 - The scene board now lists public places one canonical route away from the player's current place, with the route's in-world travel time. Longer lists collapse after three destinations to keep the board concise.
