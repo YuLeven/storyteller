@@ -93,6 +93,21 @@ defmodule StorytellerWeb.Telemetry do
       summary("storyteller.gm.context.section_panels_bytes"),
       summary("storyteller.gm.context.section_history_bytes"),
 
+      # Provider wall-clock latency and outcome counts; measurements only.
+      summary("storyteller.gm.provider.stop.duration",
+        unit: {:native, :millisecond},
+        description: "Provider invocation wall-clock duration"
+      ),
+      sum("storyteller.gm.provider.stop.success"),
+      sum("storyteller.gm.provider.stop.failure"),
+      summary("storyteller.gm.resolution.stop.duration",
+        unit: {:native, :millisecond},
+        description:
+          "Turn resolution duration including local context, validation, and commit work"
+      ),
+      sum("storyteller.gm.resolution.stop.success"),
+      sum("storyteller.gm.resolution.stop.failure"),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),

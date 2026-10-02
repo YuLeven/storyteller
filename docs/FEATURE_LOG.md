@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 — Measure GM provider call latency safely
+
+- Each provider invocation emits monotonic wall-clock duration plus numeric success/failure counts; the claimed-turn resolution emits a second duration spanning local context construction, validation, and persistence. Comparing them helps identify whether a slow turn is mostly provider wait or application work. Telemetry metadata is empty; campaign IDs, model names, prompts, response text, and provider errors are not attached. `Telemetry.Metrics` defines summaries for a configured reporter.
+- Added fake-provider end-to-end behavior coverage for successful and failed turns, asserting both numeric-only measurements, empty metadata, and provider duration no longer than total resolution duration. Neither measurement includes LiveView rendering or browser/network delay.
+- **Checks:** focused provider/resolution timing behavior (**2 tests, 0 failures**); full WSL suite (**362 tests, 0 failures**); `mix format --check-formatted`, test-environment warnings-as-errors compilation, Gettext freshness, and `git diff --check` passed. Tests use isolated fixtures and `storyteller_test`; no live provider or OAuth call.
+
 ## 2026-10-01 — Make campaign correction reasons an explicit save requirement
 
 - Voice and mannerism edits are stored as audited setup corrections, which require a reason. The edit form now marks that field as browser-required so a voice edit cannot appear to submit without the reason needed to commit it.

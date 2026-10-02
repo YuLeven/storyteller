@@ -23,6 +23,23 @@ defmodule Storyteller.PlayTest do
     Turn
   }
 
+  test "emits only numeric provider latency measurements on success" do
+    {campaign, session} = play_campaign("The Provider Latency Observatory")
+    assert_provider_latency(campaign, session, "provider-latency-success", ordinary_provider(), 1)
+  end
+
+  test "emits only numeric provider latency measurements on failure" do
+    {campaign, session} = play_campaign("The Provider Failure Observatory")
+
+    assert_provider_latency(
+      campaign,
+      session,
+      "provider-latency-failure",
+      fn _request -> {:error, :timeout} end,
+      0
+    )
+  end
+
   test "a saved GM model is passed into turn resolution when no call override is supplied" do
     {campaign, session} = play_campaign("The Model Preference Observatory")
     assert {:ok, _preference} = Settings.set_preferred_gm_model("fixture-model")
@@ -6722,6 +6739,63 @@ defmodule Storyteller.PlayTest do
                provider: provider,
                model: "test-model"
              )
+  end
+
+  defp assert_provider_latency(campaign, session, key, provider, successful_calls) do
+    provider_handler_id = {__MODULE__, make_ref()}
+    resolution_handler_id = {__MODULE__, make_ref()}
+    parent = self()
+    expected_status = if successful_calls == 1, do: :completed, else: :failed
+
+    :ok =
+      :telemetry.attach(
+        provider_handler_id,
+        [:storyteller, :gm, :provider, :stop],
+        fn event, measurements, metadata, _config ->
+          send(parent, {:gm_latency, :provider, event, measurements, metadata})
+        end,
+        nil
+      )
+
+    :ok =
+      :telemetry.attach(
+        resolution_handler_id,
+        [:storyteller, :gm, :resolution, :stop],
+        fn event, measurements, metadata, _config ->
+          send(parent, {:gm_latency, :resolution, event, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn ->
+      :telemetry.detach(provider_handler_id)
+      :telemetry.detach(resolution_handler_id)
+    end)
+
+    assert {:ok, %{status: ^expected_status}} =
+             Play.submit_turn(campaign.id, session.id, key, "Look around.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:gm_latency, :provider, [:storyteller, :gm, :provider, :stop],
+                    provider_metrics, %{}}
+
+    assert_receive {:gm_latency, :resolution, [:storyteller, :gm, :resolution, :stop],
+                    resolution_metrics, %{}}
+
+    assert_numeric_latency_measurements(provider_metrics, successful_calls)
+    assert_numeric_latency_measurements(resolution_metrics, successful_calls)
+    assert provider_metrics.duration <= resolution_metrics.duration
+  end
+
+  defp assert_numeric_latency_measurements(measurements, successful_calls) do
+    assert is_integer(measurements.duration) and measurements.duration >= 0
+    assert measurements.success == successful_calls
+    assert measurements.failure == 1 - successful_calls
+    assert Enum.all?(Map.values(measurements), &(is_integer(&1) and &1 >= 0))
+    refute Map.has_key?(measurements, :campaign_id)
+    refute Map.has_key?(measurements, :prompt)
   end
 
   defp assert_private_text_rejected(campaign, session, key, overrides) do

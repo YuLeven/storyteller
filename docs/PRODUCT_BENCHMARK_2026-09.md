@@ -84,6 +84,10 @@ Friends & Fables/Craft represent AI-led play and authored campaign systems; Kank
 
 ## Local response baseline
 
+### GM provider latency diagnostics
+
+Every GM provider invocation emits a monotonic duration measurement and numeric success/failure indicators through `[:storyteller, :gm, :provider, :stop]`; the complete claimed-turn resolution emits the same measures through `[:storyteller, :gm, :resolution, :stop]`. Telemetry metadata is empty. The `Telemetry.Metrics` definitions expose duration summaries and outcome totals to a reporter when one is configured. No reporter is currently enabled by default, so this adds safe instrumentation but does not provide an in-app latency dashboard or retain measurements across restarts. Comparing the two durations estimates how much of turn-resolution time is outside the provider call; this includes context building, proposal validation, and persistence, but not waiting before the turn is claimed, LiveView rendering, or browser/network delay.
+
 On 2026-09-30, five read-only `curl` GETs per route to the running WSL development server returned HTTP 200. Request `time_total` was:
 
 | Route | Median | Observed range |

@@ -1034,6 +1034,8 @@ defmodule Storyteller.Play do
   end
 
   defp resolve_claimed_turn(turn, attempt_token, opts) do
+    started_at = System.monotonic_time()
+
     result =
       with {:ok, provider} <-
              run_resolution_stage(:provider, fn -> {:ok, provider(opts)} end),
@@ -1072,21 +1074,30 @@ defmodule Storyteller.Play do
           {:error, reason, :provider}
       end
 
-    case result do
-      {:ok, committed} ->
-        {:ok, committed}
+    outcome =
+      case result do
+        {:ok, committed} ->
+          {:ok, committed}
 
-      {:error, :stale_attempt, _stage} ->
-        {:ok, get_turn!(turn.id)}
+        {:error, :stale_attempt, _stage} ->
+          {:ok, get_turn!(turn.id)}
 
-      {:error, reason, _stage} when reason in [:campaign_unavailable, :session_unavailable] ->
-        {:ok, get_turn!(turn.id)}
+        {:error, reason, _stage} when reason in [:campaign_unavailable, :session_unavailable] ->
+          {:ok, get_turn!(turn.id)}
 
-      {:error, reason, stage} ->
-        failure_code = normalize_failure_code(reason)
-        if failure_code == :usage_limit, do: latch_plan_usage(opts)
-        fail_turn(turn.id, attempt_token, failure_code, stage)
-    end
+        {:error, reason, stage} ->
+          failure_code = normalize_failure_code(reason)
+          if failure_code == :usage_limit, do: latch_plan_usage(opts)
+          fail_turn(turn.id, attempt_token, failure_code, stage)
+      end
+
+    duration = System.monotonic_time() - started_at
+
+    resolution_succeeded? =
+      match?({:ok, %Turn{status: status}} when status in [:completed, :awaiting_roll], outcome)
+
+    emit_resolution_latency(duration, resolution_succeeded?)
+    outcome
   end
 
   defp run_resolution_stage(stage, fun) do
@@ -4480,27 +4491,65 @@ defmodule Storyteller.Play do
   defp decode_proposal(proposal) when is_map(proposal), do: {:ok, proposal}
   defp decode_proposal(_response), do: {:error, :invalid_response}
 
-  defp call_provider(provider, request) when is_function(provider, 1) do
-    normalize_provider_return(provider.(request))
+  defp call_provider(provider, request) do
+    started_at = System.monotonic_time()
+    result = invoke_provider(provider, request)
+    duration = System.monotonic_time() - started_at
+    emit_provider_latency(duration, match?({:ok, _response}, result))
+    result
+  end
+
+  defp invoke_provider(provider, request) do
+    result =
+      case provider do
+        provider when is_function(provider, 1) ->
+          normalize_provider_return(provider.(request))
+
+        provider when is_atom(provider) ->
+          if Code.ensure_loaded?(provider) and function_exported?(provider, :stream_response, 1) do
+            normalize_provider_return(provider.stream_response(request))
+          else
+            {:error, :provider_error}
+          end
+
+        _provider ->
+          {:error, :provider_error}
+      end
+
+    result
   rescue
     _error -> {:error, :provider_error}
   catch
     _kind, _reason -> {:error, :provider_error}
   end
 
-  defp call_provider(provider, request) when is_atom(provider) do
-    if Code.ensure_loaded?(provider) and function_exported?(provider, :stream_response, 1) do
-      normalize_provider_return(provider.stream_response(request))
-    else
-      {:error, :provider_error}
-    end
-  rescue
-    _error -> {:error, :provider_error}
-  catch
-    _kind, _reason -> {:error, :provider_error}
+  defp emit_provider_latency(duration, success?) when is_integer(duration) and duration >= 0 do
+    emit_latency_measurement([:storyteller, :gm, :provider, :stop], duration, success?)
   end
 
-  defp call_provider(_provider, _request), do: {:error, :provider_error}
+  defp emit_provider_latency(_duration, _success?), do: :ok
+
+  defp emit_resolution_latency(duration, success?) when is_integer(duration) and duration >= 0 do
+    emit_latency_measurement([:storyteller, :gm, :resolution, :stop], duration, success?)
+  end
+
+  defp emit_resolution_latency(_duration, _success?), do: :ok
+
+  defp emit_latency_measurement(event, duration, success?) do
+    outcome = if success?, do: 1, else: 0
+
+    :telemetry.execute(
+      event,
+      %{duration: duration, success: outcome, failure: 1 - outcome},
+      %{}
+    )
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
 
   defp normalize_provider_return({:ok, %{text: text} = response}) when is_binary(text),
     do: {:ok, response}
