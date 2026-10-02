@@ -180,9 +180,19 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
         ]
       })
 
-    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+    {:ok, view, initial_html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
     refute has_element?(view, "#facts-keeper-elin details[open]")
     assert has_element?(view, "#campaign-correction-reason[required]")
+
+    reason_position =
+      initial_html |> :binary.match("id=\"campaign-correction-reason\"") |> elem(0)
+
+    voice_position =
+      initial_html
+      |> :binary.match("name=\"campaign[character_voice_guidance][keeper-elin][mannerisms]\"")
+      |> elem(0)
+
+    assert reason_position < voice_position
 
     attrs = %{
       title: campaign.title,
@@ -212,6 +222,9 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     assert failed_html =~ "Add a reason for changing the campaign setup."
     assert failed_html =~ "Pauses before every answer."
     assert failed_html =~ "Turns the brass key while she thinks."
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin").voice_guidance ==
+             %{}
 
     attrs = Map.put(attrs, :correction_reason, "Clarify Elin's delivery.")
 

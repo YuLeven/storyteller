@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 — Keep the campaign save requirement in view
+
+- Moved the required correction-reason field and save feedback to the beginning of the campaign edit form. The requirement is now visible before character voice and mannerism fields, rather than appearing after the long form where a blocked save could look like edits were ignored.
+- Extended the LiveView regression to assert that ordering, confirm a missing reason does not alter saved voice data while retaining the draft, then save with a reason and verify values after reopening.
+- **Checks:** campaign-authoring LiveView suite (**6 tests, 0 failures**); full WSL suite (**362 tests, 0 failures**); `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix gettext.extract --check-up-to-date`, and `git diff --check` passed. Tests use the isolated `storyteller_test` database; no live campaign or provider request was used.
+
 ## 2026-10-01 — Measure GM provider call latency safely
 
 - Each provider invocation emits monotonic wall-clock duration plus numeric success/failure counts; the claimed-turn resolution emits a second duration spanning local context construction, validation, and persistence. Comparing them helps identify whether a slow turn is mostly provider wait or application work. Telemetry metadata is empty; campaign IDs, model names, prompts, response text, and provider errors are not attached. `Telemetry.Metrics` defines summaries for a configured reporter.
