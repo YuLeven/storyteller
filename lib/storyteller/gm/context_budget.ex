@@ -1075,9 +1075,44 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_text(text, _max_chars), do: text
 
   defp query_terms(context) do
-    context
-    |> query_components()
-    |> Map.fetch!(:terms)
+    terms = query_components(context) |> Map.fetch!(:terms)
+
+    if remaining_task_query?(value(context, :player_action)) do
+      MapSet.put(terms, "campaign:next-step")
+    else
+      terms
+    end
+  end
+
+  # Recognize a narrow "what remains to do" phrasing in each supported
+  # language. Requiring both a remaining-work word and an action verb avoids
+  # treating inventory questions such as "what wine remains?" as a request
+  # for every active commitment.
+  defp remaining_task_query?(action) when is_binary(action) do
+    terms =
+      action
+      |> String.downcase()
+      |> then(&Regex.scan(~r/[\p{L}\p{N}]{2,}/u, &1))
+      |> List.flatten()
+
+    ordered_term_pair?(terms, ~w(left remain remains remaining), ~w(do doing)) or
+      ordered_term_pair?(terms, ~w(queda quedan quedamos), ~w(hacer)) or
+      ordered_term_pair?(terms, ~w(reste restent), ~w(faire accomplir))
+  end
+
+  defp remaining_task_query?(_action), do: false
+
+  defp ordered_term_pair?(terms, first_terms, later_terms) do
+    terms
+    |> Enum.with_index()
+    |> Enum.any?(fn {term, index} ->
+      later_term? =
+        terms
+        |> Enum.slice(index + 1, 5)
+        |> Enum.any?(&(&1 in later_terms))
+
+      term in first_terms and later_term?
+    end)
   end
 
   defp history_query(context), do: query_components(context)

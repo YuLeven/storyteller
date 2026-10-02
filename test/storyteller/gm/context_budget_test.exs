@@ -626,6 +626,42 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
+  test "remaining-work retrieval requires both a remaining cue and an action cue" do
+    commitment = %{
+      entry_id: "lens-inspection",
+      kind: "commitment",
+      title: "Inspect the eastern lens",
+      details: "The eastern lens will be inspected before the first frost.",
+      status: "active",
+      visibility: "public",
+      player_managed: false
+    }
+
+    context =
+      base_context()
+      |> Map.put(:continuity, %{public: [commitment], gm_private: []})
+
+    for {action, expected_detail?} <- [
+          {"What remains for us?", false},
+          {"What wine remains in the cellar?", false},
+          {"¿Qué nos queda?", false},
+          {"Qu’est-ce qu’il nous reste ?", false},
+          {"What remains for us to do?", true},
+          {"¿Qué nos queda por hacer?", true},
+          {"Qu’est-ce qu’il nous reste à faire ?", true}
+        ] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_token_budget: 24_000
+               )
+
+      entry = hd(compiled.continuity.public)
+      assert Map.has_key?(entry, :details) == expected_detail?
+    end
+  end
+
   test "retrieves typed meeting and reply commitments from bounded multilingual cues" do
     meeting = %{
       entry_id: "future-meeting",

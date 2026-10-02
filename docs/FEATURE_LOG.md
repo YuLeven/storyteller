@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-02 — Refresh the comparative design evidence
+
+- Added an October 2 review of first-party product sources for Friends & Fables, Kanka, and Apple's refreshed Human Interface Guidelines. Dated Friends & Fables posts are labelled by year and treated as historical vendor descriptions; no competitor account or campaign was used.
+- Product decision: keep the current play board scene-led and the player in control of story pace with Act, Ask, and Pass time. Defer pace settings, broad maps, and dashboard growth until matched QA tasks show a concrete need; prioritize route/presence continuity and bounded old-commitment recall.
+- **Evidence boundary:** this is desk research and product triage, not a hands-on competitor study or claim of comparative quality. Sources are linked in `docs/PRODUCT_BENCHMARK.md`.
+
+## 2026-10-02 — Recall indirect “what remains to do?” questions
+
+- A French later-session question, “Qu’est-ce qu’il nous reste à faire ?”, selected an older resolved Lyra commitment as well as the relevant active obligation because no bounded remaining-work cue classified the query.
+- Added a paired English, Spanish, and French cue (remaining/left + do, queda + hacer, reste + faire). Requiring both parts keeps “What wine remains?” from retrieving unrelated active commitments. Active typed commitments remain bounded by the existing per-visibility detail cap.
+- A production `Play.submit_turn` fake-provider regression verifies source-event provenance for the relevant active commitment and metadata-only treatment for the resolved commitment and ordinary fact decoys across all three languages. A context compiler regression verifies the paired cue and its single-word decoys.
+- **Checks:** `play_test.exs` and `context_budget_test.exs` passed (**116 tests, 0 failures**); warnings-as-errors test compilation, format check, and `git diff --check` passed. Tests used isolated `storyteller_test` fixtures and fake providers; no development campaign, Vineyard data, OAuth, or live model request was used.
+
 ## 2026-10-02 — Keep slow GM streams attached to the saved turn
 
 - The shared HTTP boundary's 20-second receive timeout also applied to the Responses SSE stream. Separately, each resolving turn's fixed 120-second lease expired even when the provider was still sending output, allowing a reconnect to start another attempt while the original response remained active.

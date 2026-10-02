@@ -7510,7 +7510,10 @@ defmodule Storyteller.PlayTest do
     for {locale, action} <- [
           {"en", "What should we do next about the eastern lens?"},
           {"es", "¿Qué deberíamos hacer después con la lente oriental?"},
-          {"fr", "Que devrions-nous faire ensuite pour la lentille orientale ?"}
+          {"fr", "Que devrions-nous faire ensuite pour la lentille orientale ?"},
+          {"en-remaining", "What remains for us to do?"},
+          {"es-remaining", "¿Qué nos queda por hacer?"},
+          {"fr-remaining", "Qu’est-ce qu’il nous reste à faire ?"}
         ] do
       {:ok, later_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
       captured_request = Agent.start_link(fn -> nil end) |> elem(1)
