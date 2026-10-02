@@ -5089,7 +5089,11 @@ defmodule Storyteller.PlayTest do
              "For multiple matching public memories, name candidates or ask which one; do not guess."
 
     assert instructions =~ "Movement must use an existing route or one proposed in this response"
-    assert instructions =~ "Public NPC speech/activity must come from the player's final place"
+
+    assert instructions =~
+             "Public NPC speech/activity requires presence in the player's final place"
+
+    assert instructions =~ "a message needs an active public path for that sender"
     assert instructions =~ "without a matching inventory_changes operation and established cause"
     assert instructions =~ "A read-only ledger review changes nothing"
     assert instructions =~ "Request a player D20 only for an uncertain, consequential outcome"

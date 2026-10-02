@@ -621,6 +621,84 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute render(view) =~ "A hidden passage lies behind the shelves."
   end
 
+  test "remote NPC deliveries have a distinct timeline event and visual treatment", %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "Harbor",
+        gm_characters: [%{speaker_id: "npc:lyra", name: "Lyra", starting_place: "North Island"}]
+      })
+
+    [session] = campaign.sessions
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    path = %{
+      "path_id" => "lyra-letter",
+      "sender_id" => "npc:lyra",
+      "recipient_id" => "player",
+      "channel" => "Letter",
+      "endpoint" => "Harbor office",
+      "status" => "active"
+    }
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "communication_paths", [path])
+      })
+    )
+
+    set_handler(fn _request ->
+      {:ok,
+       %{
+         narration: "A folded note waits at the harbor office.",
+         dialogue: [],
+         activities: [],
+         remote_messages: [
+           %{
+             speaker_id: "npc:lyra",
+             path_id: "lyra-letter",
+             text: "The northern lights are clear."
+           }
+         ],
+         communication_path_changes: [],
+         public_changes: %{},
+         private_changes: %{},
+         panel_changes: [],
+         character_updates: [],
+         character_creations: [],
+         inventory_changes: [],
+         location_changes: [],
+         travel_changes: [],
+         objective_changes: [],
+         continuity_changes: [],
+         memory_update: %{public_summary: "", gm_private_summary: ""},
+         time_advance_minutes: 0,
+         roll_request: nil
+       }}
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: "Read the note."})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-live-timeline [data-event-type='remote_message']")
+           end)
+
+    remote_event = Repo.get_by!(Event, campaign_id: campaign.id, event_type: :remote_message)
+
+    assert has_element?(view, "#event-#{remote_event.sequence}[data-event-type='remote_message']")
+    assert has_element?(view, "#event-#{remote_event.sequence} article.story-entry-message")
+    assert has_element?(view, "#event-#{remote_event.sequence} h3", "Message from Lyra")
+    assert has_element?(view, "#event-#{remote_event.sequence}", "The northern lights are clear.")
+
+    refute has_element?(
+             view,
+             "#story-live-timeline [data-event-type='npc_dialogue'][data-turn-id='#{remote_event.turn_id}']"
+           )
+  end
+
   test "Ask GM answers stay in the timeline without replacing the current situation", %{
     conn: conn
   } do

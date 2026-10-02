@@ -687,6 +687,7 @@ defmodule StorytellerWeb.SessionLive.Show do
         @event.event_type in [:player_action, :player_question, :time_passage] &&
           "story-entry-player",
         @event.event_type == :npc_dialogue && "story-entry-dialogue",
+        @event.event_type == :remote_message && "story-entry-message",
         @event.event_type == :gm_narration && "story-entry-narration",
         @event.event_type in [
           :character_activity,
@@ -699,15 +700,37 @@ defmodule StorytellerWeb.SessionLive.Show do
         <div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
             {case @event.event_type do
-              :player_action -> gettext("You")
-              :player_question -> gettext("Question for the GM")
-              :time_passage -> gettext("You")
-              :gm_narration -> gettext("Game master")
-              :npc_dialogue -> speaker_name(@characters_by_id, @event.speaker_id)
-              :character_activity -> speaker_name(@characters_by_id, @event.speaker_id)
-              :roll_request -> gettext("Roll requested")
-              :player_roll -> gettext("D20 roll")
-              :state_change -> state_change_label(@event, @characters_by_id)
+              :player_action ->
+                gettext("You")
+
+              :player_question ->
+                gettext("Question for the GM")
+
+              :time_passage ->
+                gettext("You")
+
+              :gm_narration ->
+                gettext("Game master")
+
+              :npc_dialogue ->
+                speaker_name(@characters_by_id, @event.speaker_id)
+
+              :remote_message ->
+                gettext("Message from %{name}",
+                  name: speaker_name(@characters_by_id, @event.speaker_id)
+                )
+
+              :character_activity ->
+                speaker_name(@characters_by_id, @event.speaker_id)
+
+              :roll_request ->
+                gettext("Roll requested")
+
+              :player_roll ->
+                gettext("D20 roll")
+
+              :state_change ->
+                state_change_label(@event, @characters_by_id)
             end}
           </h3>
           <p
@@ -727,6 +750,7 @@ defmodule StorytellerWeb.SessionLive.Show do
               :time_passage,
               :gm_narration,
               :npc_dialogue,
+              :remote_message,
               :character_activity
             ]
           }

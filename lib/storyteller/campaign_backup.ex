@@ -16,6 +16,7 @@ defmodule Storyteller.CampaignBackup do
     Character,
     CanonCorrection,
     ContinuityEntry,
+    CommunicationPaths,
     Event,
     Objective,
     Place,
@@ -40,7 +41,8 @@ defmodule Storyteller.CampaignBackup do
   @world_label_corrections_version 8
   @active_duties_version 9
   @finite_duties_version 10
-  @version @finite_duties_version
+  @remote_message_paths_version 11
+  @version @remote_message_paths_version
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -50,6 +52,7 @@ defmodule Storyteller.CampaignBackup do
     :time_passage,
     :gm_narration,
     :npc_dialogue,
+    :remote_message,
     :character_activity,
     :roll_request,
     :player_roll,
@@ -423,7 +426,8 @@ defmodule Storyteller.CampaignBackup do
              @player_memories_version,
              @world_label_corrections_version,
              @active_duties_version,
-             @finite_duties_version
+             @finite_duties_version,
+             @remote_message_paths_version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
@@ -448,7 +452,13 @@ defmodule Storyteller.CampaignBackup do
          {:ok, objectives} <- validate_objectives(backup["objectives"]),
          {:ok, turns} <- validate_turns(backup["turns"], sessions, backup["schema_version"]),
          :ok <- validate_open_turns(campaign, sessions, turns),
-         {:ok, events} <- validate_events(backup["events"], sessions, turns),
+         {:ok, events} <-
+           validate_events(
+             backup["events"],
+             sessions,
+             turns,
+             backup["schema_version"]
+           ),
          :ok <- validate_event_sequence(state, events),
          {:ok, rolls} <- validate_rolls(backup["rolls"], turns),
          {:ok, continuity} <-
@@ -507,7 +517,8 @@ defmodule Storyteller.CampaignBackup do
               @player_memories_version,
               @world_label_corrections_version,
               @active_duties_version,
-              @finite_duties_version
+              @finite_duties_version,
+              @remote_message_paths_version
             ],
        do:
          root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
@@ -629,7 +640,8 @@ defmodule Storyteller.CampaignBackup do
            validate_elapsed_clock(map, public_state, version),
          {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
          {:ok, updated_at} <- parse_datetime(map["updated_at"], false),
-         :ok <- validate_inventory_state(public_state, private_state, characters) do
+         :ok <- validate_inventory_state(public_state, private_state, characters),
+         :ok <- validate_communication_paths(public_state, characters, version) do
       {:ok,
        %{
          revision: map["revision"],
@@ -645,6 +657,20 @@ defmodule Storyteller.CampaignBackup do
          updated_at: updated_at
        }}
     end
+  end
+
+  defp validate_communication_paths(public_state, _characters, version)
+       when version < @remote_message_paths_version do
+    if Map.has_key?(public_state, "communication_paths"),
+      do: {:error, :invalid_backup},
+      else: :ok
+  end
+
+  defp validate_communication_paths(public_state, characters, _version) do
+    CommunicationPaths.validate_ledger(
+      Map.get(public_state, "communication_paths", []),
+      characters
+    )
   end
 
   defp validate_elapsed_clock(_map, public_state, version)
@@ -1096,7 +1122,8 @@ defmodule Storyteller.CampaignBackup do
               @player_memories_version,
               @world_label_corrections_version,
               @active_duties_version,
-              @finite_duties_version
+              @finite_duties_version,
+              @remote_message_paths_version
             ],
        do: turn_backup_keys(@current_previous_version)
 
@@ -1116,7 +1143,8 @@ defmodule Storyteller.CampaignBackup do
        else: {:error, :invalid_backup}
   end
 
-  defp validate_events(rows, sessions, turns) when is_list(rows) and length(rows) <= 500_000 do
+  defp validate_events(rows, sessions, turns, version)
+       when is_list(rows) and length(rows) <= 500_000 do
     session_refs = MapSet.new(sessions, & &1.ref)
     turns_by_ref = Map.new(turns, &{&1.ref, &1})
 
@@ -1136,6 +1164,8 @@ defmodule Storyteller.CampaignBackup do
                   true <- turn.session_ref == session_ref,
                   {:ok, event_type} <-
                     enum(map["event_type"], Enum.map(@event_types, &Atom.to_string/1)),
+                  true <-
+                    version >= @remote_message_paths_version or event_type != :remote_message,
                   {:ok, visibility} <- enum(map["visibility"], ~w(public gm_private)),
                   {:ok, speaker_id} <- optional_stable_id(map["speaker_id"], 100),
                   {:ok, payload} <- json_map(map["payload"], 100_000),
@@ -1160,7 +1190,7 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp validate_events(_, _, _), do: {:error, :invalid_backup}
+  defp validate_events(_, _, _, _), do: {:error, :invalid_backup}
 
   defp validate_event_sequence(state, events) do
     max_sequence = Enum.reduce(events, 0, &max(&1.sequence, &2))

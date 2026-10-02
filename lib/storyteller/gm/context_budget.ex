@@ -308,6 +308,7 @@ defmodule Storyteller.GM.ContextBudget do
     :inventory,
     :places,
     :travel_connections,
+    :communication_paths,
     :objectives,
     :memory,
     :continuity,
@@ -322,6 +323,7 @@ defmodule Storyteller.GM.ContextBudget do
     inventory: :section_inventory_bytes,
     places: :section_places_bytes,
     travel_connections: :section_travel_connections_bytes,
+    communication_paths: :section_communication_paths_bytes,
     objectives: :section_objectives_bytes,
     memory: :section_memory_bytes,
     continuity: :section_continuity_bytes,
@@ -743,7 +745,7 @@ defmodule Storyteller.GM.ContextBudget do
     type = Map.get(event, "event_type", Map.get(event, :event_type))
     type = if is_atom(type), do: Atom.to_string(type), else: type
 
-    type in ~w(player_action player_question time_passage gm_narration npc_dialogue character_activity roll_request player_roll)
+    type in ~w(player_action player_question time_passage gm_narration npc_dialogue remote_message character_activity roll_request player_roll)
   end
 
   defp conversation_event?(_event), do: false
@@ -762,12 +764,16 @@ defmodule Storyteller.GM.ContextBudget do
           "target",
           "result",
           "die",
+          "path_id",
+          "channel",
           :text,
           :test,
           :difficulty,
           :target,
           :result,
-          :die
+          :die,
+          :path_id,
+          :channel
         ])
         |> maybe_put_context("text", if(is_binary(text), do: compact_text(text, max_text_chars)))
       else

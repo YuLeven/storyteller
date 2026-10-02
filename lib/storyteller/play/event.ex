@@ -17,6 +17,7 @@ defmodule Storyteller.Play.Event do
         :time_passage,
         :gm_narration,
         :npc_dialogue,
+        :remote_message,
         :character_activity,
         :roll_request,
         :player_roll,

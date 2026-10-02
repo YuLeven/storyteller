@@ -285,7 +285,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 10
+    assert document["schema_version"] == 11
     assert length(document["canon_corrections"]) == 1
     assert hd(document["canon_corrections"])["after_state"]["value"] == 7
     assert document["campaign"]["title"] == campaign.title
@@ -480,7 +480,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     assert {:ok, json} = CampaignBackup.export(campaign.id)
     document = Jason.decode!(json)
-    assert document["schema_version"] == 10
+    assert document["schema_version"] == 11
 
     exported_keeper = Enum.find(document["characters"], &(&1["speaker_id"] == "npc:keeper"))
     assert exported_keeper["duty_name"] == "Check the reserve casks"
@@ -570,6 +570,9 @@ defmodule Storyteller.CampaignBackupTest do
     assert imported_keeper.duty_name == "Remain at the press"
     assert imported_keeper.duty_place_id == imported_keeper.current_place_id
     assert is_nil(imported_keeper.duty_release_at_world_minute)
+
+    imported_state = Repo.get_by!(State, campaign_id: imported.id)
+    assert Map.get(imported_state.public_state, "communication_paths", []) == []
   end
 
   test "rejects unknown versions, secret-bearing extra fields, and dangling references before writing" do
@@ -595,7 +598,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 11),
+          Map.put(decoded, "schema_version", 12),
           Map.put(decoded, "canon_corrections", [%{"sequence" => 1}]),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
@@ -764,7 +767,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 10
+    assert document["schema_version"] == 11
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -965,6 +968,50 @@ defmodule Storyteller.CampaignBackupTest do
     assert {:ok, memory_backup} = CampaignBackup.export(campaign.id)
     invalid_v6 = memory_backup |> Jason.decode!() |> pre_active_duties(6)
     assert {:error, :invalid_backup} = CampaignBackup.import(Jason.encode!(invalid_v6))
+  end
+
+  test "imports v10 backups that predate communication paths and remote messages" do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    assert {:ok, _turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "legacy-communication-backup",
+               "I wait here.",
+               provider: fake_provider("The room remains quiet."),
+               model: "backup-test"
+             )
+
+    assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
+    v10_backup = backup_json |> Jason.decode!() |> Map.put("schema_version", 10)
+
+    refute Map.has_key?(v10_backup["state"]["public_state"], "communication_paths")
+    refute Enum.any?(v10_backup["events"], &(&1["event_type"] == "remote_message"))
+    assert {:ok, _imported} = CampaignBackup.import(Jason.encode!(v10_backup))
+
+    forged_path = %{
+      "path_id" => "legacy-path",
+      "sender_id" => "unknown-npc",
+      "recipient_id" => "player",
+      "channel" => "Letter",
+      "endpoint" => "Harbor office",
+      "status" => "active"
+    }
+
+    legacy_with_path =
+      put_in(v10_backup, ["state", "public_state", "communication_paths"], [forged_path])
+
+    assert {:error, :invalid_backup} = CampaignBackup.import(Jason.encode!(legacy_with_path))
+
+    legacy_with_remote_event =
+      Map.update!(v10_backup, "events", fn [event | remaining] ->
+        [%{event | "event_type" => "remote_message"} | remaining]
+      end)
+
+    assert {:error, :invalid_backup} =
+             CampaignBackup.import(Jason.encode!(legacy_with_remote_event))
   end
 
   defp fake_provider(narration) do

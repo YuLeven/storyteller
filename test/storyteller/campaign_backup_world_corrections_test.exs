@@ -7,7 +7,7 @@ defmodule Storyteller.CampaignBackupWorldCorrectionsTest do
   alias Storyteller.Play.{CanonCorrection, CanonCorrections, State}
   alias Storyteller.Repo
 
-  test "version ten round-trips world correction audit and version seven remains importable" do
+  test "version eleven round-trips world correction audit and version seven remains importable" do
     campaign =
       campaign_fixture(%{
         starting_date: "14 October 1567",
@@ -46,7 +46,7 @@ defmodule Storyteller.CampaignBackupWorldCorrectionsTest do
 
     assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
     backup = Jason.decode!(backup_json)
-    assert backup["schema_version"] == 10
+    assert backup["schema_version"] == 11
 
     assert [%{"kind" => "world", "target_id" => "weather"} = exported_correction] =
              backup["canon_corrections"]
