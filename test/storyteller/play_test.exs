@@ -6520,7 +6520,10 @@ defmodule Storyteller.PlayTest do
     questions = [
       "Where did we hide the star chart?",
       "¿Dónde escondimos el mapa de estrellas?",
-      "Où avons-nous caché la carte des étoiles ?"
+      "Où avons-nous caché la carte des étoiles ?",
+      "What did we mark on the constellation map?",
+      "¿Dónde quedó el mapa de constelaciones?",
+      "Où avons-nous caché la carte des constellations ?"
     ]
 
     Enum.with_index(questions)

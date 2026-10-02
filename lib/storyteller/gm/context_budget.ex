@@ -298,9 +298,10 @@ defmodule Storyteller.GM.ContextBudget do
   # term prevents a note about stars or an unrelated map from matching alone.
   @memory_compound_term_groups %{
     "reference:star-chart" => [
-      MapSet.new(
-        ~w(star stars étoile étoiles estrella estrellas estelar estelares celestial céleste celeste)
-      ),
+      MapSet.new(~w(
+          star stars étoile étoiles estrella estrellas estelar estelares celestial céleste celeste
+          constellation constellations constelación constelaciones constelacion
+        )),
       MapSet.new(~w(chart charts map maps mapa mapas carte cartes))
     ]
   }
