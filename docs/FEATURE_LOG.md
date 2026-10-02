@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Recall campaign decisions in English, Spanish, and French
+
+- Added a small reviewed vocabulary for common decision wording, including “What did we decide?”, “¿Qué decidimos?”, and “Qu’avons-nous décidé ?”. These cues retrieve typed campaign commitments without broadening ordinary facts that merely mention a decision.
+- Extended the production `Play.submit_turn` regression across later sessions in all three locales. The earlier agreement and provenance reach each fake-provider request; a same-topic ordinary fact and an unrelated fact keep identity/status metadata only. Each request remains within the 24,000-byte conservative serialized-byte bound.
+- **Limit:** other inflections, indirect phrasings, and general semantic retrieval remain open; these aliases are not a general intent detector.
+- **Checks:** focused production-boundary test passed (86 tests, 1 selected, 85 excluded); full WSL suite passed (379 tests, 0 failures); warnings-as-errors compilation, formatter check, and `git diff --check` passed. Tests used only the isolated test database and fake provider; no live model request or OAuth was used.
+
 ## 2026-10-02 — Save character voice notes from the campaign editor
 
 - Phoenix LiveView adds `_unused_*` markers for untouched nested form inputs during change events. Those markers were retained in the editor draft and later rejected by strict authoring validation, so real browser saves showed a false voice-limit error and did not persist the notes.
