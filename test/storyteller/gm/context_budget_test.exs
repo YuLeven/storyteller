@@ -51,6 +51,83 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "finca"
   end
 
+  test "fits the maximum inventory by prioritizing item context without changing the source ledger" do
+    bulk_inventory =
+      Enum.map(1..198, fn sequence ->
+        %{
+          "id" => "reserve-#{sequence}",
+          "name" => "Reserve wine #{sequence}",
+          "quantity" => sequence,
+          "unit" => "bottle",
+          "category" => "wine",
+          "owner_id" => "player",
+          "visibility" => "public",
+          "description" => String.duplicate("Unrelated cellar aging notes. ", 20),
+          "properties" => %{
+            "vintage" => 1560 + rem(sequence, 10),
+            "notes" => String.duplicate("Oak storage details. ", 15)
+          }
+        }
+      end)
+
+    named_item = %{
+      "id" => "la-bella-2028",
+      "name" => "La Bella 2028",
+      "quantity" => 3,
+      "unit" => "bottle",
+      "category" => "wine",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "description" => "Deep plum, soft tannin, and a long finish.",
+      "properties" => %{"vintage" => 2028, "condition" => "young"}
+    }
+
+    private_item = %{
+      "id" => "hidden-cellar-key",
+      "name" => "Cellar key",
+      "quantity" => 1,
+      "owner_id" => "party",
+      "visibility" => "gm_private",
+      "description" => "A hidden brass key behind the west cask.",
+      "properties" => %{"secret" => "Do not reveal"}
+    }
+
+    context =
+      base_context()
+      |> Map.put(:player_action, "I inspect the La Bella 2028 wine's color and vintage.")
+      |> put_in([:inventory, :player_visible], bulk_inventory ++ [named_item])
+      |> put_in([:inventory, :gm_private], [private_item])
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, production_gm_policy(), "gpt-6-astra",
+               context_input_byte_budget: 24_000
+             )
+
+    assert metrics.compacted?
+    assert metrics.estimated_request_bytes <= 24_000
+    assert :inventory_details in metrics.omissions
+    assert compiled.context_completeness.inventory_details_omitted
+    assert compiled.context_completeness.inventory_items_omitted
+
+    public_items = compiled.inventory.player_visible
+    assert length(public_items) <= 16
+    assert length(context.inventory.player_visible) == 199
+    assert Enum.any?(public_items, &(&1["id"] == "la-bella-2028"))
+    assert Enum.all?(public_items, &Map.has_key?(&1, "quantity"))
+    refute Enum.any?(public_items, &(&1["id"] == "reserve-30"))
+
+    preserved_named_item = Enum.find(public_items, &(&1["id"] == "la-bella-2028"))
+    assert preserved_named_item["description"] == named_item["description"]
+    assert preserved_named_item["properties"] == named_item["properties"]
+    assert Enum.count(public_items, &Map.has_key?(&1, "description")) <= 1
+
+    assert [compacted_private_item] = compiled.inventory.gm_private
+    assert compacted_private_item["visibility"] == "gm_private"
+    assert compacted_private_item["name"] == "Cellar key"
+    assert compacted_private_item["description"] == private_item["description"]
+    assert compacted_private_item["properties"] == private_item["properties"]
+  end
+
   test "broad questions retrieve a small bounded set of scene anchors in each supported language" do
     history =
       Enum.map(1..40, fn sequence ->

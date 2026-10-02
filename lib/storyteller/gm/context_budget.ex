@@ -17,6 +17,12 @@ defmodule Storyteller.GM.ContextBudget do
   @memory_summary_chars 1_500
   @detailed_continuity_count 12
   @max_continuity_memory_details 8
+  @max_inventory_context_items 16
+  @max_relevant_inventory_items 10
+  @recent_inventory_context_items 6
+  @max_inventory_detail_count 1
+  @max_inventory_description_chars 600
+  @max_inventory_properties_bytes 700
   @history_budget_fallback_tiers [
     {4, 1_600, 600},
     {4, 1_200, 400},
@@ -441,19 +447,37 @@ defmodule Storyteller.GM.ContextBudget do
   def compile(context, instructions, model, opts)
       when is_map(context) and is_binary(instructions) do
     budget = byte_budget(model, opts)
-    {selected_context, retrieval_omitted?} = retrieve_relevant_continuity_details(context)
+
+    {selected_context, continuity_details_omitted?} =
+      retrieve_relevant_continuity_details(context)
+
+    {selected_context, inventory_details_omitted?, inventory_items_omitted?} =
+      project_relevant_inventory(selected_context)
+
+    completeness =
+      %{}
+      |> maybe_put(
+        :continuity_memory_details_omitted,
+        if(continuity_details_omitted?, do: true)
+      )
+      |> maybe_put(:inventory_details_omitted, if(inventory_details_omitted?, do: true))
+      |> maybe_put(:inventory_items_omitted, if(inventory_items_omitted?, do: true))
 
     selected_context =
-      if retrieval_omitted? do
-        context_with_completeness(selected_context, %{
-          continuity_memory_details_omitted: true
-        })
-      else
-        selected_context
-      end
+      if map_size(completeness) > 0,
+        do: context_with_completeness(selected_context, completeness),
+        else: selected_context
 
     retrieval_omissions =
-      if retrieval_omitted?, do: [:continuity_memory_details], else: []
+      [
+        continuity_memory_details: continuity_details_omitted?,
+        inventory_details: inventory_details_omitted?,
+        inventory_items: inventory_items_omitted?
+      ]
+      |> Enum.filter(&elem(&1, 1))
+      |> Enum.map(&elem(&1, 0))
+
+    retrieval_omitted? = retrieval_omissions != []
 
     full =
       measure(
@@ -760,6 +784,163 @@ defmodule Storyteller.GM.ContextBudget do
       {context, false}
     end
   end
+
+  # Keep every item identity and quantity for small inventories. For larger
+  # ledgers, send the items that best match the current turn plus a small recent
+  # slice. Send bounded descriptions/properties only for the strongest matches.
+  # The complete inventory remains canonical in the database and is still used
+  # when validating any proposed item operation.
+  defp project_relevant_inventory(context) do
+    inventory = value(context, :inventory)
+
+    if is_map(inventory) do
+      terms = query_terms(context)
+
+      {selected, {details_omitted?, items_omitted?}} =
+        Enum.map_reduce(inventory, {false, false}, fn {visibility, items},
+                                                      {any_details_omitted?, any_items_omitted?} ->
+          if is_list(items) do
+            {rows, details_omitted_here?, items_omitted_here?} =
+              project_inventory_items(items, terms)
+
+            {{visibility, rows},
+             {any_details_omitted? or details_omitted_here?,
+              any_items_omitted? or items_omitted_here?}}
+          else
+            {{visibility, items}, {any_details_omitted?, any_items_omitted?}}
+          end
+        end)
+        |> then(fn {groups, omissions} -> {Map.new(groups), omissions} end)
+
+      {put_context_value(context, "inventory", selected), details_omitted?, items_omitted?}
+    else
+      {context, false, false}
+    end
+  end
+
+  defp project_inventory_items(items, terms) do
+    scored_items =
+      Enum.map(items, fn item ->
+        relevance_score = relevance_score(inventory_detail_text(item), terms)
+        {item, relevance_score}
+      end)
+
+    selected_indexes = selected_inventory_indexes(scored_items)
+
+    detailed_indexes =
+      if length(items) <= @max_inventory_detail_count do
+        selected_indexes
+      else
+        scored_items
+        |> Enum.with_index()
+        |> Enum.filter(fn {{_item, score}, index} ->
+          score > 0 and MapSet.member?(selected_indexes, index)
+        end)
+        |> Enum.sort_by(fn {{_item, score}, index} -> {-score, -index} end)
+        |> Enum.take(@max_inventory_detail_count)
+        |> Enum.map(&elem(&1, 1))
+        |> MapSet.new()
+      end
+
+    {rows, {details_omitted?, items_omitted?}} =
+      items
+      |> Enum.with_index()
+      |> Enum.reduce({[], false, false}, fn {item, index},
+                                            {acc, any_details_omitted?, any_items_omitted?} ->
+        cond do
+          not MapSet.member?(selected_indexes, index) ->
+            {acc, any_details_omitted?, true}
+
+          MapSet.member?(detailed_indexes, index) ->
+            {compacted_item, details_omitted_here?} = compact_selected_inventory_item(item)
+
+            {acc ++ [compacted_item], any_details_omitted? or details_omitted_here?,
+             any_items_omitted?}
+
+          true ->
+            compacted_item = compact_inventory_item(item)
+
+            {acc ++ [compacted_item], any_details_omitted? or compacted_item != item,
+             any_items_omitted?}
+        end
+      end)
+      |> then(fn {rows, details_omitted?, items_omitted?} ->
+        {rows, {details_omitted?, items_omitted?}}
+      end)
+
+    {rows, details_omitted?, items_omitted?}
+  end
+
+  defp selected_inventory_indexes([]), do: MapSet.new()
+
+  defp selected_inventory_indexes(scored_items)
+       when length(scored_items) <= @max_inventory_context_items do
+    0..(length(scored_items) - 1) |> MapSet.new()
+  end
+
+  defp selected_inventory_indexes(scored_items) do
+    relevant_indexes =
+      scored_items
+      |> Enum.with_index()
+      |> Enum.filter(fn {{_item, score}, _index} -> score > 0 end)
+      |> Enum.sort_by(fn {{_item, score}, index} -> {-score, -index} end)
+      |> Enum.take(@max_relevant_inventory_items)
+      |> Enum.map(&elem(&1, 1))
+
+    recent_start = max(length(scored_items) - @recent_inventory_context_items, 0)
+    recent_indexes = Enum.to_list(recent_start..(length(scored_items) - 1))
+
+    MapSet.new(relevant_indexes ++ recent_indexes)
+  end
+
+  defp inventory_detail_text(item) when is_map(item) do
+    properties = value(item, :properties)
+
+    property_text =
+      if is_map(properties) or is_list(properties), do: Jason.encode!(properties), else: ""
+
+    [
+      value(item, :name),
+      value(item, :description),
+      value(item, :category),
+      value(item, :unit),
+      property_text
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.join(" ")
+  end
+
+  defp inventory_detail_text(_item), do: ""
+
+  defp compact_inventory_item(item) when is_map(item),
+    do: Map.drop(item, [:description, "description", :properties, "properties"])
+
+  defp compact_inventory_item(item), do: item
+
+  defp compact_selected_inventory_item(item) when is_map(item) do
+    description = value(item, :description)
+    properties = value(item, :properties)
+
+    compacted_description = compact_text(description, @max_inventory_description_chars)
+
+    {compacted_item, description_omitted?} =
+      if compacted_description != description do
+        {put_context_value(item, "description", compacted_description), true}
+      else
+        {item, false}
+      end
+
+    properties_json =
+      if is_map(properties) or is_list(properties), do: Jason.encode!(properties), else: ""
+
+    if byte_size(properties_json) > @max_inventory_properties_bytes do
+      {Map.drop(compacted_item, [:properties, "properties"]), true}
+    else
+      {compacted_item, description_omitted?}
+    end
+  end
+
+  defp compact_selected_inventory_item(item), do: {item, false}
 
   defp memory_relevant?(entry, query_terms) do
     note_text = entry_text(entry)

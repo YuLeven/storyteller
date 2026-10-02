@@ -327,7 +327,11 @@ defmodule Storyteller.Play do
   public narration, dialogue, activities, events, projections, and changes.
   Reveal a secret only when play establishes that the player learns it.
   Omitted context is unknown; never infer it. For multiple matching public
-  memories, name candidates or ask which one; do not guess.
+  memories, name candidates or ask which one; do not guess. If
+  context_completeness marks inventory_items_omitted, the supplied lists are
+  partial; inventory_details_omitted means some descriptions/properties are
+  absent. Neither flag means an item is absent from the canonical ledger.
+  Never invent omitted item facts, and only change supplied stable item IDs.
 
   WORLD AND PEOPLE: Date/time/weather have one canonical value; never use aliases
   (e.g. current_date, world_time, time_of_day, conditions). Create places before
@@ -2454,7 +2458,7 @@ defmodule Storyteller.Play do
     world =
       world
       |> canonical_public_world(campaign_id)
-      |> Map.delete("communication_paths")
+      |> Map.drop(["communication_paths", "inventory", :communication_paths, :inventory])
 
     player_location =
       case Enum.find(characters, &(field(&1, :speaker_id) == "player")) do
@@ -5126,7 +5130,7 @@ defmodule Storyteller.Play do
             places_by_id,
             turn.campaign_id
           ),
-        gm_private: state.gm_private_state
+        gm_private: Map.drop(state.gm_private_state, ["inventory", :inventory])
       },
       elapsed_world_clock: elapsed_world_clock_context(state),
       inventory: %{

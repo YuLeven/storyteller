@@ -7910,6 +7910,103 @@ defmodule Storyteller.PlayTest do
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
   end
 
+  test "large canonical inventory is projected by relevance without changing saved items" do
+    {campaign, session} = play_campaign("The Inventory Context Observatory")
+
+    bulk_inventory =
+      Enum.map(1..198, fn sequence ->
+        %{
+          "id" => "reserve-#{sequence}",
+          "name" => "Reserve wine #{sequence}",
+          "quantity" => sequence,
+          "unit" => "bottle",
+          "category" => "wine",
+          "owner_id" => "player",
+          "visibility" => "public",
+          "description" => String.duplicate("Unrelated cellar aging notes. ", 20),
+          "properties" => %{
+            "vintage" => 1560 + rem(sequence, 10),
+            "notes" => String.duplicate("Oak storage details. ", 15)
+          }
+        }
+      end)
+
+    named_item = %{
+      "id" => "la-bella-2028",
+      "name" => "La Bella 2028",
+      "quantity" => 3,
+      "unit" => "bottle",
+      "category" => "wine",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "description" => "Deep plum, soft tannin, and a long finish.",
+      "properties" => %{"vintage" => 2028, "condition" => "young"}
+    }
+
+    private_item = %{
+      "id" => "hidden-cellar-key",
+      "name" => "Cellar key",
+      "quantity" => 1,
+      "owner_id" => "party",
+      "visibility" => "gm_private",
+      "description" => "A hidden brass key behind the west cask.",
+      "properties" => %{"secret" => "Do not reveal"}
+    }
+
+    original_inventory = bulk_inventory ++ [named_item]
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state: Map.put(state.public_state, "inventory", original_inventory),
+        gm_private_state: Map.put(state.gm_private_state, "inventory", [private_item])
+      })
+    )
+
+    caller = self()
+
+    provider = fn request ->
+      send(caller, {:inventory_context_request, request, decode_request(request)})
+      {:ok, Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))}
+    end
+
+    result =
+      Play.submit_turn(
+        campaign.id,
+        session.id,
+        "large-inventory-context",
+        "I inspect the La Bella 2028 wine's color and vintage.",
+        provider: provider,
+        model: "gpt-6-astra"
+      )
+
+    assert {:ok, %{status: :completed}} = result
+
+    assert_receive {:inventory_context_request, request, context}, 1_000
+
+    selected_items = context["inventory"]["player_visible"]
+    assert length(selected_items) <= 16
+    assert Enum.any?(selected_items, &(&1["id"] == "la-bella-2028"))
+    assert Enum.count(selected_items, &Map.has_key?(&1, "description")) <= 1
+    assert context["context_completeness"]["inventory_items_omitted"]
+    assert context["context_completeness"]["inventory_details_omitted"]
+    refute Map.has_key?(context["world"]["public"], "inventory")
+    refute Map.has_key?(context["world"]["gm_private"], "inventory")
+
+    assert [private_item] == context["inventory"]["gm_private"]
+
+    target = Enum.find(selected_items, &(&1["id"] == "la-bella-2028"))
+    assert target["description"] == named_item["description"]
+    assert target["properties"] == named_item["properties"]
+
+    metrics = request.local_context_metrics
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+
+    saved_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert saved_state.public_state["inventory"] == original_inventory
+    assert saved_state.gm_private_state["inventory"] == [private_item]
+  end
+
   test "idempotency replays a completed turn and rejects key reuse with different text" do
     {campaign, session} = play_campaign("The Glass Observatory")
     caller = self()
