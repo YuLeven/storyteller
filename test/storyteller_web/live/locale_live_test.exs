@@ -5,8 +5,24 @@ defmodule StorytellerWeb.LocaleLiveTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Settings
+  alias Storyteller.Play
   alias Storyteller.Play.Objective
   alias Storyteller.Repo
+  alias StorytellerWeb.LocaleLiveTest.FakeProvider
+
+  setup do
+    previous_provider = Application.get_env(:storyteller, :gm_provider, :not_configured)
+    Application.put_env(:storyteller, :gm_provider, FakeProvider)
+
+    on_exit(fn ->
+      case previous_provider do
+        :not_configured -> Application.delete_env(:storyteller, :gm_provider)
+        provider -> Application.put_env(:storyteller, :gm_provider, provider)
+      end
+    end)
+
+    :ok
+  end
 
   test "the locale selector persists its choice and redirects to a local page", %{conn: conn} do
     conn = get(conn, "/")
@@ -209,24 +225,24 @@ defmodule StorytellerWeb.LocaleLiveTest do
     session = hd(campaign.sessions)
 
     assert {:ok, _preference} = Settings.set_ui_locale("es")
-    {:ok, _view, spanish_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, _view, spanish_html} = live_session(conn, campaign, session)
     assert spanish_html =~ "Inventario"
     assert spanish_html =~ "Tu personaje"
     assert spanish_html =~ "Poción de luz"
     assert spanish_html =~ "2 viales"
     assert spanish_html =~ "La escena"
-    assert spanish_html =~ "Personas aquí"
+    assert spanish_html =~ "Contigo"
     assert spanish_html =~ "Vineyard gate"
     assert spanish_html =~ "The Keeper"
 
     assert {:ok, _preference} = Settings.set_ui_locale("fr")
-    {:ok, _view, french_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, _view, french_html} = live_session(conn, campaign, session)
     assert french_html =~ "Inventaire"
     assert french_html =~ "Votre personnage"
     assert french_html =~ "Poción de luz"
     assert french_html =~ "2 viales"
     assert french_html =~ "La scène"
-    assert french_html =~ "Personnes présentes"
+    assert french_html =~ "Avec vous"
     assert french_html =~ "Vineyard gate"
     assert french_html =~ "The Keeper"
   end
@@ -256,7 +272,9 @@ defmodule StorytellerWeb.LocaleLiveTest do
   test "the objectives board localizes statuses and excludes GM-private objectives", %{
     conn: conn
   } do
-    campaign = campaign_fixture(%{title: "The Glass Observatory"})
+    campaign =
+      campaign_fixture(%{title: "The Glass Observatory", starting_location: "Observatory"})
+
     session = hd(campaign.sessions)
 
     for {id, title, status, visibility} <- [
@@ -277,7 +295,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     end
 
     assert {:ok, _preference} = Settings.set_ui_locale("es")
-    {:ok, _view, spanish_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, _view, spanish_html} = live_session(conn, campaign, session)
 
     assert spanish_html =~ "Compromisos de campaña"
     assert spanish_html =~ "Objetivos"
@@ -290,7 +308,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     refute spanish_html =~ "Find the hidden witness"
 
     assert {:ok, _preference} = Settings.set_ui_locale("fr")
-    {:ok, _view, french_html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+    {:ok, _view, french_html} = live_session(conn, campaign, session)
 
     assert french_html =~ "Engagements de campagne"
     assert french_html =~ "Objectifs"
@@ -309,4 +327,63 @@ defmodule StorytellerWeb.LocaleLiveTest do
     |> put_submitter("button[name=direction][value=#{direction}]")
     |> render_submit()
   end
+
+  defp live_session(conn, campaign, session) do
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert wait_until(fn ->
+             case Play.public_current_turn(campaign.id) do
+               %{intent: :opening_scene, status: status} when status in [:pending, :resolving] ->
+                 false
+
+               %{intent: :opening_scene, status: :failed} ->
+                 false
+
+               %{intent: intent} when intent != :opening_scene ->
+                 true
+
+               _ ->
+                 has_element?(view, "#turn-input:not([disabled])")
+             end
+           end),
+           "the isolated fake GM did not finish the opening scene"
+
+    {:ok, view, render(view)}
+  end
+
+  defp wait_until(fun, attempts \\ 60)
+  defp wait_until(fun, 0), do: fun.()
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(25)
+      wait_until(fun, attempts - 1)
+    end
+  end
+end
+
+defmodule StorytellerWeb.LocaleLiveTest.FakeProvider do
+  @behaviour Storyteller.Play.Provider
+
+  @opening_scene %{
+    narration: "The opening scene is ready.",
+    dialogue: [],
+    activities: [],
+    public_changes: %{},
+    private_changes: %{},
+    memory_update: %{public_summary: "", gm_private_summary: ""},
+    panel_changes: [],
+    character_updates: [],
+    character_creations: [],
+    inventory_changes: [],
+    location_changes: [],
+    objective_changes: [],
+    continuity_changes: [],
+    roll_request: nil
+  }
+
+  @impl true
+  def stream_response(_request), do: {:ok, @opening_scene}
 end

@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Keep current companions in view on the scene board
+
+- The scene card previously hid present characters and their activity under place lore, and the separate character list was also collapsed. The board now shows up to three canonically co-present public companions with their current visible activity; any larger cast stays behind a collapsed “See more” disclosure. Place description and facts remain in the separate collapsed Place details section, and the duplicate people list was removed.
+- Added behavioral LiveView coverage for initial co-presence versus an off-scene character, GM-private fact exclusion, large-cast overflow, and a fake-provider activity update appearing in the at-a-glance strip after a turn. Spanish and French locale assertions cover the translated labels; locale session tests now finish their fake opening turn before sandbox teardown.
+- **Checks:** new companion-strip scenarios (**2 tests, 0 failures**); SessionLive suite (**59 tests, 0 failures**); LocaleLive suite (**9 tests, 0 failures**); full isolated WSL suite (**385 tests, 0 failures**); formatter, Gettext freshness, warnings-as-errors compilation, and `git diff --check` passed. All Elixir checks used `MIX_ENV=test` and isolated `storyteller_test`; no dev database, port 4000, live provider, OAuth flow, or Vineyard campaign was used.
+
 ## 2026-10-02 — Keep character voices distinct and route setup errors to their step
 
 - The GM policy now directs the model to keep each speaker's own accent/dialect, vocabulary, cadence, quirks, and mannerisms recognizable without blending profiles, flattening the cast into one voice, or using phonetic caricature. The policy addition is concise because it is repeated in each GM request.

@@ -3204,3 +3204,13 @@ msgstr "Itinéraires à proximité"
 #, elixir-autogen, elixir-format
 msgid "Travel time: %{minutes} min"
 msgstr "Durée du trajet : %{minutes} min"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:1145
+#, elixir-autogen, elixir-format
+msgid "Here with you"
+msgstr "Avec vous"
+
+#: lib/storyteller_web/live/session_live/show.html.heex:1203
+#, elixir-autogen, elixir-format
+msgid "Place details"
+msgstr "Détails du lieu"

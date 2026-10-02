@@ -733,6 +733,144 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute render(view) =~ "A hidden passage lies behind the shelves."
   end
 
+  test "the scene board shows present companions at a glance and excludes off-scene people", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture(%{starting_location: "The Observatory"})
+    [session] = campaign.sessions
+
+    {:ok, _state} =
+      Play.initialize_campaign(campaign, %{
+        characters: [
+          %{
+            speaker_id: "keeper",
+            name: "Tamsin Vale",
+            initial_location: "The Observatory",
+            visible_activity: "Trims the lantern wick.",
+            visible_facts: %{"trade" => "Keeper"},
+            gm_private_facts: %{"secret" => "The hidden door is behind the map."}
+          },
+          %{
+            speaker_id: "scout",
+            name: "Rook",
+            initial_location: "The Observatory",
+            visible_activity: "Studies the tide chart."
+          },
+          %{
+            speaker_id: "scribe",
+            name: "Ivo",
+            initial_location: "The Observatory",
+            visible_activity: "Copies a star from the ledger."
+          },
+          %{
+            speaker_id: "cook",
+            name: "Mina",
+            initial_location: "The Observatory",
+            visible_activity: "Warms a pot over the brazier."
+          },
+          %{
+            speaker_id: "traveler",
+            name: "The Distant Traveler",
+            initial_location: "The Far Pier",
+            visible_activity: "Counts the lanterns from the pier."
+          }
+        ]
+      })
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#current-place > #scene-companions")
+    assert has_element?(view, "#scene-companions", "Here with you")
+    assert has_element?(view, "#scene-companion-keeper", "Tamsin Vale")
+    assert has_element?(view, "#scene-companion-keeper", "Trims the lantern wick.")
+    assert has_element?(view, "#scene-companion-scout", "Studies the tide chart.")
+    assert has_element?(view, "#scene-companion-scribe", "Copies a star from the ledger.")
+    refute has_element?(view, "#scene-companions-at-a-glance #scene-companion-cook")
+    refute has_element?(view, "#scene-companions-at-a-glance #scene-companion-traveler")
+    refute render(view) =~ "The hidden door is behind the map."
+
+    assert has_element?(view, "#scene-companions-overflow > summary", "See 1 more")
+    refute has_element?(view, "#scene-companions-overflow[open]")
+    assert has_element?(view, "#scene-companions-overflow-list", "Mina")
+    assert has_element?(view, "#scene-companions-overflow-list", "Warms a pot over the brazier.")
+    refute has_element?(view, "#scene-details[open]")
+    assert has_element?(view, "#scene-details > summary", "Place details")
+
+    for {locale, companion_label, overflow_label, place_label} <- [
+          {"es", "Contigo", "Ver 1 más", "Detalles del lugar"},
+          {"fr", "Avec vous", "Voir 1 de plus", "Détails du lieu"}
+        ] do
+      assert {:ok, _preference} = Settings.set_ui_locale(locale)
+      {:ok, localized_view, _html} = live_play(conn, campaign, session)
+
+      assert has_element?(localized_view, "#scene-companions", companion_label)
+      assert has_element?(localized_view, "#scene-companions-overflow > summary", overflow_label)
+      assert has_element?(localized_view, "#scene-details > summary", place_label)
+    end
+
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
+  end
+
+  test "the at-a-glance companion strip follows accepted activity updates", %{conn: conn} do
+    campaign = campaign_fixture(%{starting_location: "The Observatory"})
+    [session] = campaign.sessions
+
+    {:ok, _state} =
+      Play.initialize_campaign(campaign, %{
+        characters: [
+          %{
+            speaker_id: "keeper",
+            name: "Tamsin Vale",
+            initial_location: "The Observatory",
+            visible_activity: "Trims the lantern wick."
+          },
+          %{
+            speaker_id: "traveler",
+            name: "The Distant Traveler",
+            initial_location: "The Far Pier",
+            visible_activity: "Counts the lanterns from the pier."
+          }
+        ]
+      })
+
+    set_handler(fn request ->
+      context = provider_context(request)
+
+      if context["phase"] == "opening_scene" do
+        FakeProvider.opening_scene_response(context)
+      else
+        {:ok,
+         %{
+           narration: "The brass lantern gives a steady glow.",
+           dialogue: [],
+           activities: [%{speaker_id: "keeper", text: "Turns the lantern toward the map."}],
+           public_changes: %{},
+           private_changes: %{},
+           character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
+           roll_request: nil
+         }}
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#scene-companion-keeper", "Trims the lantern wick.")
+    refute has_element?(view, "#scene-companions-at-a-glance #scene-companion-traveler")
+
+    view
+    |> form("#turn-composer", turn: %{input: "I ask Tamsin what she sees on the map."})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "The brass lantern gives a steady glow.")
+           end)
+
+    assert has_element?(view, "#scene-companion-keeper", "Turns the lantern toward the map.")
+    refute has_element?(view, "#scene-companion-keeper", "Trims the lantern wick.")
+    refute has_element?(view, "#scene-companions-at-a-glance #scene-companion-traveler")
+  end
+
   test "the scene board shows public nearby routes without leaking private routes or places", %{
     conn: conn
   } do
@@ -2903,7 +3041,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(view, "#campaign-objectives > summary [role='heading']", "Objectives")
     assert has_element?(view, "#current-place #current-situation")
     refute has_element?(view, "#scene-details[open]")
-    assert has_element?(view, "#scene-details summary", "Scene details and people")
+    assert has_element?(view, "#scene-details summary", "Place details")
     refute has_element?(view, "#campaign-characters[open]")
     assert has_element?(view, "#campaign-characters > summary [role='heading']", "Characters")
 
