@@ -5783,7 +5783,7 @@ defmodule Storyteller.PlayTest do
     assert Repo.get!(ContinuityEntry, unrelated_memory.id) == unrelated_memory
   end
 
-  test "a later Spanish indirect tasting question retrieves the old reserve but not tasting decoys" do
+  test "later indirect tasting questions retrieve the reserve but not tasting decoys across locales" do
     {campaign, first_session} = play_campaign("The Quiet Observatory Autumn Gathering")
 
     assert {:ok, %{status: :completed}} =
@@ -5843,40 +5843,51 @@ defmodule Storyteller.PlayTest do
     assert reserve.source_event_id
     source_event = Repo.get!(Event, reserve.source_event_id)
     assert source_event.session_id == first_session.id
-    {:ok, later_session} = Campaigns.start_session(campaign)
-    captured = Agent.start_link(fn -> nil end) |> elem(1)
 
-    provider = fn request ->
-      Agent.update(captured, fn _ -> {request, decode_request(request)} end)
-      {:ok, Jason.encode!(ordinary_proposal())}
-    end
+    questions = [
+      "¿Qué guardamos para la cata de otoño?",
+      "¿Qué apartamos para la cata de otoño?",
+      "What did we save for the autumn tasting?",
+      "Qu’avons-nous gardé pour la dégustation d’automne ?"
+    ]
 
-    assert {:ok, %{status: :completed}} =
-             Play.submit_turn(
-               campaign.id,
-               later_session.id,
-               "ask-about-autumn-gathering-in-spanish",
-               "¿Qué guardamos para la cata de otoño?",
-               intent: :question,
-               provider: provider,
-               model: "test-model"
-             )
+    Enum.with_index(questions)
+    |> Enum.each(fn {question, index} ->
+      {:ok, later_session} = Campaigns.start_session(campaign)
+      captured = Agent.start_link(fn -> nil end) |> elem(1)
 
-    {request, context} = Agent.get(captured, & &1)
-    entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+      provider = fn request ->
+        Agent.update(captured, fn _ -> {request, decode_request(request)} end)
+        {:ok, Jason.encode!(ordinary_proposal())}
+      end
 
-    assert entries["autumn-tasting-reserve"]["details"] == reserve.details
-    assert entries["autumn-tasting-reserve"]["source_sequence"] == source_event.sequence
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 later_session.id,
+                 "ask-about-autumn-gathering-#{index}",
+                 question,
+                 intent: :question,
+                 provider: provider,
+                 model: "test-model"
+               )
 
-    for decoy_id <- ["autumn-tasting-schedule", "autumn-tasting-menu"] do
-      assert entries[decoy_id]["status"] == "active"
-      refute Map.has_key?(entries[decoy_id], "title")
-      refute Map.has_key?(entries[decoy_id], "details")
-    end
+      {request, context} = Agent.get(captured, & &1)
+      entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
 
-    assert request.local_context_metrics.conservative_input_token_upper_bound <= 24_000
-    assert request.local_context_metrics.budget_tokens == 24_000
-    assert context["context_completeness"]["continuity_memory_details_omitted"]
+      assert entries["autumn-tasting-reserve"]["details"] == reserve.details
+      assert entries["autumn-tasting-reserve"]["source_sequence"] == source_event.sequence
+
+      for decoy_id <- ["autumn-tasting-schedule", "autumn-tasting-menu"] do
+        assert entries[decoy_id]["status"] == "active"
+        refute Map.has_key?(entries[decoy_id], "title")
+        refute Map.has_key?(entries[decoy_id], "details")
+      end
+
+      assert request.local_context_metrics.conservative_input_token_upper_bound <= 24_000
+      assert request.local_context_metrics.budget_tokens == 24_000
+      assert context["context_completeness"]["continuity_memory_details_omitted"]
+    end)
   end
 
   test "later-session meeting and reply questions retrieve old social commitments across locales" do

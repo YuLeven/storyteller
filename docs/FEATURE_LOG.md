@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-01 - Recall seasonal reserves from common set-aside paraphrases
+
+- Added a small set of reviewed English (`save`/`saved`), Spanish (`apartamos`/`separamos` and participles), and French (`garder`/`gardé`/`gardée`/`gardons`) aliases for the existing allocation concept. Seasonal retrieval still requires both the allocation concept and tasting/event support, so same-tasting schedule and menu details stay compact when the player asks specifically about the reserve.
+- Extended the fake-provider later-session regression with natural English, Spanish, and French questions. It verifies the reserve detail and provenance arrive, schedule/menu decoys retain identity/status only, and each request remains within the 24,000-byte preflight bound.
+- **Checks:** full WSL suite passed (**374 tests, 0 failures**); focused Play regression (1 test, 0 failures), ContextBudget suite (18 tests, 0 failures), and formatter check also passed against `storyteller_test`. No development database, campaign data, Vineyard, live provider, or OAuth used.
+
 ## 2026-10-01 - Protect campaign voice edits across open tabs
 
 - Campaign edit forms now submit the current setup-correction sequence. A stale tab cannot silently restore older voice or mannerism fields over newer saved values; it shows a conflict, keeps its own draft visible, refreshes to the latest revision, and can save again after review.
