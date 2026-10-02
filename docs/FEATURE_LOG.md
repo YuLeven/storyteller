@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-02 — Set the functional MVP exit and V1 P0
+
+- The owner clarified the product sequence: finish QA of basic campaign play and persistence, then call the functional baseline the MVP. MVP qualification does not claim story-quality parity with ChatGPT.
+- V1's P0 is compelling, responsive GM storytelling: flexible pace, engaging scenes, clear sensory/world facts, distinct character voices, smooth handoffs, continuity, and tolerable latency. UI defects that interfere with play remain in V1 scope; open-source clone/run instructions and secret/private-data review follow once play quality is ready.
+- Updated `IMPLEMENTATION_PLAN.md` with the functional exit checks, remaining MVP gates, and measurable V1 story scenarios. Updated `docs/UX_ACCEPTANCE.md` to distinguish functional acceptance from literary quality.
+- In the separate fictional Quiet Observatory campaign, one simple Ask about current weather completed through the configured ChatGPT-plan connection in about 12 seconds. Its narration persisted after reload while date, time, weather, and location stayed unchanged. This verifies the basic Ask path only, not stateful movement or prose quality.
+- The earlier movement-and-inventory action and its retry both failed proposal validation; no canon was applied. A missing modeled route is plausible but unconfirmed, and the application currently keeps only the generic `invalid_response` category. The safe QA Ask superseded that failed turn. The imported comparison campaign and Vineyard source were not accessed or changed.
+
 ## 2026-10-02 — Finish the scene beat before handing control back
 
 - A close reading of the shared campaign confirmed that its rhythm shifts with intent: broad intervals get a selective montage, inspections and choices stay close, and ensemble scenes can include grounded sensory facts and character reactions before the next player decision. Storyteller's compared tasting beat stopped after a short narration and one NPC question, and asked the player to supply sensory information.

@@ -2,6 +2,12 @@
 
 This brief defines observable acceptance for the locally hosted, single-player Storyteller MVP. It follows the committed `IMPLEMENTATION_PLAN.md`; it does not define new game mechanics. A screen is accepted when the player can understand what is happening, choose what to do, and recover without losing or duplicating campaign state.
 
+## MVP exit and next product priority
+
+The MVP gate is functional QA: the campaign/session loop, configured local GM connection, actions and questions, time passage, player rolls, tracked state/resources, durable cross-session continuity, bounded context, and recoverable failures must work on separate fictional data. Passing this gate means the core product functions; it does not claim that generated stories are compelling or match the in-chat reference.
+
+After the functional gate, V1's P0 is story quality: engaging scenes with flexible pacing, clear GM ownership of external facts, distinctive characters, smooth handoffs, continuity, and acceptable latency. UI glitches that disrupt play remain active V1 work. Open-source clone/run documentation and a secret/private-data audit follow when the owner considers play polished enough. See the V1 scenario review and measures in `IMPLEMENTATION_PLAN.md`.
+
 ## Defining promise: a consistent world, at a deliberate context cost
 
 Storyteller's defining promise is that the campaign stays coherent because the application maintains structured canon, not because the GM model is expected to remember every detail in a long transcript. Persisted characters, places, connections, presence, inventory, and campaign resources are authoritative; narration is accepted only when its proposed changes agree with that canon. The full campaign history remains durable, while each GM request receives only a compact, relevant projection so consistency does not require sending the whole campaign every turn.
