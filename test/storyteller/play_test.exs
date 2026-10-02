@@ -7147,6 +7147,105 @@ defmodule Storyteller.PlayTest do
     assert context["context_completeness"]["continuity_memory_details_omitted"]
   end
 
+  test "a later-session plan question recalls an older typed public commitment without fact decoys" do
+    {campaign, first_session} = play_campaign("The Quiet Observatory Plan Recall")
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-observatory-plan",
+               "Mira and the keeper settle what to do before the first frost.",
+               provider:
+                 ordinary_provider(%{
+                   "continuity_changes" => [
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "eastern-lens-duty",
+                         "kind" => "commitment",
+                         "title" => "Eastern lens inspection",
+                         "details" =>
+                           "Mira will inspect the eastern glass before the first frost.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "Mira and the keeper settle on an inspection."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "lens-plan-map-fact",
+                         "kind" => "fact",
+                         "title" => "The eastern lens plan",
+                         "details" =>
+                           "A plan of the eastern lens hangs beside the keeper's workbench.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "The diagram is an ordinary fact, not an obligation."
+                     },
+                     %{
+                       "type" => "create",
+                       "entry" => %{
+                         "entry_id" => "north-wind-proverb",
+                         "kind" => "fact",
+                         "title" => "The north wind proverb",
+                         "details" => "The village proverb says the north wind calms by dawn.",
+                         "visibility" => "public"
+                       },
+                       "reason" => "This proverb is unrelated to the lens duty."
+                     }
+                   ]
+                 })
+             )
+
+    commitment =
+      Repo.get_by!(ContinuityEntry,
+        campaign_id: campaign.id,
+        entry_id: "eastern-lens-duty"
+      )
+
+    source_event = Repo.get!(Event, commitment.source_event_id)
+
+    {:ok, later_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+    captured_request = Agent.start_link(fn -> nil end) |> elem(1)
+
+    provider = fn request ->
+      Agent.update(captured_request, fn _ -> {request, decode_request(request)} end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               later_session.id,
+               "ask-what-was-our-plan",
+               "What was our plan again?",
+               intent: :question,
+               provider: provider,
+               model: "test-model"
+             )
+
+    {request, context} = Agent.get(captured_request, & &1)
+    entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
+
+    assert entries[commitment.entry_id]["details"] == commitment.details
+    assert entries[commitment.entry_id]["source_sequence"] == source_event.sequence
+
+    for decoy_id <- ["lens-plan-map-fact", "north-wind-proverb"] do
+      assert entries[decoy_id]["status"] == "active"
+      refute Map.has_key?(entries[decoy_id], "title")
+      refute Map.has_key?(entries[decoy_id], "details")
+    end
+
+    assert context["context_completeness"]["continuity_memory_details_omitted"]
+    metrics = request.local_context_metrics
+    assert metrics.budget_tokens == 24_000
+    assert metrics.conservative_input_token_upper_bound <= 24_000
+
+    assert metrics.conservative_input_token_upper_bound ==
+             metrics.instructions_bytes + metrics.context_json_bytes + 512
+  end
+
   test "later-session decision and agreement questions retrieve typed commitments in all supported locales" do
     {campaign, first_session} = play_campaign("The Quiet Observatory Decisions")
 

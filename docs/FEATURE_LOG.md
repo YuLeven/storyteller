@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-02 — Recall cross-session work plans
+
+- A player could ask “What was our plan again?” in a later session and lose the agreed action when the question and commitment shared no subject words.
+- Added reviewed English, Spanish, and French plan/intention cues that retrieve active typed commitments. Retrieval stays bounded to the latest eight detailed entries per visibility; completed commitments and ordinary facts that merely mention a plan remain compact metadata.
+- Added compiler-level coverage for localized paraphrases and decoys, plus a production `Play.submit_turn` fake-provider regression that saves a plan, starts a later session, asks the English plan question, and verifies the commitment detail and source-event provenance arrive while same-topic and unrelated facts stay compact. The request's conservative serialized-byte upper bound remains under the configured 24,000 input-token budget.
+- Documented a dedicated `MIX_TEST_PARTITION=qa` database for persistent browser QA so it cannot contaminate the default ExUnit database.
+- **Checks:** focused GM context and Play suites passed (**112 tests, 0 failures**); the full WSL suite passed (**412 tests, 0 failures**). `MIX_ENV=test mix compile --warnings-as-errors`, `mix format --check-formatted`, Gettext extraction freshness, and `git diff --check` passed. Tests used `storyteller_test` and fake providers; no live model request, OAuth, development campaign, or Vineyard campaign was used.
+
 ## 2026-10-02 — Verify voice-note persistence in a real browser
 
 - After a report that voice and mannerism edits were not persisting, repeated the edit-save-reload flow in a real browser against the fictional Quiet Observatory QA campaign (campaign 50262) in the isolated `storyteller_test` database. The test server used a fail-closed fake provider; no GM inference was requested.

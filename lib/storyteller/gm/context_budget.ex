@@ -190,6 +190,25 @@ defmodule Storyteller.GM.ContextBudget do
     "decision" => "campaign:commitment",
     "decisión" => "campaign:commitment",
     "decisiones" => "campaign:commitment",
+    "plan" => "campaign:plan",
+    "plans" => "campaign:plan",
+    "planned" => "campaign:plan",
+    "intended" => "campaign:plan",
+    "intending" => "campaign:plan",
+    "intention" => "campaign:plan",
+    "intentions" => "campaign:plan",
+    "intención" => "campaign:plan",
+    "intenciones" => "campaign:plan",
+    "previsto" => "campaign:plan",
+    "prevista" => "campaign:plan",
+    "previstos" => "campaign:plan",
+    "previstas" => "campaign:plan",
+    "prévu" => "campaign:plan",
+    "prévue" => "campaign:plan",
+    "prévus" => "campaign:plan",
+    "prévues" => "campaign:plan",
+    "prévoir" => "campaign:plan",
+    "prevoir" => "campaign:plan",
     "décider" => "campaign:commitment",
     "décidé" => "campaign:commitment",
     "décidée" => "campaign:commitment",
@@ -320,7 +339,7 @@ defmodule Storyteller.GM.ContextBudget do
                                   "allocation:set-aside"
                                 ])
   @event_subconcepts MapSet.new(["occasion:tasting"])
-  @typed_commitment_concepts MapSet.new(["campaign:commitment"])
+  @typed_commitment_concepts MapSet.new(["campaign:commitment", "campaign:plan"])
   @social_memory_concepts MapSet.new(["campaign:meeting", "campaign:response"])
   @employment_memory_concepts MapSet.new([
                                 "employment:work",
@@ -706,13 +725,23 @@ defmodule Storyteller.GM.ContextBudget do
       not MapSet.disjoint?(matched_concepts, @social_memory_concepts)
   end
 
-  # A question about what was promised can refer to a campaign commitment even
-  # when neither the question nor the note uses the same subject words. Use the
-  # author's typed commitment kind for this bounded generic recall; an ordinary
-  # fact that happens to contain "promised" is not enough.
+  # Generic plan/intent or promise/decision cues can refer to a typed campaign
+  # commitment even when the query and note share no subject words. For plan
+  # queries, recall only active commitments; ordinary facts and completed
+  # commitments cannot qualify from the generic cue alone.
   defp typed_commitment_relevant?(entry, query_terms) do
-    value(entry, :kind) in ["commitment", :commitment] and
-      MapSet.member?(query_terms, "campaign:commitment")
+    typed_commitment? = value(entry, :kind) in ["commitment", :commitment]
+
+    cond do
+      not typed_commitment? ->
+        false
+
+      MapSet.member?(query_terms, "campaign:plan") ->
+        value(entry, :status) in ["active", :active]
+
+      true ->
+        MapSet.member?(query_terms, "campaign:commitment")
+    end
   end
 
   # Terms/schedule questions and a character's promise can refer to an older

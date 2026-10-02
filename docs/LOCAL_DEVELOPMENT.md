@@ -38,3 +38,5 @@ The development database is PostgreSQL, stored by the WSL cluster under `/var/li
 The default local development connection uses the WSL `root` database role over the Unix socket, with `CREATEDB` and without superuser privileges or a password. The connection can be overridden with `STORYTELLER_DB_USERNAME`, `STORYTELLER_DB_PASSWORD`, and `STORYTELLER_DB_SOCKET_DIR`.
 
 `mix test` uses the separate `storyteller_test` database and the SQL sandbox; it does not run development seeds. Test fixtures create only fictional QA worlds. `mix run priv/repo/seeds.exs` adds the idempotent **QA Campaign: The Quiet Observatory** to the development database for manual testing. It is separate from any future approved vineyard campaign import.
+
+For persistent manual browser QA that should not interfere with ExUnit fixtures, set `MIX_TEST_PARTITION=qa` to use the separate `storyteller_testqa` database. Keep the default `storyteller_test` database for automated tests, and do not run the suite against the persistent QA partition.

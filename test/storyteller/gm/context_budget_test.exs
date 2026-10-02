@@ -550,6 +550,82 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
+  test "plan paraphrases retrieve bounded active commitments across supported locales" do
+    commitments =
+      Enum.map(1..10, fn number ->
+        %{
+          entry_id: "observatory-plan-#{number}",
+          kind: "commitment",
+          title: "Observatory duty #{number}",
+          details: "Mira will check the eastern lens before the first frost, duty #{number}.",
+          status: "active",
+          visibility: "public",
+          player_managed: false
+        }
+      end)
+
+    completed_commitment = %{
+      entry_id: "completed-observatory-duty",
+      kind: "commitment",
+      title: "Completed observatory duty",
+      details: "The keeper already repaired the western shutter last week.",
+      status: "completed",
+      visibility: "public",
+      player_managed: false
+    }
+
+    ordinary_fact = %{
+      entry_id: "tower-plan-fact",
+      kind: "fact",
+      title: "The tower plan",
+      details: "A plan of the old tower hangs beside the entrance.",
+      status: "active",
+      visibility: "public",
+      player_managed: false
+    }
+
+    continuity = %{
+      public: commitments ++ [completed_commitment, ordinary_fact],
+      gm_private: []
+    }
+
+    context = Map.put(base_context(), :continuity, continuity)
+
+    for action <- [
+          "What was our plan?",
+          "What were we intending to do?",
+          "¿Qué teníamos previsto hacer?",
+          "Qu'avions-nous prévu de faire ?"
+        ] do
+      request_context = Map.put(context, :player_action, action)
+
+      assert {:ok, %{context: compiled, metrics: metrics}} =
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+                 context_input_token_budget: 24_000
+               )
+
+      assert metrics.conservative_input_token_upper_bound <= 24_000
+      assert metrics.section_bytes.section_continuity_bytes < byte_size(Jason.encode!(continuity))
+      assert metrics.context_json_bytes < byte_size(Jason.encode!(request_context))
+
+      detailed_ids =
+        compiled.continuity.public
+        |> Enum.filter(&Map.has_key?(&1, :details))
+        |> Enum.map(& &1.entry_id)
+
+      assert detailed_ids == Enum.map(3..10, &"observatory-plan-#{&1}")
+
+      for entry_id <- [completed_commitment.entry_id, ordinary_fact.entry_id] do
+        entry = Enum.find(compiled.continuity.public, &(&1.entry_id == entry_id))
+        refute Map.has_key?(entry, :title)
+        refute Map.has_key?(entry, :details)
+      end
+
+      assert compiled.context_completeness.continuity_memory_details_omitted
+      assert :continuity_memory_details in metrics.omissions
+    end
+  end
+
   test "retrieves typed meeting and reply commitments from bounded multilingual cues" do
     meeting = %{
       entry_id: "future-meeting",
