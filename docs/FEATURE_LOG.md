@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Recall agreement nouns across supported languages
+
+- Extended the production-boundary long-campaign commitment regression with “¿Cuál fue nuestro acuerdo?” and “Quel était notre accord ?”. Before adding aliases, the English, Spanish, and French decision forms passed, then the Spanish noun form reproduced an omission of the saved commitment detail; the French noun form is now covered by the same regression.
+- Added only the reviewed lexical forms `acuerdo(s)` and `accord(s)` to the existing typed-commitment concept. The same-topic decision fact and unrelated fact remain compact; the matching commitment retains its source sequence. This remains bounded cue matching, not semantic search.
+- **Checks:** before the aliases, the extended production-boundary regression reproduced the recall miss (1 selected test failed as expected). Afterward, the focused case passed; Play and ContextBudget modules passed (107 tests, 0 failures); the full suite passed (394 tests, 0 failures). Formatting, test-environment warnings-as-errors compilation, and `git diff --check` passed. Tests used WSL `MIX_ENV=test` with the isolated `storyteller_test` database and injected fake providers; no dev database, port 4000, Vineyard campaign, live model, or OAuth was used.
+
 ## 2026-10-02 — Exercise voice edits across multiple character cards
 
 - Hardened the campaign-editor regression for the reported voice/mannerism persistence issue. The native rendered form now exercises edits to all five guidance fields on one character and edits plus a cleared mannerism on another, followed by a partial validation and a save without replaying the full form values.

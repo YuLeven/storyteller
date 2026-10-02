@@ -6821,7 +6821,7 @@ defmodule Storyteller.PlayTest do
     assert context["context_completeness"]["continuity_memory_details_omitted"]
   end
 
-  test "later-session decision questions retrieve a typed agreement in all supported locales" do
+  test "later-session decision and agreement questions retrieve typed commitments in all supported locales" do
     {campaign, first_session} = play_campaign("The Quiet Observatory Decisions")
 
     assert {:ok, %{status: :completed}} =
@@ -6881,7 +6881,9 @@ defmodule Storyteller.PlayTest do
     for {locale, action} <- [
           {"en", "What did we decide?"},
           {"es", "¿Qué decidimos?"},
-          {"fr", "Qu’avons-nous décidé ?"}
+          {"fr", "Qu’avons-nous décidé ?"},
+          {"es-agreement", "¿Cuál fue nuestro acuerdo?"},
+          {"fr-agreement", "Quel était notre accord ?"}
         ] do
       {:ok, later_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
       captured_request = Agent.start_link(fn -> nil end) |> elem(1)
