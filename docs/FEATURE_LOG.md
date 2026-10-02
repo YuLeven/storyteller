@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Prove the player-clicked D20 in a new campaign
+
+- Added a fictional wizard-to-play journey through the GM-led opening and a player action that requests a Balance check at Hard difficulty, target 14. The submitted action stays visible while the initial GM response waits and while the after-roll response is resolving.
+- The D20 source is untouched before the player clicks. That click records the fake result once, passes it into the after-roll request, and completes the turn with one player-action event, one roll request, one player-roll event, and the two GM narration beats.
+- **Checks:** focused journey passed (**1 selected, 0 failures**); all CampaignLive tests passed (**21 tests, 0 failures**); changed test file format check and `git diff --check` passed. WSL `MIX_ENV=test` uses `storyteller_test` and a deterministic fake provider/roll source; no dev database, port 4000, live model, OAuth, or Vineyard data was used.
+
 ## 2026-10-02 — Show campaign edit outcomes beside Save
 
 - Campaign edits now show a clear success status or blocking save error beside the form actions, where the player is already looking after saving. This replaces relying on a page-level flash at the top of the long editor; validation errors keep the draft visible and do not partially save voice notes.

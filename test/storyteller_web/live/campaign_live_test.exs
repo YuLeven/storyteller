@@ -530,6 +530,204 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert is_nil(Play.public_current_turn(campaign.id))
   end
 
+  test "a newly created campaign carries a player-clicked D20 action through resolution", %{
+    conn: conn
+  } do
+    test_pid = self()
+    previous_provider = Application.get_env(:storyteller, :gm_provider)
+    previous_roll_source = Application.get_env(:storyteller, :d20_roll_source, :not_configured)
+    player_action = "Cross the rain-slick bridge while the wind is rising."
+
+    Application.put_env(:storyteller, :gm_provider, fn request ->
+      context = decode_request(request)
+
+      if context["interaction_mode"] == "opening_scene" do
+        send(test_pid, {:d20_journey_opening_context, context})
+        test_opening_scene_response(request)
+      else
+        send(test_pid, {:d20_journey_gm_call, self(), context})
+
+        case context["phase"] do
+          "initial" ->
+            receive do
+              :continue_initial_resolution ->
+                {:ok,
+                 %{
+                   narration: "The narrow bridge sways above the ravine.",
+                   memory_update: %{
+                     public_summary: "The bridge is exposed to strong wind.",
+                     gm_private_summary: ""
+                   },
+                   roll_request: %{test: "Balance", difficulty: "Hard", target: 14}
+                 }}
+            after
+              5_000 ->
+                flunk("initial D20 resolution was not released")
+            end
+
+          "after_roll" ->
+            receive do
+              :continue_after_roll ->
+                {:ok,
+                 %{
+                   narration: "You brace against the gust and cross safely.",
+                   memory_update: %{
+                     public_summary: "The crossing is complete.",
+                     gm_private_summary: ""
+                   },
+                   roll_request: nil
+                 }}
+            after
+              5_000 ->
+                flunk("after-roll D20 resolution was not released")
+            end
+        end
+      end
+    end)
+
+    Application.put_env(:storyteller, :d20_roll_source, fn ->
+      send(test_pid, :d20_source_used)
+      17
+    end)
+
+    on_exit(fn ->
+      case previous_provider do
+        nil -> Application.delete_env(:storyteller, :gm_provider)
+        provider -> Application.put_env(:storyteller, :gm_provider, provider)
+      end
+
+      case previous_roll_source do
+        :not_configured -> Application.delete_env(:storyteller, :d20_roll_source)
+        roll_source -> Application.put_env(:storyteller, :d20_roll_source, roll_source)
+      end
+    end)
+
+    {:ok, wizard, _html} = live(conn, ~p"/campaigns/new")
+
+    story = %{
+      title: "The Bellglass Crossing",
+      premise: "A storm is rising while a sealed signal waits on the far bank.",
+      setting: "A fictional mountain observatory above a narrow ravine",
+      tone: "Tense, grounded, and quietly hopeful",
+      narration_language: "English"
+    }
+
+    player = %{
+      player_character_name: "Mira Quill",
+      player_character: "A careful courier carrying a sealed observatory message."
+    }
+
+    opening = %{
+      starting_location: "The Bellglass Bridge",
+      starting_date: "First night of the storm season",
+      world_time: "Late evening",
+      weather: "Driving rain"
+    }
+
+    submit_wizard_step(wizard, story, "continue")
+    submit_wizard_step(wizard, Map.merge(story, player), "continue")
+    setup_attrs = story |> Map.merge(player) |> Map.merge(opening)
+    submit_wizard_step(wizard, setup_attrs, "continue")
+    assert submit_wizard_step(wizard, setup_attrs, "continue") =~ "Review your campaign"
+
+    wizard |> element("button[phx-click=create]") |> render_click()
+    campaign = hd(Campaigns.list_campaigns())
+    [session] = campaign.sessions
+    assert campaign.title == "The Bellglass Crossing"
+    assert campaign.player_character_name == "Mira Quill"
+
+    {:ok, view, _html} = open_session(conn, campaign, session)
+    assert_receive {:d20_journey_opening_context, opening_context}, 1_000
+    assert opening_context["interaction_mode"] == "opening_scene"
+    assert has_element?(view, "#current-place", "The Bellglass Bridge")
+
+    assert wait_until(fn ->
+             has_element?(
+               view,
+               "#story-timeline",
+               "The scene takes shape, and a clear choice is yours."
+             )
+           end)
+
+    view
+    |> form("#turn-composer", turn: %{input: player_action})
+    |> render_submit()
+
+    assert_receive {
+                     :d20_journey_gm_call,
+                     initial_provider,
+                     %{
+                       "phase" => "initial",
+                       "interaction_mode" => "action",
+                       "player_action" => ^player_action
+                     }
+                   },
+                   1_000
+
+    assert has_element?(view, "#story-pending-action", player_action)
+    assert has_element?(view, "#turn-input[disabled]")
+    refute has_element?(view, "#story-timeline [data-event-type='player_action']")
+    refute_receive :d20_source_used, 100
+
+    send(initial_provider, :continue_initial_resolution)
+
+    assert wait_until(fn -> has_element?(view, "#roll-panel", "Balance") end)
+    assert has_element?(view, "#roll-panel", "Difficulty: Hard")
+    assert has_element?(view, "#roll-panel", "Target: 14")
+    assert has_element?(view, "#story-timeline", player_action)
+    assert has_element?(view, "#story-timeline", "The narrow bridge sways above the ravine.")
+    assert has_element?(view, "#roll-panel button[phx-click='roll-d20']")
+    refute_receive :d20_source_used, 100
+
+    view |> element("#roll-panel button[phx-click='roll-d20']") |> render_click()
+
+    assert_receive :d20_source_used, 1_000
+
+    assert_receive {
+                     :d20_journey_gm_call,
+                     after_roll_provider,
+                     %{
+                       "phase" => "after_roll",
+                       "player_roll" => %{"result" => 17}
+                     }
+                   },
+                   1_000
+
+    assert has_element?(view, "#turn-announcement", "D20 result: 17")
+    assert has_element?(view, "#story-timeline", player_action)
+
+    action_occurrences_while_resolving =
+      view
+      |> render()
+      |> Floki.parse_document!()
+      |> Floki.find("#story-timeline [data-event-type='player_action']")
+      |> Enum.count(&(Floki.text(&1) =~ player_action))
+
+    assert action_occurrences_while_resolving == 1
+
+    send(after_roll_provider, :continue_after_roll)
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "You brace against the gust and cross safely.")
+           end)
+
+    assert has_element?(view, "#turn-announcement", "Your turn is complete.")
+    assert has_element?(view, "#story-timeline", "D20 result: 17")
+    assert is_nil(Play.public_current_turn(campaign.id))
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    action_event = Enum.find(timeline, &(&1.event_type == :player_action))
+    action_turn_events = Enum.filter(timeline, &(&1.turn_id == action_event.turn_id))
+    assert Enum.count(action_turn_events, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(action_turn_events, &(&1.event_type == :roll_request)) == 1
+    assert Enum.count(action_turn_events, &(&1.event_type == :player_roll)) == 1
+    assert Enum.count(action_turn_events, &(&1.event_type == :gm_narration)) == 2
+    assert Enum.find(action_turn_events, &(&1.event_type == :player_roll)).payload["result"] == 17
+    assert Repo.get!(Turn, action_event.turn_id).status == :completed
+    refute_receive {:d20_journey_gm_call, _, _}, 100
+    refute_receive :d20_source_used, 100
+  end
+
   test "campaign review shows every GM character field before persistence and keeps private guidance off the board",
        %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/campaigns/new")
