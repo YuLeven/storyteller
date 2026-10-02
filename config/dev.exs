@@ -23,7 +23,6 @@ config :storyteller, StorytellerWeb.Endpoint,
   check_origin: ["http://127.0.0.1:4000", "http://localhost:4000"],
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "uaS3rGO4IQ6/h0B7k4NPEGXWV0D95ZWp0bV+FXp6xci+paeRw1OuSeuCZ+RrULTV",
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:storyteller, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:storyteller, ~w(--watch)]}

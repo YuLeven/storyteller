@@ -55,6 +55,23 @@ defmodule Storyteller.Play do
   @max_history_entity_terms 24
   @max_history_scene_speakers 32
   @max_history_connected_places 24
+  @history_observation_terms MapSet.new(~w(
+    look looks looking looked see sees seeing seen notice notices noticing noticed
+    observe observes observing observed inspect inspects inspecting inspected hear hears
+    hearing heard smell smells smelling smelled feel feels feeling felt visible
+    ver veo ves ve vemos ven viendo vi viste vio vimos vieron visto veía veías veíamos veían
+    mirar miro miras mira miramos miran mirando miré miró miraron mirado
+    notar noto notas nota notamos notan notando noté notó notaron notado
+    observar observo observas observa observamos observan observando observé observó observaron observado
+    oír oigo oyes oye oímos oyen oyendo oído oía oías oíamos oían
+    oler huelo hueles huele olemos huelen oliendo olí olió
+    voir vois voit voyons voyez voient voyant vu voyais voyait voyaient
+    regarder regarde regardes regardons regardez regardent regardant regardé
+    remarquer remarque remarques remarquons remarquez remarquent remarquant remarqué
+    observer observe observes observons observez observent observant observé
+    entendre entends entend entendons entendez entendent entendant entendu
+    sentir sens sent sentons sentez sentent sentant senti
+  ))
   @history_search_stopwords MapSet.new(~w(
     a about above after again against all am an and any are as at be because been before being below
     between both but by can could did do does doing down during each few for from further had has
@@ -4853,8 +4870,15 @@ defmodule Storyteller.Play do
        ) do
     oldest_recent_sequence = hd(recent_events).sequence
 
-    {search_terms, speaker_ids} =
+    {entity_terms, observation_anchors, action_terms, speaker_ids} =
       history_search_anchors(turn, characters, places_by_id, player_place_id, connections)
+
+    # Observation recall follows the player's vantage. Action words and nearby
+    # places alone can match a fact from somewhere the player cannot see.
+    search_terms =
+      if observation_history_query?(turn),
+        do: observation_anchors,
+        else: Enum.uniq(entity_terms ++ action_terms)
 
     older_events =
       if search_terms == [] and speaker_ids == [] do
@@ -4918,12 +4942,36 @@ defmodule Storyteller.Play do
         end
       end)
 
-    entity_terms =
-      [current_place_name | connected_place_names ++ Enum.map(scene_characters, & &1.name)]
+    current_place_terms =
+      current_place_name
+      |> List.wrap()
       |> Enum.filter(&is_binary/1)
       |> Enum.flat_map(&history_tokens/1)
-      |> Enum.uniq()
       |> Enum.reject(&MapSet.member?(@history_search_stopwords, &1))
+
+    connected_place_terms =
+      connected_place_names
+      |> Enum.filter(&is_binary/1)
+      |> Enum.flat_map(&history_tokens/1)
+      |> Enum.reject(&MapSet.member?(@history_search_stopwords, &1))
+
+    scene_character_terms =
+      scene_characters
+      |> Enum.map(& &1.name)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.flat_map(&history_tokens/1)
+      |> Enum.reject(&MapSet.member?(@history_search_stopwords, &1))
+
+    entity_terms =
+      Enum.uniq(current_place_terms ++ connected_place_terms ++ scene_character_terms)
+      |> Enum.take(@max_history_entity_terms)
+
+    observation_anchors =
+      [current_place_name | Enum.map(scene_characters, & &1.name)]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
       |> Enum.take(@max_history_entity_terms)
 
     action_terms =
@@ -4935,7 +4983,13 @@ defmodule Storyteller.Play do
       |> Enum.sort_by(fn term -> {-String.length(term), term} end)
       |> Enum.take(@max_history_search_terms)
 
-    {Enum.uniq(entity_terms ++ action_terms), scene_speaker_ids}
+    {entity_terms, observation_anchors, action_terms, scene_speaker_ids}
+  end
+
+  defp observation_history_query?(turn) do
+    turn.player_input
+    |> history_tokens()
+    |> Enum.any?(&MapSet.member?(@history_observation_terms, &1))
   end
 
   defp history_tokens(text) when is_binary(text) do

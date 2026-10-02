@@ -15,6 +15,8 @@ mix phx.server
 
 Open [http://127.0.0.1:4000](http://127.0.0.1:4000) in the Windows browser. `mix setup` fetches dependencies, creates and migrates the development database, seeds one separate fictional QA campaign, and builds the local CSS and JavaScript assets.
 
+On first development startup, Storyteller generates a persistent cookie-signing key at `${STORYTELLER_AUTH_DIR:-$HOME/.config/storyteller}/dev_secret_key_base`. It is stored outside the repository with owner-only file and directory permissions, so browser sessions survive server restarts without a committed development secret. `SECRET_KEY_BASE` can override it for a local environment when needed.
+
 The repository's supported toolchain is Elixir 1.18 with Erlang/OTP 25 or newer. The current WSL setup uses the official Elixir 1.18.4 release under `/opt/elixir-1.18.4`, with commands on `/usr/local/bin` ahead of the Windows Elixir installation.
 
 JOSE is pinned to 1.11.10 in `mix.exs` for the current OTP 25 toolchain. JOSE 1.11.11 and 1.11.12 fail to compile here because their Erlang sources refer to the undefined `dynamic()` type. Recheck compatibility before changing or widening this pin.

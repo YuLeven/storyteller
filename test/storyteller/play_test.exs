@@ -5511,6 +5511,210 @@ defmodule Storyteller.PlayTest do
     assert Enum.map(new_events, & &1.payload["text"]) == [question, answer]
   end
 
+  test "direct and indirect observations retrieve old scene facts without off-scene decoys" do
+    {campaign, first_session} = play_campaign("The Glass Observatory Observation Recall")
+    old_fact = "At the Glass Observatory, a pale blue stripe crosses the star chart each morning."
+
+    observatory = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    copper_archive =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "copper-archive",
+          name: "The Copper Archive",
+          visibility: :public
+        })
+      )
+
+    insert_travel_connection!(campaign.id, observatory.place_id, copper_archive.place_id, 35)
+
+    assert {:ok, %{status: :completed, id: seed_turn_id}} =
+             Play.submit_turn(
+               campaign.id,
+               first_session.id,
+               "record-old-observation-fact",
+               "I take in the room at first light.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" => old_fact,
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [],
+                   "private_changes" => %{}
+                 }),
+               model: "test-model"
+             )
+
+    {:ok, seed_timeline} = Play.public_timeline(campaign.id)
+    source_event = Enum.find(seed_timeline, &(&1.payload["text"] == old_fact))
+    assert source_event
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    first_synthetic_sequence = state.event_sequence + 1
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    unrelated_history =
+      Enum.map(1..2_398, fn offset ->
+        text =
+          cond do
+            offset <= 50 ->
+              "A copied question in the Copper Archive's glass room asks what can be seen on the chart at first light."
+
+            offset == 51 ->
+              "In the Copper Archive's glass room, a hidden trapdoor opens behind the west wall."
+
+            true ->
+              "Market ledger entry #{offset} records a routine grain total."
+          end
+
+        %{
+          campaign_id: campaign.id,
+          session_id: first_session.id,
+          turn_id: seed_turn_id,
+          sequence: first_synthetic_sequence + offset - 1,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{"text" => text},
+          inserted_at: now
+        }
+      end)
+
+    assert {2_398, nil} = Repo.insert_all(Event, unrelated_history)
+    last_synthetic_sequence = first_synthetic_sequence + 2_397
+    Repo.update!(State.changeset(state, %{event_sequence: last_synthetic_sequence}))
+
+    {:ok, observation_session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+    owner = self()
+    direct_decoy_sequences = MapSet.new(first_synthetic_sequence..(first_synthetic_sequence + 49))
+    trapdoor_decoy_sequence = first_synthetic_sequence + 50
+    connected_decoy_sequences = MapSet.put(direct_decoy_sequences, trapdoor_decoy_sequence)
+
+    observations = [
+      %{
+        key: "direct-old-scene-observation",
+        intent: :question,
+        question: "What can I see on the chart at first light?",
+        answer: "A pale blue stripe crosses the chart; no other specific feature stands out.",
+        excluded_sequences: connected_decoy_sequences
+      },
+      %{
+        key: "indirect-old-scene-observation",
+        intent: :question,
+        question: "Is there anything else in the room I might notice?",
+        answer: "The pale blue stripe remains on the chart, with no other detail standing out.",
+        excluded_sequences: connected_decoy_sequences
+      },
+      %{
+        key: "spanish-old-scene-observation",
+        intent: :question,
+        question: "¿Qué puedo ver aquí?",
+        answer: "Una franja azul pálida cruza la carta; no destaca ningún otro detalle concreto.",
+        excluded_sequences: connected_decoy_sequences
+      },
+      %{
+        key: "french-old-scene-observation",
+        intent: :question,
+        question: "Qu’est-ce que je peux voir ici ?",
+        answer: "Une bande bleu pâle traverse la carte; aucun autre détail précis ne ressort.",
+        excluded_sequences: connected_decoy_sequences
+      },
+      %{
+        key: "unknown-observation-does-not-import-decoy",
+        intent: :question,
+        question: "Can I see a hidden trapdoor behind this wall?",
+        answer: "There is no established trapdoor here; nothing by that description stands out.",
+        excluded_sequences: connected_decoy_sequences
+      }
+    ]
+
+    Enum.each(observations, fn observation ->
+      before_state = Repo.get_by!(State, campaign_id: campaign.id)
+
+      before_characters =
+        Repo.all(from character in Character, where: character.campaign_id == ^campaign.id)
+
+      before_places = Repo.all(from place in Place, where: place.campaign_id == ^campaign.id)
+
+      provider = fn request ->
+        send(
+          owner,
+          {:observation_context, observation.key, request, decode_request(request)}
+        )
+
+        proposal =
+          ordinary_proposal(%{
+            "narration" => observation.answer,
+            "dialogue" => [],
+            "activities" => [],
+            "character_updates" => [],
+            "public_changes" => %{},
+            "private_changes" => %{},
+            "panel_changes" => [],
+            "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""}
+          })
+
+        {:ok, Jason.encode!(proposal)}
+      end
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 observation_session.id,
+                 observation.key,
+                 observation.question,
+                 intent: observation.intent,
+                 provider: provider,
+                 model: "test-model"
+               )
+
+      assert_receive {:observation_context, key, request, context}, 2_000
+      assert key == observation.key
+      instructions = String.replace(request.instructions, ~r/\s+/, " ")
+
+      retained_sequences = MapSet.new(context["history"], & &1["sequence"])
+      assert MapSet.member?(retained_sequences, source_event.sequence)
+
+      refute Enum.any?(context["history"], fn event ->
+               MapSet.member?(observation.excluded_sequences, event["sequence"])
+             end)
+
+      assert Enum.any?(context["history"], fn event ->
+               event["sequence"] == source_event.sequence and event["payload"]["text"] == old_fact
+             end)
+
+      assert Enum.any?(context["travel_connections"]["public"], fn connection ->
+               copper_archive.place_id in [connection["place_a_id"], connection["place_b_id"]] and
+                 connection["travel_minutes"] == 35
+             end)
+
+      assert instructions =~
+               "No new people, items, exits/routes, hazards, clues, services, or actionable facts"
+
+      assert instructions =~ "Omitted context is unknown; never infer it."
+      assert instructions =~ "If action needs untracked detail, ask or state uncertainty."
+      assert request.local_context_metrics.budget_tokens == 24_000
+
+      assert request.local_context_metrics.conservative_input_token_upper_bound <=
+               request.local_context_metrics.budget_tokens
+
+      after_state = Repo.get_by!(State, campaign_id: campaign.id)
+      assert after_state.public_state == before_state.public_state
+      assert after_state.gm_private_state == before_state.gm_private_state
+      assert after_state.elapsed_world_minutes == before_state.elapsed_world_minutes
+      assert after_state.elapsed_world_anchor_minutes == before_state.elapsed_world_anchor_minutes
+      assert after_state.elapsed_world_anchor == before_state.elapsed_world_anchor
+      assert after_state.revision == before_state.revision
+      assert after_state.event_sequence == before_state.event_sequence + 2
+
+      assert Repo.all(from character in Character, where: character.campaign_id == ^campaign.id) ==
+               before_characters
+
+      assert Repo.all(from place in Place, where: place.campaign_id == ^campaign.id) ==
+               before_places
+    end)
+  end
+
   test "campaign snapshots stay isolated and campaign history continues across sessions" do
     {first, first_session} = play_campaign("The Glass Observatory", starting_location: nil)
     {second, second_session} = play_campaign("The Copper Archive", starting_location: nil)

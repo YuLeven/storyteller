@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-10-02 — Keep observation recall within the current scene
+
+- Added a bounded observation-question cue list for common English, Spanish, and French forms of see/look/notice/inspect/hear/smell/feel. Older history for those questions is retrieved through the current place and co-present character anchors; connected-place names and isolated wording matches cannot make a remote detail appear visible. Other turn retrieval keeps its existing connected-place and action-term anchors.
+- Added a production `Play.submit_turn` fake-provider regression with 2,400 saved events. Direct and indirect English questions plus “¿Qué puedo ver aquí?” and “Qu’est-ce que je peux voir ici ?” retain an older current-place chart detail while omitting 50 same-wording events and a trapdoor at the connected Copper Archive. A question with no current-scene evidence receives an uncertainty answer. The scenarios preserve canonical place, character, world, and clock data and stay within the 24,000-byte serialized-input bound.
+- **Checks:** the focused observation case passed (1 selected, 0 failures); Play, ContextBudget, and long-campaign continuity suites passed (107 tests, 0 failures). The full WSL `MIX_ENV=test mix test --max-cases 1` suite passed (390 tests, 0 failures) against the isolated `storyteller_test` database. Formatting, warnings-as-errors compilation, and `git diff --check` also passed.
+
+## 2026-10-02 — Keep the development signing key out of source control
+
+- Removed the fixed development cookie-signing key from tracked config. Development now creates or reuses a persistent per-installation key in the user's local config directory, with owner-only file and directory permissions; an explicit `SECRET_KEY_BASE` override remains available. Invalid existing key files are rejected rather than silently rotated, avoiding unexpected session invalidation.
+- Added ignore rules for local ChatGPT credential and development-key files, and documented the external key path and override. Production continues to require its environment-provided signing key.
+- **Checks:** local-secret tests passed (3 tests) for creation, persistence, restrictive permissions, permission repair without rotation, and malformed-key rejection. A dev-config smoke check verified isolated key creation and environment override without starting the app or database. The full WSL `MIX_ENV=test mix test --max-cases 1` suite passed (390 tests, 0 failures); formatting, warnings-as-errors compilation, and `git diff --check` passed. No OAuth credentials, live provider call, or campaign data were used.
+
 ## 2026-10-02 — Recall canon from natural questions about absent characters
 
 - Strengthened the production-boundary `Play.submit_turn` regression across 100 sessions and 2,400 saved events. The player asks “Could Marisol join us here for the pressing?” without restating her location, the route, travel time, or duty.

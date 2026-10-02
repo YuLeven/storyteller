@@ -7,6 +7,9 @@ erl_crash.dump
 *.ez
 *.beam
 /config/*.secret.exs
+# Local OAuth credentials and per-installation signing keys
+chatgpt_credentials.json
+dev_secret_key_base
 /.env
 /.env.*
 !/.env.example

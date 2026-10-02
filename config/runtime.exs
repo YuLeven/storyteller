@@ -20,6 +20,18 @@ if System.get_env("PHX_SERVER") do
   config :storyteller, StorytellerWeb.Endpoint, server: true
 end
 
+if config_env() == :dev do
+  auth_store_dir =
+    System.get_env("STORYTELLER_AUTH_DIR") ||
+      Path.join(System.user_home!(), ".config/storyteller")
+
+  secret_key_base =
+    System.get_env("SECRET_KEY_BASE") ||
+      Storyteller.LocalSecret.get_or_create!(Path.join(auth_store_dir, "dev_secret_key_base"))
+
+  config :storyteller, StorytellerWeb.Endpoint, secret_key_base: secret_key_base
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
