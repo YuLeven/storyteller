@@ -8,6 +8,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
   alias Storyteller.Campaigns.AuthoringCorrection
   alias Storyteller.Play
   alias Storyteller.Play.Character
+  alias Storyteller.Play.State
   alias Storyteller.Repo
 
   test "campaign setup captures bounded GM-only character voice guidance", %{conn: conn} do
@@ -281,6 +282,79 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
     reopened_html = render(reopened_view)
     assert reopened_html =~ "Warm French vowels."
     assert reopened_html =~ "Taps the wine thief against the barrel before speaking."
+  end
+
+  test "campaign editor saves voice guidance when world time advances without changing a duty", %{
+    conn: conn
+  } do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Observatory",
+        gm_characters: [
+          %{
+            speaker_id: "keeper-elin",
+            name: "Keeper Elin",
+            starting_place: "The Observatory"
+          }
+        ]
+      })
+
+    assert {:ok, _campaign} =
+             Campaigns.update_campaign_authoring(campaign, %{
+               "correction_reason" => "Assign Elin to the observatory watch.",
+               "expected_revision" => "0",
+               "character_active_duties" => %{
+                 "keeper-elin" => %{
+                   "duty_name" => "Watch the western lens",
+                   "duty_duration_minutes" => "90"
+                 }
+               }
+             })
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+    assert character.duty_release_at_world_minute == 90
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, _advanced_state} =
+             state
+             |> State.changeset(%{
+               revision: state.revision + 1,
+               elapsed_world_minutes: 10,
+               elapsed_world_anchor_minutes: 10
+             })
+             |> Repo.update()
+
+    html =
+      view
+      |> form("#campaign-edit-form",
+        campaign: %{
+          correction_reason: "Give Elin a distinct delivery.",
+          expected_revision: "1",
+          character_active_duties: %{
+            "keeper-elin" => %{
+              duty_name: "Watch the western lens",
+              duty_duration_minutes: "90"
+            }
+          },
+          character_voice_guidance: %{
+            "keeper-elin" => %{
+              accent_dialect: "A soft coastal lilt.",
+              mannerisms: "Turns the brass key while she thinks."
+            }
+          }
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Campaign changes saved."
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "keeper-elin")
+    assert character.voice_guidance["accent_dialect"] == "A soft coastal lilt."
+    assert character.voice_guidance["mannerisms"] == "Turns the brass key while she thinks."
+    assert character.duty_release_at_world_minute == 90
   end
 
   test "campaign editor authors a private active duty and rejects stale or in-flight changes", %{

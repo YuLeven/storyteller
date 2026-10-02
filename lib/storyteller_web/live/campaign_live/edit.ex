@@ -57,6 +57,7 @@ defmodule StorytellerWeb.CampaignLive.Edit do
     attrs =
       attrs
       |> merge_authoring_draft(socket.assigns.authoring_draft)
+      |> omit_unchanged_duty_inputs(socket.assigns.gm_characters)
       |> put_default_correction_reason(socket.assigns.correction_reason)
 
     case Campaigns.update_campaign_authoring(socket.assigns.campaign, attrs) do
@@ -257,6 +258,36 @@ defmodule StorytellerWeb.CampaignLive.Edit do
       end
     )
   end
+
+  defp omit_unchanged_duty_inputs(attrs, characters) do
+    submitted = attrs |> draft_attr("character_active_duties", %{}) |> stringify_nested_keys()
+    characters_by_speaker = Map.new(characters, &{&1.speaker_id, &1})
+
+    changed =
+      Map.reject(submitted, fn {speaker_id, row} ->
+        case Map.get(characters_by_speaker, speaker_id) do
+          nil ->
+            false
+
+          character ->
+            duty_input_matches_snapshot?(row, character)
+        end
+      end)
+
+    attrs
+    |> Map.delete(:character_active_duties)
+    |> Map.put("character_active_duties", changed)
+  end
+
+  defp duty_input_matches_snapshot?(row, character) when is_map(row) do
+    submitted_name = draft_attr(row, "duty_name", "")
+    submitted_duration = draft_attr(row, "duty_duration_minutes", "")
+
+    submitted_name == (character.duty_name || "") and
+      to_string(submitted_duration || "") == to_string(character.duty_duration_minutes || "")
+  end
+
+  defp duty_input_matches_snapshot?(_row, _character), do: false
 
   defp stringify_nested_keys(map) when is_map(map) do
     Map.new(map, fn {key, value} -> {to_string(key), stringify_nested_keys(value)} end)

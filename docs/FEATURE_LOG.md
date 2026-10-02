@@ -1,5 +1,18 @@
 # Feature log
 
+## 2026-10-01 — Preserve voice edits when game time advances
+
+- A campaign edit page shows the remaining duration for active GM-character duties. If game time advanced while the page stayed open, submitting those unchanged durations could make them look like new duty edits and reject otherwise valid voice or mannerism changes as stale.
+- The editor now omits duty values that still match the page's original snapshot. Explicit duty edits remain revision-checked; unchanged duties retain their original absolute release time while voice guidance saves.
+- Added an isolated LiveView regression that advances the fictional world clock between opening the editor and saving voice guidance, then verifies both the voice notes and the duty deadline.
+- **Checks:** campaign-authoring LiveView suite (**7 tests, 0 failures**); campaign-authoring service suite (**13 tests, 0 failures**); SessionLive suite (**53 tests, 0 failures**). Test-environment warnings-as-errors compilation, formatting, Gettext freshness, and `git diff --check` passed. Tests ran in WSL against `storyteller_test`; no live provider or Vineyard campaign was used.
+
+## 2026-10-01 — Keep unsent player actions through submission races
+
+- If a fresh GM turn or account-wide ChatGPT pause arrives just as the player submits, the LiveView now keeps that unsaved text in the composer and explains why it was not accepted. The draft stays local until the player explicitly sends it; turn completion or resuming requests never submits it automatically. The database-conflict `:turn_already_open` path also retains the attempted text.
+- Added LiveView behavior regressions for a follow-up racing an active turn and an action racing a usage pause. They confirm the first turn remains unique, the follow-up stays visible and unsent, plan resume makes no provider call, and the player can explicitly submit the preserved draft afterward.
+- **Checks:** focused regressions (**2 tests, 0 failures**); full SessionLive behavior suite (**53 tests, 0 failures**); `MIX_ENV=test mix compile --warnings-as-errors`, `mix format --check-formatted`, Gettext freshness, and `git diff --check` passed. Tests ran in WSL with the isolated test database and a fake GM provider; no live provider, OAuth consent, or Vineyard campaign was used.
+
 ## 2026-10-01 — Correct public inventory item details in place
 
 - Added a reasoned, revision-checked inventory `edit` correction for item name, quantity, unit, category, description, owner, and the complete flexible-properties JSON object. The item is normalized through the inventory domain validator; its stable ID and visibility are retained, and full before/after snapshots stay in the correction ledger. Existing add, quantity/owner set, and remove actions keep their behavior.

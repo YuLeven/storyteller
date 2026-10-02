@@ -1282,6 +1282,185 @@ defmodule StorytellerWeb.SessionLiveTest do
            "retry did not complete: #{inspect(Repo.get!(Turn, failed_turn.id))}"
   end
 
+  test "a follow-up submitted during resolution stays in the composer until sent", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    first_action = "I ask the keeper about the road."
+    follow_up = "I wait for the keeper's answer."
+
+    set_handler(fn request ->
+      context = provider_context(request)
+
+      case context["interaction_mode"] do
+        "opening_scene" ->
+          FakeProvider.opening_scene_response(context)
+
+        _ ->
+          action = context["player_action"]
+          send(test_pid, {:play_action_received, action, self()})
+
+          if action == first_action do
+            receive do
+              :continue_first_turn ->
+                {:ok,
+                 %{
+                   narration: "The keeper studies the road before answering.",
+                   dialogue: [],
+                   activities: [],
+                   public_changes: %{},
+                   private_changes: %{},
+                   character_updates: [],
+                   memory_update: %{public_summary: "", gm_private_summary: ""},
+                   roll_request: nil
+                 }}
+            end
+          else
+            {:ok,
+             %{
+               narration: "The keeper's answer carries into the evening.",
+               dialogue: [],
+               activities: [],
+               public_changes: %{},
+               private_changes: %{},
+               character_updates: [],
+               memory_update: %{public_summary: "", gm_private_summary: ""},
+               roll_request: nil
+             }}
+          end
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    assert wait_until(fn -> Play.public_current_turn(campaign.id) == nil end)
+
+    view
+    |> form("#turn-composer", turn: %{input: first_action})
+    |> render_submit()
+
+    assert_receive {:play_action_received, ^first_action, first_provider}, 1_000
+
+    assert wait_until(fn ->
+             match?(
+               %{player_input: ^first_action, status: status}
+               when status in [:pending, :resolving],
+               Play.public_current_turn(campaign.id)
+             )
+           end)
+
+    # A second submit may already be in flight when the first response disables the composer.
+    render_submit(view, "submit-turn", %{
+      "turn" => %{
+        "input" => follow_up,
+        "intent" => "action",
+        "idempotency_key" => Ecto.UUID.generate()
+      }
+    })
+
+    assert has_element?(view, "#turn-input", follow_up)
+    assert Play.public_current_turn(campaign.id).player_input == first_action
+    refute_receive {:play_action_received, ^follow_up, _provider}, 100
+
+    send(first_provider, :continue_first_turn)
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "The keeper studies the road") and
+               has_element?(view, "#turn-input", follow_up)
+           end)
+
+    # The preserved draft is never sent automatically when the earlier turn completes.
+    assert Play.public_current_turn(campaign.id) == nil
+    refute_receive {:play_action_received, ^follow_up, _provider}, 100
+
+    view
+    |> form("#turn-composer", turn: %{input: follow_up})
+    |> render_submit()
+
+    assert_receive {:play_action_received, ^follow_up, _provider}, 1_000
+
+    assert wait_until(fn ->
+             has_element?(
+               view,
+               "#story-timeline",
+               "The keeper's answer carries into the evening."
+             )
+           end)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 2
+  end
+
+  test "an action submitted during a plan pause remains available after explicit resume", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    requests = start_supervised!({Agent, fn -> 0 end})
+
+    set_handler(fn request ->
+      context = provider_context(request)
+      attempt = Agent.get_and_update(requests, fn count -> {count, count + 1} end)
+      send(test_pid, {:paused_action_provider_call, attempt, context["player_action"]})
+
+      response =
+        if context["interaction_mode"] == "opening_scene" do
+          FakeProvider.opening_scene_response(context)
+        else
+          %{
+            narration: "Your words reach the keeper, who turns from the road.",
+            dialogue: [],
+            activities: [],
+            public_changes: %{},
+            private_changes: %{},
+            character_updates: [],
+            memory_update: %{public_summary: "", gm_private_summary: ""},
+            roll_request: nil
+          }
+        end
+
+      {:ok, response}
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    assert wait_until(fn -> Play.public_current_turn(campaign.id) == nil end)
+    initial_requests = Agent.get(requests, & &1)
+    pause_store = Application.fetch_env!(:storyteller, :plan_usage_token_store)
+    assert :ok = TokenStore.pause_plan_usage(pause_store)
+
+    action = "I ask the keeper to wait until morning."
+
+    render_submit(view, "submit-turn", %{
+      "turn" => %{
+        "input" => action,
+        "intent" => "action",
+        "idempotency_key" => Ecto.UUID.generate()
+      }
+    })
+
+    assert has_element?(view, "#turn-input", action)
+    assert Play.public_current_turn(campaign.id) == nil
+    assert Agent.get(requests, & &1) == initial_requests
+
+    view
+    |> element("#plan-usage-paused button[phx-click='resume-plan-usage']")
+    |> render_click()
+
+    assert has_element?(view, "#turn-input", action)
+    assert Play.public_current_turn(campaign.id) == nil
+    assert Agent.get(requests, & &1) == initial_requests
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:paused_action_provider_call, ^initial_requests, ^action}, 1_000
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "Your words reach the keeper")
+           end)
+  end
+
   test "a paused plan leaves the opening scene saved until requests resume", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions

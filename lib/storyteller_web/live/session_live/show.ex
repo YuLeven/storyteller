@@ -435,6 +435,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       Play.plan_usage_paused?(token_store: plan_usage_store()) ->
         {:noreply,
          socket
+         |> assign(draft: input)
          |> refresh_game()
          |> put_flash(
            :error,
@@ -445,11 +446,14 @@ defmodule StorytellerWeb.SessionLive.Show do
 
       not playable?(socket.assigns.session) ->
         {:noreply,
-         put_flash(socket, :error, gettext("This session is available for review only."))}
+         socket
+         |> assign(draft: input)
+         |> put_flash(:error, gettext("This session is available for review only."))}
 
       blocking_turn?(latest) ->
         {:noreply,
          socket
+         |> assign(draft: input)
          |> refresh_game()
          |> put_flash(:error, gettext("Finish the current turn before sending another action."))}
 
@@ -1073,6 +1077,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       {:error, :turn_already_open} ->
         {:noreply,
          socket
+         |> assign(draft: input)
          |> refresh_game()
          |> put_flash(:error, gettext("A turn is already waiting for resolution."))}
 
