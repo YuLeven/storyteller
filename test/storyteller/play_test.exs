@@ -5567,6 +5567,214 @@ defmodule Storyteller.PlayTest do
              Play.public_timeline_page(campaign.id, before_sequence: 0)
   end
 
+  test "production GM request keeps relevant canon through 100 sessions and 2,400 stored events" do
+    {campaign, first_session} = play_campaign("The Quiet Observatory Long Chronicle")
+    finca = establish_starting_place!(campaign, "Finca")
+
+    bodega =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "bodega",
+          name: "Bodega",
+          visibility: :public,
+          facts: %{"purpose" => "wine cellar"}
+        })
+      )
+
+    insert_travel_connection!(campaign.id, finca.place_id, bodega.place_id, 40)
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, role: :player)
+    Repo.update!(Character.changeset(player, %{current_place_id: bodega.place_id}))
+
+    marisol = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(
+      Character.changeset(marisol, %{
+        name: "Marisol",
+        current_place_id: finca.place_id,
+        duty_name: "Finish the harvest work",
+        duty_place_id: finca.place_id
+      })
+    )
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "location", "Bodega")})
+    )
+
+    sessions =
+      Enum.reduce(2..100, [first_session], fn _sequence, sessions ->
+        {:ok, session} = Campaigns.start_session(Campaigns.get_campaign!(campaign.id))
+        [session | sessions]
+      end)
+      |> Enum.reverse()
+
+    assert length(sessions) == 100
+
+    turn_ids_by_session =
+      sessions
+      |> Enum.with_index(1)
+      |> Map.new(fn {session, session_number} ->
+        input = "Synthetic Quiet Observatory session #{session_number}"
+        idempotency_key = "long-history-fixture-#{session_number}"
+        request_hash = :crypto.hash(:sha256, input) |> Base.encode16(case: :lower)
+
+        turn =
+          Repo.insert!(
+            Turn.changeset(%Turn{}, %{
+              campaign_id: campaign.id,
+              session_id: session.id,
+              idempotency_key: idempotency_key,
+              request_hash: request_hash,
+              player_input: input,
+              intent: :action,
+              status: :completed,
+              resolution_phase: :initial,
+              attempts: 0
+            })
+          )
+
+        {session.id, turn.id}
+      end)
+
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    historical_events =
+      Enum.map(1..2_400, fn sequence ->
+        session = Enum.at(sessions, div(sequence - 1, 24))
+
+        text =
+          cond do
+            sequence == 7 ->
+              "The Bodega is a forty-minute trip from Finca. Marisol and the Finca staff stay at the vineyard until harvest work is finished."
+
+            sequence >= 2_389 ->
+              "Recent observatory entry #{sequence}: Mira checks the comet chart and records a new star position."
+
+            true ->
+              "Old observatory report #{sequence}: the town council reconciles harbor fees and theater bookings. " <>
+                String.duplicate("Sailors dispute the north quay tariff. ", 8)
+          end
+
+        %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          turn_id: Map.fetch!(turn_ids_by_session, session.id),
+          sequence: sequence,
+          event_type: :gm_narration,
+          visibility: :public,
+          speaker_id: nil,
+          payload: %{"text" => text},
+          inserted_at: now
+        }
+      end)
+
+    assert {2_400, nil} = Repo.insert_all(Event, historical_events)
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    Repo.update!(State.changeset(state, %{event_sequence: 2_400}))
+
+    caller = self()
+
+    provider = fn request ->
+      context = decode_request(request)
+
+      full_history =
+        Repo.all(
+          from event in Event,
+            where: event.campaign_id == ^campaign.id,
+            order_by: [asc: event.sequence]
+        )
+        |> Enum.map(fn event ->
+          %{
+            "sequence" => event.sequence,
+            "session_id" => event.session_id,
+            "event_type" => Atom.to_string(event.event_type),
+            "visibility" => Atom.to_string(event.visibility),
+            "speaker_id" => event.speaker_id,
+            "payload" => event.payload
+          }
+        end)
+
+      full_history_context = Map.put(context, "history", full_history)
+
+      # This is a serialized full-history comparison baseline, not provider token usage.
+      full_history_serialized_bytes =
+        byte_size(request.instructions) + byte_size(Jason.encode!(full_history_context)) + 512
+
+      send(
+        caller,
+        {:long_campaign_provider_request, request, context, full_history_serialized_bytes}
+      )
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{"dialogue" => [], "activities" => [], "character_updates" => []})
+       )}
+    end
+
+    final_session = List.last(sessions)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               final_session.id,
+               "long-history-production-request",
+               "At the Bodega after the forty-minute trip from Finca, can Marisol and the Finca workers reach the cellar while harvest work is still underway?",
+               intent: :question,
+               provider: provider,
+               model: "gpt-6-astra"
+             )
+
+    assert_receive {:long_campaign_provider_request, request, context, full_history_bytes}, 2_000
+
+    retained_sequences = MapSet.new(context["history"], & &1["sequence"])
+    newest_request_sequences = MapSet.new(2_389..2_400)
+    expected_retained_sequences = MapSet.put(newest_request_sequences, 7)
+
+    assert retained_sequences == expected_retained_sequences
+
+    relevant_event = Enum.find(context["history"], &(&1["sequence"] == 7))
+    assert relevant_event["session_id"] == Enum.at(sessions, 0).id
+    assert relevant_event["payload"]["text"] =~ "forty-minute trip from Finca"
+
+    assert Enum.all?(2_389..2_400, fn sequence ->
+             Enum.any?(context["history"], fn event ->
+               event["sequence"] == sequence and
+                 event["payload"]["text"] =~ "Recent observatory entry"
+             end)
+           end)
+
+    marisol_context = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:lyra"))
+    player_context = Enum.find(context["characters"], &(&1["speaker_id"] == "player"))
+    assert player_context["current_place_id"] == bodega.place_id
+    assert marisol_context["name"] == "Marisol"
+    assert marisol_context["current_place_id"] == finca.place_id
+    assert marisol_context["active_duty"]["place_id"] == finca.place_id
+
+    assert Enum.any?(context["travel_connections"]["public_routes"], fn route ->
+             route["travel_minutes"] == 40 and finca.place_id in route["place_ids"]
+           end)
+
+    metrics = request.local_context_metrics
+
+    configured_budget =
+      Application.fetch_env!(:storyteller, :gm_context_token_budgets)["gpt-6-astra"]
+
+    compact_serialized_bytes = metrics.conservative_input_token_upper_bound
+
+    assert metrics.budget_tokens == configured_budget
+    assert compact_serialized_bytes <= configured_budget
+
+    assert compact_serialized_bytes ==
+             metrics.instructions_bytes + metrics.context_json_bytes + 512
+
+    assert full_history_bytes >= compact_serialized_bytes * 5
+    assert length(historical_events) == 2_400
+  end
+
   test "GM context retrieves old connected-place and scene-speaker facts across sessions" do
     {campaign, first_session} = play_campaign("The Bodega Journey")
     finca = establish_starting_place!(campaign, "The Finca")

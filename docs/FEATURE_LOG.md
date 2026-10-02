@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Exercise continuity at the production turn boundary
+
+- Added an isolated fake-provider `Play.submit_turn` regression over 100 synthetic sessions and 2,400 persisted events. The request retains an old Finca/Bodega travel-and-duty fact, all 12 newest events, and canonical character locations, active duty, and route data, while unrelated old history is omitted.
+- Compared serialized request bytes with a full-history baseline: the compact request stays within the configured preflight budget and is less than one-fifth the baseline size. This is a byte-size proxy, not provider token usage; the fake provider makes no live AI request.
+- **Checks:** focused production-boundary Play regression passed (1 selected, 0 failures); full WSL suite passed (**375 tests, 0 failures**); warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. All campaign fixtures use the isolated `storyteller_test` database; no live campaign, Vineyard data, live provider, or OAuth was used.
+
 ## 2026-10-02 - Trace campaign voice edits through the provider request
 
 - The rendered campaign-editor regression changes accent, cadence, and mannerisms, submits the current form without replaying the earlier `phx-change` payload, checks the persisted character record, and reopens the editor. It then starts a turn on the same fictional campaign with a fake provider that captures the production-built request. The exact edited accent, cadence, and mannerism values remain attached to the same present NPC in that request.
