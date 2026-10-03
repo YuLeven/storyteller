@@ -1527,6 +1527,42 @@ defmodule Storyteller.PlayTest do
              "She has not yet read the sealed letter."
   end
 
+  test "ordinary play reaches the provider through the first ten consecutive turns" do
+    {campaign, session} = play_campaign("The First Ten Observatory")
+    owner = self()
+
+    provider = fn request ->
+      send(
+        owner,
+        {:ordinary_turn_request_size, request.local_context_metrics.estimated_request_bytes}
+      )
+
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    for turn_index <- 1..10 do
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 "first-ten-turn-#{turn_index}",
+                 "I watch the observatory, beat #{turn_index}.",
+                 provider: provider,
+                 model: "test-model"
+               )
+    end
+
+    request_sizes =
+      for _turn_index <- 1..10 do
+        assert_receive {:ordinary_turn_request_size, size}, 2_000
+        size
+      end
+
+    assert length(request_sizes) == 10
+    assert Enum.all?(request_sizes, &(&1 <= 64_000))
+    assert Repo.aggregate(Turn, :count, :id) == 10
+  end
+
   test "falls back to a retrieval scene packet when oversized canon cannot fit the lookup reserve" do
     {campaign, session} = play_campaign("The Retrieval Packet Observatory")
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
