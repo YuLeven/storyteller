@@ -6,7 +6,7 @@ defmodule Storyteller.GM.ContextBudget do
   Responses usage is recorded separately when the provider reports it.
   """
 
-  @default_budget 24_000
+  @default_budget 64_000
   @framing_allowance 512
   @recent_history_count 12
   @relevant_history_count 8
@@ -1443,8 +1443,11 @@ defmodule Storyteller.GM.ContextBudget do
     if String.length(text) <= max_chars do
       text
     else
-      prefix_length = max(max_chars - 32, 0)
-      String.slice(text, 0, prefix_length) <> " … [context excerpt; older text omitted]"
+      suffix = " … [context excerpt; older text omitted]"
+      suffix = String.slice(suffix, 0, max_chars)
+      prefix_length = max(max_chars - String.length(suffix), 0)
+
+      String.slice(text, 0, prefix_length) <> suffix
     end
   end
 

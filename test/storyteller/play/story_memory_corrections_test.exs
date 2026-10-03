@@ -319,7 +319,7 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
 
     {context, metrics} = Agent.get(captured, & &1)
 
-    assert metrics.estimated_request_bytes <= 24_000
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
     assert :continuity_memory_details in metrics.omissions
     assert :history in metrics.omissions
 
@@ -460,7 +460,7 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     assert length(requests) == length(queries)
 
     Enum.each(requests, fn %{context: context, metrics: metrics, expected_entry_ids: expected_ids} ->
-      assert metrics.estimated_request_bytes <= 24_000
+      assert metrics.estimated_request_bytes <= metrics.budget_bytes
 
       detailed_entry_ids =
         context["continuity"]["public"]

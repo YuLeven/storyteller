@@ -6842,7 +6842,7 @@ defmodule Storyteller.PlayTest do
                "ask only when needed for meaningful action; never assume."
 
       assert instructions =~ "Never ask players to define sensory facts."
-      assert request.local_context_metrics.budget_bytes == 24_000
+      assert request.local_context_metrics.budget_bytes == 64_000
 
       assert request.local_context_metrics.estimated_request_bytes <=
                request.local_context_metrics.budget_bytes
@@ -7516,7 +7516,7 @@ defmodule Storyteller.PlayTest do
     metrics = request.local_context_metrics
     assert metrics.compacted?
     assert metrics.estimated_request_bytes <= metrics.budget_bytes
-    assert metrics.budget_bytes == 24_000
+    assert metrics.budget_bytes == 64_000
   end
 
   test "Spanish wine question sends matching public memory but omits unrelated note" do
@@ -7713,8 +7713,8 @@ defmodule Storyteller.PlayTest do
         refute Map.has_key?(entries[decoy_id], "details")
       end
 
-      assert request.local_context_metrics.estimated_request_bytes <= 24_000
-      assert request.local_context_metrics.budget_bytes == 24_000
+      assert request.local_context_metrics.estimated_request_bytes <= 64_000
+      assert request.local_context_metrics.budget_bytes == 64_000
       assert context["context_completeness"]["continuity_memory_details_omitted"]
     end)
   end
@@ -7818,7 +7818,7 @@ defmodule Storyteller.PlayTest do
         refute Map.has_key?(public_entries[decoy_id], "details")
       end
 
-      assert request.local_context_metrics.budget_bytes == 24_000
+      assert request.local_context_metrics.budget_bytes == 64_000
 
       assert request.local_context_metrics.estimated_request_bytes <=
                request.local_context_metrics.budget_bytes
@@ -8023,7 +8023,7 @@ defmodule Storyteller.PlayTest do
         assert MapSet.subset?(latest_sequences, sent_sequences)
       end
 
-      assert request.local_context_metrics.budget_bytes == 24_000
+      assert request.local_context_metrics.budget_bytes == 64_000
 
       assert request.local_context_metrics.estimated_request_bytes <=
                request.local_context_metrics.budget_bytes
@@ -8164,8 +8164,8 @@ defmodule Storyteller.PlayTest do
     assert length(captured) == length(questions)
 
     for {{question, expected_entry_id}, {context, metrics}} <- Enum.zip(questions, captured) do
-      assert metrics.estimated_request_bytes <= 24_000
-      assert metrics.budget_bytes == 24_000
+      assert metrics.estimated_request_bytes <= 64_000
+      assert metrics.budget_bytes == 64_000
 
       entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
       assert entries[expected_entry_id]["details"] == expected_details[expected_entry_id]
@@ -8369,8 +8369,8 @@ defmodule Storyteller.PlayTest do
 
     assert context["context_completeness"]["continuity_memory_details_omitted"]
     metrics = request.local_context_metrics
-    assert metrics.budget_bytes == 24_000
-    assert metrics.estimated_request_bytes <= 24_000
+    assert metrics.budget_bytes == 64_000
+    assert metrics.estimated_request_bytes <= 64_000
 
     assert metrics.estimated_request_bytes ==
              metrics.instructions_bytes + metrics.context_json_bytes + 512
@@ -8510,8 +8510,8 @@ defmodule Storyteller.PlayTest do
 
       assert context["context_completeness"]["continuity_memory_details_omitted"]
       metrics = request.local_context_metrics
-      assert metrics.budget_bytes == 24_000
-      assert metrics.estimated_request_bytes <= 24_000
+      assert metrics.budget_bytes == 64_000
+      assert metrics.estimated_request_bytes <= 64_000
 
       assert metrics.estimated_request_bytes ==
                metrics.instructions_bytes + metrics.context_json_bytes + 512
@@ -8615,7 +8615,7 @@ defmodule Storyteller.PlayTest do
 
       assert context["context_completeness"]["continuity_memory_details_omitted"]
       metrics = request.local_context_metrics
-      assert metrics.budget_bytes == 24_000
+      assert metrics.budget_bytes == 64_000
       assert metrics.estimated_request_bytes <= metrics.budget_bytes
 
       assert metrics.estimated_request_bytes ==
@@ -8678,14 +8678,14 @@ defmodule Storyteller.PlayTest do
     encoded_context = request.input |> hd() |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
 
     assert context["interaction_mode"] == "question"
-    assert metrics.budget_bytes == 24_000
+    assert metrics.budget_bytes == 64_000
     assert metrics.instructions_bytes == byte_size(request.instructions)
     assert metrics.context_json_bytes == byte_size(encoded_context)
 
     assert metrics.estimated_request_bytes ==
              metrics.instructions_bytes + metrics.context_json_bytes + 512
 
-    assert metrics.estimated_request_bytes <= 24_000
+    assert metrics.estimated_request_bytes <= 64_000
   end
 
   test "a context-size pause keeps the submitted action available for retry" do

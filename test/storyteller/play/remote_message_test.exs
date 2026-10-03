@@ -275,7 +275,7 @@ defmodule Storyteller.Play.RemoteMessageTest do
 
     assert length(context["communication_paths"]) == 12
     refute Jason.encode!(context) =~ "Private sealed archive"
-    assert metrics.estimated_request_bytes <= 24_000
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
     assert metrics.section_bytes.section_communication_paths_bytes > 0
     assert metrics.section_bytes.section_communication_paths_bytes <= 6_000
   end

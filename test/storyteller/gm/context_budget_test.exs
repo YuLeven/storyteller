@@ -172,7 +172,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
                ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
 
       assert metrics.compacted?
-      assert metrics.estimated_request_bytes <= 24_000
+      assert metrics.estimated_request_bytes <= 64_000
       assert length(compiled.history) <= 20
       assert Enum.any?(compiled.history, &(&1["sequence"] == 5))
       assert Enum.any?(compiled.history, &(&1["sequence"] == 17))
@@ -297,8 +297,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
   end
 
   test "shortens recent narration in stages when the canonical request slightly exceeds its budget" do
-    instructions = production_gm_policy()
-    budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
+    instructions =
+      production_gm_policy() <> String.duplicate("Additional required GM policy. ", 160)
+
+    budget = 32_000
 
     history =
       Enum.map(1..12, fn sequence ->
@@ -333,8 +335,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
     older_texts = compacted.history |> Enum.take(8) |> Enum.map(& &1["payload"]["text"])
     newest_texts = compacted.history |> Enum.take(-4) |> Enum.map(& &1["payload"]["text"])
 
-    assert Enum.all?(older_texts, &(byte_size(&1) <= 600))
-    assert Enum.all?(newest_texts, &(byte_size(&1) > 600))
+    assert Enum.all?(older_texts, &(String.length(&1) <= 600))
+    assert Enum.all?(newest_texts, &(String.length(&1) > 600 and String.length(&1) <= 1_600))
 
     assert compacted.world == context.world
     assert compacted.inventory == context.inventory
@@ -738,12 +740,14 @@ defmodule Storyteller.GM.ContextBudgetTest do
       context
       |> Map.put(:continuity, %{public: player_memories, gm_private: []})
 
-    assert byte_size(Jason.encode!(context)) + byte_size("Short GM policy") + 512 < 24_000
+    default_budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
+    assert default_budget == 64_000
+    assert byte_size(Jason.encode!(context)) + byte_size("Short GM policy") + 512 < default_budget
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
 
-    assert metrics.estimated_request_bytes <= 24_000
+    assert metrics.estimated_request_bytes <= default_budget
     assert metrics.compacted?
     assert :continuity_memory_details in metrics.omissions
     assert :remote_character_profiles in metrics.omissions
@@ -1140,7 +1144,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
                  "gpt-6-astra"
                )
 
-      assert metrics.estimated_request_bytes <= 24_000
+      assert metrics.estimated_request_bytes <= 64_000
 
       assert Enum.find(compiled.continuity.public, &(&1.entry_id == "wine-reserve")).details ==
                player_memory.details
@@ -1310,7 +1314,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert {:ok, %{context: compiled, metrics: metrics}} =
              ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
 
-    assert metrics.estimated_request_bytes <= 24_000
+    assert metrics.estimated_request_bytes <= 64_000
 
     detailed_entry_ids =
       compiled.continuity.public
@@ -1662,6 +1666,64 @@ defmodule Storyteller.GM.ContextBudgetTest do
     refute metrics.compacted?
     assert metrics.omissions == []
     assert metrics.estimated_request_bytes == request_bytes(context, "Policy")
+  end
+
+  test "accepts the 31,825-byte relevant scene shape under the default local guard" do
+    configured_budgets = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)
+
+    assert Enum.sort(Map.keys(configured_budgets)) ==
+             Enum.sort([
+               "default",
+               "gpt-6-astra",
+               "gpt-5.6-sol",
+               "gpt-5.6-terra",
+               "gpt-5.6-luna",
+               "gpt-5.5"
+             ])
+
+    assert Map.values(configured_budgets) |> Enum.uniq() == [64_000]
+
+    premise = String.duplicate("A", 10_000)
+    current_place_description = String.duplicate("B", 10_000)
+
+    context =
+      base_context()
+      |> put_in([:campaign, :premise], premise)
+      |> update_in([:places, :public], fn places ->
+        Enum.map(places, fn
+          %{place_id: "finca"} = place ->
+            Map.put(place, :description, current_place_description)
+
+          place ->
+            place
+        end)
+      end)
+
+    assert {:ok, %{metrics: empty_instructions_metrics}} =
+             ContextBudget.compile(context, "", "gpt-6-astra")
+
+    instruction_bytes = 31_825 - empty_instructions_metrics.context_json_bytes - 512
+    assert instruction_bytes >= 8_000
+    instructions = String.duplicate("i", instruction_bytes)
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, instructions, "gpt-6-astra")
+
+    assert metrics.budget_bytes == 64_000
+    assert metrics.instructions_bytes == instruction_bytes
+    assert metrics.estimated_request_bytes == 31_825
+    assert compiled.campaign.premise == premise
+
+    assert Enum.find(compiled.places.public, &(&1.place_id == "finca")).description ==
+             current_place_description
+
+    assert {:error, {:context_budget_exceeded, diagnostics}} =
+             ContextBudget.compile(context, instructions, "gpt-6-astra",
+               context_input_byte_budget: 24_000
+             )
+
+    assert diagnostics.estimated_request_bytes == 31_825
+    assert diagnostics.budget_bytes == 24_000
   end
 
   test "rejects required canonical state that cannot fit instead of truncating it" do

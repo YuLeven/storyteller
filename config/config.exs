@@ -11,12 +11,12 @@ config :storyteller,
   ecto_repos: [Storyteller.Repo],
   generators: [timestamp_type: :utc_datetime],
   gm_context_byte_budgets: %{
-    "default" => 24_000,
-    "gpt-6-astra" => 24_000,
-    "gpt-5.6-sol" => 24_000,
-    "gpt-5.6-terra" => 24_000,
-    "gpt-5.6-luna" => 24_000,
-    "gpt-5.5" => 24_000
+    "default" => 64_000,
+    "gpt-6-astra" => 64_000,
+    "gpt-5.6-sol" => 64_000,
+    "gpt-5.6-terra" => 64_000,
+    "gpt-5.6-luna" => 64_000,
+    "gpt-5.5" => 64_000
   }
 
 auth_store_dir =
