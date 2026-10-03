@@ -8,6 +8,8 @@ defmodule Storyteller.Play do
   the session in which they occurred.
   """
 
+  require Logger
+
   import Ecto.Query, warn: false
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
@@ -444,6 +446,15 @@ defmodule Storyteller.Play do
     :invalid_response,
     :session_closed,
     :campaign_archived
+  ]
+
+  @proposal_failure_categories [
+    :proposal_shape,
+    :time_advance,
+    :player_agency,
+    :location_presence,
+    :private_fact_boundary,
+    :proposal_rules
   ]
 
   @doc """
@@ -1311,6 +1322,7 @@ defmodule Storyteller.Play do
         {:error, reason, stage} ->
           failure_code = normalize_failure_code(reason)
           if failure_code == :usage_limit, do: latch_plan_usage(opts)
+          log_proposal_rejection(turn, reason, stage)
           fail_turn(turn.id, attempt_token, failure_code, stage)
       end
 
@@ -2853,35 +2865,69 @@ defmodule Storyteller.Play do
 
     cond do
       not unique_normalized_keys?(proposal) ->
-        {:error, :invalid_response}
+        proposal_rejection(:proposal_shape)
 
       map_size(proposal) > length(allowed) ->
-        {:error, :invalid_response}
+        proposal_rejection(:proposal_shape)
 
       Enum.any?(Map.keys(proposal), &(key_name(&1) not in allowed)) ->
-        {:error, :invalid_response}
+        proposal_rejection(:proposal_shape)
 
       true ->
-        if turn.intent == :question and field(proposal, :time_advance_minutes, 0) != 0 do
-          {:error, :invalid_response}
-        else
-          proposal =
-            if turn.intent == :question do
-              %{
-                narration: field(proposal, :narration),
-                time_advance_minutes: 0,
-                memory_update: %{public_summary: "", gm_private_summary: ""}
-              }
-            else
-              proposal
-            end
+        cond do
+          turn.intent == :question and field(proposal, :time_advance_minutes, 0) != 0 ->
+            proposal_rejection(:time_advance)
 
-          validate_proposal_fields(proposal, turn)
+          turn.intent == :time_passage and time_passage_player_agency_proposed?(proposal) ->
+            proposal_rejection(:player_agency)
+
+          true ->
+            proposal =
+              if turn.intent == :question do
+                %{
+                  narration: field(proposal, :narration),
+                  time_advance_minutes: 0,
+                  memory_update: %{public_summary: "", gm_private_summary: ""}
+                }
+              else
+                proposal
+              end
+
+            validate_proposal_fields(proposal, turn)
         end
     end
   end
 
-  defp validate_proposal(_proposal, _turn), do: {:error, :invalid_response}
+  defp validate_proposal(_proposal, _turn), do: proposal_rejection(:proposal_shape)
+
+  defp time_passage_player_agency_proposed?(proposal) do
+    player_line_proposed?(field(proposal, :dialogue, [])) or
+      player_line_proposed?(field(proposal, :activities, [])) or
+      player_character_update_proposed?(field(proposal, :character_updates, [])) or
+      player_move_proposed?(field(proposal, :location_changes, [])) or
+      not is_nil(field(proposal, :roll_request))
+  end
+
+  defp player_line_proposed?(lines) when is_list(lines) do
+    Enum.any?(lines, &(is_map(&1) and field(&1, :speaker_id) == "player"))
+  end
+
+  defp player_line_proposed?(_lines), do: false
+
+  defp player_character_update_proposed?(updates) when is_list(updates) do
+    Enum.any?(updates, &(is_map(&1) and field(&1, :speaker_id) == "player"))
+  end
+
+  defp player_character_update_proposed?(_updates), do: false
+
+  defp player_move_proposed?(changes) when is_list(changes) do
+    Enum.any?(changes, fn change ->
+      is_map(change) and field(change, :type) in ["move_character", :move_character] and
+        field(change, :speaker_id) == "player"
+    end)
+  end
+
+  defp player_move_proposed?(_changes), do: false
 
   defp constrain_proposal_to_intent(proposal, :question) do
     %{
@@ -2938,45 +2984,60 @@ defmodule Storyteller.Play do
          first_placement_ids =
            first_placement_ids(turn.intent, movement_characters, character_creations),
          {:ok, location_changes} <-
-           validate_location_changes(
-             field(proposal, :location_changes, []),
-             turn.campaign_id,
-             speaker_ids
+           tagged_proposal_validation(
+             validate_location_changes(
+               field(proposal, :location_changes, []),
+               turn.campaign_id,
+               speaker_ids
+             ),
+             :location_presence
            ),
          {:ok, travel_changes} <-
-           validate_travel_changes(
-             field(proposal, :travel_changes, []),
-             turn.campaign_id,
-             location_changes
+           tagged_proposal_validation(
+             validate_travel_changes(
+               field(proposal, :travel_changes, []),
+               turn.campaign_id,
+               location_changes
+             ),
+             :location_presence
            ),
          {:ok, location_changes, final_locations} <-
-           validate_movement_routes(
-             location_changes,
-             travel_changes,
-             turn.campaign_id,
-             movement_characters,
-             player_place_id,
-             first_placement_ids,
-             current_elapsed_world_minutes(turn.campaign_id)
+           tagged_proposal_validation(
+             validate_movement_routes(
+               location_changes,
+               travel_changes,
+               turn.campaign_id,
+               movement_characters,
+               player_place_id,
+               first_placement_ids,
+               current_elapsed_world_minutes(turn.campaign_id)
+             ),
+             :location_presence
            ),
          :ok <-
-           validate_opening_scene_player_place(
-             turn.intent,
-             final_locations,
-             player_place_id,
-             turn.campaign_id,
-             location_changes
+           tagged_proposal_validation(
+             validate_opening_scene_player_place(
+               turn.intent,
+               final_locations,
+               player_place_id,
+               turn.campaign_id,
+               location_changes
+             ),
+             :location_presence
            ),
          :ok <-
-           validate_public_scene_presence(
-             narration,
-             dialogue,
-             activities,
-             characters,
-             final_locations,
-             player_place_id,
-             turn.campaign_id,
-             location_changes
+           tagged_proposal_validation(
+             validate_public_scene_presence(
+               narration,
+               dialogue,
+               activities,
+               characters,
+               final_locations,
+               player_place_id,
+               turn.campaign_id,
+               location_changes
+             ),
+             :location_presence
            ),
          public_paths = persisted_communication_paths(turn.campaign_id),
          speaker_visibility =
@@ -3008,7 +3069,10 @@ defmodule Storyteller.Play do
            ),
          {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
          {:ok, time_advance_minutes} <-
-           validate_time_advance(field(proposal, :time_advance_minutes, 0), turn.intent),
+           tagged_proposal_validation(
+             validate_time_advance(field(proposal, :time_advance_minutes, 0), turn.intent),
+             :time_advance
+           ),
          {:ok, roll_request} <-
            validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
       if turn.intent == :time_passage and
@@ -3019,7 +3083,7 @@ defmodule Storyteller.Play do
              location_changes,
              roll_request
            ) do
-        {:error, :invalid_response}
+        proposal_rejection(:player_agency)
       else
         if not remote_message_proposal_allowed?(
              remote_messages,
@@ -3029,7 +3093,7 @@ defmodule Storyteller.Play do
              travel_changes,
              time_advance_minutes
            ) do
-          {:error, :invalid_response}
+          proposal_rejection(:proposal_rules)
         else
           if roll_request &&
                (turn.intent != :action or map_size(public_changes) > 0 or
@@ -3040,7 +3104,7 @@ defmodule Storyteller.Play do
                   travel_changes != [] or
                   continuity_changes != [] or communication_path_changes != [] or
                   remote_messages != [] or time_advance_minutes != 0) do
-            {:error, :invalid_response}
+            proposal_rejection(:proposal_rules)
           else
             validated = %{
               narration: narration,
@@ -3065,13 +3129,30 @@ defmodule Storyteller.Play do
 
             case validate_public_text_privacy(validated, turn.campaign_id) do
               :ok -> {:ok, validated}
-              {:error, _reason} -> {:error, :invalid_response}
+              {:error, _reason} -> proposal_rejection(:private_fact_boundary)
             end
           end
         end
       end
+    else
+      {:error, {:invalid_response, category}} when category in @proposal_failure_categories ->
+        {:error, {:invalid_response, category}}
+
+      {:error, :invalid_response} ->
+        proposal_rejection(:proposal_rules)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp tagged_proposal_validation({:error, :invalid_response}, category),
+    do: proposal_rejection(category)
+
+  defp tagged_proposal_validation(result, _category), do: result
+
+  defp proposal_rejection(category) when category in @proposal_failure_categories,
+    do: {:error, {:invalid_response, category}}
 
   defp validate_time_advance(value, intent)
        when is_integer(value) and value >= 0 and value <= @max_turn_elapsed_minutes do
@@ -5515,8 +5596,21 @@ defmodule Storyteller.Play do
     end)
   end
 
+  defp normalize_failure_code({:invalid_response, category})
+       when category in @proposal_failure_categories,
+       do: :invalid_response
+
   defp normalize_failure_code(code) when code in @provider_errors, do: code
   defp normalize_failure_code(_), do: :provider_error
+
+  defp log_proposal_rejection(turn, {:invalid_response, category}, :proposal_validation)
+       when category in @proposal_failure_categories do
+    Logger.warning(
+      "GM proposal rejected turn_id=#{turn.id} intent=#{turn.intent} category=#{category}"
+    )
+  end
+
+  defp log_proposal_rejection(_turn, _reason, _stage), do: :ok
 
   defp campaign_characters(campaign_id) do
     Repo.all(

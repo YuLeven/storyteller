@@ -1,6 +1,7 @@
 defmodule Storyteller.PlayTest do
   use Storyteller.DataCase
 
+  import ExUnit.CaptureLog
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Campaigns
@@ -8209,6 +8210,69 @@ defmodule Storyteller.PlayTest do
       assert Repo.get_by(Roll, turn_id: failed_turn.id) == nil
       assert {:ok, []} = Play.public_timeline(campaign.id)
     end
+  end
+
+  test "time-passage validation logs safe rejection categories without model text" do
+    {duration_campaign, duration_session} = play_campaign("Duration Diagnosis Observatory")
+    output_sentinel = "UNSAFE-GM-OUTPUT-SENTINEL"
+
+    duration_log =
+      capture_log(fn ->
+        assert {:ok,
+                %{
+                  status: :failed,
+                  failure_code: "invalid_response",
+                  failure_stage: :proposal_validation
+                }} =
+                 Play.submit_turn(
+                   duration_campaign.id,
+                   duration_session.id,
+                   "invalid-duration-diagnostic",
+                   "A day passes.",
+                   intent: :time_passage,
+                   provider:
+                     ordinary_provider(%{
+                       "narration" => output_sentinel,
+                       "time_advance_minutes" => 0
+                     }),
+                   model: "test-model"
+                 )
+      end)
+
+    assert duration_log =~ "intent=time_passage category=time_advance"
+    refute duration_log =~ output_sentinel
+    assert Repo.get_by!(State, campaign_id: duration_campaign.id).elapsed_world_minutes == 0
+    assert {:ok, []} = Play.public_timeline(duration_campaign.id)
+
+    {agency_campaign, agency_session} = play_campaign("Agency Diagnosis Observatory")
+
+    agency_log =
+      capture_log(fn ->
+        assert {:ok,
+                %{
+                  status: :failed,
+                  failure_code: "invalid_response",
+                  failure_stage: :proposal_validation
+                }} =
+                 Play.submit_turn(
+                   agency_campaign.id,
+                   agency_session.id,
+                   "player-agency-diagnostic",
+                   "A day passes.",
+                   intent: :time_passage,
+                   provider:
+                     ordinary_provider(%{
+                       "dialogue" => [%{"speaker_id" => "player", "text" => output_sentinel}],
+                       "time_advance_minutes" => 1_440
+                     }),
+                   model: "test-model"
+                 )
+      end)
+
+    assert agency_log =~ "intent=time_passage category=player_agency"
+    refute agency_log =~ output_sentinel
+    assert Repo.get_by!(State, campaign_id: agency_campaign.id).elapsed_world_minutes == 0
+    assert {:ok, []} = Play.public_timeline(agency_campaign.id)
   end
 
   test "time passage accepts world and NPC events and preserves an explicit multi-day duration" do
