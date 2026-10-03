@@ -1,9 +1,16 @@
 # Feature log
 
+## 2026-10-03 — V1 P0: grounded discoveries and expert agency
+
+- With functional QA accepted as the MVP baseline, story quality is the active P0. Tightened GM guidance so the GM supplies ordinary sensory facts and an expert NPC's qualified judgment, keeps prompt/canon-check reasoning out of narration, and can establish a witnessed clue on a known present object without inventing its cause. Continuity operations now have a compact exact shape; action pacing retains montage guidance and skips routine steps.
+- Added behavior coverage for an earned clue with public event provenance, transient scene texture staying out of the continuity ledger, and secret-safe structural rejection logging. Invalid continuity proposals still fail closed; safe reason tags now explain the shape/rule failure without logging proposal contents.
+- On the refreshed isolated Quiet Observatory QA build at port 4003, the saved observation request still failed at continuity-change validation. The action remains retryable and no GM narration or campaign changes were saved. This is an open story/state integration defect, not a quality pass. The previous build had shown public “GM clarification” text; this updated retry did not return a usable response, so the changed narration guidance is not yet confirmed live.
+- **Checks:** WSL full suite passed (**449 tests, 0 failures**); dev/test warnings-as-errors compilation, formatting, Gettext freshness, asset build, and `git diff --check` passed. QA used only `storyteller_mvp_qa_20261003`; the primary port 4000 server and source campaign were untouched.
+
 ## 2026-10-03 — Isolated local QA runtime and bounded connected replay
 
 - Development config now accepts `STORYTELLER_DB_NAME` and `PORT`, keeping the default `storyteller_dev` / 4000 behavior and loopback binding while allowing a durable manual-QA database on another local port. The Windows/WSL command sequence is documented in `docs/LOCAL_DEVELOPMENT.md`; stale campaign IDs were removed from the live-testing instructions.
-- Created a fresh fictional `storyteller_mvp_qa_20261003` database. Four bounded attempts did not produce an opening scene: the first two were safely rejected (`proposal_rules`), the third identified character creation, and the retry after clarifying the character-creation schema ended with a generic provider error. No narration or canon was saved; no further request was sent. The connected GM loop remains an MVP sign-off blocker.
+- Historical first replay: four bounded attempts did not produce an opening scene; the first two were safely rejected (`proposal_rules`), the third identified character creation, and the retry after clarifying its schema ended with a generic provider error. Later connected QA and the functional MVP pass are recorded below; this first replay was not the final sign-off.
 - **Checks:** the isolated database is migrated and seeded, and its Phoenix server ran on loopback port 4003. Full ExUnit passed (**439 tests, 0 failures**); warnings-as-errors compilation, format, `git diff --check`, and Gettext freshness passed in WSL. The evidence and exact boundary are in `docs/UX_ACCEPTANCE.md`. The primary 4000 server, campaign 37, the Vineyard campaign, and its source ChatGPT thread were not opened or changed.
 
 ## 2026-10-03 — Tighten opening guidance and rejection diagnosis

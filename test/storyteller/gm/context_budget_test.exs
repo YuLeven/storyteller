@@ -540,16 +540,23 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.estimated_request_bytes <= 24_000
 
     policy = String.replace(policy, ~r/\s+/, " ")
-    assert policy =~ "SENSORY AUTHORITY: GM owns external facts."
+    assert policy =~ "OBSERVATION/JUDGMENT: GM owns external facts."
 
     assert policy =~
-             "For a tasting, give color, aromas, acidity/tannin, and finish at requested depth"
+             "Tastings: name color, aroma, acidity/tannin, and finish before the player's subjective reaction."
 
-    assert policy =~ "ask the player for interpretation, never invent it for them."
-    assert policy =~ "Distinct NPC voices:"
+    assert policy =~
+             "Expert NPCs answer with qualified judgment; the player doesn't supply it."
+
+    assert policy =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
     assert policy =~ "never blend profiles"
-    assert policy =~ "Use natural word choice, not phonetics or caricature."
-    assert policy =~ "Avoid stereotypes, catchphrases, and repeated cues."
+    assert policy =~ "Use natural word choice, not phonetics, caricature"
+    assert policy =~ "stereotypes, catchphrases, or repeated cues."
+
+    assert policy =~
+             "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"
+
+    assert policy =~ "Record witnessed evidence, not guessed causes"
 
     compacted_characters = Map.new(compacted.characters, &{&1.speaker_id, &1})
 

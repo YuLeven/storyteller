@@ -273,33 +273,34 @@ defmodule Storyteller.Play do
   AGENCY AND SCENE: Player alone controls their character's actions, words,
   thoughts, movement, and decisions. GM runs the world/NPCs, advances time as
   warranted, and yields at a meaningful choice.
-  SENSORY AUTHORITY: GM owns external facts. At character vantage, describe
-  concrete senses; separate observation from interpretation. For inspections,
-  state 1-2 ordinary details directly; don't hedge or treat narrative omissions
-  as absence. Improvise consistent, low-stakes texture; clues, diagnoses, and
-  affordances require canon. Description alone isn't a clue. For a tasting, give
-  color, aromas, acidity/tannin, and finish at requested depth; ask the player
-  for interpretation, never invent it for them. Keep technical uncertainty
-  impressionistic; store only lasting findings.
+  OBSERVATION/JUDGMENT: GM owns external facts. State 1-2 ordinary senses
+  directly; omissions aren't absence. Improvise consistent texture. Plausible
+  new details on known, present people/objects may become clues; never
+  retroactive/off-scene. Keep causes uncertain; record lasting clues as public
+  continuity with grounded reason. Never surface prompt/canon checks; keep
+  uncertainty in-world. Tastings: name color, aroma, acidity/tannin, and finish
+  before the player's subjective reaction. Expert NPCs answer with qualified
+  judgment; the player doesn't supply it.
   ADAPTIVE PACE: Match intent, not fixed length. Keep questions, tense beats,
   consequential choices, and dialogue close. Complete the immediate beat—
   observable consequences and relevant co-present reactions—before handoff;
   don't stop after one incidental NPC line. Yield at a real player choice; never
   assume follow-through. For ongoing work or waits, montage to requested scale.
+  Skip routine steps.
   If unclear, resolve only the immediate consequence; avoid micro-actions,
   forced dialogue, and menus.
   No recap/panel facts. elapsed_world_clock is exact minutes; don't parse labels.
   Keep place/conditions consistent; narrate changes only. Use public
-  date/time/weather keys. Answer from public canon/vantage. No new people, items,
-  exits/routes, hazards, clues, services, or actionable facts without accepted
-  canon (people also need presence). Ask when canon-critical context is absent;
-  never infer it. Don't ask for harmless sensory detail. Introduce people naturally, never
+  date/time/weather keys. Answer from public canon/vantage. No unearned people,
+  items, exits/routes, hazards, services, or actionable facts; people also need
+  accepted presence. If canon-critical context is absent, keep uncertainty
+  in-world; ask only when it blocks a meaningful player action, never assume it.
+  Don't ask for harmless sensory detail. Introduce people naturally, never
   as a creation or stat notice; structured public facts belong in their record
-  and panel. Preserve distinct NPC knowledge, motives, work, and voices. Distinct
-  NPC voices: honor each speaker_id's accent, vocabulary, cadence, quirks, and
-  mannerisms; never blend profiles. Use natural word choice, not phonetics or
-  caricature. Avoid stereotypes, catchphrases, and repeated cues. Narrate in GM
-  voice.
+  and panel. Preserve each NPC's knowledge, motives, work, and distinct voice.
+  Honor each speaker_id's accent, vocabulary, cadence, quirks, and mannerisms;
+  never blend profiles. Use natural word choice, not phonetics, caricature,
+  stereotypes, catchphrases, or repeated cues. Narrate in GM voice.
   Their meaningful visible work may continue between player actions; private
   intent stays private until revealed.
   NPC dialogue: A present NPC answers direct address in their own dialogue,
@@ -364,19 +365,20 @@ defmodule Storyteller.Play do
   against pre-turn time: the move itself cannot expire its duty. Keep duties
   GM-private.
 
-  OBJECTIVES AND MEMORY: Objectives are commitments, public or private. Do not
-  invent them or complete them from mere mention, elapsed time, or partial
-  progress. Complete only when the goal is achieved in established fiction;
-  abandon only when no longer pursued. Create/update in application order, using
-  fresh IDs for creates, existing IDs for updates, grounded reasons, and only
-  open/completed/abandoned statuses. Keep private details out of narration.
-  Continuity entries are only durable facts, relationships, or commitments not
-  already represented in canon; never store transient scenes. Create with a
-  fresh entry_id and kind fact/relationship/commitment; update with its stable
-  ID, one operation per entry per turn. Kind/visibility never change; resolved
-  or retracted entries stay closed in history and cannot be recreated under
-  another ID. Never update or retract player_managed entries; only the player
-  can edit or remove them.
+  OBJECTIVES: objective_changes=[] unless a lasting commitment changes.
+  Create {type:create,objective:{objective_id,title,visibility},reason};
+  update {type:update,objective_id,fields...,reason} by existing ID. Use fresh
+  create IDs; status=open/completed/abandoned; visibility=public/gm_private.
+  Objectives are commitments; never invent or complete from mention, elapsed
+  time, or partial progress. Complete only when achieved; abandon only when no
+  longer pursued. Keep private details out of narration.
+  Continuity holds durable facts/relationships/commitments missing from canon,
+  never transient scenes. Create exactly {type:"create",entry:{entry_id,kind,
+  title,details,visibility},reason}; update {type:"update",entry_id,title?,
+  details?,status?,reason}. Use only those keys; fresh IDs; one change per
+  entry/turn. Kind/visibility are fixed; closed entries stay closed; never
+  change player_managed entries. Record witnessed evidence, not guessed causes
+  or transient impressions.
   Keep private content/reasons private. Return concise public_summary and
   gm_private_summary updates with supported durable facts, relationships,
   commitments, and work in progress; preserve correct facts, remove resolved
@@ -4445,14 +4447,39 @@ defmodule Storyteller.Play do
 
     Enum.reduce_while(changes, {:ok, {entries, [], MapSet.new()}}, fn raw_change,
                                                                       {:ok, {current, acc, seen}} ->
-      with {:ok, change} <- normalize_continuity_change(raw_change),
-           false <- MapSet.member?(seen, change.entry_id),
-           {:ok, next, normalized} <- apply_continuity_change(current, change),
-           true <- active_continuity_count(next) <= @max_active_continuity_entries,
-           true <- map_size(next) <= @max_total_continuity_entries do
-        {:cont, {:ok, {next, acc ++ [normalized], MapSet.put(seen, change.entry_id)}}}
-      else
-        _ -> {:halt, {:error, :invalid_response}}
+      case normalize_continuity_change(raw_change) do
+        {:ok, change} ->
+          cond do
+            MapSet.member?(seen, change.entry_id) ->
+              reject_continuity_change(campaign_id, :duplicate_entry_in_turn)
+              {:halt, {:error, :invalid_response}}
+
+            true ->
+              case apply_continuity_change(current, change) do
+                {:ok, next, normalized} ->
+                  cond do
+                    active_continuity_count(next) > @max_active_continuity_entries ->
+                      reject_continuity_change(campaign_id, :active_entry_limit)
+                      {:halt, {:error, :invalid_response}}
+
+                    map_size(next) > @max_total_continuity_entries ->
+                      reject_continuity_change(campaign_id, :total_entry_limit)
+                      {:halt, {:error, :invalid_response}}
+
+                    true ->
+                      {:cont,
+                       {:ok, {next, acc ++ [normalized], MapSet.put(seen, change.entry_id)}}}
+                  end
+
+                {:error, reason} ->
+                  reject_continuity_change(campaign_id, reason)
+                  {:halt, {:error, :invalid_response}}
+              end
+          end
+
+        {:error, reason} ->
+          reject_continuity_change(campaign_id, reason)
+          {:halt, {:error, :invalid_response}}
       end
     end)
     |> case do
@@ -4461,7 +4488,11 @@ defmodule Storyteller.Play do
     end
   end
 
-  defp validate_continuity_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+  defp validate_continuity_changes(changes, campaign_id) do
+    reason = if is_list(changes), do: :change_count_limit, else: :changes_not_a_list
+    reject_continuity_change(campaign_id, reason)
+    {:error, :invalid_response}
+  end
 
   defp normalize_continuity_change(change) when is_map(change) do
     type = field(change, :type)
@@ -4470,10 +4501,10 @@ defmodule Storyteller.Play do
 
     cond do
       not unique_normalized_keys?(change) ->
-        {:error, :invalid_response}
+        {:error, :duplicate_change_keys}
 
       not valid_continuity_reason?(reason) ->
-        {:error, :invalid_response}
+        {:error, :invalid_reason}
 
       type == "create" and Enum.all?(keys, &(&1 in ["type", "entry", "reason"])) ->
         normalize_continuity_create(field(change, :entry), reason)
@@ -4483,7 +4514,7 @@ defmodule Storyteller.Play do
         normalize_continuity_update(change, reason)
 
       true ->
-        {:error, :invalid_response}
+        {:error, :invalid_change_shape}
     end
   end
 
@@ -4499,17 +4530,17 @@ defmodule Storyteller.Play do
 
     cond do
       not unique_normalized_keys?(entry) ->
-        {:error, :invalid_response}
+        {:error, :duplicate_entry_keys}
 
       Enum.any?(keys, &(&1 not in ["entry_id", "kind", "title", "details", "visibility"])) ->
-        {:error, :invalid_response}
+        {:error, :unexpected_entry_key}
 
       not valid_continuity_entry_id?(entry_id) ->
-        {:error, :invalid_response}
+        {:error, :invalid_entry_id}
 
       is_nil(kind) or not valid_continuity_title?(title) or
         not valid_continuity_details?(details) or is_nil(visibility) ->
-        {:error, :invalid_response}
+        {:error, :invalid_entry_fields}
 
       true ->
         attrs = %{
@@ -4531,7 +4562,7 @@ defmodule Storyteller.Play do
     end
   end
 
-  defp normalize_continuity_create(_entry, _reason), do: {:error, :invalid_response}
+  defp normalize_continuity_create(_entry, _reason), do: {:error, :entry_not_an_object}
 
   defp normalize_continuity_update(change, reason) do
     entry_id = field(change, :entry_id)
@@ -4542,7 +4573,7 @@ defmodule Storyteller.Play do
          {:ok, attrs} <- continuity_update_attrs(change, keys) do
       {:ok, %{type: :update, entry_id: entry_id, attrs: attrs, reason: reason}}
     else
-      _ -> {:error, :invalid_response}
+      _ -> {:error, :invalid_update_fields}
     end
   end
 
@@ -4617,6 +4648,10 @@ defmodule Storyteller.Play do
         normalized = Map.put(change, :snapshot, snapshot)
         {:ok, Map.put(entries, change.entry_id, snapshot), normalized}
     end
+  end
+
+  defp reject_continuity_change(campaign_id, reason) do
+    Logger.warning("GM continuity change rejected campaign_id=#{campaign_id} reason=#{reason}")
   end
 
   defp active_continuity_count(entries) do
@@ -5358,16 +5393,7 @@ defmodule Storyteller.Play do
     ContextBudget.emit_metrics(Map.get(request, :local_context_metrics), usage)
   end
 
-  defp interaction_mode_guidance(:action) do
-    """
-
-    OBJECTIVES: objective_changes=[] unless a lasting commitment changes.
-    Create {type:create,objective:{objective_id,title,visibility},reason};
-    update {type:update,objective_id,fields...,reason} by existing ID. Use a
-    fresh create ID; status=open/completed/abandoned; visibility=public/gm_private.
-    Skip routine steps.
-    """
-  end
+  defp interaction_mode_guidance(:action), do: ""
 
   defp interaction_mode_guidance(:question) do
     """

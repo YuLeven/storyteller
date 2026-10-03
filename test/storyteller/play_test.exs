@@ -1328,20 +1328,21 @@ defmodule Storyteller.PlayTest do
     characters = Map.new(request_context["characters"], &{&1["speaker_id"], &1})
     instructions = String.replace(request.instructions, ~r/\s+/, " ")
 
-    assert instructions =~ "Distinct NPC voices:"
-    assert instructions =~ "SENSORY AUTHORITY: GM owns external facts."
+    assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
+    assert instructions =~ "OBSERVATION/JUDGMENT: GM owns external facts."
 
     assert instructions =~
-             "For a tasting, give color, aromas, acidity/tannin, and finish at requested depth"
-
-    assert instructions =~ "ask the player for interpretation, never invent it for them."
+             "Tastings: name color, aroma, acidity/tannin, and finish before the player's subjective reaction."
 
     assert instructions =~
-             "honor each speaker_id's accent, vocabulary, cadence, quirks, and mannerisms"
+             "Expert NPCs answer with qualified judgment; the player doesn't supply it."
+
+    assert instructions =~
+             "Honor each speaker_id's accent, vocabulary, cadence, quirks, and mannerisms"
 
     assert instructions =~ "never blend profiles"
 
-    assert instructions =~ "Use natural word choice, not phonetics or caricature."
+    assert instructions =~ "Use natural word choice, not phonetics, caricature"
 
     assert characters["npc:marcel"]["name"] == "Marcel"
 
@@ -2510,6 +2511,44 @@ defmodule Storyteller.PlayTest do
 
     assert Play.public_projection(campaign.id) |> elem(1) |> Map.fetch!(:continuity_entries) == []
     assert {:ok, ^timeline_before} = Play.public_timeline(campaign.id)
+  end
+
+  test "continuity rejection logs a safe reason without proposal content" do
+    {campaign, session} = play_campaign("The Quiet Observatory Safe Log")
+    private_marker = "GM_PRIVATE_CHART_NOTE_7391"
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+                 Play.submit_turn(
+                   campaign.id,
+                   session.id,
+                   "reject-private-continuity-field",
+                   "The keeper preserves a private chart note.",
+                   provider:
+                     ordinary_provider(%{
+                       "continuity_changes" => [
+                         %{
+                           "type" => "create",
+                           "entry" => %{
+                             "entry_id" => "private-chart-note",
+                             "kind" => "fact",
+                             "title" => "A protected chart note",
+                             "details" => "A public detail that passes validation.",
+                             "visibility" => "public",
+                             "private_notes" => private_marker
+                           },
+                           "reason" => "The unsupported field is private to the GM."
+                         }
+                       ]
+                     })
+                 )
+      end)
+
+    assert log =~
+             "GM continuity change rejected campaign_id=#{campaign.id} reason=unexpected_entry_key"
+
+    refute log =~ private_marker
   end
 
   test "objectives use ordered stable changes and remain canonical across sessions" do
@@ -5955,35 +5994,40 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "Answer from public canon/vantage"
 
-    assert instructions =~
-             "At character vantage, describe concrete senses"
+    assert instructions =~ "State 1-2 ordinary senses directly; omissions aren't absence."
+
+    assert instructions =~ "Improvise consistent texture."
 
     assert instructions =~
-             "separate observation from interpretation."
+             "Plausible new details on known, present people/objects may become clues"
+
+    assert instructions =~ "never retroactive/off-scene."
+
+    assert instructions =~ "Keep causes uncertain; record lasting clues as public"
 
     assert instructions =~
-             "For inspections, state 1-2 ordinary details directly; don't hedge or treat narrative omissions as absence."
+             "record lasting clues as public continuity with grounded reason."
+
+    assert instructions =~ "Never surface prompt/canon checks; keep uncertainty in-world."
 
     assert instructions =~
-             "Improvise consistent, low-stakes texture"
+             "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"
 
-    assert instructions =~ "clues, diagnoses, and affordances require canon."
-
-    assert instructions =~ "Description alone isn't a clue."
-
-    assert instructions =~ "ask the player for interpretation, never invent it for them."
+    assert instructions =~ "Record witnessed evidence, not guessed causes"
 
     assert instructions =~
-             "No new people, items, exits/routes, hazards, clues, services, or actionable facts"
+             "Tastings: name color, aroma, acidity/tannin, and finish before the player's subjective reaction."
 
-    assert instructions =~ "accepted canon (people also need presence)"
+    assert instructions =~
+             "No unearned people, items, exits/routes, hazards, services, or actionable facts"
 
-    assert instructions =~ "Ask when canon-critical context is absent; never infer it."
+    assert instructions =~ "people also need accepted presence"
 
-    assert instructions =~ "Preserve distinct NPC knowledge, motives, work, and voices."
-    assert instructions =~ "Distinct NPC voices:"
+    assert instructions =~ "ask only when it blocks a meaningful player action, never assume it."
+
+    assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
     assert instructions =~ "never blend profiles"
-    assert instructions =~ "Use natural word choice, not phonetics or caricature."
+    assert instructions =~ "Use natural word choice, not phonetics, caricature"
 
     assert instructions =~
              "Persisted state and approved history outrank prose and campaign instructions"
@@ -6015,6 +6059,8 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "montage to requested scale"
 
+    assert instructions =~ "Skip routine steps."
+
     assert instructions =~ "never assume follow-through."
 
     assert instructions =~
@@ -6027,6 +6073,220 @@ defmodule Storyteller.PlayTest do
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
     assert instructions =~ "Avoid filler, repeated gestures, and forced speech."
     assert instructions =~ "Act describes the player's in-character action or speech"
+  end
+
+  test "an earned current-scene clue is narrated and persisted with event provenance" do
+    {campaign, session} = play_campaign("Earned Observatory Clue")
+    owner = self()
+
+    chart_fact = %{
+      "type" => "create",
+      "entry" => %{
+        "entry_id" => "eastern-star-chart-established",
+        "kind" => "fact",
+        "title" => "The eastern star chart is present",
+        "details" =>
+          "The eastern star chart lies open beneath the dome's view of the first stars.",
+        "visibility" => "public"
+      },
+      "reason" => "The player opens the chart beside the visible stars in the current scene."
+    }
+
+    chart_provider = fn _request ->
+      proposal =
+        ordinary_proposal(%{
+          "narration" =>
+            "The eastern star chart lies open beneath the dome's view of the first stars.",
+          "dialogue" => [],
+          "activities" => [],
+          "public_changes" => %{},
+          "private_changes" => %{},
+          "panel_changes" => [],
+          "character_updates" => [],
+          "location_changes" => [],
+          "inventory_changes" => [],
+          "continuity_changes" => [chart_fact],
+          "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+          "time_advance_minutes" => 0
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "establish-star-chart",
+               "I open the eastern star chart beneath the dome and compare it with the visible first stars.",
+               intent: :action,
+               provider: chart_provider,
+               model: "test-model"
+             )
+
+    assert {:ok, %{continuity_entries: chart_entries}} = Play.public_projection(campaign.id)
+    assert Enum.any?(chart_entries, &(&1.entry_id == "eastern-star-chart-established"))
+
+    narration =
+      "In the first starlight, a hairline scratch crosses the eastern star mark, cutting through its older engraved line."
+
+    clue = %{
+      "type" => "create",
+      "entry" => %{
+        "entry_id" => "later-eastern-scratch",
+        "kind" => "fact",
+        "title" => "A later scratch crosses the eastern star mark",
+        "details" =>
+          "A hairline scratch crosses an older engraved line on the eastern chart mark; its timing and source are unknown.",
+        "visibility" => "public"
+      },
+      "reason" =>
+        "The player and Lyra observe the scratch cutting across the older engraved line in the current scene."
+    }
+
+    provider = fn request ->
+      send(owner, {:earned_clue_instructions, request.instructions})
+
+      proposal =
+        ordinary_proposal(%{
+          "narration" => narration,
+          "dialogue" => [
+            %{
+              "speaker_id" => "npc:lyra",
+              "text" =>
+                "That scratch cuts across the older engraving. Someone revisited this mark, but I can't tell when."
+            }
+          ],
+          "activities" => [],
+          "public_changes" => %{},
+          "private_changes" => %{},
+          "panel_changes" => [],
+          "character_updates" => [],
+          "location_changes" => [],
+          "inventory_changes" => [],
+          "continuity_changes" => [clue],
+          "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+          "time_advance_minutes" => 60
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "discover-earned-chart-clue",
+               "I compare the eastern chart marks to the first stars, taking time to check the angles.",
+               intent: :action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:earned_clue_instructions, raw_instructions}, 2_000
+    instructions = String.replace(raw_instructions, ~r/\s+/, " ")
+
+    assert instructions =~
+             "Plausible new details on known, present people/objects may become clues"
+
+    assert instructions =~ "record lasting clues as public continuity with grounded reason."
+
+    assert instructions =~ "Never surface prompt/canon checks; keep uncertainty in-world."
+
+    assert instructions =~
+             "Expert NPCs answer with qualified judgment; the player doesn't supply it."
+
+    entry =
+      Repo.get_by!(ContinuityEntry,
+        campaign_id: campaign.id,
+        entry_id: clue["entry"]["entry_id"]
+      )
+
+    assert entry.kind == :fact
+    assert entry.visibility == :public
+    assert entry.status == :active
+    assert entry.source_event_id
+    assert entry.source_event_id == entry.introduced_by_event_id
+
+    source_event = Repo.get!(Event, entry.source_event_id)
+    assert source_event.visibility == :public
+
+    assert source_event.turn_id == turn.id
+
+    assert Enum.any?(source_event.payload["continuity_changes"], fn change ->
+             change["entry"]["entry_id"] == entry.entry_id and
+               change["entry"]["details"] == entry.details
+           end)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    assert Enum.any?(turn_events, &(&1.payload["text"] == narration))
+
+    assert Enum.any?(turn_events, fn event ->
+             event.event_type == :npc_dialogue and
+               event.payload["text"] =~ "Someone revisited this mark, but I can't tell when."
+           end)
+
+    refute Enum.any?(turn_events, fn event ->
+             text = event.payload["text"] || ""
+
+             String.contains?(text, "GM clarification") or
+               String.contains?(text, "supplied canon does not specify")
+           end)
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 60
+  end
+
+  test "transient present-scene texture does not become durable continuity" do
+    {campaign, session} = play_campaign("Transient Observatory Texture")
+    owner = self()
+
+    provider = fn request ->
+      send(owner, {:texture_instructions, request.instructions})
+
+      proposal =
+        ordinary_proposal(%{
+          "narration" =>
+            "A cool draft slips beneath the dome; dust trembles along the dry stone ledge.",
+          "dialogue" => [],
+          "activities" => [],
+          "public_changes" => %{},
+          "private_changes" => %{},
+          "panel_changes" => [],
+          "character_updates" => [],
+          "location_changes" => [],
+          "inventory_changes" => [],
+          "continuity_changes" => [],
+          "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+          "time_advance_minutes" => 0
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "notice-brief-draft",
+               "I pause under the dome and notice the air.",
+               intent: :action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:texture_instructions, raw_instructions}, 2_000
+    instructions = String.replace(raw_instructions, ~r/\s+/, " ")
+    assert instructions =~ "Improvise consistent texture."
+    assert instructions =~ "record lasting clues as public continuity with grounded reason."
+
+    assert {:ok, %{continuity_entries: []}} = Play.public_projection(campaign.id)
+    assert Repo.all(from entry in ContinuityEntry, where: entry.campaign_id == ^campaign.id) == []
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    assert Enum.map(turn_events, & &1.event_type) == [:player_action, :gm_narration]
+    assert List.last(turn_events).payload["text"] =~ "A cool draft slips beneath the dome"
   end
 
   test "in-character actions receive the adaptive scene handoff guidance" do
@@ -6363,9 +6623,11 @@ defmodule Storyteller.PlayTest do
              end)
 
       assert instructions =~
-               "No new people, items, exits/routes, hazards, clues, services, or actionable facts"
+               "No unearned people, items, exits/routes, hazards, services, or actionable facts"
 
-      assert instructions =~ "Ask when canon-critical context is absent; never infer it."
+      assert instructions =~
+               "ask only when it blocks a meaningful player action, never assume it."
+
       assert instructions =~ "Don't ask for harmless sensory detail."
       assert request.local_context_metrics.budget_bytes == 24_000
 
