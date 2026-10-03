@@ -341,8 +341,7 @@
           <p
             :if={
               retryable?(@current_turn) && playable?(@session) &&
-                (@current_turn.failure_code != "usage_limit" or
-                   @current_turn.resolution_phase == :after_roll)
+                @current_turn.resolution_phase == :after_roll
             }
             class={
               if @current_turn.failure_code == "usage_limit",
@@ -350,19 +349,7 @@
                 else: "mt-3 text-sm leading-6 text-rose-800"
             }
           >
-            {if @current_turn.resolution_phase == :after_roll,
-              do:
-                gettext(
-                  "Your D20 result is saved. Retry continues this same turn with that result."
-                ),
-              else:
-                if(opening_scene?(@current_turn),
-                  do: gettext("Retry the opening scene to begin the campaign."),
-                  else:
-                    gettext(
-                      "Your saved action is still unresolved. Retry continues this same turn."
-                    )
-                )}
+            {gettext("Your D20 result is saved. Retry continues this same turn with that result.")}
           </p>
           <div class="mt-4 flex flex-wrap items-center gap-3">
             <button

@@ -1582,13 +1582,8 @@ defmodule StorytellerWeb.SessionLiveTest do
                has_element?(view, "#story-pending-action", action)
            end)
 
-    assert has_element?(
-             view,
-             "#turn-error",
-             "Your saved action is still unresolved. Retry continues this same turn."
-           )
-
     failed_turn = Play.public_current_turn(campaign.id)
+    refute has_element?(view, "#turn-error", "Your saved action is still unresolved")
     assert failed_turn.status == :failed
     assert failed_turn.failure_code == "invalid_response"
     assert failed_turn.failure_stage == :response_decoding
@@ -4871,12 +4866,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert_receive {:fake_gm_attempt, 0, "initial"}, 1_000
     assert wait_until(fn -> has_element?(view, "#turn-error", "needs attention") end)
 
-    assert has_element?(
-             view,
-             "#turn-error",
-             "Your saved action is still unresolved. Retry continues this same turn."
-           )
-
+    refute has_element?(view, "#turn-error", "Your saved action is still unresolved")
     assert has_element?(view, "#turn-error", "ChatGPT could not verify this account's permission")
     assert has_element?(view, "#turn-error a[href='/auth/connect']", "Reconnect account")
     assert has_element?(view, "#story-pending-action", "I light the old signal beacon.")

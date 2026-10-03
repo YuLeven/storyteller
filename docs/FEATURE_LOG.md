@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Make failed-turn recovery quieter
+
+- The failed-turn panel repeated the saved-action/retry explanation beneath an error that already said the action was preserved. Removed the duplicate generic retry paragraph; the error cause, saved action in the story, contextual route advice when relevant, and Retry button remain. The after-roll state still names the saved D20 result so a player knows it will be reused.
+- Updated LiveView assertions to verify the failure and saved action are visible, retry remains explicit, and the redundant copy is gone. A read-only check in the separate Quiet Observatory session confirmed the concise state renders; no retry or provider call was made.
+- Tightened the manual QA boundary to use independently authored fictional campaigns and high-level pacing feedback; do not access, import, or test against the Vineyard source or an imported comparison campaign.
+- **Checks in WSL:** focused SessionLive **69 tests, 0 failures**; full suite **432 tests, 0 failures**; test/dev warnings-as-errors compilation, formatter, Gettext extraction, and `git diff --check` passed. No live model call was made.
+
 ## 2026-10-02 — Carry the GM through the immediate scene beat
 
 - Tightened the adaptive-pace rule: the GM describes observable outcomes and consequences, includes grounded reactions or replies from present characters when they naturally complete the beat, and returns control at the first decision owned by the player. This targets one-line NPC handoffs without forcing every character to speak or authoring the player's follow-through.
