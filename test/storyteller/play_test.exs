@@ -1384,13 +1384,13 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "OBSERVATION/JUDGMENT: GM owns external facts."
 
     assert instructions =~
-             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
+             "Wine, food, or drink tastings: describe appearance, aroma, palate (fruit, acidity, tannin, body/sweetness as relevant), and finish before inviting reaction."
 
     assert instructions =~
-             "if relevant, a present NPC expert offers a qualified, evidence-based view."
+             "A present NPC expert may offer a qualified, evidence-based view;"
 
     assert instructions =~
-             "Yield for player reaction; never ask them to invent sensory facts or dictate their response."
+             "never dictate the player's response."
 
     assert instructions =~
              "Never ask players to define sensory facts."
@@ -1526,7 +1526,7 @@ defmodule Storyteller.PlayTest do
              "She has not yet read the sealed letter."
   end
 
-  test "sends a scene-beat handoff rule and keeps a complete NPC exchange in one turn" do
+  test "completes a sensory tasting beat before inviting the player's reaction" do
     campaign =
       campaign_fixture(%{
         starting_location: "Moon Orchard Tasting Room",
@@ -1555,16 +1555,32 @@ defmodule Storyteller.PlayTest do
     [session] = campaign.sessions
     test_pid = self()
 
+    tasting_room =
+      Repo.get_by!(Place, campaign_id: campaign.id, name: "Moon Orchard Tasting Room")
+
+    Repo.update!(
+      Place.changeset(tasting_room, %{
+        facts: %{"table" => "La Bella 2028 has been poured into the tasting glasses."}
+      })
+    )
+
     provider = fn request ->
       send(test_pid, {:scene_beat_request, request.instructions, decode_request(request)})
 
       proposal =
         ordinary_proposal(%{
           "narration" =>
-            "Lanternlight catches the cordial's garnet edge; a sharp plum aroma opens into a dry, peppery finish. Both women taste in silence, then glance toward you.",
+            "In the lanternlight, La Bella 2028 shows a deep violet core and bright purple rim. Ripe plum and blackberry lead the nose, with a faint dried-herb note as the glass opens. It is broad and juicy on the palate; acidity is present but quiet, tannins are moderate with a slight grip, and the medium finish turns peppery. Both women take a second taste.",
           "dialogue" => [
-            %{"speaker_id" => "npc:lyra", "text" => "The pepper stays longer than the fruit."},
-            %{"speaker_id" => "npc:sera", "text" => "And the finish changes as it cools."}
+            %{
+              "speaker_id" => "npc:lyra",
+              "text" =>
+                "The fruit is generous, but there is a little more grip than I expected at the finish. Before we pour the next sample, what stands out to you?"
+            },
+            %{
+              "speaker_id" => "npc:sera",
+              "text" => "The dried herb comes forward as the glass warms."
+            }
           ],
           "activities" => [],
           "character_updates" => []
@@ -1578,7 +1594,7 @@ defmodule Storyteller.PlayTest do
                campaign.id,
                session.id,
                "complete-tasting-beat",
-               "I taste the cordial and listen.",
+               "I taste La Bella 2028 and listen.",
                provider: provider,
                model: "test-model"
              )
@@ -1590,16 +1606,15 @@ defmodule Storyteller.PlayTest do
              "Finish beats with consequences and co-present reactions; don't hand off after one incidental act or line unless a player choice is due."
 
     assert normalized_instructions =~
-             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
+             "Wine, food, or drink tastings: describe appearance, aroma, palate (fruit, acidity, tannin, body/sweetness as relevant), and finish before inviting reaction."
 
     assert normalized_instructions =~
-             "if relevant, a present NPC expert offers a qualified, evidence-based view."
+             "A present NPC expert may offer a qualified, evidence-based view;"
 
     assert normalized_instructions =~
              "include another present character only when their distinct reaction completes this beat"
 
-    assert normalized_instructions =~
-             "Yield for player reaction; never ask them to invent sensory facts or dictate their response."
+    assert normalized_instructions =~ "never dictate the player's response."
 
     assert normalized_instructions =~
              "Never ask players to define sensory facts."
@@ -1616,6 +1631,11 @@ defmodule Storyteller.PlayTest do
                character["visible_facts"]["expertise"] == "herbal infusions and spice aromas"
            end)
 
+    assert Enum.any?(context["places"]["public"], fn place ->
+             place["name"] == "Moon Orchard Tasting Room" and
+               place["facts"]["table"] =~ "La Bella 2028 has been poured"
+           end)
+
     assert {:ok, events} = Play.public_timeline(campaign.id)
     turn_events = Enum.filter(events, &(&1.turn_id == turn.id))
 
@@ -1627,10 +1647,14 @@ defmodule Storyteller.PlayTest do
            ]
 
     assert Enum.map(Enum.drop(turn_events, 1), & &1.payload["text"]) == [
-             "Lanternlight catches the cordial's garnet edge; a sharp plum aroma opens into a dry, peppery finish. Both women taste in silence, then glance toward you.",
-             "The pepper stays longer than the fruit.",
-             "And the finish changes as it cools."
+             "In the lanternlight, La Bella 2028 shows a deep violet core and bright purple rim. Ripe plum and blackberry lead the nose, with a faint dried-herb note as the glass opens. It is broad and juicy on the palate; acidity is present but quiet, tannins are moderate with a slight grip, and the medium finish turns peppery. Both women take a second taste.",
+             "The fruit is generous, but there is a little more grip than I expected at the finish. Before we pour the next sample, what stands out to you?",
+             "The dried herb comes forward as the glass warms."
            ]
+
+    refute Enum.any?(Enum.drop(turn_events, 1), fn event ->
+             event.payload["text"] =~ "What does it taste like?"
+           end)
   end
 
   test "bounded work delegated to a present capable NPC reaches a useful result before handoff" do
@@ -6389,7 +6413,7 @@ defmodule Storyteller.PlayTest do
              "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
 
     assert instructions =~
-             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
+             "Wine, food, or drink tastings: describe appearance, aroma, palate (fruit, acidity, tannin, body/sweetness as relevant), and finish before inviting reaction."
 
     assert instructions =~ "Never ask players to define sensory facts."
 
@@ -6584,7 +6608,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Never surface prompt/canon checks."
 
     assert instructions =~
-             "if relevant, a present NPC expert offers a qualified, evidence-based view."
+             "A present NPC expert may offer a qualified, evidence-based view;"
 
     entry =
       Repo.get_by!(ContinuityEntry,

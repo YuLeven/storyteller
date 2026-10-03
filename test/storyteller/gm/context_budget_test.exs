@@ -499,6 +499,268 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert hd(context.objectives.public) == relevant_objective
   end
 
+  test "fits accepted maximum canon counts with near-cap descriptions and preserves current scene anchors" do
+    action =
+      "At the Copper Archive, I ask Mira Copper about the original harvest ledger and her promise."
+
+    near_cap_prose =
+      "The Copper Archive holds the original harvest ledger beside the eastern window. " <>
+        String.duplicate("Shelves hold carefully labeled regional records. ", 220)
+
+    nearby_places = [
+      %{
+        place_id: "finca",
+        name: "Finca",
+        visibility: :public,
+        description: "The Finca lies forty minutes from the Copper Archive. " <> near_cap_prose,
+        facts: %{"travel" => "The trip between the Finca and Archive takes forty minutes."}
+      },
+      %{
+        place_id: "bodega",
+        name: "Bodega",
+        visibility: :public,
+        description: "The Bodega cellar is down the lane. " <> near_cap_prose,
+        facts: %{"wine" => "The cellar stores the current harvest."}
+      },
+      %{
+        place_id: "chapel",
+        name: "Old Chapel",
+        visibility: :public,
+        description: "The old chapel stands beyond the archive garden. " <> near_cap_prose,
+        facts: %{"bells" => "The chapel bell marks the evening hour."}
+      },
+      %{
+        place_id: "courtyard",
+        name: "Archive Courtyard",
+        visibility: :public,
+        description: "The courtyard is quiet at this hour. " <> near_cap_prose,
+        facts: %{"scene" => "Rain beads on the flagstones."}
+      }
+    ]
+
+    archive = %{
+      place_id: "archive",
+      name: "Copper Archive",
+      visibility: :public,
+      description: near_cap_prose,
+      facts: %{
+        "ledger" =>
+          "The original harvest ledger is kept in a locked case. " <>
+            String.duplicate("The archivist records each transfer. ", 30)
+      }
+    }
+
+    remote_places =
+      Enum.map(1..59, fn index ->
+        %{
+          place_id: "remote_#{index}",
+          name: "Remote Place #{index}",
+          visibility: :public,
+          description: near_cap_prose,
+          facts: %{"regional_history" => "An unrelated district archive."}
+        }
+      end)
+
+    base_characters = base_context().characters
+    player = hd(base_characters) |> Map.put(:current_place_id, "archive")
+
+    mira = %{
+      speaker_id: "mira_copper",
+      name: "Mira Copper",
+      role: :gm,
+      current_place_id: "archive",
+      visible_facts: %{
+        "ledger" => %{
+          "finding" =>
+            "Mira's ledger is blue-threaded and records the original harvest. " <>
+              String.duplicate("She has catalogued its margins. ", 20)
+        },
+        "background" => String.duplicate("Unrelated biographical notes. ", 40)
+      },
+      gm_private_facts: %{
+        "ledger_promise" => %{
+          "commitment" =>
+            "Mira promised the original ledger to Ana before dusk. " <>
+              String.duplicate("She has not yet kept that promise. ", 20)
+        },
+        "background" => String.duplicate("Unrelated private staff notes. ", 40)
+      },
+      voice_guidance: %{
+        accent: "French",
+        mannerisms: String.duplicate("Touches the edge of a page before answering. ", 7)
+      },
+      visible_activity: "Mira has one hand resting on the ledger case."
+    }
+
+    scene_cast =
+      Enum.map(1..11, fn index ->
+        %{
+          speaker_id: "archive_witness_#{index}",
+          name: "Archive Witness #{index}",
+          role: :gm,
+          current_place_id: "archive",
+          visible_facts: %{
+            "background" => String.duplicate("A witness waits quietly. ", 20)
+          },
+          gm_private_facts: %{
+            "background" => String.duplicate("A routine private staff note. ", 20)
+          },
+          voice_guidance: %{
+            cadence: String.duplicate("Measured and restrained. ", 10)
+          },
+          visible_activity: String.duplicate("Reviews an old catalog card. ", 8)
+        }
+      end)
+
+    remote_characters =
+      Enum.map(1..35, fn index ->
+        %{
+          speaker_id: "remote_character_#{index}",
+          name: "Remote Character #{index}",
+          role: :gm,
+          current_place_id: "remote_#{index}",
+          visible_facts: %{"background" => "An unrelated regional resident."},
+          gm_private_facts: %{"background" => "An unrelated private note."}
+        }
+      end)
+
+    public_objectives =
+      Enum.map(1..48, fn index ->
+        %{
+          objective_id: "public_objective_#{index}",
+          title: if(index == 1, do: "Review the harvest ledger", else: "Open task #{index}"),
+          details:
+            if(index == 1,
+              do:
+                "Compare the original harvest ledger with the Finca register. " <>
+                  String.duplicate("Check the date and recorded transfer. ", 20),
+              else: String.duplicate("Routine task detail with no scene relevance. ", 18)
+            ),
+          status: "open"
+        }
+      end)
+
+    private_objectives =
+      Enum.map(1..48, fn index ->
+        %{
+          objective_id: "private_objective_#{index}",
+          title:
+            if(index == 1,
+              do: "Mira's private ledger promise",
+              else: "Private open task #{index}"
+            ),
+          details:
+            if(index == 1,
+              do:
+                "Mira promised to bring the original ledger before the evening bell. " <>
+                  String.duplicate("She worries the ink will fade. ", 20),
+              else: String.duplicate("Routine private task detail. ", 24)
+            ),
+          status: "open"
+        }
+      end)
+
+    context =
+      base_context()
+      |> put_in([:world, :public, :location], "Copper Archive")
+      |> Map.put(:player_action, action)
+      |> Map.put(:characters, [player, mira] ++ scene_cast ++ remote_characters)
+      |> Map.put(:places, %{
+        public: [archive | nearby_places] ++ remote_places,
+        gm_private: []
+      })
+      |> Map.put(:travel_connections, %{
+        public: [
+          %{place_a_id: "archive", place_b_id: "finca", travel_minutes: 40},
+          %{place_a_id: "archive", place_b_id: "bodega", travel_minutes: 18},
+          %{place_a_id: "archive", place_b_id: "chapel", travel_minutes: 6},
+          %{place_a_id: "archive", place_b_id: "courtyard", travel_minutes: 1}
+        ],
+        gm_private: [],
+        public_routes: [],
+        gm_private_routes: []
+      })
+      |> Map.put(:objectives, %{public: public_objectives, gm_private: private_objectives})
+
+    policy = "Short GM policy"
+    assert length(context.characters) == 48
+    assert length(context.places.public) == 64
+    assert length(context.objectives.public) == 48
+    assert length(context.objectives.gm_private) == 48
+    assert String.length(archive.description) > 10_000
+    assert request_bytes(context, policy) > 64_000
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, policy, "gpt-6-astra")
+
+    assert metrics.budget_bytes == 64_000
+    assert metrics.estimated_request_bytes <= 64_000
+    assert metrics.compacted?
+    assert :place_details in metrics.omissions
+    assert :character_details in metrics.omissions
+    assert compiled.context_completeness.place_details_compacted
+    assert compiled.context_completeness.character_details_compacted
+    assert length(compiled.characters) == 48
+    assert length(compiled.places.public) == 64
+    assert length(compiled.objectives.public) == 48
+    assert length(compiled.objectives.gm_private) == 48
+
+    compiled_mira = Enum.find(compiled.characters, &(&1.speaker_id == "mira_copper"))
+    assert Map.get(compiled_mira, :current_place_id) == "archive"
+
+    visible_facts =
+      Map.get(compiled_mira, :visible_facts) || Map.get(compiled_mira, "visible_facts")
+
+    private_facts =
+      Map.get(compiled_mira, :gm_private_facts) || Map.get(compiled_mira, "gm_private_facts")
+
+    voice_guidance =
+      Map.get(compiled_mira, :voice_guidance) || Map.get(compiled_mira, "voice_guidance")
+
+    assert visible_facts["ledger"]["finding"] =~
+             "Mira's ledger is blue-threaded"
+
+    assert String.ends_with?(visible_facts["ledger"]["finding"], "…")
+
+    assert private_facts["ledger_promise"]["commitment"] =~
+             "Mira promised the original ledger"
+
+    assert String.ends_with?(private_facts["ledger_promise"]["commitment"], "…")
+    assert Map.get(voice_guidance, :accent) == "French"
+
+    compiled_archive = Enum.find(compiled.places.public, &(&1.place_id == "archive"))
+    assert compiled_archive.description =~ "original harvest ledger"
+    assert compiled_archive.description =~ "context excerpt; older text omitted"
+    assert compiled_archive.facts["ledger"] =~ "locked case"
+
+    assert Enum.find(compiled.places.public, &(&1.place_id == "finca")).description =~
+             "forty minutes"
+
+    assert Enum.find(compiled.objectives.public, &(&1.objective_id == "public_objective_1")).details =~
+             "Compare the original harvest ledger"
+
+    assert Enum.find(compiled.objectives.gm_private, &(&1.objective_id == "private_objective_1")).details =~
+             "Mira promised to bring the original ledger"
+
+    assert compiled.world.public.location == "Copper Archive"
+    assert compiled.world.public.date == "1567-04-12"
+
+    assert Enum.any?(compiled.travel_connections.public, fn edge ->
+             edge.place_a_id == "archive" and edge.place_b_id == "finca" and
+               edge.travel_minutes == 40
+           end)
+
+    source_mira = Enum.find(context.characters, &(&1.speaker_id == "mira_copper"))
+    assert source_mira == mira
+    assert source_mira.visible_facts == mira.visible_facts
+    assert source_mira.gm_private_facts == mira.gm_private_facts
+
+    assert String.length(
+             Enum.find(context.places.public, &(&1.place_id == "archive")).description
+           ) >
+             10_000
+  end
+
   test "broad questions retrieve a small bounded set of scene anchors in each supported language" do
     history =
       Enum.map(1..40, fn sequence ->
@@ -1045,13 +1307,13 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert policy =~ "OBSERVATION/JUDGMENT: GM owns external facts."
 
     assert policy =~
-             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
+             "Wine, food, or drink tastings: describe appearance, aroma, palate (fruit, acidity, tannin, body/sweetness as relevant), and finish before inviting reaction."
 
     assert policy =~
-             "if relevant, a present NPC expert offers a qualified, evidence-based view."
+             "A present NPC expert may offer a qualified, evidence-based view;"
 
     assert policy =~
-             "Yield for player reaction; never ask them to invent sensory facts or dictate their response."
+             "never dictate the player's response."
 
     assert policy =~ "Never ask players to define sensory facts."
 

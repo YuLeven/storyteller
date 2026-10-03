@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-10-03 — V1 P0 context resilience: stress maximum bounded canon
+
+- Added a synthetic stress case with 48 characters, 64 places, 48 public and 48 GM-private objectives, long descriptions, and named scene/travel anchors. The relevance and compaction pipeline produced a **42,050-byte** request against the **64,000-byte local preflight** while keeping the current scene, forty-minute travel link, named ledger facts in both visibility scopes, and original source canon intact.
+- The regression exposed an emergency excerpt edge case: a short field allowance could be consumed entirely by the generic omission suffix, dropping the field's text. Short excerpts now retain up to 39 leading characters and use a single ellipsis; larger excerpts retain the explanatory marker. This preserves a bounded excerpt without changing stored canon.
+- **Checks:** full isolated WSL suite passed (**483 tests, 0 failures**); focused maximum-canon regression passed (**34 discovered, 1 selected, 0 failures**); `mix format --check-formatted` passed. This synthetic shape does not establish a maximum campaign size or actual provider acceptance. No live request, OAuth, QA/development campaign, or vineyard data was used. App-assisted recovery for irreducible oversized canon remains open.
+
+## 2026-10-03 — V1 P0 story quality: GM leads with concrete tasting observations
+
+- Expanded the tabletop GM guidance so a tasting starts with the facts the character can perceive: appearance, aroma, palate, relevant fruit/acidity/tannin/body/sweetness, and finish. A present qualified expert may contribute, then the player is invited to react without being asked to invent sensory facts.
+- Strengthened the synthetic tasting scene with an established 2028 wine in the room and a fuller observation before the character's question. The test checks that the prior state supplies the wine, the GM response covers the relevant sensory dimensions, and the player is asked for an opinion rather than to define the taste.
+- **Checks:** full isolated WSL suite passed (**483 tests, 0 failures**). A fake provider verifies the sensory guidance and scene state at the request boundary, but cannot establish that live model prose follows it consistently.
+
 ## 2026-10-03 — V1 P0 story pacing: lead with evidence and limit repeated caveats
 
 - A fictional chart-inspection review found that the GM can preserve uncertainty while repeating unchanged limits across turns, leaving the player to request each next observation. The runtime policy now leads with supported evidence, repeats a known limit only when new evidence changes it or a choice needs it, continues useful checks, and preserves lasting witnessed evidence as public continuity. Existing canon, uncertainty, player-agency, and bounded-task rules remain in force.

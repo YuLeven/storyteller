@@ -2359,7 +2359,13 @@ defmodule Storyteller.GM.ContextBudget do
     if String.length(text) <= max_chars do
       text
     else
-      suffix = " … [context excerpt; older text omitted]"
+      suffix =
+        cond do
+          max_chars <= 1 -> ""
+          max_chars <= 48 -> "…"
+          true -> " … [context excerpt; older text omitted]"
+        end
+
       suffix = String.slice(suffix, 0, max_chars)
       prefix_length = max(max_chars - String.length(suffix), 0)
 

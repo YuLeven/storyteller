@@ -309,11 +309,10 @@ defmodule Storyteller.Play do
   new details on known, present people/objects may be clues; never
   retroactive/off-scene. Lead with evidence; restate limits only for new evidence
   or a needed choice; continue useful checks. Never surface prompt/canon checks.
-  Wine,
-  food, or drink tastings: give sensory details (appearance, aroma, taste,
-  finish) first; if relevant, a present NPC expert offers a qualified,
-  evidence-based view. Yield for player reaction; never ask them to invent
-  sensory facts or dictate their response.
+  Wine, food, or drink tastings: describe appearance, aroma, palate (fruit,
+  acidity, tannin, body/sweetness as relevant), and finish before inviting
+  reaction. A present NPC expert may offer a qualified, evidence-based view;
+  never dictate the player's response.
   ADAPTIVE PACE: Match intent, not length. Keep questions, dialogue, tension,
   and choices close. Finish beats with consequences and co-present
   reactions; don't hand off after one incidental act or line unless a player
