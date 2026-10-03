@@ -2,7 +2,7 @@
 
 ## 2026-10-03 — Compact the play board and retain safe rejection diagnosis
 
-- Reordered the desktop player board for the current scene, tracked resources, player character, and inventory; campaign memory/objectives and correction/roster records now open on demand. A LiveView regression covers the controls. The CSS layout still needs a 1280×720 and narrow-screen visual pass on an isolated QA database before the no-second-scroll goal can be marked complete.
+- Reordered the desktop player board for the current scene, tracked resources, player character, and inventory; campaign memory/objectives and correction/roster records now open on demand. A LiveView regression covers the controls. Loaded an isolated fictional fixture from the separate `storyteller_visual_qa_20261003` database at port 4003. The rendered board contains the expected play information, but viewport scroll metrics were unavailable, so a 1280×720 and narrow-screen visual pass remains open before the no-second-scroll goal can be marked complete.
 - Persisted only the six existing allow-listed proposal-validation categories on failed turns, with a database constraint tying them to `invalid_response` at `proposal_validation`. Retrying clears the old category. Public turn projections continue to exclude it; no prompt or model text is stored.
 - **Checks:** full WSL suite **438 tests, 0 failures**; JS **14 tests, 0 failures**; development/test warnings-as-errors compilation, formatter, Gettext extraction check, and asset build passed. No live model request or migration against the shared development database was made. MVP functional sign-off remains open.
 
