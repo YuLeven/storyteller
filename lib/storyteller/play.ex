@@ -427,6 +427,9 @@ defmodule Storyteller.Play do
   {type:"establish",path_id,speaker_id,channel,endpoint,basis_text,reason} or
   deactivate {type:"deactivate",path_id,reason}); memory_update
   ({public_summary,gm_private_summary});
+  CONTINUITY create requires every field. kind fact|relationship|commitment
+  (clue=fact); title 1-120 chars; details 1-500; visibility public|gm_private.
+  Use public only for player-known facts; secrets gm_private. Otherwise [].
   time_advance_minutes (integer 0..5256000000, including travel; Ask 0, Time
   passage positive); roll_request (null or {test,difficulty?,target?}). Use known
   NPC IDs or IDs created here. A roll needs test plus target or difficulty. Never

@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-03 — V1 P0: turn canon rejection into a playable discovery
+
+- The isolated Quiet Observatory replay's safe failure tag was `invalid_entry_fields`. The saved action and world remained unchanged; no part of the rejected proposal had been committed. The compact continuity shape named fields but not allowed values or text bounds, so the GM contract now gives the accepted kind/visibility values and title/detail lengths without exceeding the existing prompt-size regression limit.
+- On the next retry of that same saved action, Mira compared the two open charts with the visible sky over fifteen in-world minutes. The GM supplied a concrete local mismatch, Mira gave a qualified expert conclusion, and Rowan did not have to invent the chart reading. The scene panel updated and the public fact was saved with event provenance. The turn completed on attempt seven; end-to-end response time was about 35 seconds.
+- This is evidence that the state contract can carry a player-facing discovery, not story-quality parity. The earlier scene still spent too many turns circling the comparison, and this response remains slow. Continue to measure time-to-decision, useful scene progress, and response latency on separate fictional beats.
+- **Checks:** focused prompt behavior passed; WSL full suite passed (**449 tests, 0 failures**); test/dev warnings-as-errors compilation, formatting, Gettext freshness, asset build, and `git diff --check` passed. Connected testing used only `storyteller_mvp_qa_20261003` on port 4003. Port 4000 and the source/Vineyard campaign were not accessed.
+
 ## 2026-10-03 — V1 P0: grounded discoveries and expert agency
 
 - With functional QA accepted as the MVP baseline, story quality is the active P0. Tightened GM guidance so the GM supplies ordinary sensory facts and an expert NPC's qualified judgment, keeps prompt/canon-check reasoning out of narration, and can establish a witnessed clue on a known present object without inventing its cause. Continuity operations now have a compact exact shape; action pacing retains montage guidance and skips routine steps.

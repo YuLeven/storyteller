@@ -6013,6 +6013,11 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"
 
+    assert instructions =~ "kind fact|relationship|commitment"
+    assert instructions =~ "visibility public|gm_private"
+    assert instructions =~ "Use public only for player-known facts"
+    assert instructions =~ "Otherwise []."
+
     assert instructions =~ "Record witnessed evidence, not guessed causes"
 
     assert instructions =~
