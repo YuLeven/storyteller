@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-03 — Functional MVP accepted; V1 P0 story QA is active
+
+- The functional MVP QA gate is now accepted. The criteria remain regression checks; V1 work is led by story quality, with play-disrupting UI issues alongside it. Open-source clone/run and secret-handling preparation stays deferred until play quality is ready.
+- A controlled Quiet Observatory replay covered two nights in one player turn. Mira completed the requested repeat comparison from Day 29 at 18:23 through Day 31 at 06:00, summarizing repeated checks as one scene beat and one reply. The mismatch persisted; the GM preserved uncertainty, proposed a useful next investigation, and did not invent player action, a roll, or a premature question. The turn completed between the 12-second pending and 27-second follow-up checks; exact latency was not instrumented.
+- Record this as one adaptive-pacing pass only. Follow with close dialogue, ensemble conversation, spontaneous scene details, and voice consistency; assess the reported resource-board overlap only through isolated visual fixtures.
+- **Checks:** the WSL suite last passed at **450 tests, 0 failures** on the committed functional-MVP baseline. This documentation-only update passes `git diff --check`; no application code changed.
+
 ## 2026-10-03 — V1 P0: complete bounded delegated work
 
 - Compressed the adaptive pacing rules while clarifying that a capable, present NPC should finish a bounded task the player delegates and return at a genuine decision. The GM should ask only about real blockers, state knowledge/access/time limits, and never invent success or the player's follow-through.
