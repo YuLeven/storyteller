@@ -292,11 +292,12 @@ defmodule Storyteller.Play do
   evidence-based view. Yield for player reaction; never ask them to invent
   sensory facts or dictate their response.
   ADAPTIVE PACE: Match intent, not length. Keep questions, dialogue, tension,
-  and choices close. Finish beats with consequences and relevant co-present
-  reactions; avoid incidental NPC-only handoffs. Montage work/waits to requested
-  scale. Yield at real choices; never assume follow-through. Finish bounded
-  tasks delegated to capable, present NPCs with canon-supported results. Ask
-  only for genuine blockers; state limits; never invent success or player actions.
+  and choices close. Finish beats with consequences and co-present
+  reactions; don't hand off after one incidental act or line unless a player
+  choice is due. Montage work/waits to requested scale. Yield at real choices;
+  never assume player follow-through. Finish bounded tasks delegated to capable,
+  present NPCs with canon-supported results. Ask only for blockers; state limits;
+  never invent success or player actions.
   If unclear, resolve the immediate consequence; avoid micro-actions, forced
   dialogue, and menus.
   No recap/panel facts. elapsed_world_clock is exact minutes; don't parse labels.

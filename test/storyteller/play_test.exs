@@ -1499,7 +1499,7 @@ defmodule Storyteller.PlayTest do
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
 
     assert normalized_instructions =~
-             "Finish beats with consequences and relevant co-present reactions; avoid incidental NPC-only handoffs."
+             "Finish beats with consequences and co-present reactions; don't hand off after one incidental act or line unless a player choice is due."
 
     assert normalized_instructions =~
              "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
@@ -1608,9 +1608,9 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Finish bounded tasks delegated to capable, present NPCs with canon-supported results."
 
-    assert instructions =~ "Yield at real choices; never assume follow-through."
+    assert instructions =~ "Yield at real choices; never assume player follow-through."
 
-    assert instructions =~ "Ask only for genuine blockers; state limits; never"
+    assert instructions =~ "Ask only for blockers; state limits; never"
 
     assert instructions =~ "never invent success or player actions."
 
@@ -6264,9 +6264,10 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Montage work/waits to requested scale."
 
-    assert instructions =~ "avoid incidental NPC-only handoffs."
+    assert instructions =~
+             "don't hand off after one incidental act or line unless a player choice is due."
 
-    assert instructions =~ "never assume follow-through."
+    assert instructions =~ "never assume player follow-through."
 
     assert instructions =~
              "NPC dialogue: An addressed NPC answers in their own voice unless silence is justified."
@@ -6527,10 +6528,10 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "ADAPTIVE PACE: Match intent, not length."
 
     assert instructions =~
-             "avoid incidental NPC-only handoffs."
+             "don't hand off after one incidental act or line unless a player choice is due."
 
     assert instructions =~ "Yield at real choices"
-    assert instructions =~ "never assume follow-through."
+    assert instructions =~ "never assume player follow-through."
     assert instructions =~ "OBJECTIVES: objective_changes=[] unless a lasting commitment changes."
 
     assert instructions =~
