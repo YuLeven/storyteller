@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Carry the GM through the immediate scene beat
+
+- Tightened the adaptive-pace rule: the GM describes observable outcomes and consequences, includes grounded reactions or replies from present characters when they naturally complete the beat, and returns control at the first decision owned by the player. This targets one-line NPC handoffs without forcing every character to speak or authoring the player's follow-through.
+- Added a fake-provider `Play.submit_turn` behavior test that sends this guidance in an action request and persists sensory narration plus two relevant NPC replies in the same turn. This verifies request construction and the event path, not the quality of prose produced by a live model.
+- Updated the campaign-independent GM policy to match the request policy. Matched acceptance criteria already exist in `docs/UX_ACCEPTANCE.md` for external sensory authority, flexible pacing, and a natural player handoff.
+- **Checks in WSL:** focused `PlayTest` **100 tests, 0 failures**; full suite **432 tests, 0 failures**; test/dev warnings-as-errors compilation, formatter, Gettext extraction, and `git diff --check` passed. The new regression uses a fake provider and fictional test fixtures; no live model call or development campaign was used.
+
 ## 2026-10-02 — Keep session recovery scoped and the MVP QA gate honest
 
 - Corrected the QA conclusion: the earlier statement that the functional MVP gate had passed was premature. Core time-passage, retry, reload, and cross-session recall paths have live evidence in the separate Quiet Observatory campaign, but sign-off remains open.

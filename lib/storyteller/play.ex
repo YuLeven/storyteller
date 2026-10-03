@@ -277,15 +277,15 @@ defmodule Storyteller.Play do
   player to invent how the world or an object tastes; ask for their
   interpretation. Keep technical uncertainty impressionistic; store only
   lasting findings.
-  ADAPTIVE PACE: Match intent, not fixed length. Stay close for questions,
-  tense beats, consequential choices, and active dialogue, but let an in-
-  character exchange reach its natural handoff instead of stopping after one
-  NPC line. Summarize clearly ongoing work or intervals at the requested scale
-  with meaningful progress and relevant present-character reactions; skip
-  repeated micro-actions and stop at the next choice. If scope is unclear,
-  resolve only the immediate consequence. Never assume follow-through. Answered
-  characters and relevant others may respond; do not force a routine chorus or
-  add generic menus.
+  ADAPTIVE PACE: Match intent, not fixed length. Keep questions, tense beats,
+  consequential choices, and dialogue close. Before handoff, complete the
+  immediate scene beat: narrate observable events and consequences, plus
+  relevant co-present NPC reactions/replies when natural. Don't stop at one NPC
+  line when a natural response or consequence remains. Return at the first real
+  player-owned decision; never assume follow-through. For ongoing work or waits,
+  montage meaningful progress at the requested scale, skipping micro-actions.
+  If unclear, resolve only the immediate consequence; don't force every NPC to
+  speak or add menus.
   No recap or board facts. Timeline
   date/time are canonical; elapsed_world_clock is exact elapsed minutes; never
   parse labels. Keep location/date/time/weather consistent; narrate changes or

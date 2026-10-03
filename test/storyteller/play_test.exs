@@ -1207,6 +1207,81 @@ defmodule Storyteller.PlayTest do
     assert characters["npc:ines"]["current_place"]["name"] == "The Finca"
   end
 
+  test "sends a scene-beat handoff rule and keeps a complete NPC exchange in one turn" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "Moon Orchard Tasting Room",
+        gm_characters: [
+          %{
+            speaker_id: "npc:lyra",
+            name: "Lyra",
+            starting_place: "Moon Orchard Tasting Room"
+          },
+          %{
+            speaker_id: "npc:sera",
+            name: "Sera",
+            starting_place: "Moon Orchard Tasting Room"
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+    test_pid = self()
+
+    provider = fn request ->
+      send(test_pid, {:scene_beat_request, request.instructions, decode_request(request)})
+
+      proposal =
+        ordinary_proposal(%{
+          "narration" =>
+            "Lanternlight catches the cordial's garnet edge; a sharp plum aroma opens into a dry, peppery finish. Both women taste in silence, then glance toward you.",
+          "dialogue" => [
+            %{"speaker_id" => "npc:lyra", "text" => "The pepper stays longer than the fruit."},
+            %{"speaker_id" => "npc:sera", "text" => "And the finish changes as it cools."}
+          ],
+          "activities" => [],
+          "character_updates" => []
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "complete-tasting-beat",
+               "I taste the cordial and listen.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:scene_beat_request, instructions, context}, 1_000
+    normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
+    assert normalized_instructions =~ "Before handoff, complete the immediate scene beat"
+
+    assert normalized_instructions =~
+             "Don't stop at one NPC line when a natural response or consequence remains"
+
+    assert context["interaction_mode"] == "action"
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(events, &(&1.turn_id == turn.id))
+
+    assert Enum.map(turn_events, & &1.event_type) == [
+             :player_action,
+             :gm_narration,
+             :npc_dialogue,
+             :npc_dialogue
+           ]
+
+    assert Enum.map(Enum.drop(turn_events, 1), & &1.payload["text"]) == [
+             "Lanternlight catches the cordial's garnet edge; a sharp plum aroma opens into a dry, peppery finish. Both women taste in silence, then glance toward you.",
+             "The pepper stays longer than the fruit.",
+             "And the finish changes as it cools."
+           ]
+  end
+
   test "loads a module provider before checking its callback" do
     {campaign, session} = play_campaign("The Glass Observatory")
     provider = Storyteller.PlayTest.LazyModuleProvider
@@ -5697,9 +5772,9 @@ defmodule Storyteller.PlayTest do
              "ADAPTIVE PACE: Match intent, not fixed length."
 
     assert instructions =~
-             "Summarize clearly ongoing work or intervals at the requested scale"
+             "montage meaningful progress at the requested scale"
 
-    assert instructions =~ "Never assume follow-through."
+    assert instructions =~ "never assume follow-through."
     assert instructions =~ "Keep dialogue proportional"
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
     assert instructions =~ "combine related lines into one bubble"
@@ -5731,9 +5806,11 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "ADAPTIVE PACE: Match intent, not fixed length."
 
-    assert instructions =~ "instead of stopping after one NPC line"
-    assert instructions =~ "stop at the next choice"
-    assert instructions =~ "Never assume follow-through."
+    assert instructions =~
+             "Don't stop at one NPC line when a natural response or consequence remains"
+
+    assert instructions =~ "Return at the first real player-owned decision"
+    assert instructions =~ "never assume follow-through."
   end
 
   test "a follow-up look-around question gets vantage guidance without changing the scene" do
