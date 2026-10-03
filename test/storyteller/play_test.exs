@@ -5,6 +5,7 @@ defmodule Storyteller.PlayTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Campaigns
+  alias Storyteller.GM.RequestEnvelope
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
@@ -7592,8 +7593,7 @@ defmodule Storyteller.PlayTest do
     assert metrics.budget_bytes == configured_budget
     assert compact_serialized_bytes <= configured_budget
 
-    assert compact_serialized_bytes ==
-             metrics.instructions_bytes + metrics.context_json_bytes + 512
+    assert compact_serialized_bytes == context_request_bytes(request)
 
     assert full_history_bytes >= compact_serialized_bytes * 5
     assert length(historical_events) == 2_400
@@ -8575,8 +8575,7 @@ defmodule Storyteller.PlayTest do
     assert metrics.budget_bytes == 64_000
     assert metrics.estimated_request_bytes <= 64_000
 
-    assert metrics.estimated_request_bytes ==
-             metrics.instructions_bytes + metrics.context_json_bytes + 512
+    assert metrics.estimated_request_bytes == context_request_bytes(request)
   end
 
   test "later-session next-step paraphrases recall an older commitment without topic decoys" do
@@ -8716,8 +8715,7 @@ defmodule Storyteller.PlayTest do
       assert metrics.budget_bytes == 64_000
       assert metrics.estimated_request_bytes <= 64_000
 
-      assert metrics.estimated_request_bytes ==
-               metrics.instructions_bytes + metrics.context_json_bytes + 512
+      assert metrics.estimated_request_bytes == context_request_bytes(request)
     end
   end
 
@@ -8821,8 +8819,7 @@ defmodule Storyteller.PlayTest do
       assert metrics.budget_bytes == 64_000
       assert metrics.estimated_request_bytes <= metrics.budget_bytes
 
-      assert metrics.estimated_request_bytes ==
-               metrics.instructions_bytes + metrics.context_json_bytes + 512
+      assert metrics.estimated_request_bytes == context_request_bytes(request)
     end
   end
 
@@ -8891,8 +8888,7 @@ defmodule Storyteller.PlayTest do
     assert metrics.instructions_bytes == byte_size(request.instructions)
     assert metrics.context_json_bytes == byte_size(encoded_context)
 
-    assert metrics.estimated_request_bytes ==
-             metrics.instructions_bytes + metrics.context_json_bytes + 512
+    assert metrics.estimated_request_bytes == context_request_bytes(request)
 
     assert metrics.estimated_request_bytes <= 64_000
   end
@@ -10403,6 +10399,12 @@ defmodule Storyteller.PlayTest do
     context_item = Enum.find(request.input, &Map.has_key?(&1, :content))
     text = context_item |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
     Jason.decode!(text)
+  end
+
+  defp context_request_bytes(request) do
+    context_input = Enum.reject(request.input, &(Map.get(&1, "type") == "additional_tools"))
+
+    RequestEnvelope.encoded_size(request.model, request.instructions, context_input)
   end
 
   defp mark_resolution_stale!(turn_id) do

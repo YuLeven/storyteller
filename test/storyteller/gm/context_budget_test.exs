@@ -1062,8 +1062,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     # Put the request near, but still below, the same configured local limit
     # without a transcript. The long history then exhausts the remaining room.
-    instruction_bytes =
-      budget - request_bytes(no_history_context, "") - 512
+    instruction_bytes = budget - request_bytes(no_history_context, "") - 1_024
 
     assert instruction_bytes > 0
     instructions = String.duplicate("p", instruction_bytes)
@@ -2328,7 +2327,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert {:ok, %{metrics: empty_instructions_metrics}} =
              ContextBudget.compile(context, "", "gpt-6-astra")
 
-    instruction_bytes = 31_825 - empty_instructions_metrics.context_json_bytes - 512
+    instruction_bytes = 31_825 - empty_instructions_metrics.estimated_request_bytes
     assert instruction_bytes >= 8_000
     instructions = String.duplicate("i", instruction_bytes)
 
@@ -2424,6 +2423,38 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert Enum.all?(Map.values(measurements), &is_number/1)
     refute Jason.encode!(measurements) =~ "Hidden instruction test"
     :telemetry.detach({__MODULE__, ref})
+  end
+
+  test "compacts against the exact escaped request envelope for multilingual campaign text" do
+    instructions =
+      "Policy with \"quoted rules\"\nKeep Spanish and French accents: acción, fraîche."
+
+    notes =
+      String.duplicate(
+        "El GM dice: \"brume fraîche\"\nEl jugador pregunta: \"¿Qué pasó?\"\n",
+        80
+      )
+
+    context = put_in(base_context(), [:world, :public, :flavor_notes], notes)
+
+    legacy_estimate = byte_size(instructions) + byte_size(Jason.encode!(context)) + 512
+    exact_automatic_model_bytes = request_bytes(context, instructions, nil)
+    assert exact_automatic_model_bytes > legacy_estimate
+
+    budget = div(legacy_estimate + exact_automatic_model_bytes, 2)
+    assert legacy_estimate < budget
+    assert exact_automatic_model_bytes > budget
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, instructions, nil, context_input_byte_budget: budget)
+
+    assert metrics.compacted?
+    assert metrics.estimated_request_bytes == request_bytes(compiled, instructions, nil)
+    assert metrics.estimated_request_bytes <= budget
+    assert request_bytes(compiled, instructions, "fixture-model") <= budget
+    assert compiled.world.public.flavor_notes =~ "brume fraîche"
+    assert String.length(compiled.world.public.flavor_notes) < String.length(notes)
+    assert context.world.public.flavor_notes == notes
   end
 
   test "classifies invalid context encoding separately from a size overflow" do
@@ -2600,7 +2631,22 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
-  defp request_bytes(context, instructions) do
-    byte_size(instructions) + byte_size(Jason.encode!(context)) + 512
+  defp request_bytes(context, instructions, model \\ "gpt-6-astra") do
+    model = if is_binary(model), do: model, else: String.duplicate("m", 255)
+
+    body = %{
+      "model" => model,
+      "instructions" => instructions,
+      "input" => [
+        %{
+          role: "user",
+          content: [%{type: "input_text", text: Jason.encode!(context)}]
+        }
+      ],
+      "store" => false,
+      "stream" => true
+    }
+
+    byte_size(Jason.encode!(body))
   end
 end

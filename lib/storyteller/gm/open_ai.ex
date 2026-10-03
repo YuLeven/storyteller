@@ -11,7 +11,7 @@ defmodule Storyteller.GM.OpenAI do
   """
 
   alias Storyteller.Auth.{HTTP, OAuth}
-  alias Storyteller.GM.{ModelCatalogCache, TurnTelemetry}
+  alias Storyteller.GM.{ModelCatalogCache, RequestEnvelope, TurnTelemetry}
 
   @models_url "https://api.openai.com/v1/models"
   @responses_url "https://api.openai.com/v1/responses"
@@ -181,7 +181,8 @@ defmodule Storyteller.GM.OpenAI do
               slug = entry["slug"]
               name = entry["display_name"]
 
-              if is_binary(slug) and slug != "" do
+              if is_binary(slug) and slug != "" and
+                   byte_size(slug) <= RequestEnvelope.maximum_model_slug_bytes() do
                 acc ++
                   [
                     %{
@@ -233,13 +234,7 @@ defmodule Storyteller.GM.OpenAI do
         {:error, :unsupported_capability}
 
       true ->
-        body = %{
-          "model" => model,
-          "instructions" => instructions,
-          "input" => input,
-          "store" => false,
-          "stream" => true
-        }
+        body = RequestEnvelope.body(model, instructions, input)
 
         with :ok <- validate_advertised_tools(input),
              {:ok, limit} <- request_size_limit(request),

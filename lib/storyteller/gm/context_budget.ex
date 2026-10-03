@@ -6,8 +6,9 @@ defmodule Storyteller.GM.ContextBudget do
   Responses usage is recorded separately when the provider reports it.
   """
 
+  alias Storyteller.GM.RequestEnvelope
+
   @default_budget 64_000
-  @framing_allowance 512
   @recent_history_count 12
   @relevant_history_count 8
   @max_history_scene_speakers 32
@@ -521,6 +522,7 @@ defmodule Storyteller.GM.ContextBudget do
       measure(
         first_pass.context,
         instructions,
+        model,
         budget,
         omissions != [],
         omissions
@@ -533,6 +535,7 @@ defmodule Storyteller.GM.ContextBudget do
         compact_history_to_budget(
           first_pass.context,
           instructions,
+          model,
           budget,
           omissions,
           metrics
@@ -542,7 +545,7 @@ defmodule Storyteller.GM.ContextBudget do
         {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
       else
         {context, _omissions, metrics} =
-          omit_history_to_budget(context, instructions, budget, omissions, metrics)
+          omit_history_to_budget(context, instructions, model, budget, omissions, metrics)
 
         if metrics.estimated_request_bytes <= budget do
           {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
@@ -551,6 +554,7 @@ defmodule Storyteller.GM.ContextBudget do
             compact_nonessential_details_to_budget(
               context,
               instructions,
+              model,
               budget,
               omissions,
               metrics
@@ -619,8 +623,9 @@ defmodule Storyteller.GM.ContextBudget do
   defp report_budget(metrics, model, opts),
     do: Map.put(metrics, :budget_bytes, request_size_limit_bytes(model, opts))
 
-  defp measure(context, instructions, budget, compacted?, omissions) do
+  defp measure(context, instructions, model, budget, compacted?, omissions) do
     context_json = Jason.encode!(context)
+    input = [user_context_input(context_json)]
 
     section_bytes =
       Map.new(@measured_sections, fn section ->
@@ -635,10 +640,17 @@ defmodule Storyteller.GM.ContextBudget do
       budget_bytes: budget,
       instructions_bytes: instructions_bytes,
       context_json_bytes: context_json_bytes,
-      estimated_request_bytes: instructions_bytes + context_json_bytes + @framing_allowance,
+      estimated_request_bytes: RequestEnvelope.encoded_size(model, instructions, input),
       section_bytes: section_bytes,
       compacted?: compacted?,
       omissions: omissions
+    }
+  end
+
+  defp user_context_input(context_json) do
+    %{
+      role: "user",
+      content: [%{type: "input_text", text: context_json}]
     }
   end
 
@@ -766,7 +778,7 @@ defmodule Storyteller.GM.ContextBudget do
   # narration in progressively smaller steps. Canonical world, character,
   # place, inventory, resource, objective, and continuity records are kept;
   # only event prose is compressed further.
-  defp compact_history_to_budget(context, instructions, budget, omissions, metrics) do
+  defp compact_history_to_budget(context, instructions, model, budget, omissions, metrics) do
     Enum.reduce_while(
       @history_budget_fallback_tiers,
       {context, omissions, metrics},
@@ -789,7 +801,7 @@ defmodule Storyteller.GM.ContextBudget do
             |> context_with_completeness(%{history_compacted: true})
 
           updated_metrics =
-            measure(updated_context, instructions, budget, true, updated_omissions)
+            measure(updated_context, instructions, model, budget, true, updated_omissions)
 
           if updated_metrics.estimated_request_bytes <= budget do
             {:halt, {updated_context, updated_omissions, updated_metrics}}
@@ -835,7 +847,7 @@ defmodule Storyteller.GM.ContextBudget do
   # omit the transcript from this request and rely on the canonical state,
   # continuity, and selected character profiles that remain in context. The
   # event ledger itself is untouched, and the omission is explicit to the GM.
-  defp omit_history_to_budget(context, instructions, budget, omissions, metrics) do
+  defp omit_history_to_budget(context, instructions, model, budget, omissions, metrics) do
     history = value(context, :history)
 
     if is_list(history) and history != [] do
@@ -845,7 +857,9 @@ defmodule Storyteller.GM.ContextBudget do
         |> context_with_completeness(%{history_compacted: true, history_omitted: true})
 
       updated_omissions = Enum.uniq(omissions ++ [:history])
-      updated_metrics = measure(updated_context, instructions, budget, true, updated_omissions)
+
+      updated_metrics =
+        measure(updated_context, instructions, model, budget, true, updated_omissions)
 
       {updated_context, updated_omissions, updated_metrics}
     else
@@ -857,7 +871,14 @@ defmodule Storyteller.GM.ContextBudget do
   # have failed to meet the application byte guard. Long-form reference detail
   # remains canonical and retrievable; keep the scene's identities/state while
   # reducing descriptive prose enough to make a request possible.
-  defp compact_nonessential_details_to_budget(context, instructions, budget, omissions, _metrics) do
+  defp compact_nonessential_details_to_budget(
+         context,
+         instructions,
+         model,
+         budget,
+         omissions,
+         _metrics
+       ) do
     specified_compaction =
       context
       |> compact_campaign_details_for_budget()
@@ -867,13 +888,13 @@ defmodule Storyteller.GM.ContextBudget do
       |> compact_panel_values_for_budget()
 
     {fallback_context, generalized_compaction?} =
-      if measure(specified_compaction, instructions, budget, true, omissions).estimated_request_bytes <=
+      if measure(specified_compaction, instructions, model, budget, true, omissions).estimated_request_bytes <=
            budget do
         {specified_compaction, false}
       else
         compacted = compact_context_text(specified_compaction, 480)
 
-        if measure(compacted, instructions, budget, true, omissions).estimated_request_bytes <=
+        if measure(compacted, instructions, model, budget, true, omissions).estimated_request_bytes <=
              budget do
           {compacted, compacted != specified_compaction}
         else
@@ -902,7 +923,9 @@ defmodule Storyteller.GM.ContextBudget do
     fallback_context =
       context_with_completeness(fallback_context, Map.filter(changed, &elem(&1, 1)))
 
-    updated_metrics = measure(fallback_context, instructions, budget, true, new_omissions)
+    updated_metrics =
+      measure(fallback_context, instructions, model, budget, true, new_omissions)
+
     {fallback_context, new_omissions, updated_metrics}
   end
 

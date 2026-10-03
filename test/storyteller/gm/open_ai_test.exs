@@ -523,9 +523,23 @@ defmodule Storyteller.GM.OpenAITest do
     end)
   end
 
-  test "lists only models visible to the selected account", context do
+  test "lists only visible models with slugs that fit the automatic-model envelope", context do
+    catalog = model_catalog()
+
+    catalog =
+      update_in(catalog["models"], fn models ->
+        models ++
+          [
+            %{
+              "slug" => String.duplicate("m", 256),
+              "display_name" => "Too long",
+              "visibility" => "list"
+            }
+          ]
+      end)
+
     http = fn :get, "https://api.openai.com/v1/models", _options ->
-      %{status: 200, body: Jason.encode!(model_catalog())}
+      %{status: 200, body: Jason.encode!(catalog)}
     end
 
     assert {:ok, [%{slug: "fixture-model", display_name: "Fixture Model"}]} =
