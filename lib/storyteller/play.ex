@@ -265,6 +265,15 @@ defmodule Storyteller.Play do
     :roll_request,
     :player_roll
   ]
+  @story_appearance_event_types [
+    :player_action,
+    :player_question,
+    :time_passage,
+    :gm_narration,
+    :npc_dialogue,
+    :remote_message,
+    :character_activity
+  ]
 
   @gm_policy """
   You are the tabletop GM. Campaign content sets world, language, tone,
@@ -293,9 +302,13 @@ defmodule Storyteller.Play do
   date/time/weather keys. Answer from public canon/vantage. No unearned people,
   items, exits/routes, hazards, services, or actionable facts; people also need
   accepted presence. If canon-critical context is absent, preserve uncertainty;
-  ask only when needed for meaningful action; never assume. Don't ask for harmless sensory
-  detail. Introduce people naturally, not as stat notices; keep public facts in
-  records/panels. Preserve each NPC's knowledge, motives, work, and distinct voice.
+  ask only when needed for meaningful action; never assume. Don't ask for
+  harmless sensory detail.
+  If a present NPC has first_story_appearance=true and speaks/works, naturally weave their
+  public name and one relevant visible_facts detail into narration (name alone
+  if none fits). If false, do not re-introduce them. Never expose cues, stats,
+  roles, or private facts; don't force an entrance/action. Preserve each NPC's
+  knowledge, motives, work, and distinct voice.
   Each speaker_id's voice profile shapes dialogue; never blend profiles. Briefly
   show a configured mannerism when apt; quirks only when relevant. Natural
   wording; avoid phonetics, caricature, or clichés. No forced humor/gestures or
@@ -331,38 +344,33 @@ defmodule Storyteller.Play do
   partial; inventory_details_omitted means some descriptions/properties are
   absent. Neither flag means an item is absent from the canonical ledger.
   Never invent omitted item facts, and only change supplied stable item IDs.
+  When history_omitted, use canon/memory/continuity/current action; invent no
+  missing events; preserve uncertainty.
 
   WORLD AND PEOPLE: Date/time/weather have one canonical value; never use aliases
   (e.g. current_date, world_time, time_of_day, conditions). Create places before
   moving anyone; keep stable IDs and record grounded place changes in
-  location_changes. The player moves only to a public
-  place; change their location there, never via public_changes. Create NPCs
-  only with speaker_id, name, visible_facts, and gm_private_facts; use a fresh ID.
-  When first met, introduce a new NPC with a fresh stable speaker ID and move
-  them into the scene before they speak or act; nil place is not presence.
-  After placement they may act, speak, receive items or be updated; thereafter
-  use known IDs. Public NPC speech/activity requires presence in the player's
-  final place. Never assume an unmodeled remote channel; a message needs an
+  location_changes. Move the player only to a public place via location_changes.
+  Create NPCs with fresh IDs and name/visible_facts/gm_private_facts. At first
+  meeting, introduce naturally, never as a stat notice, and place them in the
+  scene before speech/action; nil isn't presence. Use known IDs thereafter. Public NPC speech/activity
+  requires presence in the player's final place. Never assume an unmodeled remote channel; a message needs an
   active public path for that sender. Establish paths only with a known, visible
   NPC in the scene; basis_text must match their dialogue exactly and name the
   public endpoint. Use communication_path_changes to establish/deactivate paths
   and remote_messages with the existing path_id. Messages never move characters
   or advance time; keep private place details and presence private.
 
-  TRAVEL: The supplied travel_connections graph is canon. Edges join existing
-  places and have integer minutes; create/correct them only in travel_changes.
-  Give every connection change a grounded reason.
-  Movement must use an existing route or one proposed in this response. The app
-  computes the shortest valid duration and records it; narrate the required
-  journey and consequences, never a shorter trip. Report total turn minutes in
-  time_advance_minutes, including travel; the server clamps to each character's
-  summed route and uses the maximum across characters. Do not place people together
-  without valid travel.
+  TRAVEL: travel_connections is canon: routes join existing places and have
+  integer minutes. Change routes only with grounded travel_changes. Move only
+  on an existing or proposed route. The app computes shortest valid duration;
+  narrate that journey. Include travel once in time_advance_minutes; its minimum
+  is the longest character's summed route. Never place people together without
+  valid travel.
 
-  ACTIVE DUTIES: Untimed duties need owner release; finite duties bind below
-  their persisted release minute. Completed duties permit movement. Validate
-  against pre-turn time: the move itself cannot expire its duty. Keep duties
-  GM-private.
+  ACTIVE DUTIES: Untimed duties need owner release; finite duties block release
+  before their persisted minute; afterward movement is allowed. Check pre-turn
+  time, so a move cannot expire its own duty. Keep duties GM-private.
 
   OBJECTIVES: objective_changes=[] unless a lasting commitment changes.
   Create {type:create,objective:{objective_id,title,visibility},reason};
@@ -383,10 +391,10 @@ defmodule Storyteller.Play do
   commitments, and work in progress; preserve correct facts, remove resolved
   ones, and keep secrets only in the private summary.
 
-  CHARACTER FACTS: Update the player's visible_facts only for durable public
-  facts established by this action; preserve unrelated facts and give a reason.
-  Use speaker_id "player"; never set their private facts or change their name,
-  identity, or description. GM NPC visible/private updates stay in their scope.
+  CHARACTER FACTS: Update only durable public player facts established by this
+  action; preserve other facts and give a reason. Use speaker_id "player"; never
+  change player private facts, name, identity, or description. Keep NPC
+  visible/private updates in their scope.
 
   INVENTORY AND PANELS: Inventory is exact canon. Never imply an item was gained,
   lost, transferred, or consumed without a matching inventory_changes operation
@@ -5488,6 +5496,15 @@ defmodule Storyteller.Play do
       )
 
     player_place_id = current_player_place_id(turn.campaign_id)
+
+    first_story_appearances =
+      first_story_appearance_ids(
+        turn.campaign_id,
+        characters,
+        player_place_id,
+        state.event_sequence
+      )
+
     panels = Panels.list_fields(turn.campaign_id)
 
     recent_events =
@@ -5568,6 +5585,7 @@ defmodule Storyteller.Play do
                 else: character.name
               ),
             role: character.role,
+            first_story_appearance: MapSet.member?(first_story_appearances, character.speaker_id),
             visible_facts: without_character_location_facts(character.visible_facts),
             gm_private_facts: without_character_location_facts(character.gm_private_facts),
             visible_activity: character.visible_activity,
@@ -5602,6 +5620,43 @@ defmodule Storyteller.Play do
           }
         end)
     }
+  end
+
+  defp first_story_appearance_ids(campaign_id, characters, player_place_id, through_sequence) do
+    characters
+    |> Enum.filter(fn character ->
+      character.role != :player and is_binary(player_place_id) and
+        character.current_place_id == player_place_id
+    end)
+    |> Enum.reduce(MapSet.new(), fn character, first_appearances ->
+      if public_story_appearance?(campaign_id, character, through_sequence) do
+        first_appearances
+      else
+        MapSet.put(first_appearances, character.speaker_id)
+      end
+    end)
+  end
+
+  defp public_story_appearance?(campaign_id, character, through_sequence) do
+    name_pattern = public_name_mention_pattern(character.name)
+
+    Repo.exists?(
+      from event in Event,
+        where:
+          event.campaign_id == ^campaign_id and event.visibility == :public and
+            event.event_type in ^@story_appearance_event_types and
+            event.sequence <= ^through_sequence and
+            (event.speaker_id == ^character.speaker_id or
+               fragment("?->>'text' ~* ?", event.payload, ^name_pattern))
+    )
+  end
+
+  defp public_name_mention_pattern(name) do
+    tokens = Regex.scan(~r/[\p{L}\p{N}]+/u, name) |> List.flatten()
+
+    "(^|[^[:alnum:]_])" <>
+      Enum.join(tokens, "[[:space:][:punct:]]+") <>
+      "([^[:alnum:]_]|$)"
   end
 
   defp retrieve_relevant_older_events(

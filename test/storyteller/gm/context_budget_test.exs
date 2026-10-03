@@ -339,6 +339,127 @@ defmodule Storyteller.GM.ContextBudgetTest do
              Enum.find(context.characters, &(&1.speaker_id == "marisol")).gm_private_facts
   end
 
+  test "omits oversized historical narration before rejecting a retry, preserving scene facts and NPC voices" do
+    marisol_voice = %{
+      "accent_dialect" => "French accent with Lyonnais vowels.",
+      "cadence" => "Short phrases, then a pause before a confession."
+    }
+
+    iria_voice = %{
+      "quirks" => "Repeats the last word as a quiet question.",
+      "vocabulary" => "Favors weather and gardening metaphors."
+    }
+
+    characters =
+      base_context().characters
+      |> Enum.map(fn character ->
+        if character.speaker_id == "marisol",
+          do: Map.put(character, :voice_guidance, marisol_voice),
+          else: character
+      end)
+      |> Kernel.++([
+        %{
+          speaker_id: "iria",
+          name: "Iria",
+          role: :gm,
+          current_place_id: "finca",
+          current_place: %{place_id: "finca", name: "Finca", visibility: :public},
+          visible_facts: %{},
+          gm_private_facts: %{},
+          voice_guidance: iria_voice
+        }
+      ])
+
+    history =
+      Enum.map(1..60, fn sequence ->
+        %{
+          "sequence" => sequence,
+          "session_id" => div(sequence - 1, 6) + 1,
+          "event_type" => "npc_dialogue",
+          "visibility" => "public",
+          "speaker_id" => if(rem(sequence, 2) == 0, do: "marisol", else: "iria"),
+          "payload" => %{
+            "text" =>
+              "At the Finca, Marisol and Iria discuss the Bodega harvest report. " <>
+                String.duplicate("Archived fictional history. ", 90)
+          }
+        }
+      end)
+
+    context =
+      base_context()
+      |> Map.put(:campaign, %{
+        title: "The Amber Orchard",
+        premise: "A quiet vineyard mystery",
+        setup_notes: "The cellar smells of rain and cedar."
+      })
+      |> Map.put(:memory, %{
+        public_summary: "Marisol and Iria shared the last harvest at the Finca.",
+        gm_private_summary: ""
+      })
+      |> Map.put(:continuity, %{
+        public: [
+          %{
+            entry_id: "marisol-harvest-promise",
+            kind: "commitment",
+            title: "Marisol's Bodega harvest promise",
+            details: "Marisol promised to reserve the first harvest cask at the Bodega.",
+            status: "active",
+            visibility: "public"
+          }
+        ],
+        gm_private: []
+      })
+      |> Map.put(:player_action, "I ask Marisol and Iria what they heard at the Bodega.")
+      |> Map.put(:characters, characters)
+      |> Map.put(:history, history)
+
+    budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
+    no_history_context = Map.put(context, :history, [])
+
+    # Put the request near, but still below, the same configured local limit
+    # without a transcript. The long history then exhausts the remaining room.
+    instruction_bytes =
+      budget - request_bytes(no_history_context, "") - 512
+
+    assert instruction_bytes > 0
+    instructions = String.duplicate("p", instruction_bytes)
+
+    assert request_bytes(no_history_context, instructions) < budget
+
+    assert {:ok, %{context: compacted, metrics: metrics}} =
+             ContextBudget.compile(context, instructions, "gpt-6-astra",
+               context_input_byte_budget: budget
+             )
+
+    assert metrics.compacted?
+    assert metrics.estimated_request_bytes <= budget
+    assert metrics.budget_bytes == budget
+    assert compacted.history == []
+    assert compacted.context_completeness.history_compacted
+    assert compacted.context_completeness.history_omitted
+    assert :history in metrics.omissions
+
+    assert compacted.campaign == context.campaign
+    assert compacted.player_action == context.player_action
+    assert compacted.world == context.world
+    assert compacted.memory.public_summary == context.memory.public_summary
+    assert compacted.continuity.public == context.continuity.public
+
+    assert compacted.characters
+           |> Enum.find(&(&1.speaker_id == "marisol"))
+           |> Map.take([:name, :current_place_id, :voice_guidance]) ==
+             %{name: "Marisol", current_place_id: "finca", voice_guidance: marisol_voice}
+
+    assert compacted.characters
+           |> Enum.find(&(&1.speaker_id == "iria"))
+           |> Map.take([:name, :current_place_id, :voice_guidance]) ==
+             %{name: "Iria", current_place_id: "finca", voice_guidance: iria_voice}
+
+    assert context.history == history
+    assert context.campaign.setup_notes == "The cellar smells of rain and cedar."
+  end
+
   test "keeps relevant active continuity details while compacting unrelated history" do
     context = base_context()
 

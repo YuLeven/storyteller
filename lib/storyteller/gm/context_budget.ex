@@ -512,8 +512,15 @@ defmodule Storyteller.GM.ContextBudget do
           if metrics.estimated_request_bytes <= budget do
             {:ok, %{context: context, metrics: metrics}}
           else
-            emit_metrics(metrics)
-            {:error, :context_budget_exceeded}
+            {context, _omissions, metrics} =
+              omit_history_to_budget(context, instructions, budget, omissions, metrics)
+
+            if metrics.estimated_request_bytes <= budget do
+              {:ok, %{context: context, metrics: metrics}}
+            else
+              emit_metrics(metrics)
+              {:error, :context_budget_exceeded}
+            end
           end
         end
     end
@@ -729,6 +736,29 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp compact_history_for_budget(history, _recent_count, _recent_chars, _older_chars),
     do: {history, false}
+
+  # History is useful recall, but it is not the source of truth for current
+  # scene state. If even the shortest retained excerpts prevent a request,
+  # omit the transcript from this request and rely on the canonical state,
+  # continuity, and selected character profiles that remain in context. The
+  # event ledger itself is untouched, and the omission is explicit to the GM.
+  defp omit_history_to_budget(context, instructions, budget, omissions, metrics) do
+    history = value(context, :history)
+
+    if is_list(history) and history != [] do
+      updated_context =
+        context
+        |> put_context_value("history", [])
+        |> context_with_completeness(%{history_compacted: true, history_omitted: true})
+
+      updated_omissions = Enum.uniq(omissions ++ [:history])
+      updated_metrics = measure(updated_context, instructions, budget, true, updated_omissions)
+
+      {updated_context, updated_omissions, updated_metrics}
+    else
+      {context, omissions, metrics}
+    end
+  end
 
   # Durable continuity entries remain complete in storage and on the campaign
   # board. Send detail only for a bounded, relevant set from each visibility

@@ -1264,7 +1264,7 @@ defmodule Storyteller.PlayTest do
     assert lyra.visible_activity == nil
   end
 
-  test "keeps each present NPC's voice notes attached to its speaker in the provider request" do
+  test "keeps each present NPC's voice profile distinct after context compaction" do
     campaign =
       campaign_fixture(%{
         starting_location: "The Finca",
@@ -1297,6 +1297,51 @@ defmodule Storyteller.PlayTest do
       })
 
     [session] = campaign.sessions
+
+    # Exercise the same request after history has to be compacted. Character
+    # profiles belong to the present scene and must survive that pass intact.
+    seed_input = "Seed unrelated voice-profile history."
+
+    seed_turn =
+      Repo.insert!(
+        Turn.changeset(%Turn{}, %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          idempotency_key: "voice-profile-compaction-seed",
+          request_hash: :crypto.hash(:sha256, seed_input) |> Base.encode16(case: :lower),
+          player_input: seed_input,
+          intent: :action,
+          status: :completed,
+          resolution_phase: :initial,
+          attempts: 0
+        })
+      )
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    first_sequence = state.event_sequence + 1
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    unrelated_events =
+      Enum.map(1..40, fn offset ->
+        %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          turn_id: seed_turn.id,
+          sequence: first_sequence + offset - 1,
+          event_type: :gm_narration,
+          visibility: :public,
+          payload: %{
+            "text" =>
+              "Unrelated harbor ledger entry #{offset}. " <>
+                String.duplicate("The harbor clerk totals unsigned invoices. ", 36)
+          },
+          inserted_at: now
+        }
+      end)
+
+    assert {40, nil} = Repo.insert_all(Event, unrelated_events)
+    Repo.update!(State.changeset(state, %{event_sequence: first_sequence + 39}))
+
     captured = Agent.start_link(fn -> nil end) |> elem(1)
 
     provider = fn request ->
@@ -1328,6 +1373,11 @@ defmodule Storyteller.PlayTest do
     {request, request_context} = Agent.get(captured, & &1)
     characters = Map.new(request_context["characters"], &{&1["speaker_id"], &1})
     instructions = String.replace(request.instructions, ~r/\s+/, " ")
+
+    assert request.local_context_metrics.compacted?
+    assert :history in request.local_context_metrics.omissions
+
+    assert request_context["context_completeness"]["history_compacted"]
 
     assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
     assert instructions =~ "OBSERVATION/JUDGMENT: GM owns external facts."
@@ -6119,6 +6169,11 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "ask only when needed for meaningful action; never assume."
 
+    assert instructions =~ "When history_omitted"
+
+    assert instructions =~
+             "invent no missing events; preserve uncertainty."
+
     assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
 
     assert instructions =~
@@ -6138,7 +6193,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "For multiple matching public memories, name candidates or ask which one; do not guess."
 
-    assert instructions =~ "Movement must use an existing route or one proposed in this response"
+    assert instructions =~ "Move only on an existing or proposed route."
 
     assert instructions =~
              "Public NPC speech/activity requires presence in the player's final place"
