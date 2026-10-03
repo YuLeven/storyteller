@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Record the live QA usage-limit outcome
+
+- One controlled Retry of the saved “A day passes” turn in the separate Quiet Observatory QA campaign returned an account usage-limit notice. The input stayed saved; the game date, time, weather, location, and story did not change.
+- After the request settled, the turn showed a generic provider failure and the usage-limit pause banner was no longer visible. No further live retry was sent while account usage was limited. This does not pass the connected time-passage QA gate; the limit-to-final-error transition needs investigation before sign-off.
+- The protected campaign 37 and the Vineyard campaign were not opened. The QA session remains available with its saved turn for later diagnosis.
+
 ## 2026-10-02 — Keep dense tracked-resource ledgers readable
 
 - Added bounded wrapping to resource labels, units, and values so long unbroken text cannot widen the play sidebar or run into adjacent ledger rows.
