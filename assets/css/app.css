@@ -437,6 +437,16 @@
   border-left: 0.6rem solid #3a2f20;
 }
 
+/* Tracked ledgers can contain player-authored labels, units, and notes. Keep
+   even a single long identifier from widening the sidebar or colliding with
+   the next line in the compact board layout. */
+.play-page #campaign-fields .resource-copy {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
 @media (min-width: 640px) {
   .play-page #story-timeline {
     max-height: min(70vh, 46rem);

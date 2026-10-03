@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Keep dense tracked-resource ledgers readable
+
+- Added bounded wrapping to resource labels, units, and values so long unbroken text cannot widen the play sidebar or run into adjacent ledger rows.
+- Added an isolated LiveView stress regression with 18 resource rows, long labels and units, and a 406-character unbroken value. It verifies every value remains inside its own labeled row. This does not count as visual reproduction of the owner's reported overlap; the protected comparison campaign was not opened.
+- A campaign-editor test redirected unexpectedly in one earlier full run. The exact test and whole module passed in isolation; two later full-suite runs (including a different seed) both passed. The failure has not reproduced.
+- **Checks in WSL:** focused resource LiveView test **1 passed**; campaign-authoring LiveView module **19 tests, 0 failures**; two full-suite runs **434 tests, 0 failures each**; JavaScript **14 tests, 0 failures**; test/dev warnings-as-errors compilation, format check, Gettext freshness, asset build, and `git diff --check` passed. The MVP live-turn and independent visual QA gates remain open.
+
 ## 2026-10-02 — Diagnose rejected GM proposals without retaining their content
 
 - Validation failures now emit a finite reason category in local warnings: proposal shape, time advance, player agency, location/presence, private-fact boundary, or other proposal rules. The player's recovery message stays generic; no prompt, provider output, or campaign facts enter the log.

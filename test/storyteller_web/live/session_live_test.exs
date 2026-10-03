@@ -2820,6 +2820,49 @@ defmodule StorytellerWeb.SessionLiveTest do
              "A customer pays for one basket of apples."
   end
 
+  test "tracked resource rows keep long copy readable across a full ledger", %{conn: conn} do
+    long_label = String.duplicate("Seasonal grape harvest inventory ledger ", 2)
+    long_unit = String.duplicate("vineyard-barrel-units-", 2)
+    long_value = String.duplicate("unbrokencellarledgerreference", 14)
+
+    fields =
+      for index <- 1..18 do
+        %{
+          key: "ledger_field_#{index}",
+          panel: "Vineyard resources and seasonal cellar inventory",
+          label: "#{long_label}#{index}",
+          value_type: :text,
+          unit: long_unit,
+          visibility: :public,
+          initial_value:
+            if(index == 1, do: long_value, else: "Stored seasonal detail for row #{index}")
+        }
+      end
+
+    campaign = campaign_fixture(%{panel_fields: fields})
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    html = render(view)
+    rows = Floki.parse_document!(html) |> Floki.find("#campaign-fields [data-resource-row]")
+
+    assert length(rows) == 18
+
+    for index <- 1..18 do
+      key = "ledger_field_#{index}"
+      selector = "#campaign-fields [data-resource-row='#{key}']"
+
+      assert has_element?(view, selector <> " > dt.resource-copy", "#{long_label}#{index}")
+      assert has_element?(view, selector <> " > dd.resource-copy", long_unit)
+
+      assert has_element?(
+               view,
+               selector <> " [data-panel-value].resource-copy",
+               if(index == 1, do: long_value, else: "Stored seasonal detail for row #{index}")
+             )
+    end
+  end
+
   test "tracked resources created in setup render through campaign detail and live play", %{
     conn: conn
   } do
