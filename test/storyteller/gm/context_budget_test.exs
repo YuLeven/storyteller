@@ -128,6 +128,114 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert compacted_private_item["properties"] == private_item["properties"]
   end
 
+  test "projects oversized world maps while keeping canonical anchors and an action-matched fact" do
+    unrelated_public_fields =
+      Map.new(1..90, fn index ->
+        {"archive_#{index}", String.duplicate("Unrelated regional record. ", 40)}
+      end)
+
+    relevant_world_fact =
+      "At the autumn tasting, the reserve wine was set aside for the cellar master. " <>
+        String.duplicate("Archived notes about the reserve. ", 160)
+
+    public_world =
+      Map.merge(unrelated_public_fields, %{
+        "date" => "1567-04-12",
+        "time" => "before dawn",
+        "weather" => "Cool mist over the river",
+        "location" => "Bodega",
+        "reserved_wine_notes" => relevant_world_fact
+      })
+
+    private_world =
+      Map.new(1..24, fn index ->
+        {"sealed_archive_#{index}", String.duplicate("Unrelated hidden record. ", 40)}
+      end)
+
+    context =
+      base_context()
+      |> Map.put(
+        :player_action,
+        "At the Bodega, I ask about the reserve wine from the autumn tasting."
+      )
+      |> put_in([:world, :public], public_world)
+      |> put_in([:world, :gm_private], private_world)
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+
+    assert request_bytes(context, "Short GM policy") > metrics.budget_bytes
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert metrics.compacted?
+    assert :world_state_fields in metrics.omissions
+    assert :world_state_details in metrics.omissions
+    assert compiled.world.public["date"] == "1567-04-12"
+    assert compiled.world.public["time"] == "before dawn"
+    assert compiled.world.public["weather"] == "Cool mist over the river"
+    assert compiled.world.public["location"] == "Bodega"
+    assert compiled.world.public["reserved_wine_notes"] =~ "autumn tasting"
+
+    assert String.length(compiled.world.public["reserved_wine_notes"]) <
+             String.length(relevant_world_fact)
+
+    assert map_size(compiled.world.public) <= 32
+    assert map_size(compiled.world.gm_private) <= 32
+    assert byte_size(Jason.encode!(compiled.world.public)) <= 8_000
+    assert byte_size(Jason.encode!(compiled.world.gm_private)) <= 8_000
+    assert compiled.context_completeness.world_state_fields_omitted
+    assert compiled.context_completeness.world_state_details_compacted
+    assert context.world.public == public_world
+    assert context.world.gm_private == private_world
+  end
+
+  test "keeps action-relevant tracked resources when a campaign defines many panels" do
+    panels =
+      Enum.map(1..100, fn index ->
+        %{
+          key: "resource_#{index}",
+          panel: "Campaign resources",
+          label: "Field ledger #{index}",
+          type: :quantity,
+          unit: "units",
+          visibility: :public,
+          value: index
+        }
+      end)
+
+    relevant_panel = %{
+      key: "reserve_wine",
+      panel: "Cellar",
+      label: "Reserve wine",
+      type: :text,
+      unit: nil,
+      visibility: :public,
+      value: String.duplicate("La Bella reserve wine for the autumn tasting. ", 50)
+    }
+
+    context =
+      base_context()
+      |> Map.put(:player_action, "How much reserve wine remains for the autumn tasting?")
+      |> Map.put(:panels, List.replace_at(panels, 70, relevant_panel))
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert :panel_fields in metrics.omissions
+    assert :panel_values in metrics.omissions
+    assert length(compiled.panels) <= 32
+    assert byte_size(Jason.encode!(compiled.panels)) <= 8_000
+    assert Enum.any?(compiled.panels, &(&1.key == "resource_1"))
+    assert [selected] = Enum.filter(compiled.panels, &(&1.key == "reserve_wine"))
+    assert selected.value =~ "autumn tasting"
+    assert String.length(selected.value) <= 800
+    assert compiled.context_completeness.panel_fields_omitted
+    assert compiled.context_completeness.panel_values_compacted
+    assert length(context.panels) == 100
+    assert hd(context.panels).value == 1
+    assert String.length(relevant_panel.value) > String.length(selected.value)
+  end
+
   test "broad questions retrieve a small bounded set of scene anchors in each supported language" do
     history =
       Enum.map(1..40, fn sequence ->

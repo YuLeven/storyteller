@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-03 — V1 P0: bound growing world state and tracked-resource context
+
+- A read-only audit found that transcript history was already bounded, while free-form public/GM-private world maps and the tracked-resource panel list could still be passed through without a useful count/size bound. These categories can grow independently of session history and exhaust the local guard.
+- The request compiler now keeps public date/time/weather/location anchors, ranks other world keys by current action and scene terms, caps each visibility scope at 8,000 serialized bytes and 32 fields, and compacts oversized nested values. For tracked resources it keeps up to 32 fields, prioritizing action-matched rows plus a small stable baseline; oversized text values are excerpted. Canonical database data is not changed.
+- Completeness flags now tell the GM when world or panel data is partial. The policy says omitted canon is unknown, not absent, and cannot be invented or changed. Synthetic regression fixtures exceed the 64,000-byte local guard before projection and verify scene anchors, action-matched world/resource facts, omission reporting, and unchanged source data.
+- The supported route is stateless over HTTP (`store: false`, no `previous_response_id`). Official preview documentation permits app-handled function/custom tools but excludes hosted MCP/connectors. A local read-only function loop is a later experiment after this deterministic projection baseline; tool definitions/results and extra round trips must be benchmarked too.
+- **Remaining audit work:** one oversized present-character profile, current/adjacent place details, or many active objectives can still dominate a request. The error remains possible for truly oversized canon; do not silently discard records or raise the guard without route evidence. Continue with bounded, explicit scene-profile projections and synthetic growth cases.
+- **Checks:** ContextBudget WSL suite passed (**30 tests, 0 failures**); the focused GM policy size regression passed (**1 selected test, 0 failures**); the full WSL suite passed (**467 tests, 0 failures**). No development/QA or vineyard database, live provider, or OAuth flow was used.
+
 ## 2026-10-03 — V1 P0: raise the interim local context guard
 
 - Raised the configured application preflight from 24,000 to **64,000 serialized bytes** consistently for the default and every supported model ID. First-tier relevance projection still runs before size measurement; the increase therefore does not restore unrelated history or remote prose already omitted by the compiler.

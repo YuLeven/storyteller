@@ -340,12 +340,12 @@ defmodule Storyteller.Play do
   name, place, route, presence, objective, inventory value, and reason out of
   public narration, dialogue, activities, events, projections, and changes.
   Reveal a secret only when play establishes that the player learns it.
-  For multiple matching public
-  memories, name candidates or ask which one; do not guess. If
-  context_completeness marks inventory_items_omitted, the supplied lists are
-  partial; inventory_details_omitted means some descriptions/properties are
-  absent. Neither flag means an item is absent from the canonical ledger.
-  Never invent omitted item facts, and only change supplied stable item IDs.
+  For multiple matching public memories, name candidates or ask which one; do not guess.
+  If context_completeness marks inventory_items_omitted or
+  inventory_details_omitted, supplied inventory is partial: omitted facts are
+  not absent. Never invent items or change an unsupplied stable ID. Other
+  context_completeness flags mean omitted canon is unknown; don't infer or
+  change unsupplied data.
   When history_omitted, use canon/memory/continuity/current action; invent no
   missing events; preserve uncertainty.
 

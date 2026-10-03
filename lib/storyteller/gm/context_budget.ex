@@ -23,6 +23,11 @@ defmodule Storyteller.GM.ContextBudget do
   @max_inventory_detail_count 1
   @max_inventory_description_chars 600
   @max_inventory_properties_bytes 700
+  @max_world_scope_bytes 8_000
+  @max_world_context_fields 32
+  @max_world_value_bytes 1_200
+  @max_panel_context_fields 32
+  @max_panel_value_chars 800
   @history_budget_fallback_tiers [
     {4, 1_600, 600},
     {4, 1_200, 400},
@@ -455,6 +460,12 @@ defmodule Storyteller.GM.ContextBudget do
     {selected_context, inventory_details_omitted?, inventory_items_omitted?} =
       project_relevant_inventory(selected_context)
 
+    {selected_context, world_fields_omitted?, world_details_compacted?} =
+      project_relevant_world_state(selected_context)
+
+    {selected_context, panel_fields_omitted?, panel_values_compacted?} =
+      project_relevant_panels(selected_context)
+
     completeness =
       %{}
       |> maybe_put(
@@ -463,6 +474,10 @@ defmodule Storyteller.GM.ContextBudget do
       )
       |> maybe_put(:inventory_details_omitted, if(inventory_details_omitted?, do: true))
       |> maybe_put(:inventory_items_omitted, if(inventory_items_omitted?, do: true))
+      |> maybe_put(:world_state_fields_omitted, if(world_fields_omitted?, do: true))
+      |> maybe_put(:world_state_details_compacted, if(world_details_compacted?, do: true))
+      |> maybe_put(:panel_fields_omitted, if(panel_fields_omitted?, do: true))
+      |> maybe_put(:panel_values_compacted, if(panel_values_compacted?, do: true))
 
     selected_context =
       if map_size(completeness) > 0,
@@ -473,7 +488,11 @@ defmodule Storyteller.GM.ContextBudget do
       [
         continuity_memory_details: continuity_details_omitted?,
         inventory_details: inventory_details_omitted?,
-        inventory_items: inventory_items_omitted?
+        inventory_items: inventory_items_omitted?,
+        world_state_fields: world_fields_omitted?,
+        world_state_details: world_details_compacted?,
+        panel_fields: panel_fields_omitted?,
+        panel_values: panel_values_compacted?
       ]
       |> Enum.filter(&elem(&1, 1))
       |> Enum.map(&elem(&1, 0))
@@ -867,6 +886,248 @@ defmodule Storyteller.GM.ContextBudget do
       {context, false, false}
     end
   end
+
+  # World maps and tracked panels are canonical in storage but have no useful
+  # per-campaign count bound. Keep the exact scene anchors and action-relevant
+  # entries in the request; don't resend a growing catalog of unrelated data.
+  # The completeness flags tell the GM that an omitted key is not evidence of
+  # absence. This projection never overwrites the canonical stored records.
+  defp project_relevant_world_state(context) do
+    world = value(context, :world)
+
+    if is_map(world) do
+      terms = query_terms(context)
+
+      {projected, {fields_omitted?, details_compacted?}} =
+        Enum.map_reduce(world, {false, false}, fn {visibility, scope},
+                                                  {any_fields_omitted?, any_details_compacted?} ->
+          {scope, fields_omitted_here?, details_compacted_here?} =
+            project_world_scope(scope, terms, visibility)
+
+          {{visibility, scope},
+           {any_fields_omitted? or fields_omitted_here?,
+            any_details_compacted? or details_compacted_here?}}
+        end)
+        |> then(fn {groups, flags} -> {Map.new(groups), flags} end)
+
+      {put_context_value(context, "world", projected), fields_omitted?, details_compacted?}
+    else
+      {context, false, false}
+    end
+  end
+
+  defp project_world_scope(scope, terms, visibility) when is_map(scope) do
+    source_bytes = byte_size(Jason.encode!(scope))
+
+    if source_bytes <= @max_world_scope_bytes and map_size(scope) <= @max_world_context_fields do
+      {scope, false, false}
+    else
+      public_core_keys = MapSet.new(["date", "time", "weather", "location"])
+
+      scored_fields =
+        Enum.map(scope, fn {key, field_value} ->
+          key_text = to_string(key)
+          score = relevance_score(key_text <> " " <> safe_json(field_value), terms)
+
+          core? =
+            visibility in [:public, "public"] and
+              MapSet.member?(public_core_keys, String.downcase(key_text))
+
+          {{key, field_value}, score, core?}
+        end)
+
+      core_fields = Enum.filter(scored_fields, &elem(&1, 2))
+
+      relevant_fields =
+        scored_fields
+        |> Enum.reject(&elem(&1, 2))
+        |> Enum.filter(&(elem(&1, 1) > 0))
+        |> Enum.sort_by(fn {{key, _value}, score, _core?} -> {-score, to_string(key)} end)
+
+      fallback_fields =
+        if core_fields == [] and relevant_fields == [],
+          do:
+            scored_fields
+            |> Enum.sort_by(fn {{key, _value}, _score, _core?} -> to_string(key) end)
+            |> Enum.take(4),
+          else: []
+
+      candidates = core_fields ++ relevant_fields ++ fallback_fields
+
+      {selected, details_compacted?} =
+        Enum.reduce(candidates, {%{}, false}, fn {{key, field_value}, _score, core?},
+                                                 {acc, any_compacted?} ->
+          {field_value, compacted?} =
+            compact_json_value(field_value, terms, @max_world_value_bytes)
+
+          candidate = Map.put(acc, key, field_value)
+          candidate_bytes = byte_size(Jason.encode!(candidate))
+          within_count? = map_size(candidate) <= @max_world_context_fields
+
+          if candidate_bytes <= @max_world_scope_bytes and (within_count? or core?) do
+            {candidate, any_compacted? or compacted?}
+          else
+            {acc, any_compacted? or compacted?}
+          end
+        end)
+
+      {selected, map_size(selected) < map_size(scope), details_compacted?}
+    end
+  end
+
+  defp project_world_scope(scope, _terms, _visibility), do: {scope, false, false}
+
+  defp compact_json_value(value, terms, max_bytes) do
+    encoded = safe_json(value)
+
+    if byte_size(encoded) <= max_bytes do
+      {value, false}
+    else
+      compact_json_value_by_type(value, terms, max_bytes)
+    end
+  end
+
+  defp compact_json_value_by_type(value, _terms, max_bytes) when is_binary(value) do
+    max_chars = max(max_bytes - 80, 1)
+    {compact_text(value, max_chars), true}
+  end
+
+  defp compact_json_value_by_type(value, terms, max_bytes) when is_map(value) do
+    ranked =
+      value
+      |> Enum.map(fn {key, child} ->
+        score = relevance_score(to_string(key) <> " " <> safe_json(child), terms)
+        {{key, child}, score}
+      end)
+      |> Enum.sort_by(fn {{key, _child}, score} -> {-score, to_string(key)} end)
+
+    chosen =
+      case Enum.filter(ranked, &(elem(&1, 1) > 0)) do
+        [] -> Enum.take(ranked, 4)
+        relevant -> Enum.take(relevant, 8)
+      end
+
+    {projected, compacted?} =
+      Enum.reduce(chosen, {%{}, true}, fn {{key, child}, _score}, {acc, any_compacted?} ->
+        {child, child_compacted?} = compact_json_value(child, terms, max(div(max_bytes, 4), 120))
+        next = Map.put(acc, key, child)
+
+        if byte_size(Jason.encode!(next)) <= max_bytes do
+          {next, any_compacted? or child_compacted?}
+        else
+          {acc, true}
+        end
+      end)
+
+    {projected, compacted?}
+  end
+
+  defp compact_json_value_by_type(value, terms, max_bytes) when is_list(value) do
+    ranked =
+      value
+      |> Enum.with_index()
+      |> Enum.map(fn {item, index} -> {item, index, relevance_score(safe_json(item), terms)} end)
+
+    relevant =
+      ranked
+      |> Enum.filter(&(elem(&1, 2) > 0))
+      |> Enum.sort_by(fn {_item, index, score} -> {-score, -index} end)
+      |> Enum.take(8)
+
+    selected = if relevant == [], do: Enum.take(ranked, 8), else: relevant
+
+    {projected, compacted?} =
+      Enum.reduce(selected, {[], true}, fn {item, _index, _score}, {acc, _any_compacted?} ->
+        {item, _item_compacted?} = compact_json_value(item, terms, max(div(max_bytes, 4), 120))
+        next = acc ++ [item]
+        if byte_size(Jason.encode!(next)) <= max_bytes, do: {next, true}, else: {acc, true}
+      end)
+
+    {projected, compacted?}
+  end
+
+  defp compact_json_value_by_type(value, _terms, _max_bytes), do: {value, true}
+
+  defp safe_json(value) do
+    Jason.encode!(value)
+  rescue
+    _error -> ""
+  end
+
+  defp project_relevant_panels(context) do
+    panels = value(context, :panels)
+
+    if is_list(panels) and
+         (length(panels) > @max_panel_context_fields or
+            byte_size(Jason.encode!(panels)) > @max_world_scope_bytes) do
+      terms = query_terms(context)
+
+      ranked =
+        panels
+        |> Enum.with_index()
+        |> Enum.map(fn {panel, index} ->
+          searchable =
+            [
+              value(panel, :key),
+              value(panel, :panel),
+              value(panel, :label),
+              value(panel, :unit),
+              value(panel, :value)
+            ]
+            |> Enum.map(&to_string_safe/1)
+            |> Enum.join(" ")
+
+          {panel, index, relevance_score(searchable, terms)}
+        end)
+
+      relevant =
+        ranked
+        |> Enum.filter(&(elem(&1, 2) > 0))
+        |> Enum.sort_by(fn {_panel, index, score} -> {-score, index} end)
+        |> Enum.take(@max_panel_context_fields - 8)
+
+      baseline = Enum.take(ranked, 8)
+      selected_indexes = MapSet.new(Enum.map(baseline ++ relevant, &elem(&1, 1)))
+
+      selected =
+        if length(panels) > @max_panel_context_fields do
+          ranked
+          |> Enum.filter(&MapSet.member?(selected_indexes, elem(&1, 1)))
+          |> Enum.map(&elem(&1, 0))
+        else
+          Enum.map(ranked, &elem(&1, 0))
+        end
+
+      {selected, values_compacted?} =
+        Enum.map_reduce(selected, false, fn panel, any_compacted? ->
+          {value, compacted?} = compact_panel_value(panel)
+          {put_context_value(panel, "value", value), any_compacted? or compacted?}
+        end)
+
+      fields_omitted? = length(selected) < length(panels)
+
+      {put_context_value(context, "panels", selected), fields_omitted?, values_compacted?}
+    else
+      {context, false, false}
+    end
+  end
+
+  defp compact_panel_value(panel) do
+    panel_value = value(panel, :value)
+    type = value(panel, :type)
+
+    if type in [:text, "text"] and is_binary(panel_value) and
+         String.length(panel_value) > @max_panel_value_chars do
+      {compact_text(panel_value, @max_panel_value_chars), true}
+    else
+      {panel_value, false}
+    end
+  end
+
+  defp to_string_safe(nil), do: ""
+  defp to_string_safe(value) when is_binary(value), do: value
+  defp to_string_safe(value) when is_atom(value), do: Atom.to_string(value)
+  defp to_string_safe(value), do: safe_json(value)
 
   defp project_inventory_items(items, terms) do
     scored_items =
