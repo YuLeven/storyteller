@@ -313,16 +313,14 @@
           </p>
           <p
             :if={
-              !opening_scene?(@current_turn) and
-                not (@current_turn.failure_code == "usage_limit" and @plan_usage_paused?) and
+              @current_turn.failure_code == "usage_limit" and
+                not @plan_usage_paused? and
                 not (@current_turn.failure_code == "usage_limit" and
                        @current_turn.resolution_phase == :after_roll)
             }
             class="mt-3 rounded-lg bg-white/70 px-3 py-2 text-sm text-stone-700"
           >
-            {if @current_turn.failure_code == "usage_limit",
-              do: gettext("Your action is saved below. Retry continues this same turn."),
-              else: gettext("Your submitted action remains in the campaign story below.")}
+            {gettext("Your action is saved below. Retry continues this same turn.")}
           </p>
           <p
             :if={opening_scene?(@current_turn)}
@@ -351,7 +349,7 @@
           >
             {gettext("Your D20 result is saved. Retry continues this same turn with that result.")}
           </p>
-          <div class="mt-4 flex flex-wrap items-center gap-3">
+          <div id="turn-error-actions" class="mt-4 flex flex-wrap items-center gap-3">
             <button
               :if={retryable?(@current_turn) && playable?(@session)}
               type="button"
@@ -558,31 +556,43 @@
               name="turn[intent]"
               value={Atom.to_string(@interaction_mode)}
             />
-            <div
-              role="group"
-              aria-label={gettext("How do you want to interact?")}
-              class="mb-3 flex flex-wrap gap-2"
-            >
-              <button
-                :for={
-                  {mode, label} <- [
-                    {:action, gettext("Act or say")},
-                    {:question, gettext("Ask the GM")},
-                    {:time_passage, gettext("Let time pass")}
-                  ]
-                }
-                type="button"
-                phx-click="select-mode"
-                phx-value-mode={Atom.to_string(mode)}
-                aria-pressed={@interaction_mode == mode}
-                class={[
-                  "rounded-full border px-3 py-1.5 text-sm font-semibold transition",
-                  @interaction_mode == mode &&
-                    "border-amber-800 bg-amber-800 text-white",
-                  @interaction_mode != mode &&
-                    "border-amber-300 bg-white text-amber-950 hover:bg-amber-50"
-                ]}
-              >{label}</button>
+            <div class="turn-mode-nudge-row mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div
+                role="group"
+                aria-label={gettext("How do you want to interact?")}
+                class="flex flex-wrap gap-2"
+              >
+                <button
+                  :for={
+                    {mode, label} <- [
+                      {:action, gettext("Act or say")},
+                      {:question, gettext("Ask the GM")},
+                      {:time_passage, gettext("Let time pass")}
+                    ]
+                  }
+                  type="button"
+                  phx-click="select-mode"
+                  phx-value-mode={Atom.to_string(mode)}
+                  aria-pressed={@interaction_mode == mode}
+                  class={[
+                    "rounded-full border px-3 py-1.5 text-sm font-semibold transition",
+                    @interaction_mode == mode &&
+                      "border-amber-800 bg-amber-800 text-white",
+                    @interaction_mode != mode &&
+                      "border-amber-300 bg-white text-amber-950 hover:bg-amber-50"
+                  ]}
+                >{label}</button>
+              </div>
+              <div class="flex flex-wrap gap-2" aria-label={gettext("Helpful prompts")}>
+                <button
+                  :for={nudge <- contextual_nudges(@interaction_mode, @projection)}
+                  type="button"
+                  phx-click="use-nudge"
+                  phx-value-nudge_id={nudge.id}
+                  disabled={@plan_usage_paused? || turn_blocks_composer?(@current_turn)}
+                  class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >{nudge.label}</button>
+              </div>
             </div>
             <label for="turn-input" class="block text-sm font-semibold text-stone-900">
               {composer_label(@interaction_mode)}
@@ -612,16 +622,6 @@
             >
               {@turn_announcement}
             </p>
-            <div class="mt-3 flex flex-wrap gap-2" aria-label={gettext("Helpful prompts")}>
-              <button
-                :for={nudge <- contextual_nudges(@interaction_mode, @projection)}
-                type="button"
-                phx-click="use-nudge"
-                phx-value-nudge_id={nudge.id}
-                disabled={@plan_usage_paused? || turn_blocks_composer?(@current_turn)}
-                class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >{nudge.label}</button>
-            </div>
             <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p class="text-xs leading-5 text-stone-600">
                 {composer_guidance(@interaction_mode)} {gettext("Press Ctrl+Enter to send.")}

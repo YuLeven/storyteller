@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-02 — Set the MVP exit and V1.0 story-quality bar
+
+- Confirmed the release sequence: finish functional QA before calling the product MVP; then make compelling, flexible, coherent story the V1 P0, with play-blocking UI defects fixed alongside it.
+- Deferred open-source clone/run readiness and the repository secret/private-data audit until the owner considers the play experience polished. V1.0 ships only after the story-quality bar and release preparation are complete.
+- A read-only audit found no mount/reconnect/poll/recovery path that creates a new time-passage turn. Its creation requires the submitted form event; the historical turn lacks tab/event attribution, so its exact source cannot be recovered. One explicit retry in the fictional Quiet Observatory session produced another `invalid_response` at `proposal_validation`; time and canon did not change, and the input remains saved. The QA gate records the source as an attribution gap and this repeated validation failure as a functional check still to clear.
+- A read-only 1280×720 QA check found that the full recovery card collapsed the story scroller and pushed part of the composer below the viewport. Made the failed-turn card compact, removed its duplicate generic saved-action callout, and placed common nudges alongside the interaction modes. After the change, the independently scrollable story viewport grew from 39px to 116px; the latest saved action, Retry button, composer, and both nudges are visible together.
+- **QA still open:** finish the remaining functional pass on independent fictional data. Do not use the Vineyard source or imported comparison campaign; reproduce reported UI defects only in a clean fictional fixture.
+- **Checks:** focused SessionLive **69 tests, 0 failures**; full isolated suite **432 tests, 0 failures**; JavaScript **14 tests, 0 failures**; WSL test/dev warnings-as-errors compilation, formatter, asset build, and Gettext extraction/merge freshness passed. One user-authorized retry used the connected model in the fictional QA campaign; no Vineyard data was accessed.
+
 ## 2026-10-02 — Make failed-turn recovery quieter
 
 - The failed-turn panel repeated the saved-action/retry explanation beneath an error that already said the action was preserved. Removed the duplicate generic retry paragraph; the error cause, saved action in the story, contextual route advice when relevant, and Retry button remain. The after-roll state still names the saved D20 result so a player knows it will be reused.
