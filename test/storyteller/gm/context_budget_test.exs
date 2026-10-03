@@ -213,8 +213,16 @@ defmodule Storyteller.GM.ContextBudgetTest do
                context_input_byte_budget: budget
              )
 
-    assert short_compiled == short_context
-    refute short_metrics.compacted?
+    assert short_metrics.compacted?
+    assert :remote_character_profiles in short_metrics.omissions
+    assert short_metrics.estimated_request_bytes <= budget
+    assert short_compiled.world == short_context.world
+    assert short_compiled.player_action == short_context.player_action
+
+    short_characters = Map.new(short_compiled.characters, &{&1.speaker_id, &1})
+    assert short_characters["tomas"].current_place_id == "bodega"
+    assert short_characters["tomas"].active_duty.name == "Oversee the cellar pressing"
+    refute Map.has_key?(short_characters["tomas"], :visible_facts)
 
     assert {:ok, %{context: long_compiled, metrics: long_metrics}} =
              ContextBudget.compile(long_context, instructions, "gpt-6-astra",
@@ -737,7 +745,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     assert metrics.estimated_request_bytes <= 24_000
     assert metrics.compacted?
-    assert metrics.omissions == [:continuity_memory_details]
+    assert :continuity_memory_details in metrics.omissions
+    assert :remote_character_profiles in metrics.omissions
 
     [relevant | unrelated] = compiled.continuity.public
     assert relevant.details == hd(player_memories).details
@@ -1412,18 +1421,230 @@ defmodule Storyteller.GM.ContextBudgetTest do
              )
   end
 
-  test "keeps the full context unchanged when it fits and records only sizes" do
-    context = Map.put(base_context(), :private_test_value, "Hidden cellar key")
+  test "applies safe relevance compaction below the byte limit and reports omissions" do
+    instructions = "Policy"
 
-    assert {:ok, %{context: ^context, metrics: metrics}} =
-             ContextBudget.compile(context, "Policy", "gpt-6-astra",
-               context_input_byte_budget: 20_000
-             )
+    action =
+      "Check whether Marisol stayed at the Finca after the forty-minute trip to the Bodega."
 
-    assert metrics.compacted? == false
+    history =
+      Enum.map(1..18, fn sequence ->
+        text =
+          if sequence == 1 do
+            "Marisol stayed at the Finca after the forty-minute trip to the Bodega."
+          else
+            "Regional market report #{sequence}; the quarterly grain totals remain unchanged."
+          end
+
+        %{
+          "sequence" => sequence,
+          "session_id" => 1,
+          "event_type" => "gm_narration",
+          "visibility" => "public",
+          "speaker_id" => nil,
+          "payload" => %{"text" => text}
+        }
+      end)
+
+    context =
+      base_context()
+      |> Map.put(:player_action, action)
+      |> Map.put(:private_test_value, "Hidden cellar key")
+      |> Map.put(:history, history)
+      |> update_in([:characters], fn characters ->
+        characters
+        |> Enum.map(fn character ->
+          if character.speaker_id == "marisol" do
+            Map.put(character, :voice_guidance, %{
+              accent: "French",
+              mannerisms: "Taps the rim of a glass while thinking."
+            })
+          else
+            character
+          end
+        end)
+        |> Kernel.++([
+          %{
+            speaker_id: "archivist",
+            name: "Ivo",
+            role: :gm,
+            current_place_id: "archive",
+            current_place: %{
+              place_id: "archive",
+              name: "The Copper Archive",
+              visibility: :public,
+              description: String.duplicate("Archive description. ", 60),
+              facts: %{hidden_shelf: String.duplicate("unseen record ", 40)}
+            },
+            visible_facts: %{specialty: String.duplicate("archival note ", 40)},
+            gm_private_facts: %{secret: "Ivo has not met the player."},
+            voice_guidance: %{cadence: String.duplicate("measured ", 40)}
+          }
+        ])
+      end)
+      |> update_in([:places, :public], fn places ->
+        places ++
+          [
+            %{
+              place_id: "archive",
+              name: "The Copper Archive",
+              visibility: :public,
+              description: String.duplicate("Archive description. ", 60),
+              facts: %{hidden_shelf: String.duplicate("unseen record ", 40)}
+            }
+          ]
+      end)
+      |> update_in([:objectives, :public], fn objectives ->
+        [
+          %{
+            objective_id: "cellar-review",
+            title: "Review the cellar records",
+            details: "Compare the Bodega records after checking the Finca ledger.",
+            status: "open"
+          },
+          %{
+            objective_id: "closed-market-report",
+            title: "Old market report",
+            details: String.duplicate("Closed market detail. ", 50),
+            status: "completed"
+          }
+          | objectives
+        ]
+      end)
+      |> update_in([:memory, :public_summary], fn _summary ->
+        String.duplicate("Older campaign summary. ", 80)
+      end)
+      |> update_in([:continuity, :public], fn _entries ->
+        [
+          %{
+            entry_id: "finca-staff-commitment",
+            kind: "commitment",
+            title: "Marisol stays at the Finca",
+            details:
+              "Marisol promised to remain at the Finca while the cellar team travels to the Bodega.",
+            status: "active",
+            visibility: "public"
+          },
+          %{
+            entry_id: "archive-lunch",
+            kind: "fact",
+            title: "Lunch at the archive",
+            details: "A detail unrelated to the current scene.",
+            status: "active",
+            visibility: "public"
+          }
+        ]
+      end)
+
+    budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
+    source_bytes = request_bytes(context, instructions)
+    assert source_bytes < budget
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, instructions, "gpt-6-astra")
+
+    assert metrics.compacted?
+    assert metrics.estimated_request_bytes < source_bytes
+    assert metrics.estimated_request_bytes <= budget
+    assert :history in metrics.omissions
+    assert :remote_character_profiles in metrics.omissions
+    assert :remote_place_details in metrics.omissions
+    assert :closed_objective_details in metrics.omissions
+    assert :memory_summary in metrics.omissions
+    assert :continuity_memory_details in metrics.omissions
+
+    assert compiled.context_completeness.history_compacted
+    assert compiled.context_completeness.remote_character_profiles_omitted
+    assert compiled.context_completeness.remote_place_details_omitted
+    assert compiled.context_completeness.closed_objective_details_omitted
+    assert compiled.context_completeness.memory_summary_compacted
+    assert compiled.context_completeness.continuity_memory_details_omitted
+
+    assert Enum.map(compiled.history, & &1["sequence"]) == [1 | Enum.to_list(7..18)]
+
+    assert Enum.find(compiled.history, &(&1["sequence"] == 1))["payload"]["text"] =~
+             "Marisol stayed"
+
+    assert Enum.any?(compiled.history, &(&1["sequence"] == 18))
+
+    original_marisol = Enum.find(context.characters, &(&1.speaker_id == "marisol"))
+    marisol = Enum.find(compiled.characters, &(&1.speaker_id == "marisol"))
+    assert marisol.visible_facts == original_marisol.visible_facts
+    assert marisol.gm_private_facts == original_marisol.gm_private_facts
+    assert marisol.voice_guidance.accent == "French"
+
+    archivist = Enum.find(compiled.characters, &(&1.speaker_id == "archivist"))
+
+    assert Map.get(archivist, "current_place") == %{
+             place_id: "archive",
+             name: "The Copper Archive",
+             visibility: :public
+           }
+
+    refute Map.has_key?(archivist, :visible_facts)
+    refute Map.has_key?(archivist, :gm_private_facts)
+    refute Map.has_key?(archivist, :voice_guidance)
+
+    archive = Enum.find(compiled.places.public, &(&1.place_id == "archive"))
+    assert archive == %{place_id: "archive", name: "The Copper Archive", visibility: :public}
+
+    assert Enum.find(compiled.places.public, &(&1.place_id == "finca")).description ==
+             Enum.find(context.places.public, &(&1.place_id == "finca")).description
+
+    assert Enum.find(compiled.places.public, &(&1.place_id == "bodega")).description ==
+             Enum.find(context.places.public, &(&1.place_id == "bodega")).description
+
+    active_objective =
+      Enum.find(compiled.objectives.public, &(&1.objective_id == "cellar-review"))
+
+    assert active_objective.details =~ "Compare the Bodega records"
+
+    closed_objective =
+      Enum.find(compiled.objectives.public, &(&1.objective_id == "closed-market-report"))
+
+    refute Map.has_key?(closed_objective, :details)
+
+    relevant_commitment =
+      Enum.find(compiled.continuity.public, &(&1.entry_id == "finca-staff-commitment"))
+
+    assert relevant_commitment.details =~ "Marisol promised"
+
+    irrelevant_commitment =
+      Enum.find(compiled.continuity.public, &(&1.entry_id == "archive-lunch"))
+
+    refute Map.has_key?(irrelevant_commitment, :details)
+
+    assert compiled.world == context.world
+    assert compiled.player_action == context.player_action
+    assert length(context.history) == 18
     refute Jason.encode!(metrics) =~ "Hidden cellar key"
     assert metrics.section_bytes.section_world_bytes > 0
-    assert metrics.section_bytes.section_history_bytes > 0
+    assert metrics.section_bytes.section_history_bytes < byte_size(Jason.encode!(context.history))
+  end
+
+  test "reports no compaction when an under-budget scene has no irrelevant details" do
+    context =
+      base_context()
+      |> update_in([:characters], fn characters ->
+        Enum.map(characters, fn character ->
+          if character.speaker_id == "tomas" do
+            place = %{place_id: "finca", name: "Finca", visibility: :public}
+
+            character
+            |> Map.put(:current_place_id, "finca")
+            |> Map.put(:current_place, place)
+          else
+            character
+          end
+        end)
+      end)
+
+    assert {:ok, %{context: ^context, metrics: metrics}} =
+             ContextBudget.compile(context, "Policy", "gpt-6-astra")
+
+    refute metrics.compacted?
+    assert metrics.omissions == []
+    assert metrics.estimated_request_bytes == request_bytes(context, "Policy")
   end
 
   test "rejects required canonical state that cannot fit instead of truncating it" do

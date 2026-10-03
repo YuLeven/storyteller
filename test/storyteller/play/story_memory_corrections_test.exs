@@ -320,7 +320,8 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     {context, metrics} = Agent.get(captured, & &1)
 
     assert metrics.estimated_request_bytes <= 24_000
-    assert metrics.omissions == [:continuity_memory_details]
+    assert :continuity_memory_details in metrics.omissions
+    assert :history in metrics.omissions
 
     assert Enum.any?(context["continuity"]["public"], fn entry ->
              entry["entry_id"] == public_entry.entry_id and

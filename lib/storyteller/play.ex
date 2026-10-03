@@ -5531,7 +5531,7 @@ defmodule Storyteller.Play do
       )
       |> Enum.reverse()
 
-    events =
+    {events, relevant_older_event_sequences} =
       retrieve_relevant_older_events(
         turn,
         recent_events,
@@ -5590,6 +5590,10 @@ defmodule Storyteller.Play do
           Map.get(state.public_state, "communication_paths", []),
           turn.player_input
         ),
+      # This compiler-only hint lets the bounded request projection preserve
+      # evidence already retrieved by the action/vantage-aware DB query. The
+      # compiler removes it before serializing the model input.
+      context_retrieval: %{older_history_sequences: relevant_older_event_sequences},
       characters:
         Enum.map(characters, fn character ->
           %{
@@ -5685,7 +5689,7 @@ defmodule Storyteller.Play do
          _player_place_id,
          _connections
        ),
-       do: []
+       do: {[], []}
 
   defp retrieve_relevant_older_events(
          turn,
@@ -5730,9 +5734,12 @@ defmodule Storyteller.Play do
         |> Enum.reverse()
       end
 
-    (older_events ++ recent_events)
-    |> Enum.uniq_by(& &1.sequence)
-    |> Enum.sort_by(& &1.sequence)
+    events =
+      (older_events ++ recent_events)
+      |> Enum.uniq_by(& &1.sequence)
+      |> Enum.sort_by(& &1.sequence)
+
+    {events, Enum.map(older_events, & &1.sequence)}
   end
 
   defp history_search_anchors(turn, characters, places_by_id, player_place_id, connections) do

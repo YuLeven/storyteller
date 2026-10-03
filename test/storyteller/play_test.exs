@@ -1854,7 +1854,7 @@ defmodule Storyteller.PlayTest do
     assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
-  test "GM memory is persisted by visibility and only recent events are sent back to the model" do
+  test "GM memory is persisted by visibility and the bounded history keeps the latest scene events" do
     {campaign, session} = play_campaign("The Glass Observatory")
 
     assert {:ok, pending} =
@@ -1902,8 +1902,8 @@ defmodule Storyteller.PlayTest do
     context = Agent.get(context_agent, & &1)
     assert context["memory"]["public_summary"] == ""
     assert context["memory"]["gm_private_summary"] == ""
-    assert length(context["history"]) == 40
-    assert hd(context["history"])["sequence"] == 51
+    assert length(context["history"]) == 12
+    assert hd(context["history"])["sequence"] == 79
     assert List.last(context["history"])["sequence"] == 90
 
     assert {:ok, persisted_context} = Play.model_context(resolved.id)
@@ -2881,10 +2881,12 @@ defmodule Storyteller.PlayTest do
 
     assert Enum.any?(context["objectives"]["gm_private"], fn objective ->
              objective["objective_id"] == "altered-chart-truth" and
-               objective["title"] == "Discover who altered the star chart"
+               objective["title"] == "Discover who altered the star chart" and
+               objective["details"] ==
+                 "The chart was secretly changed before the observatory closed."
            end)
 
-    assert Jason.encode!(context["history"]) =~ "The chart was secretly changed"
+    refute Jason.encode!(context["history"]) =~ "The chart was secretly changed"
 
     {:ok, public_projection} = Play.public_projection(campaign.id)
 
@@ -6963,6 +6965,8 @@ defmodule Storyteller.PlayTest do
                event["payload"]["text"] == old_destination_fact
            end)
 
+    refute Map.has_key?(context, "context_retrieval")
+
     refute Enum.any?(context["history"], fn event ->
              event["payload"]["text"] == archive_decoy_text
            end)
@@ -7032,6 +7036,8 @@ defmodule Storyteller.PlayTest do
                event["sequence"] == source_event.sequence and
                  event["payload"]["text"] == scenario.old_destination_fact
              end)
+
+      refute Map.has_key?(context, "context_retrieval")
 
       refute Enum.any?(context["history"], fn event ->
                event["payload"]["text"] == scenario.archive_decoy_text

@@ -447,6 +447,7 @@ defmodule Storyteller.GM.ContextBudget do
   def compile(context, instructions, model, opts)
       when is_map(context) and is_binary(instructions) do
     budget = byte_budget(model, opts)
+    {context, preferred_history_sequences} = without_context_retrieval_metadata(context)
 
     {selected_context, continuity_details_omitted?} =
       retrieve_relevant_continuity_details(context)
@@ -477,52 +478,44 @@ defmodule Storyteller.GM.ContextBudget do
       |> Enum.filter(&elem(&1, 1))
       |> Enum.map(&elem(&1, 0))
 
-    retrieval_omitted? = retrieval_omissions != []
+    first_pass = compact_context(selected_context, preferred_history_sequences)
 
-    full =
+    omissions = Enum.uniq(retrieval_omissions ++ first_pass.omissions)
+
+    metrics =
       measure(
-        selected_context,
+        first_pass.context,
         instructions,
         budget,
-        retrieval_omitted?,
-        retrieval_omissions
+        omissions != [],
+        omissions
       )
 
-    cond do
-      full.estimated_request_bytes <= budget ->
-        {:ok, %{context: selected_context, metrics: full}}
+    if metrics.estimated_request_bytes <= budget do
+      {:ok, %{context: first_pass.context, metrics: metrics}}
+    else
+      {context, _compacted_omissions, metrics} =
+        compact_history_to_budget(
+          first_pass.context,
+          instructions,
+          budget,
+          omissions,
+          metrics
+        )
 
-      true ->
-        compacted = compact_context(selected_context)
-        omissions = Enum.uniq(retrieval_omissions ++ compacted.omissions)
-        metrics = measure(compacted.context, instructions, budget, true, omissions)
+      if metrics.estimated_request_bytes <= budget do
+        {:ok, %{context: context, metrics: metrics}}
+      else
+        {context, _omissions, metrics} =
+          omit_history_to_budget(context, instructions, budget, omissions, metrics)
 
         if metrics.estimated_request_bytes <= budget do
-          {:ok, %{context: compacted.context, metrics: metrics}}
+          {:ok, %{context: context, metrics: metrics}}
         else
-          {context, _compacted_omissions, metrics} =
-            compact_history_to_budget(
-              compacted.context,
-              instructions,
-              budget,
-              omissions,
-              metrics
-            )
-
-          if metrics.estimated_request_bytes <= budget do
-            {:ok, %{context: context, metrics: metrics}}
-          else
-            {context, _omissions, metrics} =
-              omit_history_to_budget(context, instructions, budget, omissions, metrics)
-
-            if metrics.estimated_request_bytes <= budget do
-              {:ok, %{context: context, metrics: metrics}}
-            else
-              emit_metrics(metrics)
-              {:error, :context_budget_exceeded}
-            end
-          end
+          emit_metrics(metrics)
+          {:error, :context_budget_exceeded}
         end
+      end
     end
   rescue
     _error -> {:error, :context_budget_exceeded}
@@ -592,13 +585,17 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp metric_key(section), do: Map.fetch!(@section_metric_keys, section)
 
-  defp compact_context(context) do
+  defp compact_context(context, preferred_history_sequences) do
     terms = query_terms(context)
     history_query = history_query(context)
     player_place_id = player_place_id(context)
 
     {history, history_omitted?} =
-      compact_history(Map.get(context, "history", context[:history]), history_query)
+      compact_history(
+        Map.get(context, "history", context[:history]),
+        history_query,
+        MapSet.new(preferred_history_sequences)
+      )
 
     {characters, profiles_omitted?} =
       compact_characters(
@@ -1139,19 +1136,33 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp memory_term_alias(term), do: Map.get(@memory_term_aliases, term, term)
 
-  defp compact_history(history, terms) when is_list(history) do
+  defp compact_history(history, terms, preferred_sequences) when is_list(history) do
     story_events = Enum.filter(history, &conversation_event?/1)
     recent = Enum.take(story_events, -@recent_history_count)
     recent_sequences = MapSet.new(recent, &event_sequence/1)
 
-    relevant_older =
+    older_candidates =
       story_events
       |> Enum.reject(&MapSet.member?(recent_sequences, event_sequence(&1)))
-      |> Enum.map(&{history_relevance_score(&1, terms), &1})
-      |> Enum.filter(&(elem(&1, 0) > 0))
-      |> Enum.sort_by(fn {score, event} -> {-score, -event_sequence(event)} end)
+      |> Enum.map(fn event ->
+        preferred? = MapSet.member?(preferred_sequences, event_sequence(event))
+        {history_relevance_score(event, terms), preferred?, event}
+      end)
+
+    has_relevant_retrieved_event? =
+      Enum.any?(older_candidates, fn {score, preferred?, _event} -> preferred? and score > 0 end)
+
+    relevant_older =
+      older_candidates
+      |> Enum.filter(fn {score, preferred?, _event} ->
+        score > 0 or (preferred? and not has_relevant_retrieved_event?)
+      end)
+      |> Enum.sort_by(fn {score, preferred?, event} ->
+        {if(score > 0, do: 0, else: 1), if(preferred?, do: 0, else: 1), -score,
+         -event_sequence(event)}
+      end)
       |> Enum.take(@relevant_history_count)
-      |> Enum.map(&elem(&1, 1))
+      |> Enum.map(&elem(&1, 2))
 
     selected =
       relevant_older
@@ -1163,7 +1174,7 @@ defmodule Storyteller.GM.ContextBudget do
     {selected, omitted?}
   end
 
-  defp compact_history(history, _terms), do: {history, false}
+  defp compact_history(history, _terms, _preferred_sequences), do: {history, false}
 
   defp conversation_event?(event) when is_map(event) do
     type = Map.get(event, "event_type", Map.get(event, :event_type))
@@ -1219,7 +1230,10 @@ defmodule Storyteller.GM.ContextBudget do
       Enum.map_reduce(characters, false, fn character, any_omitted? ->
         speaker_id = value(character, :speaker_id)
         place_id = value(character, :current_place_id)
-        mentioned? = name_mentioned?(value(character, :name), terms)
+
+        mentioned? =
+          name_mentioned?(value(character, :name), terms) or
+            character_facts_relevant?(character, terms)
 
         scene_character? =
           speaker_id == "player" or (is_binary(player_place_id) and place_id == player_place_id)
@@ -1244,6 +1258,10 @@ defmodule Storyteller.GM.ContextBudget do
               :active_duty
             ])
             |> maybe_put_context("current_place", compact_place_identity(current_place))
+            |> maybe_put_context(
+              "visible_facts",
+              small_remote_public_facts(value(character, :visible_facts))
+            )
 
           {compact, true}
         end
@@ -1254,6 +1272,18 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp compact_characters(characters, _terms, _player_place_id), do: {characters, false}
 
+  defp small_remote_public_facts(facts) when is_map(facts) do
+    if byte_size(Jason.encode!(facts)) <= 256, do: facts
+  end
+
+  defp small_remote_public_facts(_facts), do: nil
+
+  defp character_facts_relevant?(character, terms) do
+    [value(character, :visible_facts), value(character, :gm_private_facts)]
+    |> Enum.filter(&is_map/1)
+    |> Enum.any?(fn facts -> relevance_score(Jason.encode!(facts), terms) > 0 end)
+  end
+
   defp compact_places(places, terms, player_place_id, context) when is_map(places) do
     edges = Map.get(context, "travel_connections", context[:travel_connections]) || %{}
 
@@ -1261,6 +1291,21 @@ defmodule Storyteller.GM.ContextBudget do
       edges
       |> all_edges()
       |> Enum.flat_map(fn edge -> [value(edge, :place_a_id), value(edge, :place_b_id)] end)
+      |> MapSet.new()
+
+    relevant_character_place_ids =
+      context
+      |> value(:characters)
+      |> List.wrap()
+      |> Enum.filter(fn character ->
+        speaker_id = value(character, :speaker_id)
+
+        speaker_id == "player" or value(character, :current_place_id) == player_place_id or
+          name_mentioned?(value(character, :name), terms) or
+          character_facts_relevant?(character, terms)
+      end)
+      |> Enum.map(&value(&1, :current_place_id))
+      |> Enum.filter(&is_binary/1)
       |> MapSet.new()
 
     {result, omitted?} =
@@ -1272,6 +1317,7 @@ defmodule Storyteller.GM.ContextBudget do
 
             relevant? =
               place_id == player_place_id or MapSet.member?(adjacent_ids, place_id) or
+                MapSet.member?(relevant_character_place_ids, place_id) or
                 name_mentioned?(value(place, :name), terms)
 
             if relevant? do
@@ -1633,6 +1679,17 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp name_mentioned?(_name, _terms), do: false
+
+  defp without_context_retrieval_metadata(context) when is_map(context) do
+    metadata = value(context, :context_retrieval) || %{}
+    sequences = value(metadata, :older_history_sequences)
+    sequences = if is_list(sequences), do: Enum.filter(sequences, &is_integer/1), else: []
+
+    context = Map.delete(context, :context_retrieval) |> Map.delete("context_retrieval")
+    {context, sequences}
+  end
+
+  defp without_context_retrieval_metadata(context), do: {context, []}
 
   defp value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, to_string(key)))
   defp value(_map, _key), do: nil
