@@ -1178,7 +1178,14 @@ defmodule StorytellerWeb.SessionLive.Show do
           do: socket.assigns.timeline_has_earlier?,
           else: has_earlier?
 
-      current_turn = Play.public_current_turn(campaign_id)
+      session_id = socket.assigns.session.id
+
+      current_turn =
+        case Play.public_current_turn(campaign_id) do
+          %{session_id: ^session_id} = turn -> turn
+          _ -> nil
+        end
+
       previous_turn = socket.assigns.current_turn
       current_turn_roll = player_roll_result(timeline, current_turn)
 

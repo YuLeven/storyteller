@@ -1,5 +1,15 @@
 # Feature log
 
+## 2026-10-02 — Keep session recovery scoped and the MVP QA gate honest
+
+- Corrected the QA conclusion: the earlier statement that the functional MVP gate had passed was premature. Core time-passage, retry, reload, and cross-session recall paths have live evidence in the separate Quiet Observatory campaign, but sign-off remains open.
+- During the reload/layout QA window, an unrequested failed turn with player text “A day passes” appeared in a later session. It changed no canonical state and was not retried; its origin is unknown. A review of an earlier session showed that the campaign-wide current-turn lookup leaked that later session's failure and pending text into the earlier session.
+- Scoped `public_current_turn` presentation to the session being viewed and added a LiveView regression proving that a later failed turn does not show its error or pending action in an earlier session. The underlying campaign-wide turn lookup remains in the submit/recovery flow; only the review screen projection is session-scoped.
+- Added an assertion that opening a failed same-session turn preserves its saved input and failed status without incrementing its attempt count, so loading the screen does not silently retry it.
+- Kept the compact 700–799px desktop layout: at 1280×720 it retains a fixed-height board and a readable story viewport after compressing secondary chrome. This was visually measured in the separate fictional QA session; it does not close the functional MVP gate.
+- Remaining MVP QA includes investigating the unexplained submission path and finishing the unverified functional checks without opening or mutating the vineyard campaign. V1 P0 remains story quality and play-disrupting UI issues; open-source clone/run and secret-handling preparation follows once the game is polished enough for 1.0.
+- **Checks in WSL:** focused SessionLive suite **69 tests, 0 failures**; full suite **431 tests, 0 failures**; test and dev warnings-as-errors compilation, formatter, Gettext extraction freshness, and `git diff --check` passed. The test suite uses fake providers; no live model call was made during this verification.
+
 ## 2026-10-02 — Set the functional MVP exit and V1 P0
 
 - The owner clarified the product sequence: finish QA of basic campaign play and persistence, then call the functional baseline the MVP. MVP qualification does not claim story-quality parity with ChatGPT.
@@ -20,7 +30,7 @@
 - In the separate Quiet Observatory QA campaign, the first live “advance ten minutes” response failed proposal validation without changing canon. Retrying the same saved turn succeeded: server-tracked elapsed time advanced exactly ten minutes, the character stayed in the guest room, and the canonical weather fields stayed unchanged. The story and clock persisted after reload.
 - Started a later session and confirmed the board retained the clock, place, and earlier campaign story. A live Ask about Mira failed proposal validation on its first attempt; retry correctly recalled her current corridor location and that she was waiting to take Rowan to the kitchen for sherry and oatcakes before comparing charts. The completed question and state persisted after reload.
 - The LiveView route hint is now limited to action turns, so an unrelated time-passage or question validation failure does not show movement advice. A behavior test covers that distinction.
-- **Functional MVP gate passed** against separate fictional data; this is not a V1 story-quality claim. The two live turns both needed a retry, so first-try response reliability, adaptive pacing, and comparison with the in-chat reference remain V1 P0. The imported comparison campaign's resource-panel rendering was not inspected.
+- **Initial conclusion superseded:** at the time, the available stateful and cross-session observations were treated as passing the functional gate. Subsequent QA found an unexplained failed submission and a cross-session error/pending-action leak; the gate is now explicitly open in `docs/UX_ACCEPTANCE.md`. This was not a V1 story-quality claim. The two live turns both needed a retry, so first-try reliability, adaptive pacing, and comparison with the in-chat reference remain V1 P0. The imported comparison campaign's resource-panel rendering was not inspected.
 - **Checked in WSL:** full suite **430 tests, 0 failures**; warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. No Vineyard content was read or changed.
 
 ## 2026-10-02 — Keep the GM inventory view within the local context budget

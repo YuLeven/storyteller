@@ -77,6 +77,7 @@ defmodule StorytellerWeb.SessionLiveTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.Auth.{Credentials, TokenStore}
+  alias Storyteller.Campaigns
   alias Storyteller.Play
 
   alias Storyteller.Play.{
@@ -1724,6 +1725,44 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert has_element?(view, "#turn-error", "This turn needs attention")
     refute has_element?(view, "#turn-error", "If the request involved character movement")
+
+    saved_turn = Play.public_current_turn(campaign.id)
+    reloaded_turn = Repo.get!(Turn, saved_turn.id)
+
+    assert reloaded_turn.status == :failed
+    assert reloaded_turn.attempts == 1
+    assert reloaded_turn.player_input == "Advance ten minutes quietly."
+  end
+
+  test "a failed turn in a later session does not appear while reviewing an earlier session", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [first_session] = campaign.sessions
+    {:ok, later_session} = Campaigns.start_session(campaign, %{title: "Later session"})
+
+    Repo.insert!(
+      Turn.changeset(%Turn{}, %{
+        campaign_id: campaign.id,
+        session_id: later_session.id,
+        idempotency_key: "later-session-failed-turn",
+        request_hash: String.duplicate("0", 64),
+        player_input: "A day passes",
+        intent: :time_passage,
+        status: :failed,
+        resolution_phase: :initial,
+        attempts: 1,
+        failure_code: "invalid_response",
+        failure_stage: :proposal_validation
+      })
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{first_session.id}")
+
+    assert has_element?(view, "h1", "Session 1")
+    assert has_element?(view, "#story-timeline")
+    refute has_element?(view, "#turn-error")
+    refute has_element?(view, "#story-pending-action", "A day passes")
   end
 
   test "a follow-up submitted during resolution stays in the composer until sent", %{conn: conn} do
