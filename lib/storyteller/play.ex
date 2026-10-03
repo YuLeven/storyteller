@@ -288,8 +288,8 @@ defmodule Storyteller.Play do
   assume follow-through. For ongoing work or waits, montage to requested scale.
   If unclear, resolve only the immediate consequence; avoid micro-actions,
   forced dialogue, and menus.
-  No recap or panel facts. elapsed_world_clock is exact minutes; never parse
-  labels. Keep place/conditions consistent, narrating changes only. Use public
+  No recap/panel facts. elapsed_world_clock is exact minutes; don't parse labels.
+  Keep place/conditions consistent; narrate changes only. Use public
   date/time/weather keys. Answer from public canon/vantage. No new people, items,
   exits/routes, hazards, clues, services, or actionable facts without accepted
   canon (people also need presence). Ask when canon-critical context is absent;
@@ -302,9 +302,10 @@ defmodule Storyteller.Play do
   voice.
   Their meaningful visible work may continue between player actions; private
   intent stays private until revealed.
-  Keep dialogue proportional. NPCs add their perspective or action, not echoes;
-  combine related lines, avoid filler/repeated gestures, and don't require
-  everyone to speak. Update panels only for meaningful activity. Show warranted
+  NPC dialogue: A present NPC answers direct address in their own dialogue,
+  unless silence is justified. Use one coherent reply; don't echo narration.
+  Avoid filler, repeated gestures, and forced speech. Update panels only for
+  meaningful activity. Show warranted
   progress/consequences; skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
 
@@ -412,7 +413,9 @@ defmodule Storyteller.Play do
   back control at a meaningful decision. Advance NPC/world events only; never
   decide, move, speak, or think for the player character.
 
-  RESPONSE: Return exactly one JSON object with no extra fields: narration;
+  RESPONSE: One JSON object, no extra keys. Narration may be empty if dialogue
+  completes the beat; otherwise narrate concisely without echoing.
+  Return: narration;
   dialogue/activities ({speaker_id,text}); remote_messages ({speaker_id,path_id,text});
   public_changes/private_changes objects; panel_changes;
   character_updates: [] or [{speaker_id,visible_facts,gm_private_facts,reason?}];
@@ -1846,14 +1849,18 @@ defmodule Storyteller.Play do
       end
 
     sequence =
-      append_event!(
-        %{resolution_state | event_sequence: sequence},
-        turn,
-        :gm_narration,
-        :public,
-        nil,
-        %{text: proposal.narration}
-      )
+      if String.trim(proposal.narration) == "" do
+        sequence
+      else
+        append_event!(
+          %{resolution_state | event_sequence: sequence},
+          turn,
+          :gm_narration,
+          :public,
+          nil,
+          %{text: proposal.narration}
+        )
+      end
 
     sequence =
       append_character_creation_events(
@@ -3066,13 +3073,14 @@ defmodule Storyteller.Play do
            ),
          characters = known_characters ++ character_creations,
          speaker_ids = Enum.map(characters, & &1.speaker_id),
-         {:ok, narration} <-
-           tagged_proposal_validation(text_field(proposal, :narration, 1, 10_000), :narration),
-         {:ok, dialogue} <-
+         {:ok, dialogue_lines} <-
            tagged_proposal_validation(
              validate_lines(field(proposal, :dialogue, []), characters),
              :dialogue
            ),
+         dialogue = coalesce_dialogue_lines(dialogue_lines),
+         {:ok, narration} <-
+           tagged_proposal_validation(validate_narration(proposal, dialogue), :narration),
          {:ok, activities} <-
            tagged_proposal_validation(
              validate_lines(field(proposal, :activities, []), characters),
@@ -4697,6 +4705,20 @@ defmodule Storyteller.Play do
 
   defp validate_lines(_lines, _characters), do: {:error, :invalid_response}
 
+  defp coalesce_dialogue_lines(lines) do
+    lines
+    |> Enum.reduce([], fn line, acc ->
+      case acc do
+        [%{speaker_id: speaker_id} = previous | rest] when speaker_id == line.speaker_id ->
+          [%{previous | text: previous.text <> " " <> line.text} | rest]
+
+        _ ->
+          [line | acc]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
   defp validate_character_updates(updates, characters)
        when is_list(updates) and length(updates) <= 30 do
     Enum.reduce_while(updates, {:ok, []}, fn update, {:ok, acc} ->
@@ -4988,14 +5010,21 @@ defmodule Storyteller.Play do
   defp validate_roll_request(nil, :after_roll), do: {:ok, nil}
   defp validate_roll_request(_request, _phase), do: {:error, :invalid_response}
 
-  defp text_field(map, key, min, max) do
-    value = field(map, key)
+  defp validate_narration(proposal, dialogue) do
+    value = field(proposal, :narration)
 
-    if is_binary(value) and String.length(value) >= min and String.length(value) <= max and
-         String.trim(value) != "" do
-      {:ok, value}
-    else
-      {:error, :invalid_response}
+    cond do
+      is_binary(value) and String.trim(value) != "" and String.length(value) <= 10_000 ->
+        {:ok, value}
+
+      is_binary(value) and String.trim(value) == "" and dialogue != [] ->
+        {:ok, ""}
+
+      is_nil(value) and dialogue != [] ->
+        {:ok, ""}
+
+      true ->
+        {:error, :invalid_response}
     end
   end
 

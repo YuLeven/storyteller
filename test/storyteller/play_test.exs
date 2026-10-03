@@ -1439,6 +1439,75 @@ defmodule Storyteller.PlayTest do
            ]
   end
 
+  test "accepts a complete NPC reply without adding an empty GM narration event" do
+    {campaign, session} = play_campaign("Dialogue Without Narrator")
+
+    provider = fn _request ->
+      proposal =
+        ordinary_proposal(%{
+          "narration" => "",
+          "dialogue" => [
+            %{
+              "speaker_id" => "npc:lyra",
+              "text" => "I think we should compare the western marks first."
+            },
+            %{
+              "speaker_id" => "npc:lyra",
+              "text" => "Then we can test that against the sky at night."
+            },
+            %{
+              "speaker_id" => "npc:lyra",
+              "text" => "That is a hunch, not a conclusion."
+            }
+          ],
+          "activities" => [],
+          "character_updates" => [],
+          "public_changes" => %{},
+          "private_changes" => %{},
+          "panel_changes" => [],
+          "time_advance_minutes" => 0
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "dialogue-only-response",
+               "I ask Lyra which marks she thinks we should compare first.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+
+    assert Enum.map(turn_events, & &1.event_type) == [:player_action, :npc_dialogue]
+
+    assert List.last(turn_events).payload["text"] ==
+             "I think we should compare the western marks first. Then we can test that against the sky at night. That is a hunch, not a conclusion."
+  end
+
+  test "still requires narration when the GM provides no dialogue" do
+    {campaign, session} = play_campaign("Narration Required Without Dialogue")
+
+    provider = fn _request ->
+      {:ok, Jason.encode!(ordinary_proposal(%{"narration" => "", "dialogue" => []}))}
+    end
+
+    assert {:ok, %{status: :failed, failure_category: :narration}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "empty-narration-no-dialogue",
+               "I wait for a response.",
+               provider: provider,
+               model: "test-model"
+             )
+  end
+
   test "loads a module provider before checking its callback" do
     {campaign, session} = play_campaign("The Glass Observatory")
     provider = Storyteller.PlayTest.LazyModuleProvider
@@ -5949,10 +6018,14 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "never assume follow-through."
 
     assert instructions =~
-             "Keep dialogue proportional. NPCs add their perspective or action, not echoes"
+             "NPC dialogue: A present NPC answers direct address in their own dialogue, unless silence is justified."
+
+    assert instructions =~ "Use one coherent reply; don't echo narration."
+
+    assert instructions =~ "Narration may be empty if dialogue completes the beat"
 
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
-    assert instructions =~ "combine related lines"
+    assert instructions =~ "Avoid filler, repeated gestures, and forced speech."
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
