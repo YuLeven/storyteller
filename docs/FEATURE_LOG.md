@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-02 — Recheck connected time-passage recovery
+
+- In the separate Quiet Observatory QA session, one owner-authorized retry of the saved “A day passes” turn stayed in progress for about 20 seconds and ended with a safe-rejection message. The player input remained visible, and the world state and story did not change. The connected account was not shown as paused during this attempt.
+- Read-only metadata records `invalid_response` at `proposal_validation`, but the specific allow-listed rejection category is not persisted and no server terminal was attached. The exact rule failure remains unknown. No further live retry was sent on the same turn.
+- At 1280×720, the outer document fits the viewport, but the story reader and right player board scroll separately. The board has 810px of content in a 434px viewport; this is a visible gap against the goal that play-state panels remain available without their own scroll.
+- **QA boundary:** no campaign state was edited manually and no data was imported.
+
 ## 2026-10-02 — Keep account usage recovery truthful during status outages
 
 - Replaced the ambiguous boolean usage check with `available`, `paused`, and `unavailable` states. If local status storage temporarily fails, Storyteller holds provider requests and tells the player it cannot check status; it does not claim ChatGPT reported a limit or offer the account-resume action. A local Check again control restores the appropriate state without making a provider request.
