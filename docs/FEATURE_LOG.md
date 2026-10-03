@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-03 — Reserve readable story space on laptop-height desktops
+
+- The 1280×720 acceptance measurement showed only 116px of visible story history. The laptop-height play layout now keeps the story card at least 20rem tall; the story remains independently scrollable and the main column can scroll to the sticky composer and nudges. The wide player rail also scrolls independently when its board is taller than the viewport.
+- Added a synthetic layout contract regression for the reserved story height, composer/nudge availability, and player-rail scrolling. The main-column scroll and sticky composer remain available when content exceeds the viewport; the player rail scrolls independently. The exact rendered viewport pixels still need browser visual verification.
+- **Checks:** WSL layout tests passed (**2 tests, 0 failures**); the full isolated WSL suite passed (**484 tests, 0 failures**); formatter, asset build, and `git diff --check` passed. No campaign database was accessed and no GM request was sent.
+
 ## 2026-10-03 — Keep long tracked-resource headings inside the play board
 
 - The player board already wrapped long field labels, units, and values, but a long unbroken campaign-panel name could still overflow the sidebar. Reused the resource-text wrapping rule on each panel heading.

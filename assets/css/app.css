@@ -772,6 +772,12 @@
     min-height: 2.6rem;
     max-height: 4rem;
   }
+
+  .play-page main > section:has(#story-timeline) {
+    /* Keep enough history visible to read the scene. If the composer and
+       other turn state need more room, the main column scrolls around it. */
+    min-height: 20rem;
+  }
 }
 
 /* At a full desktop width, use the board rail as a compact status board rather
@@ -784,13 +790,15 @@
 
   .play-page .play-sidebar {
     display: grid;
-    height: auto;
-    max-height: none !important;
+    height: 100%;
+    max-height: 100% !important;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-content: start;
     align-items: start;
     gap: 0.4rem !important;
-    overflow: visible;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
     scrollbar-width: auto;
   }
 

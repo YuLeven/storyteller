@@ -55,4 +55,54 @@ defmodule StorytellerWeb.SessionLiveLayoutTest do
 
     assert story_rules =~ "overflow-y: auto;"
   end
+
+  test "laptop-height desktop reserves story space and keeps the player rail reachable" do
+    css = File.read!(@stylesheet)
+
+    laptop_height =
+      "@media (min-width: 1024px) and (min-height: 700px) and (max-height: 799px)"
+
+    wide_desktop = "@media (min-width: 1200px) and (min-height: 700px)"
+
+    assert [_, laptop_css] = String.split(css, laptop_height, parts: 2)
+    assert [laptop_css, _wide_desktop_css] = String.split(laptop_css, wide_desktop, parts: 2)
+
+    assert [story_section_rules] =
+             Regex.run(
+               ~r/\.play-page main > section:has\(#story-timeline\) \{([^}]+)\}/,
+               laptop_css,
+               capture: :all_but_first
+             )
+
+    assert story_section_rules =~ "min-height: 20rem;"
+
+    assert [main_rules] =
+             Regex.run(
+               ~r/\.play-page > div:has\(> #campaign-panels\) > \.grid:has\(> main\) > main \{([^}]+)\}/,
+               css,
+               capture: :all_but_first
+             )
+
+    assert main_rules =~ "overflow-y: auto;"
+
+    markup =
+      File.read!(
+        Path.expand("../../../lib/storyteller_web/live/session_live/show.html.heex", __DIR__)
+      )
+
+    assert markup =~ ~s(id="turn-composer-card")
+    assert markup =~ "turn-mode-nudge-row"
+
+    assert [_, wide_desktop_css] = String.split(css, wide_desktop, parts: 2)
+
+    assert [player_rail_rules] =
+             Regex.run(
+               ~r/\.play-page \.play-sidebar \{([^}]+)\}/,
+               wide_desktop_css,
+               capture: :all_but_first
+             )
+
+    assert player_rail_rules =~ "max-height: 100% !important;"
+    assert player_rail_rules =~ "overflow-y: auto;"
+  end
 end
