@@ -1067,7 +1067,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert policy =~
              "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"
 
-    assert policy =~ "Record witnessed evidence, not guessed causes"
+    assert policy =~
+             "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
 
     compacted_characters = Map.new(compacted.characters, &{&1.speaker_id, &1})
 

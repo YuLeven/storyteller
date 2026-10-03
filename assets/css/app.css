@@ -569,7 +569,11 @@
 
   .play-page > div:has(> #campaign-panels) > .grid:has(> main) {
     display: grid;
-    flex: 1 1 auto;
+    /* Give the grid a definite flexed height and a shrinkable row. An auto
+       implicit row can grow to its content size in Firefox, then be clipped
+       by the viewport-locked shell before the composer becomes reachable. */
+    flex: 1 1 0%;
+    grid-template-rows: minmax(0, 1fr);
     min-height: 0;
     margin-top: 0 !important;
     grid-template-columns: minmax(0, 1fr) 19rem;

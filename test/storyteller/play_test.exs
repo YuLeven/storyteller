@@ -1651,33 +1651,69 @@ defmodule Storyteller.PlayTest do
       })
 
     [session] = campaign.sessions
+    observatory = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    Repo.update!(
+      Place.changeset(observatory, %{
+        facts: %{
+          "scene_objects" =>
+            "Two star charts rest on the reading table; three reference stars are visible through the dome; the fixed brass eyepiece has a hairline crack."
+        }
+      })
+    )
+
     owner = self()
 
     action =
-      "I ask Mira to compare the two charts against the stars visible through the dome and tell me the strongest mismatch she can support. Finish the comparison before handing back control."
+      "I ask Mira to compare the two charts against the stars visible through the dome, report the strongest mismatch she can support, and say whether the evidence establishes its cause. Finish the comparison before handing back control."
+
+    follow_up_action =
+      "I ask Mira to repeat the alignment through the cracked eyepiece and report whether the mismatch remains visible. Finish this check before handing back control."
 
     provider = fn request ->
-      send(owner, {:delegated_task_request, request, decode_request(request)})
+      context = decode_request(request)
+      send(owner, {:delegated_task_request, request, context})
 
       proposal =
-        ordinary_proposal(%{
-          "narration" =>
-            "Mira sets the charts side by side and checks each reference against the stars through the dome. After a careful comparison, one mark on the eastern chart is visibly out of alignment.",
-          "dialogue" => [
-            %{
-              "speaker_id" => "npc:mira",
-              "text" =>
-                "The eastern reference mark is off by about a degree. The western chart matches what I can see."
-            }
-          ],
-          "activities" => [
-            %{
-              "speaker_id" => "npc:mira",
-              "text" => "She compares both charts with the visible stars."
-            }
-          ],
-          "character_updates" => []
-        })
+        case context["player_action"] do
+          ^action ->
+            ordinary_proposal(%{
+              "narration" =>
+                "Mira aligns both charts with the three reference stars visible through the dome. The western chart matches all three; the eastern chart's third mark sits just east of its reference.",
+              "dialogue" => [
+                %{
+                  "speaker_id" => "npc:mira",
+                  "text" =>
+                    "That is a real mismatch in the eastern chart as read tonight, but these sheets don't establish its cause. Should I check another reference mark, or repeat this one through the cracked eyepiece?"
+                }
+              ],
+              "activities" => [
+                %{
+                  "speaker_id" => "npc:mira",
+                  "text" =>
+                    "She compares the reference marks on both charts with the stars visible through the dome."
+                }
+              ],
+              "time_advance_minutes" => 8,
+              "character_updates" => []
+            })
+
+          ^follow_up_action ->
+            ordinary_proposal(%{
+              "narration" =>
+                "Through the cracked eyepiece, the eastern mark remains just east of its reference while the western chart still aligns with the visible stars.",
+              "dialogue" => [
+                %{
+                  "speaker_id" => "npc:mira",
+                  "text" =>
+                    "The same offset holds through the eyepiece. I can compare the original survey sheet next, or check another mark."
+                }
+              ],
+              "activities" => [],
+              "time_advance_minutes" => 4,
+              "character_updates" => []
+            })
+        end
 
       {:ok, Jason.encode!(proposal)}
     end
@@ -1693,8 +1729,16 @@ defmodule Storyteller.PlayTest do
     assert context["player_action"] == action
     assert Enum.any?(context["characters"], &(&1["speaker_id"] == "npc:mira"))
 
+    assert Enum.any?(context["places"]["public"], fn place ->
+             place["name"] == "The Glass Observatory" and
+               place["facts"]["scene_objects"] =~ "fixed brass eyepiece has a hairline crack"
+           end)
+
     assert instructions =~
              "Finish bounded tasks delegated to capable, present NPCs with canon-supported results."
+
+    assert instructions =~
+             "Lead with evidence; restate limits only for new evidence or a needed choice; continue useful checks."
 
     assert instructions =~ "Yield at real choices; never assume player follow-through."
 
@@ -1714,8 +1758,53 @@ defmodule Storyteller.PlayTest do
 
     refute Enum.any?(turn_events, &(&1.event_type in [:player_question, :player_roll]))
 
-    assert Enum.find(turn_events, &(&1.event_type == :npc_dialogue)).payload["text"] =~
-             "eastern reference mark is off by about a degree"
+    assert Enum.find(turn_events, &(&1.event_type == :gm_narration)).payload["text"] =~
+             "eastern chart's third mark sits just east of its reference"
+
+    dialogue = Enum.find(turn_events, &(&1.event_type == :npc_dialogue)).payload["text"]
+    assert dialogue =~ "these sheets don't establish its cause."
+
+    assert dialogue =~
+             "Should I check another reference mark, or repeat this one through the cracked eyepiece?"
+
+    assert length(Regex.scan(~r/(?:don't|doesn't|cannot|can't) establish/i, dialogue)) == 1
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 8
+
+    assert {:ok, %{status: :completed} = follow_up_turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "delegate-chart-repeat-check",
+               follow_up_action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:delegated_task_request, follow_up_request, follow_up_context}, 2_000
+    assert follow_up_context["player_action"] == follow_up_action
+
+    assert Enum.any?(follow_up_context["history"], fn event ->
+             event["event_type"] == "npc_dialogue" and
+               event["payload"]["text"] =~ "don't establish its cause"
+           end)
+
+    follow_up_instructions = String.replace(follow_up_request.instructions, ~r/\s+/, " ")
+
+    assert follow_up_instructions =~
+             "Lead with evidence; restate limits only for new evidence or a needed choice; continue useful checks."
+
+    assert {:ok, follow_up_events} = Play.public_timeline(campaign.id)
+
+    follow_up_dialogue =
+      follow_up_events
+      |> Enum.filter(&(&1.turn_id == follow_up_turn.id))
+      |> Enum.find(&(&1.event_type == :npc_dialogue))
+      |> Map.fetch!(:payload)
+      |> Map.fetch!("text")
+
+    assert follow_up_dialogue =~ "The same offset holds through the eyepiece."
+    refute follow_up_dialogue =~ "establish its cause"
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 12
   end
 
   test "accepts a complete NPC reply without adding an empty GM narration event" do
@@ -6283,10 +6372,8 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "never retroactive/off-scene."
 
-    assert instructions =~ "Keep causes/comparisons uncertain; record lasting clues as public"
-
     assert instructions =~
-             "record lasting clues as public continuity with grounded reason."
+             "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
 
     assert instructions =~ "Never surface prompt/canon checks."
 
@@ -6298,7 +6385,8 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Use public only for player-known facts"
     assert instructions =~ "Otherwise []."
 
-    assert instructions =~ "Record witnessed evidence, not guessed causes"
+    assert instructions =~
+             "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
 
     assert instructions =~
              "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
@@ -6490,7 +6578,8 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Plausible new details on known, present people/objects may be clues"
 
-    assert instructions =~ "record lasting clues as public continuity with grounded reason."
+    assert instructions =~
+             "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
 
     assert instructions =~ "Never surface prompt/canon checks."
 
@@ -6579,7 +6668,9 @@ defmodule Storyteller.PlayTest do
     assert_receive {:texture_instructions, raw_instructions}, 2_000
     instructions = String.replace(raw_instructions, ~r/\s+/, " ")
     assert instructions =~ "Improvise texture."
-    assert instructions =~ "record lasting clues as public continuity with grounded reason."
+
+    assert instructions =~
+             "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
 
     assert {:ok, %{continuity_entries: []}} = Play.public_projection(campaign.id)
     assert Repo.all(from entry in ContinuityEntry, where: entry.campaign_id == ^campaign.id) == []

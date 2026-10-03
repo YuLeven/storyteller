@@ -11,6 +11,16 @@ defmodule StorytellerWeb.SessionLiveLayoutTest do
     refute short_or_narrow_css =~ "html:has(body.tabletop-shell .play-page)"
     refute short_or_narrow_css =~ "body.tabletop-shell:has(.play-page)"
 
+    assert [board_grid_rules] =
+             Regex.run(
+               ~r/\.play-page > div:has\(> #campaign-panels\) > \.grid:has\(> main\) \{([^}]+)\}/,
+               roomy_desktop_css,
+               capture: :all_but_first
+             )
+
+    assert board_grid_rules =~ "flex: 1 1 0%;"
+    assert board_grid_rules =~ "grid-template-rows: minmax(0, 1fr);"
+
     assert [page_shell_rules] =
              Regex.run(
                ~r/html:has\(body\.tabletop-shell \.play-page\),\s*body\.tabletop-shell:has\(\.play-page\) \{([^}]+)\}/,

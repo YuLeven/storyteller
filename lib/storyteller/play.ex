@@ -307,8 +307,9 @@ defmodule Storyteller.Play do
   OBSERVATION/JUDGMENT: GM owns external facts. State 1-2 ordinary senses;
   omissions aren't absence. Improvise texture. Plausible
   new details on known, present people/objects may be clues; never
-  retroactive/off-scene. Keep causes/comparisons uncertain; record lasting clues as public
-  continuity with grounded reason. Never surface prompt/canon checks. Wine,
+  retroactive/off-scene. Lead with evidence; restate limits only for new evidence
+  or a needed choice; continue useful checks. Never surface prompt/canon checks.
+  Wine,
   food, or drink tastings: give sensory details (appearance, aroma, taste,
   finish) first; if relevant, a present NPC expert offers a qualified,
   evidence-based view. Yield for player reaction; never ask them to invent
@@ -320,8 +321,7 @@ defmodule Storyteller.Play do
   never assume player follow-through. Finish bounded tasks delegated to capable,
   present NPCs with canon-supported results. Ask only for blockers; state limits;
   never invent success or player actions.
-  If unclear, resolve the immediate consequence; avoid micro-actions, forced
-  dialogue, and menus.
+  Resolve unclear intent; avoid micro-actions, forced dialogue, and menus.
   No recap/panel facts. elapsed_world_clock is exact minutes; don't parse labels.
   Keep place/conditions consistent; narrate changes only. Use public
   date/time/weather keys. Answer from public canon/vantage. No unearned people,
@@ -408,8 +408,8 @@ defmodule Storyteller.Play do
   title,details,visibility},reason}; update {type:"update",entry_id,title?,
   details?,status?,reason}. Use only those keys; fresh IDs; one change per
   entry/turn. Kind/visibility are fixed; closed entries stay closed; never
-  change player_managed entries. Record witnessed evidence, not guessed causes
-  or transient impressions.
+  change player_managed entries. Persist lasting evidence as public continuity;
+  don't guess causes or transient impressions.
   Keep private content/reasons private. Return concise public_summary and
   gm_private_summary updates with supported durable facts, relationships,
   commitments, and work in progress; preserve correct facts, remove resolved

@@ -1,10 +1,16 @@
 # Feature log
 
+## 2026-10-03 — V1 P0 story pacing: lead with evidence and limit repeated caveats
+
+- A fictional chart-inspection review found that the GM can preserve uncertainty while repeating unchanged limits across turns, leaving the player to request each next observation. The runtime policy now leads with supported evidence, repeats a known limit only when new evidence changes it or a choice needs it, continues useful checks, and preserves lasting witnessed evidence as public continuity. Existing canon, uncertainty, player-agency, and bounded-task rules remain in force.
+- Extended the fake-provider chart scenario with public place facts for two charts, visible reference stars, and a cracked eyepiece. Across two turns, the test confirms the prior cause caveat remains available in request history, the next check advances the investigation without repeating it, eight plus four minutes pass, and Mira offers a real next choice. This demonstrates the provider boundary's intended shape; it does not prove generated prose will follow it consistently.
+- **Checks:** focused two-turn chart behavior and the 11 KB instruction guard passed (each: 114 tests discovered, 1 selected, 0 failures); layout regression passed (1 test); full WSL suite passed (**482 tests, 0 failures**). Test and dev compilation with warnings-as-errors, formatting, Gettext freshness, `mix assets.build`, and `git diff --check` passed. All test cases used synthetic fixtures in the isolated WSL test environment; no live provider, OAuth, vineyard data, or player campaign was used.
+
 ## 2026-10-03 — Keep the play composer reachable while scrolling
 
-- Anchored the desktop turn composer to the bottom of the main reading scroll area so players can reach their action box while moving through the story history.
-- Added a focused layout regression that checks the main scroll region and the sticky composer rule. The WSL layout test passed (1 test, 0 failures).
-- Firefox-specific visual confirmation remains open: no local browser engine or browser test harness was available. The campaign page and database were not accessed.
+- Sized the desktop session board to the viewport so the story owns a bounded scroll area and the composer remains visible while players review older events.
+- Added layout regression coverage. The WSL layout test passed (1 test, 0 failures), and the isolated Quiet Observatory board was visually checked at 1280×720 without submitting an action.
+- Firefox-specific confirmation remains open because no Firefox browser was available; no campaign data was changed and no GM request was sent.
 
 ## 2026-10-03 — V1 P0: prevent campaign context from stranding a turn
 
