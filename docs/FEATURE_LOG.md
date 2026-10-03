@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-02 — Keep account usage recovery truthful during status outages
+
+- Replaced the ambiguous boolean usage check with `available`, `paused`, and `unavailable` states. If local status storage temporarily fails, Storyteller holds provider requests and tells the player it cannot check status; it does not claim ChatGPT reported a limit or offer the account-resume action. A local Check again control restores the appropriate state without making a provider request.
+- The saved turn, player input, roll result, and campaign canon remain unchanged. Submit, retry, roll, and automatic resolution stay fail-closed until status is confirmed. Copy and recovery behavior are covered in English, Spanish, and French.
+- **Checks:** focused fake-provider recovery tests **4 passed, 0 failures**; `mix format --check-formatted`, `mix gettext.extract --check-up-to-date`, `mix compile --warnings-as-errors`, and `git diff --check` passed. Full-suite result is recorded in the current QA checkpoint after rerun. No live provider request or campaign access was made.
+
 ## 2026-10-02 — Record the live QA usage-limit outcome
 
 - One controlled Retry of the saved “A day passes” turn in the separate Quiet Observatory QA campaign returned an account usage-limit notice. The input stayed saved; the game date, time, weather, location, and story did not change.

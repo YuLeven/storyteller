@@ -29,12 +29,16 @@ defmodule StorytellerWeb.SessionLive.Show do
          |> push_navigate(to: ~p"/")}
 
       session ->
+        usage_status = current_plan_usage_status()
+
         socket =
           assign(socket,
             page_title: session.title,
             session: session,
             plan_usage_enabled?: OAuth.status().plan_usage_enabled?,
-            plan_usage_paused?: Play.plan_usage_paused?(token_store: plan_usage_store()),
+            plan_usage_status: usage_status,
+            plan_usage_paused?: usage_status == :paused,
+            plan_usage_blocked?: usage_status != :available,
             draft: "",
             interaction_mode: :action,
             input_error?: false,
@@ -422,6 +426,10 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
+  def handle_event("check-plan-usage-status", _params, socket) do
+    {:noreply, refresh_game(socket)}
+  end
+
   @impl true
   def handle_event("load-earlier-story", _params, socket) do
     case List.first(socket.assigns.timeline) do
@@ -459,9 +467,10 @@ defmodule StorytellerWeb.SessionLive.Show do
       interaction_mode(Map.get(params, "intent", Atom.to_string(socket.assigns.interaction_mode)))
 
     latest = Play.public_current_turn(socket.assigns.session.campaign_id)
+    usage_status = current_plan_usage_status()
 
     cond do
-      Play.plan_usage_paused?(token_store: plan_usage_store()) ->
+      usage_status == :paused ->
         {:noreply,
          socket
          |> assign(draft: input)
@@ -470,6 +479,18 @@ defmodule StorytellerWeb.SessionLive.Show do
            :error,
            gettext(
              "ChatGPT plan requests are paused. Check Usage and resume before starting a turn."
+           )
+         )}
+
+      usage_status == :unavailable ->
+        {:noreply,
+         socket
+         |> assign(draft: input)
+         |> refresh_game()
+         |> put_flash(
+           :error,
+           gettext(
+             "Account usage status cannot be checked right now. Requests are paused until it can be checked."
            )
          )}
 
@@ -500,9 +521,10 @@ defmodule StorytellerWeb.SessionLive.Show do
   @impl true
   def handle_event("retry-turn", %{"turn_id" => turn_id}, socket) do
     latest = Play.public_current_turn(socket.assigns.session.campaign_id)
+    usage_status = current_plan_usage_status()
 
     cond do
-      Play.plan_usage_paused?(token_store: plan_usage_store()) ->
+      usage_status == :paused ->
         {:noreply,
          socket
          |> refresh_game()
@@ -510,6 +532,17 @@ defmodule StorytellerWeb.SessionLive.Show do
            :error,
            gettext(
              "ChatGPT plan requests are paused. Check Usage and resume before retrying this turn."
+           )
+         )}
+
+      usage_status == :unavailable ->
+        {:noreply,
+         socket
+         |> refresh_game()
+         |> put_flash(
+           :error,
+           gettext(
+             "Account usage status cannot be checked right now. Requests are paused until it can be checked."
            )
          )}
 
@@ -1188,6 +1221,7 @@ defmodule StorytellerWeb.SessionLive.Show do
 
       previous_turn = socket.assigns.current_turn
       current_turn_roll = player_roll_result(timeline, current_turn)
+      usage_status = current_plan_usage_status()
 
       socket =
         assign(socket,
@@ -1198,7 +1232,9 @@ defmodule StorytellerWeb.SessionLive.Show do
           characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
           timeline: timeline,
           current_situation: latest_public_narration(timeline),
-          plan_usage_paused?: Play.plan_usage_paused?(token_store: plan_usage_store()),
+          plan_usage_status: usage_status,
+          plan_usage_paused?: usage_status == :paused,
+          plan_usage_blocked?: usage_status != :available,
           timeline_has_earlier?: timeline_has_earlier?,
           current_turn: current_turn,
           current_turn_roll: current_turn_roll,
@@ -1326,7 +1362,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp maybe_start_resolution(socket, turn) do
-    if connected?(socket) and not socket.assigns.plan_usage_paused? and not is_nil(turn) and
+    if connected?(socket) and not socket.assigns.plan_usage_blocked? and not is_nil(turn) and
          turn.session_id == socket.assigns.session.id and
          playable?(socket.assigns.session) do
       case turn.status do
@@ -1395,7 +1431,7 @@ defmodule StorytellerWeb.SessionLive.Show do
                   socket.assigns.current_turn,
                   socket.assigns.current_turn_roll,
                   turn_id,
-                  socket.assigns.plan_usage_paused?
+                  socket.assigns.plan_usage_status
                 )
             )
           else
@@ -1809,6 +1845,10 @@ defmodule StorytellerWeb.SessionLive.Show do
     Application.get_env(:storyteller, :plan_usage_token_store, Storyteller.Auth.TokenStore)
   end
 
+  defp current_plan_usage_status do
+    Play.plan_usage_status(token_store: plan_usage_store())
+  end
+
   defp announce_turn_status(socket, previous_turn, current_turn, current_turn_roll) do
     cond do
       not connected?(socket) ->
@@ -1833,7 +1873,7 @@ defmodule StorytellerWeb.SessionLive.Show do
               current_turn,
               current_turn_roll,
               socket.assigns.worker_turn_id,
-              socket.assigns.plan_usage_paused?
+              socket.assigns.plan_usage_status
             )
           end
 
@@ -1841,7 +1881,7 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
-  defp turn_announcement(%{status: status} = turn, result, worker_turn_id, _plan_usage_paused?)
+  defp turn_announcement(%{status: status} = turn, result, worker_turn_id, _plan_usage_status)
        when status in [:pending, :resolving] do
     if worker_turn_id == turn.id do
       responding_announcement(turn, result)
@@ -1854,7 +1894,7 @@ defmodule StorytellerWeb.SessionLive.Show do
          %{status: :awaiting_roll, roll_request: request},
          _result,
          _worker_turn_id,
-         _plan_usage_paused?
+         _plan_usage_status
        ) do
     if valid_roll_request?(request) do
       test = request["test"] || request[:test]
@@ -1869,25 +1909,28 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
-  defp turn_announcement(%{status: :failed} = turn, result, worker_turn_id, plan_usage_paused?) do
+  defp turn_announcement(%{status: :failed} = turn, result, worker_turn_id, plan_usage_status) do
     prefix =
       cond do
         worker_turn_id == turn.id ->
           gettext("Retrying…")
 
-        turn.failure_code == "usage_limit" and plan_usage_paused? ->
+        turn.failure_code == "usage_limit" and plan_usage_status == :paused ->
           gettext("Your turn is saved")
+
+        plan_usage_status == :unavailable ->
+          gettext("The account usage status could not be checked. Your turn remains saved.")
 
         true ->
           gettext("This turn needs attention") <>
             ". " <>
-            failure_message(turn, plan_usage_paused?)
+            failure_message(turn, plan_usage_status)
       end
 
     append_roll_result(prefix, result)
   end
 
-  defp turn_announcement(_turn, _result, _worker_turn_id, _plan_usage_paused?), do: ""
+  defp turn_announcement(_turn, _result, _worker_turn_id, _plan_usage_status), do: ""
 
   defp responding_announcement(%{resolution_phase: :after_roll}, result) when not is_nil(result),
     do: append_roll_result(gettext("The game master is responding"), result)
@@ -2491,13 +2534,16 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp failure_message(_),
     do: gettext("The game master could not resolve this turn. Your action is saved.")
 
-  defp failure_message("usage_limit", true),
+  defp failure_message("usage_limit", status) when status in [:paused, true],
     do:
       gettext(
         "ChatGPT reported an account usage limit. The GM cannot respond until account usage is available."
       )
 
-  defp failure_message("usage_limit", false),
+  defp failure_message("usage_limit", :unavailable),
+    do: gettext("The account usage status could not be checked. Your turn remains saved.")
+
+  defp failure_message("usage_limit", status) when status in [:available, false],
     do: gettext("ChatGPT reported an account usage limit before the GM could respond.")
 
   defp failure_message(

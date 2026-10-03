@@ -69,6 +69,29 @@ defmodule StorytellerWeb.SessionLiveTest.FakeProvider do
   end
 end
 
+defmodule StorytellerWeb.SessionLiveTest.FakeUsageStatusStore do
+  use GenServer
+
+  def start_link(initial_status) do
+    GenServer.start_link(__MODULE__, initial_status)
+  end
+
+  def set_status(server, status), do: GenServer.call(server, {:set_status, status})
+
+  @impl true
+  def init(status), do: {:ok, status}
+
+  @impl true
+  def handle_call(:plan_usage_paused?, _from, :paused), do: {:reply, true, :paused}
+  def handle_call(:plan_usage_paused?, _from, :available), do: {:reply, false, :available}
+
+  def handle_call(:plan_usage_paused?, _from, :unavailable),
+    do: {:reply, {:error, :temporarily_unavailable}, :unavailable}
+
+  def handle_call({:set_status, status}, _from, _current_status),
+    do: {:reply, :ok, status}
+end
+
 defmodule StorytellerWeb.SessionLiveTest do
   use StorytellerWeb.ConnCase, async: false
 
@@ -95,6 +118,7 @@ defmodule StorytellerWeb.SessionLiveTest do
   alias Storyteller.Repo
   alias Storyteller.Settings
   alias StorytellerWeb.SessionLiveTest.FakeProvider
+  alias StorytellerWeb.SessionLiveTest.FakeUsageStatusStore
 
   setup do
     previous_provider = Application.get_env(:storyteller, :gm_provider, :not_configured)
@@ -4731,6 +4755,165 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute Play.plan_usage_paused?(
              token_store: Application.fetch_env!(:storyteller, :plan_usage_token_store)
            )
+  end
+
+  test "an unavailable usage check stays distinct from a limit and recovers locally", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    usage_store = start_supervised!({FakeUsageStatusStore, :available})
+    Application.put_env(:storyteller, :plan_usage_token_store, usage_store)
+    assert {:ok, _preference} = Settings.set_ui_locale("en")
+
+    set_handler(fn _request ->
+      send(test_pid, {:held_provider_request, self()})
+
+      receive do
+        :return_provider_error -> {:error, :provider_error}
+      after
+        5_000 -> flunk("the isolated provider request was not released")
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    assert Play.public_current_turn(campaign.id) == nil
+
+    action = "I ask the keeper whether the road is clear."
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:held_provider_request, provider_pid}, 1_000
+    turn = Play.public_current_turn(campaign.id)
+    assert turn.player_input == action
+    assert turn.status == :resolving
+
+    assert :ok = FakeUsageStatusStore.set_status(usage_store, :unavailable)
+    send(view.pid, :refresh_turn)
+
+    assert wait_until(fn ->
+             has_element?(view, "#plan-usage-unavailable") and
+               has_element?(view, "#turn-announcement", "The game master is responding")
+           end)
+
+    assert has_element?(view, "#plan-usage-unavailable", "Account usage status unavailable")
+
+    assert has_element?(
+             view,
+             "#plan-usage-unavailable",
+             "This does not mean ChatGPT reported a usage limit."
+           )
+
+    refute has_element?(view, "#plan-usage-paused")
+
+    refute has_element?(
+             view,
+             "#plan-usage-unavailable",
+             "ChatGPT reported an account usage limit"
+           )
+
+    refute has_element?(view, "#plan-usage-unavailable button[phx-click='resume-plan-usage']")
+    assert has_element?(view, "#turn-input[disabled]")
+
+    send(provider_pid, :return_provider_error)
+
+    assert wait_until(fn ->
+             case Play.public_current_turn(campaign.id) do
+               %{status: :failed, failure_code: "provider_error"} ->
+                 has_element?(view, "#turn-error", "The game master could not resolve this turn")
+
+               _ ->
+                 false
+             end
+           end)
+
+    assert Play.public_current_turn(campaign.id).id == turn.id
+    assert Play.public_current_turn(campaign.id).player_input == action
+    assert has_element?(view, "#story-pending-action", action)
+    refute has_element?(view, "#turn-error", "ChatGPT reported an account usage limit")
+    refute has_element?(view, "#plan-usage-paused")
+
+    assert has_element?(
+             view,
+             "#plan-usage-unavailable button[phx-click='check-plan-usage-status']",
+             "Check again"
+           )
+
+    assert has_element?(view, "#turn-error button[phx-click='retry-turn'][disabled]")
+
+    render_click(view, "retry-turn", %{"turn_id" => to_string(turn.id)})
+    assert Play.public_current_turn(campaign.id).id == turn.id
+    refute_receive {:held_provider_request, _}, 50
+
+    render_submit(view, "submit-turn", %{
+      "turn" => %{
+        "input" => "I wait for the keeper to finish.",
+        "intent" => "action",
+        "idempotency_key" => Ecto.UUID.generate()
+      }
+    })
+
+    assert Play.public_current_turn(campaign.id).id == turn.id
+    assert has_element?(view, "#turn-input", "I wait for the keeper to finish.")
+    refute_receive {:held_provider_request, _}, 50
+
+    localized_view =
+      Enum.reduce(
+        [
+          {
+            "es",
+            "Estado de uso de la cuenta no disponible",
+            "Storyteller no puede verificar ahora el uso de la cuenta. Las solicitudes al director de juego quedan en espera hasta que se compruebe el estado. Esto no significa que ChatGPT haya informado de un límite de uso.",
+            "Volver a comprobar"
+          },
+          {
+            "fr",
+            "Statut d’utilisation du compte indisponible",
+            "Storyteller ne peut pas vérifier l’utilisation du compte pour le moment. Les requêtes au maître du jeu sont suspendues jusqu’à ce que le statut puisse être vérifié. Cela ne signifie pas que ChatGPT a signalé une limite d’utilisation.",
+            "Vérifier à nouveau"
+          }
+        ],
+        view,
+        fn {locale, title, guidance, check_label}, _previous_view ->
+          assert {:ok, _preference} = Settings.set_ui_locale(locale)
+          {:ok, localized, _html} = live_play(conn, campaign, session)
+
+          assert has_element?(localized, "#plan-usage-unavailable", title)
+          assert has_element?(localized, "#plan-usage-unavailable", guidance)
+          assert has_element?(localized, "#plan-usage-unavailable button", check_label)
+          refute has_element?(localized, "#plan-usage-paused")
+
+          refute has_element?(
+                   localized,
+                   "#plan-usage-unavailable",
+                   "ChatGPT reported an account usage limit"
+                 )
+
+          localized
+        end
+      )
+
+    assert :ok = FakeUsageStatusStore.set_status(usage_store, :available)
+
+    localized_view
+    |> element("#plan-usage-unavailable button[phx-click='check-plan-usage-status']")
+    |> render_click()
+
+    refute has_element?(localized_view, "#plan-usage-unavailable")
+    refute has_element?(localized_view, "#plan-usage-paused")
+
+    assert has_element?(
+             localized_view,
+             "#turn-error button[phx-click='retry-turn']"
+           )
+
+    refute has_element?(localized_view, "#turn-error button[phx-click='retry-turn'][disabled]")
+    assert Play.public_current_turn(campaign.id).id == turn.id
+    assert Play.public_current_turn(campaign.id).failure_code == "provider_error"
+    refute_receive {:held_provider_request, _}, 50
   end
 
   test "a plan limit after a D20 keeps its result and requires explicit resume before retry", %{

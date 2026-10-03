@@ -1061,9 +1061,15 @@ defmodule Storyteller.Play do
 
   @doc "Returns whether the account-wide ChatGPT plan pause is active."
   def plan_usage_paused?(opts \\ []) do
+    plan_usage_status(opts) != :available
+  end
+
+  @doc "Returns whether plan requests are available, paused, or cannot currently be checked."
+  def plan_usage_status(opts \\ []) do
     case plan_usage_state(opts) do
-      {:ok, paused?} -> paused?
-      {:error, _reason} -> true
+      {:ok, true} -> :paused
+      {:ok, false} -> :available
+      {:error, _reason} -> :unavailable
     end
   end
 
@@ -6025,7 +6031,11 @@ defmodule Storyteller.Play do
   end
 
   defp plan_usage_state(opts) do
-    {:ok, TokenStore.plan_usage_paused?(token_store(opts))}
+    case TokenStore.plan_usage_paused?(token_store(opts)) do
+      paused? when is_boolean(paused?) -> {:ok, paused?}
+      {:error, _reason} -> {:error, :plan_usage_state_unavailable}
+      _ -> {:error, :plan_usage_state_unavailable}
+    end
   rescue
     _ -> {:error, :plan_usage_state_unavailable}
   catch

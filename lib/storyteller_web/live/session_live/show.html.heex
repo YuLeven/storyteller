@@ -75,6 +75,27 @@
     </div>
   </section>
 
+  <section
+    :if={@plan_usage_status == :unavailable}
+    id="plan-usage-unavailable"
+    role="status"
+    class="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4"
+  >
+    <h2 class="font-semibold text-amber-950">
+      {gettext("Account usage status unavailable")}
+    </h2>
+    <p class="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
+      {gettext(
+        "Storyteller cannot verify account usage right now. Game master requests are held until the status can be checked. This does not mean ChatGPT reported a usage limit."
+      )}
+    </p>
+    <button
+      type="button"
+      phx-click="check-plan-usage-status"
+      class="mt-3 rounded-lg bg-amber-900 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-950"
+    >{gettext("Check again")}</button>
+  </section>
+
   <div :if={@projection} class="space-y-6">
     <section
       id="campaign-panels"
@@ -297,7 +318,7 @@
                 else: "mt-1 text-sm leading-6 text-rose-800"
             }
           >
-            {failure_message(@current_turn, @plan_usage_paused?)}
+            {failure_message(@current_turn, @plan_usage_status)}
           </p>
           <p
             :if={
@@ -355,7 +376,7 @@
               type="button"
               phx-click="retry-turn"
               phx-value-turn_id={@current_turn.id}
-              disabled={@worker_turn_id == @current_turn.id || @plan_usage_paused?}
+              disabled={@worker_turn_id == @current_turn.id || @plan_usage_blocked?}
               class={
                 if @current_turn.failure_code == "usage_limit",
                   do:
@@ -411,7 +432,7 @@
             type="button"
             phx-click="roll-d20"
             phx-value-turn_id={@current_turn.id}
-            disabled={@plan_usage_paused?}
+            disabled={@plan_usage_blocked?}
             class="mt-4 inline-flex items-center gap-2 rounded-lg bg-violet-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-900"
           >
             <span aria-hidden="true">⚄</span> {gettext("Roll D20")}
@@ -589,7 +610,7 @@
                   type="button"
                   phx-click="use-nudge"
                   phx-value-nudge_id={nudge.id}
-                  disabled={@plan_usage_paused? || turn_blocks_composer?(@current_turn)}
+                  disabled={@plan_usage_blocked? || turn_blocks_composer?(@current_turn)}
                   class="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >{nudge.label}</button>
               </div>
@@ -606,7 +627,7 @@
               phx-hook="ActionComposer"
               placeholder={composer_placeholder(@interaction_mode)}
               disabled={
-                @plan_usage_paused? ||
+                @plan_usage_blocked? ||
                   turn_blocks_composer?(@current_turn)
               }
               class="mt-2 block w-full resize-y rounded-xl border-stone-300 bg-white shadow-sm placeholder:text-stone-400 focus:border-amber-700 focus:ring-amber-700 disabled:bg-stone-100"
@@ -630,7 +651,7 @@
                 type="submit"
                 disabled={
                   !playable?(@session) ||
-                    @plan_usage_paused? ||
+                    @plan_usage_blocked? ||
                     turn_blocks_composer?(@current_turn)
                 }
                 class="inline-flex justify-center rounded-lg bg-amber-800 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
