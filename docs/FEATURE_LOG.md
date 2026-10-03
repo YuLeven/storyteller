@@ -1,5 +1,19 @@
 # Feature log
 
+## 2026-10-03 — QA follow-up: prevent ambiguous duplicate-place placement
+
+- Manual QA in the fictional Quiet Observatory campaign found two public place records with identical names and details. The campaign editor showed them as indistinguishable choices; selecting the legacy duplicate put a new character at a different canonical place ID, so the character roster showed the same place name while “Here with you” correctly omitted them.
+- The new-character place selector now collapses only records with identical public names, descriptions, and facts. It prefers the player's current place, then the place with the most characters, and then a stable non-initial ID. Existing place records and prior character locations remain untouched.
+- Added LiveView behavioral coverage that seeds an indistinguishable duplicate, verifies it is not offered as a second choice, and confirms the newly placed character uses the chosen canonical place. This closes the observed editor ambiguity. A live natural introduction was sampled in V1 story-quality iteration 9 below.
+- **Checks:** campaign-authoring LiveView tests passed (**20 tests, 0 failures**); full WSL suite passed (**454 tests, 0 failures**); dev/test warnings-as-errors compilation, formatting, Gettext freshness, and `git diff --check` passed. Only the isolated QA campaign/server was changed; port 4000 was not touched.
+
+## 2026-10-03 — V1 story-quality iteration 9: a new character takes the floor naturally
+
+- After placing Lina Morcant in the canonical observatory room through the corrected editor, the live player board showed her under “Here with you.” One connected action asked the unfamiliar surveyor who she was and what brought her to the observatory.
+- The GM introduced her in one short scene beat with a physical cue and then gave Lina one concise answer: her name, coastal-survey work, temporary lodging, and a relevant question about the charts. The result used narration and a character speech bubble; it added no system-style character notice, unrelated facts, roll, or player choice. The world clock stayed at Late Autumn, Day 31, 06:00.
+- The turn completed between the 10-second and 20-second follow-up observations. This is one positive natural-introduction sample, not a latency guarantee or story-quality parity result. Story depth, flexible social/tense-scene pacing, and repeated voice distinction remain V1 P0.
+- The old synthetic QA NPC Talla remains attached to the legacy duplicate place record; existing records were not silently rewritten. The resource-panel overlap and compact-board viewport issues also remain open UI work.
+
 ## 2026-10-03 — Functional MVP accepted; V1 P0 story QA is active
 
 - The functional MVP QA gate is now accepted. The criteria remain regression checks; V1 work is led by story quality, with play-disrupting UI issues alongside it. Open-source clone/run and secret-handling preparation stays deferred until play quality is ready.

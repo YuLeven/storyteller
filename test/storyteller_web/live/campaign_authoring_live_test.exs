@@ -10,6 +10,7 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
   alias Storyteller.Play
   alias Storyteller.Play.Character
   alias Storyteller.Play.Event
+  alias Storyteller.Play.Place
   alias Storyteller.Play.State
   alias Storyteller.Repo
 
@@ -286,6 +287,56 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
 
     character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "tern_vale")
     assert character.current_place_id == public_place.place_id
+  end
+
+  test "campaign editor hides an indistinguishable duplicate place when placing a new character",
+       %{conn: conn} do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "Quiet Observatory",
+        player_character_name: "Ilya",
+        player_character: "A patient courier."
+      })
+
+    {:ok, projection} = Play.public_projection(campaign.id)
+    canonical_place = hd(projection.places)
+
+    duplicate_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "initial:legacy-observatory",
+          name: canonical_place.name,
+          description: canonical_place.description,
+          visibility: :public,
+          facts: canonical_place.facts
+        })
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/edit")
+
+    assert has_element?(
+             view,
+             "#new-gm-character option[value='#{canonical_place.place_id}']",
+             canonical_place.name
+           )
+
+    refute has_element?(view, "#new-gm-character option[value='#{duplicate_place.place_id}']")
+
+    view
+    |> form("#campaign-edit-form",
+      campaign: %{
+        title: campaign.title,
+        new_gm_character: %{
+          name: "Tern Vale",
+          place_id: canonical_place.place_id
+        }
+      }
+    )
+    |> render_submit()
+
+    character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "tern_vale")
+    assert character.current_place_id == canonical_place.place_id
   end
 
   test "campaign editor uses only an explicitly selected public place for a new character", %{

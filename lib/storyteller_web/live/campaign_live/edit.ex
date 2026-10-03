@@ -418,9 +418,36 @@ defmodule StorytellerWeb.CampaignLive.Edit do
 
   defp public_places(campaign_id) do
     case Play.public_projection(campaign_id) do
-      {:ok, projection} -> projection.places
-      _ -> []
+      {:ok, projection} ->
+        projection.places
+        |> Enum.group_by(&{&1.name, &1.description, &1.facts})
+        |> Enum.map(fn {_public_identity, duplicates} ->
+          most_referenced_place(duplicates, projection.characters)
+        end)
+        |> Enum.sort_by(&{String.downcase(&1.name), &1.place_id})
+
+      _ ->
+        []
     end
+  end
+
+  # Older campaigns can contain indistinguishable places from before reloads
+  # reused a character's canonical location. Keep history intact, but offer a
+  # single sensible target when placing a new character: prefer the player's
+  # own place, then the place used by the most characters, then a non-initial ID.
+  defp most_referenced_place(places, characters) do
+    Enum.max_by(places, fn place ->
+      occupants = Enum.count(characters, &(&1.current_place_id == place.place_id))
+
+      player_here =
+        Enum.any?(characters, fn character ->
+          character.speaker_id == "player" and character.current_place_id == place.place_id
+        end)
+
+      canonical_id = not String.starts_with?(place.place_id, "initial:")
+
+      {player_here, occupants, canonical_id, place.place_id}
+    end)
   end
 
   defp gm_characters_with_duty_time(campaign_id, elapsed_minutes) do
