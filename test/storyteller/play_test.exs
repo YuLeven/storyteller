@@ -1425,6 +1425,17 @@ defmodule Storyteller.PlayTest do
 
     assert characters["npc:marcel"]["current_place"]["name"] == "The Finca"
     assert characters["npc:ines"]["current_place"]["name"] == "The Finca"
+
+    shared_place_id = characters["npc:marcel"]["current_place"]["place_id"]
+    assert characters["npc:ines"]["current_place"]["place_id"] == shared_place_id
+    refute Map.has_key?(characters["npc:marcel"]["current_place"], "description")
+    refute Map.has_key?(characters["npc:marcel"]["current_place"], "facts")
+
+    shared_place =
+      Enum.find(request_context["places"]["public"], &(&1["place_id"] == shared_place_id))
+
+    assert Map.has_key?(shared_place, "description")
+    assert Map.has_key?(shared_place, "facts")
   end
 
   test "sends a scene-beat handoff rule and keeps a complete NPC exchange in one turn" do

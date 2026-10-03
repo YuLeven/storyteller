@@ -3,7 +3,7 @@ defmodule StorytellerWeb.SessionLiveLayoutTest do
 
   @stylesheet Path.expand("../../../assets/css/app.css", __DIR__)
 
-  test "roomy desktop keeps composer outside the story's scroll region" do
+  test "roomy desktop can scroll the main column to reach the composer" do
     css = File.read!(@stylesheet)
     roomy_desktop = "@media (min-width: 1024px) and (min-height: 700px)"
     [short_or_narrow_css, roomy_desktop_css] = String.split(css, roomy_desktop, parts: 2)
@@ -27,8 +27,8 @@ defmodule StorytellerWeb.SessionLiveLayoutTest do
                capture: :all_but_first
              )
 
-    assert main_rules =~ "overflow-y: hidden;"
-    refute main_rules =~ "overflow-y: auto;"
+    assert main_rules =~ "overflow-x: hidden;"
+    assert main_rules =~ "overflow-y: auto;"
 
     assert [story_rules] =
              Regex.run(~r/\.play-page #story-timeline \{([^}]+)\}/, css, capture: :all_but_first)

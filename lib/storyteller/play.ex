@@ -5605,8 +5605,11 @@ defmodule Storyteller.Play do
             gm_private_facts: without_character_location_facts(character.gm_private_facts),
             visible_activity: character.visible_activity,
             current_place_id: character.current_place_id,
+            # Full place details already live in the shared `places` list. Keep
+            # only the identity here so a busy scene does not resend the same
+            # long description and facts once per present character.
             current_place:
-              Map.get(places_by_id, character.current_place_id) |> maybe_place_context()
+              Map.get(places_by_id, character.current_place_id) |> maybe_place_reference()
           }
           |> Map.merge(voice_guidance_context(character))
           |> Map.merge(active_duty_context(character, places_by_id, state.elapsed_world_minutes))
@@ -6410,8 +6413,11 @@ defmodule Storyteller.Play do
     if private_place? or private_edge?, do: :gm_private, else: :public
   end
 
-  defp maybe_place_context(nil), do: nil
-  defp maybe_place_context(place), do: place_context(place)
+  defp maybe_place_reference(nil), do: nil
+
+  defp maybe_place_reference(place) do
+    %{place_id: place.place_id, name: place.name, visibility: place.visibility}
+  end
 
   defp insert_or_rollback!(changeset) do
     case Repo.insert(changeset) do
