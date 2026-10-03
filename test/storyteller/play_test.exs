@@ -1329,10 +1329,12 @@ defmodule Storyteller.PlayTest do
     instructions = String.replace(request.instructions, ~r/\s+/, " ")
 
     assert instructions =~ "Distinct NPC voices:"
-    assert instructions =~ "SENSORY AUTHORITY: The GM owns external and sensory facts."
-    assert instructions =~ "Never ask the player to invent how the world or an object tastes"
+    assert instructions =~ "SENSORY AUTHORITY: GM owns external facts."
 
-    assert instructions =~ "ask for their interpretation"
+    assert instructions =~
+             "For a tasting, give color, aromas, acidity/tannin, and finish at requested depth"
+
+    assert instructions =~ "ask the player for interpretation, never invent it for them."
 
     assert instructions =~
              "honor each speaker_id's accent, vocabulary, cadence, quirks, and mannerisms"
@@ -5880,20 +5882,34 @@ defmodule Storyteller.PlayTest do
     assert byte_size(raw_instructions) < 11_000
 
     assert instructions =~
-             "The player alone chooses their character's actions, words, thoughts, movement"
+             "Player alone controls their character's actions, words, thoughts, movement"
 
-    assert instructions =~ "Answer looks from public canon/vantage"
+    assert instructions =~ "Answer from public canon/vantage"
 
-    assert instructions =~ "one brief, source-free ambient cue"
+    assert instructions =~
+             "At character vantage, describe concrete senses"
 
-    assert instructions =~ "consistent with known place/time/weather"
+    assert instructions =~
+             "separate observation from interpretation."
+
+    assert instructions =~
+             "For inspections, state 1-2 ordinary details directly; don't hedge or treat narrative omissions as absence."
+
+    assert instructions =~
+             "Improvise consistent, low-stakes texture"
+
+    assert instructions =~ "clues, diagnoses, and affordances require canon."
+
+    assert instructions =~ "Description alone isn't a clue."
+
+    assert instructions =~ "ask the player for interpretation, never invent it for them."
 
     assert instructions =~
              "No new people, items, exits/routes, hazards, clues, services, or actionable facts"
 
     assert instructions =~ "accepted canon (people also need presence)"
 
-    assert instructions =~ "If action needs untracked detail, ask or state uncertainty."
+    assert instructions =~ "Ask when canon-critical context is absent; never infer it."
 
     assert instructions =~ "Preserve distinct NPC knowledge, motives, work, and voices."
     assert instructions =~ "Distinct NPC voices:"
@@ -5910,8 +5926,6 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~
              "Keep every GM-private fact, name, place, route, presence, objective, inventory value"
-
-    assert instructions =~ "Omitted context is unknown; never infer it."
 
     assert instructions =~
              "For multiple matching public memories, name candidates or ask which one; do not guess."
@@ -5933,7 +5947,10 @@ defmodule Storyteller.PlayTest do
              "montage to requested scale"
 
     assert instructions =~ "never assume follow-through."
-    assert instructions =~ "Keep dialogue proportional"
+
+    assert instructions =~
+             "Keep dialogue proportional. NPCs add their perspective or action, not echoes"
+
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
     assert instructions =~ "combine related lines"
     assert instructions =~ "Act describes the player's in-character action or speech"
@@ -6275,8 +6292,8 @@ defmodule Storyteller.PlayTest do
       assert instructions =~
                "No new people, items, exits/routes, hazards, clues, services, or actionable facts"
 
-      assert instructions =~ "Omitted context is unknown; never infer it."
-      assert instructions =~ "If action needs untracked detail, ask or state uncertainty."
+      assert instructions =~ "Ask when canon-critical context is absent; never infer it."
+      assert instructions =~ "Don't ask for harmless sensory detail."
       assert request.local_context_metrics.budget_bytes == 24_000
 
       assert request.local_context_metrics.estimated_request_bytes <=

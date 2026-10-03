@@ -540,9 +540,12 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.estimated_request_bytes <= 24_000
 
     policy = String.replace(policy, ~r/\s+/, " ")
-    assert policy =~ "SENSORY AUTHORITY: The GM owns external and sensory facts."
-    assert policy =~ "Never ask the player to invent how the world or an object tastes"
-    assert policy =~ "ask for their interpretation"
+    assert policy =~ "SENSORY AUTHORITY: GM owns external facts."
+
+    assert policy =~
+             "For a tasting, give color, aromas, acidity/tannin, and finish at requested depth"
+
+    assert policy =~ "ask the player for interpretation, never invent it for them."
     assert policy =~ "Distinct NPC voices:"
     assert policy =~ "never blend profiles"
     assert policy =~ "Use natural word choice, not phonetics or caricature."
