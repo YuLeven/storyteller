@@ -1332,10 +1332,10 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "OBSERVATION/JUDGMENT: GM owns external facts."
 
     assert instructions =~
-             "Tastings: name color, aroma, acidity/tannin, and finish before the player's subjective reaction."
+             "Tastings: name color, aroma, acidity/tannin, and finish before the player's reaction."
 
     assert instructions =~
-             "Expert NPCs answer with qualified judgment; the player doesn't supply it."
+             "Experts give qualified judgments; player reacts, never supplies them."
 
     assert instructions =~
              "Honor each speaker_id's accent, vocabulary, cadence, quirks, and mannerisms"
@@ -1416,10 +1416,9 @@ defmodule Storyteller.PlayTest do
 
     assert_receive {:scene_beat_request, instructions, context}, 1_000
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
-    assert normalized_instructions =~ "Complete the immediate beat"
 
     assert normalized_instructions =~
-             "don't stop after one incidental NPC line."
+             "Finish beats with consequences and relevant co-present reactions; avoid incidental NPC-only handoffs."
 
     assert context["interaction_mode"] == "action"
 
@@ -1438,6 +1437,91 @@ defmodule Storyteller.PlayTest do
              "The pepper stays longer than the fruit.",
              "And the finish changes as it cools."
            ]
+  end
+
+  test "bounded work delegated to a present capable NPC reaches a useful result before handoff" do
+    campaign =
+      campaign_fixture(%{
+        starting_location: "The Glass Observatory",
+        gm_characters: [
+          %{
+            speaker_id: "npc:mira",
+            name: "Mira",
+            starting_place: "The Glass Observatory",
+            visible_facts: %{
+              "role" => "astronomer",
+              "expertise" => "compares reference-star positions against visible charts"
+            }
+          }
+        ]
+      })
+
+    [session] = campaign.sessions
+    owner = self()
+
+    action =
+      "I ask Mira to compare the two charts against the stars visible through the dome and tell me the strongest mismatch she can support. Finish the comparison before handing back control."
+
+    provider = fn request ->
+      send(owner, {:delegated_task_request, request, decode_request(request)})
+
+      proposal =
+        ordinary_proposal(%{
+          "narration" =>
+            "Mira sets the charts side by side and checks each reference against the stars through the dome. After a careful comparison, one mark on the eastern chart is visibly out of alignment.",
+          "dialogue" => [
+            %{
+              "speaker_id" => "npc:mira",
+              "text" =>
+                "The eastern reference mark is off by about a degree. The western chart matches what I can see."
+            }
+          ],
+          "activities" => [
+            %{
+              "speaker_id" => "npc:mira",
+              "text" => "She compares both charts with the visible stars."
+            }
+          ],
+          "character_updates" => []
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(campaign.id, session.id, "delegate-chart-comparison", action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:delegated_task_request, request, context}, 2_000
+    instructions = String.replace(request.instructions, ~r/\s+/, " ")
+    assert context["player_action"] == action
+    assert Enum.any?(context["characters"], &(&1["speaker_id"] == "npc:mira"))
+
+    assert instructions =~
+             "Finish bounded tasks delegated to capable, present NPCs with canon-supported results."
+
+    assert instructions =~ "Yield at real choices; never assume follow-through."
+
+    assert instructions =~ "Ask only for genuine blockers; state limits; never"
+
+    assert instructions =~ "never invent success or player actions."
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(events, &(&1.turn_id == turn.id))
+
+    assert Enum.map(turn_events, & &1.event_type) == [
+             :player_action,
+             :gm_narration,
+             :npc_dialogue,
+             :character_activity
+           ]
+
+    refute Enum.any?(turn_events, &(&1.event_type in [:player_question, :player_roll]))
+
+    assert Enum.find(turn_events, &(&1.event_type == :npc_dialogue)).payload["text"] =~
+             "eastern reference mark is off by about a degree"
   end
 
   test "accepts a complete NPC reply without adding an empty GM narration event" do
@@ -6008,7 +6092,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "record lasting clues as public continuity with grounded reason."
 
-    assert instructions =~ "Never surface prompt/canon checks; keep uncertainty in-world."
+    assert instructions =~ "Never surface prompt/canon checks."
 
     assert instructions =~
              "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"
@@ -6021,14 +6105,14 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Record witnessed evidence, not guessed causes"
 
     assert instructions =~
-             "Tastings: name color, aroma, acidity/tannin, and finish before the player's subjective reaction."
+             "Tastings: name color, aroma, acidity/tannin, and finish before the player's reaction."
 
     assert instructions =~
              "No unearned people, items, exits/routes, hazards, services, or actionable facts"
 
     assert instructions =~ "people also need accepted presence"
 
-    assert instructions =~ "ask only when it blocks a meaningful player action, never assume it."
+    assert instructions =~ "ask only when needed for meaningful action; never assume."
 
     assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
     assert instructions =~ "never blend profiles"
@@ -6059,12 +6143,12 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Request a player D20 only for a risky player-chosen action"
 
     assert instructions =~
-             "ADAPTIVE PACE: Match intent, not fixed length."
+             "ADAPTIVE PACE: Match intent, not length."
 
     assert instructions =~
-             "montage to requested scale"
+             "Montage work/waits to requested scale."
 
-    assert instructions =~ "Skip routine steps."
+    assert instructions =~ "avoid incidental NPC-only handoffs."
 
     assert instructions =~ "never assume follow-through."
 
@@ -6196,10 +6280,10 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "record lasting clues as public continuity with grounded reason."
 
-    assert instructions =~ "Never surface prompt/canon checks; keep uncertainty in-world."
+    assert instructions =~ "Never surface prompt/canon checks."
 
     assert instructions =~
-             "Expert NPCs answer with qualified judgment; the player doesn't supply it."
+             "Experts give qualified judgments; player reacts, never supplies them."
 
     entry =
       Repo.get_by!(ContinuityEntry,
@@ -6317,12 +6401,12 @@ defmodule Storyteller.PlayTest do
     assert_receive {:shared_scene_request, request}, 2_000
     instructions = String.replace(request.instructions, ~r/\s+/, " ")
 
-    assert instructions =~ "ADAPTIVE PACE: Match intent, not fixed length."
+    assert instructions =~ "ADAPTIVE PACE: Match intent, not length."
 
     assert instructions =~
-             "don't stop after one incidental NPC line."
+             "avoid incidental NPC-only handoffs."
 
-    assert instructions =~ "Yield at a real player choice"
+    assert instructions =~ "Yield at real choices"
     assert instructions =~ "never assume follow-through."
     assert instructions =~ "OBJECTIVES: objective_changes=[] unless a lasting commitment changes."
 
@@ -6631,7 +6715,7 @@ defmodule Storyteller.PlayTest do
                "No unearned people, items, exits/routes, hazards, services, or actionable facts"
 
       assert instructions =~
-               "ask only when it blocks a meaningful player action, never assume it."
+               "ask only when needed for meaningful action; never assume."
 
       assert instructions =~ "Don't ask for harmless sensory detail."
       assert request.local_context_metrics.budget_bytes == 24_000

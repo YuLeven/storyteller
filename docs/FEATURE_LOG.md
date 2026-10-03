@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-03 — V1 P0: complete bounded delegated work
+
+- Compressed the adaptive pacing rules while clarifying that a capable, present NPC should finish a bounded task the player delegates and return at a genuine decision. The GM should ask only about real blockers, state knowledge/access/time limits, and never invent success or the player's follow-through.
+- Added a fake-provider behavioral regression that checks the delegated task guidance, a useful supported NPC result, and a clean handoff without a forced player question or roll. The GM instruction bundle remains under the existing 11 KB guard.
+- In connected Quiet Observatory QA, a direct Ask GM question about whether Mira's chart comparison ruled out a shared omission received a concise uncertainty-aware answer with a next investigative step; the visible clock stayed at 18:15. A follow-up bounded task had Mira inspect both charts' coverage and markings; she returned a supported finding in eight in-world minutes, with a narration and one NPC reply, then handed control back. The clock advanced to 18:23. This verifies the new handoff behavior in one sample, not story-quality parity; response time remained around 20–30 seconds.
+- Synthetic resource-board visual review did not reproduce text overlap in the first visible rows, but found the side rail cramped and longer resource lists below the 720 px viewport. Keep the layout issue in V1 UI work and reproduce only with isolated fixture data.
+- **Checks:** WSL full suite passed (**450 tests, 0 failures**); dev/test warnings-as-errors compilation, formatting, Gettext freshness, assets build, and `git diff --check` passed. All connected checks used only the fictional QA database; no source campaign or comparison conversation was opened.
+
 ## 2026-10-03 — V1 P0: turn canon rejection into a playable discovery
 
 - The isolated Quiet Observatory replay's safe failure tag was `invalid_entry_fields`. The saved action and world remained unchanged; no part of the rejected proposal had been committed. The compact continuity shape named fields but not allowed values or text bounds, so the GM contract now gives the accepted kind/visibility values and title/detail lengths without exceeding the existing prompt-size regression limit.
