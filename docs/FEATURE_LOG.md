@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-03 — Keep the play composer reachable while scrolling
+
+- Anchored the desktop turn composer to the bottom of the main reading scroll area so players can reach their action box while moving through the story history.
+- Added a focused layout regression that checks the main scroll region and the sticky composer rule. The WSL layout test passed (1 test, 0 failures).
+- Firefox-specific visual confirmation remains open: no local browser engine or browser test harness was available. The campaign page and database were not accessed.
+
 ## 2026-10-03 — V1 P0: prevent campaign context from stranding a turn
 
 - The recurring “required campaign details too large” message is Storyteller's own serialized-byte preflight, raised before an HTTP request reaches GPT. The configured 64,000-byte application guard is not a token count or a measured Plus/model limit.

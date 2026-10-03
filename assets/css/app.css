@@ -619,6 +619,9 @@
   }
 
   .play-page main > #turn-composer-card {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
     flex: 0 0 auto;
     padding: 0.55rem 0.75rem;
   }

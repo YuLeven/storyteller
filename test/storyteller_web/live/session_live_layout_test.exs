@@ -30,6 +30,16 @@ defmodule StorytellerWeb.SessionLiveLayoutTest do
     assert main_rules =~ "overflow-x: hidden;"
     assert main_rules =~ "overflow-y: auto;"
 
+    assert [composer_rules] =
+             Regex.run(
+               ~r/\.play-page main > #turn-composer-card \{([^}]+)\}/,
+               roomy_desktop_css,
+               capture: :all_but_first
+             )
+
+    assert composer_rules =~ "position: sticky;"
+    assert composer_rules =~ "bottom: 0;"
+
     assert [story_rules] =
              Regex.run(~r/\.play-page #story-timeline \{([^}]+)\}/, css, capture: :all_but_first)
 
