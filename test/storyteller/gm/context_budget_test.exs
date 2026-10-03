@@ -236,6 +236,180 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert String.length(relevant_panel.value) > String.length(selected.value)
   end
 
+  test "bounds growing character, location, and objective canon without losing named scene facts" do
+    action =
+      "I ask Mira Copper at the Copper Archive about the ledger and whether the Finca staff stayed put."
+
+    noise = String.duplicate("Unrelated regional record. ", 240)
+
+    player = hd(base_context().characters)
+
+    scene_cast =
+      Enum.map(1..15, fn index ->
+        %{
+          speaker_id: "present_#{index}",
+          name: "Present witness #{index}",
+          role: :gm,
+          current_place_id: "finca",
+          visible_facts: %{"background" => noise},
+          gm_private_facts: %{"background" => noise},
+          voice_guidance: %{accent: "Local", mannerisms: noise},
+          visible_activity: noise
+        }
+      end)
+
+    named_character = %{
+      speaker_id: "mira_copper",
+      name: "Mira Copper",
+      role: :gm,
+      current_place_id: "archive",
+      visible_facts: %{"specialty" => "A careful archivist who reads ledger hands."},
+      gm_private_facts: %{
+        "ledger_promise" =>
+          "Mira promised to bring the original harvest ledger to the Copper Archive."
+      },
+      voice_guidance: %{
+        accent: "French",
+        mannerisms: "Touches each page corner before turning it."
+      }
+    }
+
+    remote_characters =
+      Enum.map(1..90, fn index ->
+        %{
+          speaker_id: "remote_#{index}",
+          name: "Remote witness #{index}",
+          role: :gm,
+          current_place_id: "remote_place_#{index}",
+          visible_facts: %{"background" => noise},
+          gm_private_facts: %{"background" => noise},
+          voice_guidance: %{cadence: noise}
+        }
+      end)
+
+    distant_places =
+      Enum.map(1..90, fn index ->
+        %{
+          place_id: "remote_place_#{index}",
+          name: "Remote Place #{index}",
+          visibility: :public,
+          description: noise,
+          facts: %{"terrain" => noise}
+        }
+      end)
+
+    archive = %{
+      place_id: "archive",
+      name: "The Copper Archive",
+      visibility: :public,
+      description: "The Copper Archive holds the harvest ledger. " <> noise,
+      facts: %{
+        "ledger" => "The original ledger is in a locked case in the Copper Archive. " <> noise
+      }
+    }
+
+    gorge = %{
+      place_id: "gorge",
+      name: "The distant gorge",
+      visibility: :public,
+      description: "A remote gorge beyond the western ridge. " <> noise,
+      facts: %{"terrain" => noise}
+    }
+
+    objectives =
+      Enum.map(1..120, fn index ->
+        %{
+          objective_id: "objective_#{index}",
+          title: "Unrelated task #{index}",
+          details: String.duplicate("Routine task detail. ", 70),
+          status: "open"
+        }
+      end)
+
+    relevant_objective = %{
+      objective_id: "archive-ledger",
+      title: "Inspect the Copper Archive ledger",
+      details: "Compare the original harvest ledger with the Finca register.",
+      status: "open"
+    }
+
+    private_objective = %{
+      objective_id: "hidden-archive-route",
+      title: "Keep Mira's private route to the Copper Archive concealed",
+      details: "Mira knows a concealed service passage behind the archive shelves.",
+      status: "open"
+    }
+
+    context =
+      base_context()
+      |> Map.put(:player_action, action)
+      |> Map.put(:characters, [player, named_character] ++ scene_cast ++ remote_characters)
+      |> Map.put(:places, %{
+        public: base_context().places.public ++ [archive, gorge] ++ distant_places,
+        gm_private: []
+      })
+      |> Map.put(:travel_connections, %{
+        public: [
+          %{place_a_id: "finca", place_b_id: "bodega", travel_minutes: 40},
+          %{place_a_id: "bodega", place_b_id: "archive", travel_minutes: 5},
+          %{place_a_id: "archive", place_b_id: "gorge", travel_minutes: 30}
+        ],
+        gm_private: [],
+        public_routes: [],
+        gm_private_routes: []
+      })
+      |> Map.put(:objectives, %{
+        public: [relevant_objective | objectives],
+        gm_private: [private_objective]
+      })
+
+    assert request_bytes(context, "Short GM policy") > 64_000
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert metrics.compacted?
+    assert compiled.context_completeness.character_details_compacted
+    assert compiled.context_completeness.characters_omitted
+    assert compiled.context_completeness.places_omitted
+    assert compiled.context_completeness.remote_place_details_omitted
+    assert compiled.context_completeness.place_details_compacted
+    assert compiled.context_completeness.objectives_omitted
+    assert compiled.context_completeness.objective_details_omitted
+
+    assert length(compiled.characters) <= 48
+    mira = Enum.find(compiled.characters, &(&1.speaker_id == "mira_copper"))
+    assert mira.current_place_id == "archive"
+    assert mira.voice_guidance.accent == "French"
+    assert mira.gm_private_facts["ledger_promise"] =~ "original harvest ledger"
+
+    archive_context = Enum.find(compiled.places.public, &(&1.place_id == "archive"))
+    assert archive_context.description =~ "harvest ledger"
+    assert archive_context.facts["ledger"] =~ "locked case"
+
+    assert Enum.find(compiled.places.public, &(&1.place_id == "bodega")).description ==
+             "The wine cellar."
+
+    gorge_context = Enum.find(compiled.places.public, &(&1.place_id == "gorge"))
+    assert is_nil(gorge_context) or not Map.has_key?(gorge_context, :description)
+    assert length(compiled.places.public) <= 64
+
+    assert Enum.any?(compiled.objectives.public, &(&1.objective_id == "archive-ledger"))
+
+    assert Enum.find(compiled.objectives.public, &(&1.objective_id == "archive-ledger")).details =~
+             "Compare the original"
+
+    assert Enum.any?(compiled.objectives.gm_private, &(&1.objective_id == "hidden-archive-route"))
+
+    assert length(context.characters) == 107
+    assert Enum.find(context.characters, &(&1.speaker_id == "mira_copper")) == named_character
+    assert length(context.places.public) == 94
+    assert Enum.find(context.places.public, &(&1.place_id == "archive")) == archive
+    assert length(context.objectives.public) == 121
+    assert hd(context.objectives.public) == relevant_objective
+  end
+
   test "broad questions retrieve a small bounded set of scene anchors in each supported language" do
     history =
       Enum.map(1..40, fn sequence ->

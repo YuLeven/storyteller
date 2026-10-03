@@ -28,6 +28,21 @@ defmodule Storyteller.GM.ContextBudget do
   @max_world_value_bytes 1_200
   @max_panel_context_fields 32
   @max_panel_value_chars 800
+  @max_context_character_rows 48
+  @max_detailed_character_profiles 12
+  @max_character_row_bytes 2_200
+  @max_character_fact_bytes 650
+  @max_character_voice_bytes 420
+  @max_character_activity_chars 220
+  @max_context_place_rows 64
+  @max_detailed_place_rows 5
+  @max_place_row_bytes 12_500
+  @max_place_description_chars 9_000
+  @max_place_facts_bytes 1_200
+  @max_context_objective_rows 48
+  @max_open_objective_rows 24
+  @max_objective_detail_count 8
+  @max_objective_detail_chars 600
   @history_budget_fallback_tiers [
     {4, 1_600, 600},
     {4, 1_200, 400},
@@ -639,14 +654,15 @@ defmodule Storyteller.GM.ContextBudget do
         MapSet.new(preferred_history_sequences)
       )
 
-    {characters, profiles_omitted?} =
+    {characters, profiles_omitted?, character_details_compacted?, characters_omitted?} =
       compact_characters(
         Map.get(context, "characters", context[:characters]),
         terms,
-        player_place_id
+        player_place_id,
+        context
       )
 
-    {places, place_details_omitted?} =
+    {places, place_details_omitted?, place_details_compacted?, places_omitted?} =
       compact_places(
         Map.get(context, "places", context[:places]),
         terms,
@@ -657,7 +673,8 @@ defmodule Storyteller.GM.ContextBudget do
     {continuity, continuity_details_omitted?} =
       compact_continuity(Map.get(context, "continuity", context[:continuity]), terms)
 
-    {objectives, objective_details_omitted?} =
+    {objectives, objective_rows_omitted?, objective_details_omitted?,
+     closed_objective_details_omitted?} =
       compact_objectives(Map.get(context, "objectives", context[:objectives]), terms)
 
     {memory, memory_omitted?} = compact_memory(Map.get(context, "memory", context[:memory]))
@@ -666,9 +683,15 @@ defmodule Storyteller.GM.ContextBudget do
       [
         history: history_omitted?,
         remote_character_profiles: profiles_omitted?,
+        character_details: character_details_compacted?,
+        characters: characters_omitted?,
+        places: places_omitted?,
         remote_place_details: place_details_omitted?,
+        place_details: place_details_compacted?,
         continuity_details: continuity_details_omitted?,
-        closed_objective_details: objective_details_omitted?,
+        objectives: objective_rows_omitted?,
+        objective_details: objective_details_omitted?,
+        closed_objective_details: closed_objective_details_omitted?,
         memory_summary: memory_omitted?
       ]
       |> Enum.filter(fn {_key, omitted?} -> omitted? end)
@@ -689,9 +712,15 @@ defmodule Storyteller.GM.ContextBudget do
       completeness = %{
         history_compacted: history_omitted?,
         remote_character_profiles_omitted: profiles_omitted?,
+        character_details_compacted: character_details_compacted?,
+        characters_omitted: characters_omitted?,
+        places_omitted: places_omitted?,
         remote_place_details_omitted: place_details_omitted?,
+        place_details_compacted: place_details_compacted?,
         continuity_details_omitted: continuity_details_omitted?,
-        closed_objective_details_omitted: objective_details_omitted?,
+        objectives_omitted: objective_rows_omitted?,
+        objective_details_omitted: objective_details_omitted?,
+        closed_objective_details_omitted: closed_objective_details_omitted?,
         memory_summary_compacted: memory_omitted?
       }
 
@@ -1509,58 +1538,197 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp compact_event(event, _max_text_chars), do: event
 
-  defp compact_characters(characters, terms, player_place_id) when is_list(characters) do
-    {compacted, omitted?} =
-      Enum.map_reduce(characters, false, fn character, any_omitted? ->
-        speaker_id = value(character, :speaker_id)
-        place_id = value(character, :current_place_id)
+  defp compact_characters(characters, terms, player_place_id, context)
+       when is_list(characters) do
+    recent_speakers = recent_history_speaker_ids(value(context, :history))
 
-        mentioned? =
-          name_mentioned?(value(character, :name), terms) or
-            character_facts_relevant?(character, terms)
-
-        scene_character? =
-          speaker_id == "player" or (is_binary(player_place_id) and place_id == player_place_id)
-
-        if scene_character? or mentioned? do
-          {character, any_omitted?}
-        else
-          current_place = value(character, :current_place)
-
-          compact =
-            character
-            |> Map.take([
-              "speaker_id",
-              "name",
-              "role",
-              "current_place_id",
-              "active_duty",
-              :speaker_id,
-              :name,
-              :role,
-              :current_place_id,
-              :active_duty
-            ])
-            |> maybe_put_context("current_place", compact_place_identity(current_place))
-            |> maybe_put_context(
-              "visible_facts",
-              small_remote_public_facts(value(character, :visible_facts))
-            )
-
-          {compact, true}
-        end
+    ranked =
+      characters
+      |> Enum.with_index()
+      |> Enum.map(fn {character, index} ->
+        {character, index,
+         character_relevance_score(character, terms, player_place_id, recent_speakers)}
       end)
 
-    {compacted, omitted?}
+    retained_indexes =
+      ranked
+      |> Enum.sort_by(fn {_character, index, score} -> {-score, index} end)
+      |> Enum.take(@max_context_character_rows)
+      |> MapSet.new(fn {_character, index, _score} -> index end)
+
+    detailed_indexes =
+      ranked
+      |> Enum.filter(fn {character, _index, score} ->
+        score > 0 or value(character, :speaker_id) == "player"
+      end)
+      |> Enum.sort_by(fn {_character, index, score} -> {-score, index} end)
+      |> Enum.take(@max_detailed_character_profiles)
+      |> MapSet.new(fn {_character, index, _score} -> index end)
+
+    {compacted, {remote_profiles_omitted?, details_compacted?, rows_omitted?}} =
+      Enum.reduce(ranked, {[], {false, false, false}}, fn
+        {character, index, _score}, {rows, {remote_omitted?, details_omitted?, rows_omitted?}} ->
+          if MapSet.member?(retained_indexes, index) do
+            scene_character? =
+              value(character, :speaker_id) == "player" or
+                (is_binary(player_place_id) and
+                   value(character, :current_place_id) == player_place_id)
+
+            if MapSet.member?(detailed_indexes, index) and
+                 byte_size(Jason.encode!(character)) <= @max_character_row_bytes do
+              {rows ++ [character], {remote_omitted?, details_omitted?, rows_omitted?}}
+            else
+              {compact, compacted?} =
+                compact_character_profile(
+                  character,
+                  terms,
+                  MapSet.member?(detailed_indexes, index)
+                )
+
+              remote? = not scene_character?
+
+              {rows ++ [compact],
+               {remote_omitted? or remote?, details_omitted? or compacted?, rows_omitted?}}
+            end
+          else
+            {rows, {remote_omitted?, details_omitted?, true}}
+          end
+      end)
+
+    {compacted, remote_profiles_omitted?, details_compacted?, rows_omitted?}
   end
 
-  defp compact_characters(characters, _terms, _player_place_id), do: {characters, false}
+  defp compact_characters(characters, _terms, _player_place_id, _context),
+    do: {characters, false, false, false}
 
-  defp small_remote_public_facts(facts) when is_map(facts) do
-    if byte_size(Jason.encode!(facts)) <= 256, do: facts
+  defp character_relevance_score(character, terms, player_place_id, recent_speakers) do
+    speaker_id = value(character, :speaker_id)
+    place_id = value(character, :current_place_id)
+    mentioned? = name_mentioned?(value(character, :name), terms)
+    scene_character? = is_binary(player_place_id) and place_id == player_place_id
+    recent_speaker? = is_binary(speaker_id) and MapSet.member?(recent_speakers, speaker_id)
+
+    facts_score =
+      [value(character, :visible_facts), value(character, :gm_private_facts)]
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&relevance_score(safe_json(&1), terms))
+      |> Enum.max(fn -> 0 end)
+
+    cond do
+      speaker_id == "player" -> 10_000
+      mentioned? -> 9_000 + facts_score
+      recent_speaker? -> 8_000 + facts_score
+      scene_character? -> 7_000 + facts_score
+      facts_score > 0 -> 3_000 + facts_score
+      true -> 0
+    end
   end
 
-  defp small_remote_public_facts(_facts), do: nil
+  defp recent_history_speaker_ids(history) when is_list(history) do
+    history
+    |> Enum.filter(&conversation_event?/1)
+    |> Enum.take(-@recent_history_count)
+    |> Enum.map(&value(&1, :speaker_id))
+    |> Enum.filter(&is_binary/1)
+    |> MapSet.new()
+  end
+
+  defp recent_history_speaker_ids(_history), do: MapSet.new()
+
+  defp compact_character_profile(character, terms, include_details?) do
+    current_place = value(character, :current_place)
+
+    profile =
+      character
+      |> Map.take([
+        "speaker_id",
+        "name",
+        "role",
+        "current_place_id",
+        "active_duty",
+        "duty_name",
+        "duty_place_id",
+        "duty_release_at_world_minute",
+        :speaker_id,
+        :name,
+        :role,
+        :current_place_id,
+        :active_duty,
+        :duty_name,
+        :duty_place_id,
+        :duty_release_at_world_minute
+      ])
+      |> then(fn profile ->
+        if is_map(current_place),
+          do: maybe_put_context(profile, "current_place", compact_place_identity(current_place)),
+          else: profile
+      end)
+
+    {profile, facts_compacted?} =
+      if include_details? do
+        Enum.reduce(
+          [
+            visible_facts: @max_character_fact_bytes,
+            gm_private_facts: @max_character_fact_bytes
+          ],
+          {profile, false},
+          fn {key, max_bytes}, {acc, any_compacted?} ->
+            facts = value(character, key)
+            {facts, compacted?} = compact_json_value(facts, terms, max_bytes)
+
+            acc =
+              if is_map(facts) and map_size(facts) > 0,
+                do: put_context_value(acc, Atom.to_string(key), facts),
+                else: acc
+
+            {acc, any_compacted? or compacted?}
+          end
+        )
+      else
+        facts = value(character, :visible_facts)
+        facts = if is_map(facts) and byte_size(safe_json(facts)) <= 256, do: facts, else: nil
+
+        profile =
+          if is_map(facts),
+            do: put_context_value(profile, "visible_facts", facts),
+            else: profile
+
+        {profile, not is_nil(value(character, :visible_facts)) and is_nil(facts)}
+      end
+
+    {profile, voice_compacted?} =
+      if include_details? do
+        voice = value(character, :voice_guidance)
+        {voice, compacted?} = compact_json_value(voice, terms, @max_character_voice_bytes)
+
+        profile =
+          if is_map(voice) and map_size(voice) > 0,
+            do: put_context_value(profile, "voice_guidance", voice),
+            else: profile
+
+        {profile, compacted?}
+      else
+        {profile, false}
+      end
+
+    activity = value(character, :visible_activity)
+
+    {activity, activity_compacted?} =
+      if is_binary(activity) and String.length(activity) > @max_character_activity_chars do
+        {compact_text(activity, @max_character_activity_chars), true}
+      else
+        {activity, false}
+      end
+
+    profile =
+      if is_binary(activity) do
+        put_context_value(profile, "visible_activity", activity)
+      else
+        profile
+      end
+
+    {profile, facts_compacted? or voice_compacted? or activity_compacted? or profile != character}
+  end
 
   defp character_facts_relevant?(character, terms) do
     [value(character, :visible_facts), value(character, :gm_private_facts)]
@@ -1574,7 +1742,17 @@ defmodule Storyteller.GM.ContextBudget do
     adjacent_ids =
       edges
       |> all_edges()
-      |> Enum.flat_map(fn edge -> [value(edge, :place_a_id), value(edge, :place_b_id)] end)
+      |> Enum.flat_map(fn edge ->
+        a = value(edge, :place_a_id)
+        b = value(edge, :place_b_id)
+
+        cond do
+          a == player_place_id -> [b]
+          b == player_place_id -> [a]
+          true -> []
+        end
+      end)
+      |> Enum.filter(&is_binary/1)
       |> MapSet.new()
 
     relevant_character_place_ids =
@@ -1592,33 +1770,129 @@ defmodule Storyteller.GM.ContextBudget do
       |> Enum.filter(&is_binary/1)
       |> MapSet.new()
 
-    {result, omitted?} =
-      Enum.map_reduce(places, false, fn {visibility, place_rows}, any_omitted?
-                                        when is_list(place_rows) ->
-        {rows, omitted_here?} =
-          Enum.map_reduce(place_rows, false, fn place, omitted_details? ->
-            place_id = value(place, :place_id)
-
-            relevant? =
-              place_id == player_place_id or MapSet.member?(adjacent_ids, place_id) or
-                MapSet.member?(relevant_character_place_ids, place_id) or
-                name_mentioned?(value(place, :name), terms)
-
-            if relevant? do
-              {place, omitted_details?}
-            else
-              {compact_place_identity(place), true}
-            end
+    ranked_places =
+      Enum.flat_map(places, fn {visibility, place_rows} ->
+        if is_list(place_rows) do
+          Enum.map(place_rows, fn place ->
+            {visibility, place,
+             place_relevance_score(
+               place,
+               terms,
+               player_place_id,
+               adjacent_ids,
+               relevant_character_place_ids
+             )}
           end)
-
-        {{visibility, rows}, any_omitted? or omitted_here?}
+        else
+          []
+        end
       end)
-      |> then(fn {groups, omitted?} -> {Map.new(groups), omitted?} end)
 
-    {result, omitted?}
+    retained_place_ids =
+      ranked_places
+      |> Enum.sort_by(fn {_visibility, place, score} ->
+        {-score, value(place, :place_id) || value(place, :name) || ""}
+      end)
+      |> Enum.take(@max_context_place_rows)
+      |> MapSet.new(fn {_visibility, place, _score} -> value(place, :place_id) end)
+
+    detailed_place_ids =
+      ranked_places
+      |> Enum.filter(fn {_visibility, _place, score} -> score > 0 end)
+      |> Enum.sort_by(fn {_visibility, place, score} ->
+        {-score, value(place, :place_id) || value(place, :name) || ""}
+      end)
+      |> Enum.take(@max_detailed_place_rows)
+      |> MapSet.new(fn {_visibility, place, _score} -> value(place, :place_id) end)
+
+    {result, {details_omitted?, details_compacted?, rows_omitted?}} =
+      Enum.map_reduce(places, {false, false, false}, fn {visibility, place_rows},
+                                                        {any_omitted?, any_compacted?,
+                                                         any_rows_omitted?} ->
+        if is_list(place_rows) do
+          {rows, {omitted_here?, compacted_here?, rows_omitted_here?}} =
+            Enum.reduce(place_rows, {[], {false, false, false}}, fn place,
+                                                                    {rows,
+                                                                     {details_omitted?,
+                                                                      details_compacted?,
+                                                                      rows_omitted?}} ->
+              place_id = value(place, :place_id)
+
+              cond do
+                not MapSet.member?(retained_place_ids, place_id) ->
+                  {rows, {true, details_compacted?, true}}
+
+                MapSet.member?(detailed_place_ids, place_id) ->
+                  {place, compacted?} = compact_place_details(place, terms)
+
+                  {rows ++ [place],
+                   {details_omitted? or compacted?, details_compacted? or compacted?,
+                    rows_omitted?}}
+
+                true ->
+                  {rows ++ [compact_place_identity(place)],
+                   {true, details_compacted?, rows_omitted?}}
+              end
+            end)
+
+          {{visibility, rows},
+           {any_omitted? or omitted_here?, any_compacted? or compacted_here?,
+            any_rows_omitted? or rows_omitted_here?}}
+        else
+          {{visibility, place_rows}, {any_omitted?, any_compacted?, any_rows_omitted?}}
+        end
+      end)
+      |> then(fn {groups, omissions} -> {Map.new(groups), omissions} end)
+
+    {result, details_omitted?, details_compacted?, rows_omitted?}
   end
 
-  defp compact_places(places, _terms, _player_place_id, _context), do: {places, false}
+  defp compact_places(places, _terms, _player_place_id, _context),
+    do: {places, false, false, false}
+
+  defp place_relevance_score(place, terms, player_place_id, adjacent_ids, character_place_ids) do
+    place_id = value(place, :place_id)
+    fact_score = relevance_score(safe_json(place), terms)
+
+    cond do
+      place_id == player_place_id -> 10_000
+      name_mentioned?(value(place, :name), terms) -> 9_000
+      MapSet.member?(character_place_ids, place_id) -> 8_000
+      MapSet.member?(adjacent_ids, place_id) -> 7_000
+      fact_score > 0 -> 3_000 + fact_score
+      true -> 0
+    end
+  end
+
+  defp compact_place_details(place, terms) do
+    if byte_size(Jason.encode!(place)) <= @max_place_row_bytes do
+      {place, false}
+    else
+      description = value(place, :description)
+
+      {description, description_compacted?} =
+        if is_binary(description) and String.length(description) > @max_place_description_chars do
+          {compact_text(description, @max_place_description_chars), true}
+        else
+          {description, false}
+        end
+
+      facts = value(place, :facts)
+      {facts, facts_compacted?} = compact_json_value(facts, terms, @max_place_facts_bytes)
+
+      compact =
+        if is_binary(description),
+          do: put_context_value(place, "description", description),
+          else: place
+
+      compact =
+        if is_map(facts),
+          do: put_context_value(compact, "facts", facts),
+          else: compact
+
+      {compact, description_compacted? or facts_compacted? or compact != place}
+    end
+  end
 
   defp compact_place_identity(place) when is_map(place) do
     Map.take(place, ["place_id", "name", "visibility", :place_id, :name, :visibility])
@@ -1660,27 +1934,107 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_continuity(continuity, _terms), do: {continuity, false}
 
   defp compact_objectives(objectives, terms) when is_map(objectives) do
-    result =
-      Map.new(objectives, fn {visibility, rows} ->
+    {groups, {rows_omitted?, details_omitted?, closed_details_omitted?}} =
+      Enum.map_reduce(objectives, {false, false, false}, fn {visibility, rows},
+                                                            {any_rows_omitted?,
+                                                             any_details_omitted?,
+                                                             any_closed_details_omitted?} ->
         rows = if is_list(rows), do: rows, else: []
 
-        {visibility,
-         Enum.map(rows, fn objective ->
-           closed? =
-             value(objective, :status) in ["completed", "abandoned", :completed, :abandoned]
+        ranked =
+          rows
+          |> Enum.with_index()
+          |> Enum.map(fn {objective, index} ->
+            {objective, index, relevance_score(entry_text(objective), terms)}
+          end)
 
-           mentioned? = relevance_score(entry_text(objective), terms) > 0
+        relevant =
+          ranked
+          |> Enum.filter(&(elem(&1, 2) > 0))
+          |> Enum.sort_by(fn {_objective, index, score} -> {-score, -index} end)
+          |> Enum.take(16)
 
-           if closed? and not mentioned?,
-             do: Map.drop(objective, [:details, "details"]),
-             else: objective
-         end)}
+        recent_open =
+          ranked
+          |> Enum.reverse()
+          |> Enum.filter(fn {objective, _index, _score} ->
+            value(objective, :status) in ["open", :open]
+          end)
+          |> Enum.take(@max_open_objective_rows)
+
+        recent_closed =
+          ranked
+          |> Enum.reverse()
+          |> Enum.filter(fn {objective, _index, _score} -> objective_closed?(objective) end)
+          |> Enum.take(8)
+
+        retained_indexes =
+          (relevant ++ recent_open ++ recent_closed ++ Enum.reverse(ranked))
+          |> Enum.uniq_by(fn {_objective, index, _score} -> index end)
+          |> Enum.take(@max_context_objective_rows)
+          |> MapSet.new(fn {_objective, index, _score} -> index end)
+
+        detailed_indexes =
+          ranked
+          |> Enum.filter(fn {_objective, index, _score} ->
+            MapSet.member?(retained_indexes, index)
+          end)
+          |> Enum.reject(fn {objective, _index, score} ->
+            objective_closed?(objective) and score == 0
+          end)
+          |> Enum.sort_by(fn {objective, index, score} ->
+            {if(score > 0, do: 0, else: 1), if(objective_closed?(objective), do: 1, else: 0),
+             -score, -index}
+          end)
+          |> Enum.take(@max_objective_detail_count)
+          |> MapSet.new(fn {_objective, index, _score} -> index end)
+
+        {selected, {rows_omitted_here?, details_omitted_here?, closed_details_omitted_here?}} =
+          ranked
+          |> Enum.filter(fn {_objective, index, _score} ->
+            MapSet.member?(retained_indexes, index)
+          end)
+          |> Enum.map_reduce({false, false, false}, fn {objective, index, _score},
+                                                       {row_omitted?, detail_omitted?,
+                                                        closed_detail_omitted?} ->
+            closed? = objective_closed?(objective)
+            details = value(objective, :details)
+
+            if MapSet.member?(detailed_indexes, index) and is_binary(details) do
+              {details, compacted?} =
+                if String.length(details) > @max_objective_detail_chars do
+                  {compact_text(details, @max_objective_detail_chars), true}
+                else
+                  {details, false}
+                end
+
+              {put_context_value(objective, "details", details),
+               {row_omitted?, detail_omitted? or compacted?,
+                closed_detail_omitted? or (closed? and compacted?)}}
+            else
+              if is_binary(details) do
+                {Map.drop(objective, [:details, "details"]),
+                 {row_omitted?, true, closed_detail_omitted? or closed?}}
+              else
+                {objective, {row_omitted?, detail_omitted?, closed_detail_omitted?}}
+              end
+            end
+          end)
+
+        {{visibility, selected},
+         {any_rows_omitted? or length(rows) > length(selected) or rows_omitted_here?,
+          any_details_omitted? or details_omitted_here?,
+          any_closed_details_omitted? or closed_details_omitted_here?}}
       end)
+      |> then(fn {groups, omissions} -> {Map.new(groups), omissions} end)
 
-    {result, result != objectives}
+    {groups, rows_omitted?, details_omitted?, closed_details_omitted?}
   end
 
-  defp compact_objectives(objectives, _terms), do: {objectives, false}
+  defp compact_objectives(objectives, _terms), do: {objectives, false, false, false}
+
+  defp objective_closed?(objective),
+    do: value(objective, :status) in ["completed", "abandoned", :completed, :abandoned]
 
   defp compact_memory(memory) when is_map(memory) do
     {result, omitted?} =
