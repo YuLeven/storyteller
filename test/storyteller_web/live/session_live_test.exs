@@ -223,6 +223,27 @@ defmodule StorytellerWeb.SessionLiveTest do
              before_events
   end
 
+  test "campaign references and tools disclosures open on demand", %{conn: conn} do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    refute has_element?(view, "#campaign-reference button[aria-expanded='true']")
+    assert has_element?(view, "#campaign-memory[hidden]")
+
+    render_click(view, "open-campaign-reference", %{})
+    assert has_element?(view, "#campaign-reference button[aria-expanded='true']")
+    refute has_element?(view, "#campaign-memory[hidden]")
+
+    view |> element("#campaign-reference > button") |> render_click()
+    refute has_element?(view, "#campaign-reference button[aria-expanded='true']")
+    assert has_element?(view, "#campaign-memory[hidden]")
+
+    view |> element("#campaign-tools > button") |> render_click()
+    assert has_element?(view, "#campaign-tools button[aria-expanded='true']")
+    refute has_element?(view, "#campaign-characters[hidden]")
+  end
+
   test "a stale correction refreshes tracked state and keeps the player's draft", %{conn: conn} do
     campaign =
       campaign_fixture(%{
@@ -753,7 +774,7 @@ defmodule StorytellerWeb.SessionLiveTest do
           "current-place",
           "story-timeline",
           "character-inventory",
-          "campaign-memory"
+          "campaign-reference"
         ] do
       assert has_element?(view, "#session-sections a[href='##{target}']")
 
@@ -762,7 +783,13 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
 
     assert has_element?(view, "#session-sections a[href='#current-place']", "The scene")
-    assert has_element?(view, "#session-sections a[href='#campaign-memory']", "Campaign memory")
+
+    assert has_element?(
+             view,
+             "#session-sections a[href='#campaign-reference']",
+             "Campaign memory"
+           )
+
     refute has_element?(view, "#session-sections a[href='#world-state']")
 
     refute has_element?(view, "#session-sections a[href='#campaign-objectives']")
@@ -2081,7 +2108,7 @@ defmodule StorytellerWeb.SessionLiveTest do
           "story-timeline",
           "character-inventory",
           "turn-composer-card",
-          "campaign-objectives",
+          "campaign-reference",
           "campaign-fields"
         ] do
       assert has_element?(view, "#session-sections a[href='##{target}']")
@@ -2089,6 +2116,8 @@ defmodule StorytellerWeb.SessionLiveTest do
       tabindex = if target == "story-timeline", do: "0", else: "-1"
       assert has_element?(view, "##{target}[tabindex='#{tabindex}']")
     end
+
+    assert has_element?(view, "#session-sections a[href='#campaign-reference']", "Objectives")
   end
 
   test "the play header pairs a moon cue with mist across English Spanish and French terms", %{

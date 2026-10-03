@@ -1173,6 +1173,7 @@ defmodule Storyteller.Play do
                 status: :failed,
                 resolution_started_at: nil,
                 failure_code: "provider_error",
+                failure_category: nil,
                 failure_stage: :provider
               })
               |> update_or_rollback!()
@@ -1327,9 +1328,10 @@ defmodule Storyteller.Play do
 
         {:error, reason, stage} ->
           failure_code = normalize_failure_code(reason)
+          failure_category = proposal_failure_category(reason, stage)
           if failure_code == :usage_limit, do: latch_plan_usage(opts)
           log_proposal_rejection(turn, reason, stage)
-          fail_turn(turn.id, attempt_token, failure_code, stage)
+          fail_turn(turn.id, attempt_token, failure_code, stage, failure_category)
       end
 
     duration = System.monotonic_time() - started_at
@@ -1486,6 +1488,7 @@ defmodule Storyteller.Play do
                 attempts: turn.attempts + 1,
                 resolution_started_at: now,
                 failure_code: nil,
+                failure_category: nil,
                 failure_stage: nil
               })
               |> update_or_rollback!()
@@ -1497,6 +1500,7 @@ defmodule Storyteller.Play do
                 attempts: turn.attempts + 1,
                 resolution_started_at: now,
                 failure_code: nil,
+                failure_category: nil,
                 failure_stage: nil
               })
               |> update_or_rollback!()
@@ -1551,6 +1555,7 @@ defmodule Storyteller.Play do
                        resolution_phase: :after_roll,
                        resolution_started_at: nil,
                        failure_code: nil,
+                       failure_category: nil,
                        failure_stage: nil
                      })
                      |> Repo.update() do
@@ -1694,6 +1699,7 @@ defmodule Storyteller.Play do
         roll_request: proposal.roll_request,
         resolution_started_at: nil,
         failure_code: nil,
+        failure_category: nil,
         failure_stage: nil
       }
 
@@ -5566,7 +5572,7 @@ defmodule Storyteller.Play do
 
   defp active_duty_context(_character, _places_by_id, _elapsed_world_minutes), do: %{}
 
-  defp fail_turn(turn_id, attempt_token, code, stage) do
+  defp fail_turn(turn_id, attempt_token, code, stage, failure_category) do
     Repo.transaction(fn ->
       case Repo.get(Turn, turn_id) do
         nil ->
@@ -5593,6 +5599,7 @@ defmodule Storyteller.Play do
               |> Turn.changeset(%{
                 status: :failed,
                 failure_code: Atom.to_string(normalize_failure_code(code)),
+                failure_category: failure_category,
                 resolution_started_at: nil,
                 failure_stage: stage
               })
@@ -5608,6 +5615,12 @@ defmodule Storyteller.Play do
 
   defp normalize_failure_code(code) when code in @provider_errors, do: code
   defp normalize_failure_code(_), do: :provider_error
+
+  defp proposal_failure_category({:invalid_response, category}, :proposal_validation)
+       when category in @proposal_failure_categories,
+       do: category
+
+  defp proposal_failure_category(_reason, _stage), do: nil
 
   defp log_proposal_rejection(turn, {:invalid_response, category}, :proposal_validation)
        when category in @proposal_failure_categories do
@@ -5672,7 +5685,8 @@ defmodule Storyteller.Play do
         attempts: turn.attempts + 1,
         failure_code: code,
         resolution_started_at: nil,
-        failure_stage: nil
+        failure_stage: nil,
+        failure_category: nil
       })
       |> update_or_rollback!()
     else
@@ -6058,6 +6072,7 @@ defmodule Storyteller.Play do
         set: [
           status: :failed,
           failure_code: "usage_limit",
+          failure_category: nil,
           failure_stage: nil,
           resolution_started_at: nil,
           updated_at: utc_now()

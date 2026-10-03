@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-03 — Compact the play board and retain safe rejection diagnosis
+
+- Reordered the desktop player board for the current scene, tracked resources, player character, and inventory; campaign memory/objectives and correction/roster records now open on demand. A LiveView regression covers the controls. The CSS layout still needs a 1280×720 and narrow-screen visual pass on an isolated QA database before the no-second-scroll goal can be marked complete.
+- Persisted only the six existing allow-listed proposal-validation categories on failed turns, with a database constraint tying them to `invalid_response` at `proposal_validation`. Retrying clears the old category. Public turn projections continue to exclude it; no prompt or model text is stored.
+- **Checks:** full WSL suite **438 tests, 0 failures**; JS **14 tests, 0 failures**; development/test warnings-as-errors compilation, formatter, Gettext extraction check, and asset build passed. No live model request or migration against the shared development database was made. MVP functional sign-off remains open.
+
 ## 2026-10-02 — Recheck connected time-passage recovery
 
 - In the separate Quiet Observatory QA session, one owner-authorized retry of the saved “A day passes” turn stayed in progress for about 20 seconds and ended with a safe-rejection message. The player input remained visible, and the world state and story did not change. The connected account was not shown as paused during this attempt.

@@ -67,6 +67,8 @@ defmodule StorytellerWeb.SessionLive.Show do
             correction_receipts: [],
             correction_form: %{"kind" => "inventory", "action" => "add", "owner_id" => "player"},
             correction_open?: false,
+            campaign_reference_open?: false,
+            campaign_tools_open?: false,
             correction_error: nil,
             memory_editor: nil,
             memory_form: default_story_memory_form(),
@@ -105,6 +107,19 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   def handle_event("change-input", _params, socket), do: {:noreply, socket}
 
+  def handle_event("open-campaign-reference", _params, socket) do
+    {:noreply, assign(socket, campaign_reference_open?: true)}
+  end
+
+  def handle_event("toggle-campaign-reference", _params, socket) do
+    {:noreply,
+     assign(socket, campaign_reference_open?: not socket.assigns.campaign_reference_open?)}
+  end
+
+  def handle_event("toggle-campaign-tools", _params, socket) do
+    {:noreply, assign(socket, campaign_tools_open?: not socket.assigns.campaign_tools_open?)}
+  end
+
   def handle_event("change-correction-form", %{"correction" => params}, socket)
       when is_map(params) do
     options = socket.assigns.correction_options || %{}
@@ -134,6 +149,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       {:noreply,
        assign(socket,
          correction_open?: true,
+         campaign_tools_open?: true,
          correction_form: form,
          correction_error: nil
        )}

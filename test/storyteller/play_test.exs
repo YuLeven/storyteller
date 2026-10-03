@@ -8275,6 +8275,97 @@ defmodule Storyteller.PlayTest do
     assert {:ok, []} = Play.public_timeline(agency_campaign.id)
   end
 
+  test "proposal rejection category is persisted internally and omitted from player projections" do
+    {campaign, session} = play_campaign("Proposal Failure Category Observatory")
+
+    assert {:ok,
+            %{
+              status: :failed,
+              failure_code: "invalid_response",
+              failure_stage: :proposal_validation,
+              failure_category: :time_advance
+            } = failed_turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "safe-proposal-failure-category",
+               "A day passes.",
+               intent: :time_passage,
+               provider: ordinary_provider(%{"time_advance_minutes" => 0}),
+               model: "test-model"
+             )
+
+    projection = Play.public_current_turn(campaign.id)
+
+    assert projection.id == failed_turn.id
+    refute Map.has_key?(projection, :failure_category)
+    refute Jason.encode!(projection) =~ "time_advance"
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    refute Turn.changeset(failed_turn, %{failure_category: :unapproved_category}).valid?
+  end
+
+  test "a retry clears a stale category before the provider and replaces it only with a safe category" do
+    {campaign, session} = play_campaign("Retry Failure Category Observatory")
+    test_pid = self()
+
+    assert {:ok,
+            %{
+              status: :failed,
+              failure_category: :time_advance
+            } = failed_turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "retry-proposal-failure-category",
+               "A day passes.",
+               intent: :time_passage,
+               provider: ordinary_provider(%{"time_advance_minutes" => 0}),
+               model: "test-model"
+             )
+
+    provider_failure = fn _request ->
+      send(test_pid, {:category_during_retry, Repo.get!(Turn, failed_turn.id).failure_category})
+      {:error, :timeout}
+    end
+
+    assert {:ok,
+            %{
+              status: :failed,
+              failure_code: "timeout",
+              failure_stage: :provider,
+              failure_category: nil
+            }} = Play.retry_turn(failed_turn.id, provider: provider_failure, model: "test-model")
+
+    assert_receive {:category_during_retry, nil}
+
+    player_agency_failure = fn _request ->
+      send(test_pid, {:category_during_retry, Repo.get!(Turn, failed_turn.id).failure_category})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "dialogue" => [%{"speaker_id" => "player", "text" => "I wait."}],
+           "time_advance_minutes" => 1_440
+         })
+       )}
+    end
+
+    assert {:ok,
+            %{
+              status: :failed,
+              failure_code: "invalid_response",
+              failure_stage: :proposal_validation,
+              failure_category: :player_agency
+            }} =
+             Play.retry_turn(failed_turn.id,
+               provider: player_agency_failure,
+               model: "test-model"
+             )
+
+    assert_receive {:category_during_retry, nil}
+  end
+
   test "time passage accepts world and NPC events and preserves an explicit multi-day duration" do
     {campaign, session} = play_campaign("The Glass Observatory")
     test_pid = self()

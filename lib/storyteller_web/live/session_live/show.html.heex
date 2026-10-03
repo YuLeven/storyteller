@@ -217,7 +217,8 @@
         </li>
         <li :if={@projection.objectives != []}>
           <a
-            href="#campaign-objectives"
+            href="#campaign-reference"
+            phx-click="open-campaign-reference"
             class="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-100"
           >{gettext("Objectives")}</a>
         </li>
@@ -229,7 +230,8 @@
         </li>
         <li>
           <a
-            href="#campaign-memory"
+            href="#campaign-reference"
+            phx-click="open-campaign-reference"
             class="inline-flex min-h-10 items-center rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-100"
           >{gettext("Campaign memory")}</a>
         </li>
@@ -768,7 +770,28 @@
         </section>
 
         <section
+          id="campaign-reference"
+          tabindex="-1"
+          class="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
+        >
+          <button
+            type="button"
+            phx-click="toggle-campaign-reference"
+            aria-expanded={to_string(@campaign_reference_open?)}
+            aria-controls="campaign-memory campaign-objectives"
+            class="w-full cursor-pointer rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
+            <span class="block text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+              {gettext("Campaign details")}
+            </span>
+            <span class="mt-0.5 block text-sm font-semibold text-stone-800">
+              {gettext("Campaign memory")} · {gettext("Objectives")}
+            </span>
+          </button>
+        </section>
+        <section
           id="campaign-memory"
+          hidden={!@campaign_reference_open?}
           phx-hook="PanelPulse"
           data-panel-change-message={gettext("Campaign memory updated")}
           tabindex="-1"
@@ -1011,6 +1034,7 @@
 
         <details
           id="campaign-objectives"
+          hidden={!@campaign_reference_open?}
           phx-hook="PanelPulse"
           data-panel-change-message={gettext("Campaign commitments updated")}
           tabindex="-1"
@@ -1423,9 +1447,29 @@
           </p>
         </section>
 
+        <section
+          id="campaign-tools"
+          class="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
+        >
+          <button
+            type="button"
+            phx-click="toggle-campaign-tools"
+            aria-expanded={to_string(@campaign_tools_open?)}
+            aria-controls="canon-corrections campaign-characters"
+            class="w-full cursor-pointer rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
+            <span class="block text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+              {gettext("Campaign care")} · {gettext("Characters")}
+            </span>
+            <span class="mt-0.5 block text-sm font-semibold text-stone-800">
+              {gettext("Correct tracked state")} · {length(@projection.characters)}
+            </span>
+          </button>
+        </section>
         <details
           :if={playable?(@session) && @correction_options}
           id="canon-corrections"
+          hidden={!@campaign_tools_open?}
           open={@correction_open?}
           class="play-sidebar-section rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
         >
@@ -1955,6 +1999,7 @@
 
         <details
           id="campaign-characters"
+          hidden={!@campaign_tools_open?}
           phx-hook="PanelPulse"
           data-panel-change-message={gettext("Characters updated")}
           class="play-sidebar-section rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"

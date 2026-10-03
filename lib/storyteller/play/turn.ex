@@ -26,6 +26,18 @@ defmodule Storyteller.Play.Turn do
     field :resolution_started_at, :utc_datetime_usec
     field :failure_code, :string
 
+    # Internal safe diagnostics only; player-facing turn projections omit it.
+    field :failure_category,
+          Ecto.Enum,
+          values: [
+            :proposal_shape,
+            :time_advance,
+            :player_agency,
+            :location_presence,
+            :private_fact_boundary,
+            :proposal_rules
+          ]
+
     field :failure_stage,
           Ecto.Enum,
           values: [:context, :provider, :response_decoding, :proposal_validation, :commit]
@@ -51,6 +63,7 @@ defmodule Storyteller.Play.Turn do
       :attempts,
       :resolution_started_at,
       :failure_code,
+      :failure_category,
       :failure_stage
     ])
     |> validate_required([
@@ -68,6 +81,7 @@ defmodule Storyteller.Play.Turn do
     |> validate_length(:player_input, min: 1, max: 20_000)
     |> validate_length(:request_hash, is: 64)
     |> validate_length(:failure_code, max: 80)
+    |> check_constraint(:failure_category, name: :play_turns_failure_category_check)
     |> validate_number(:attempts, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:campaign_id)
     |> foreign_key_constraint(:session_id)
