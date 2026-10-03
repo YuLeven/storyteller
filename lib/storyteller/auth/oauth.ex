@@ -115,6 +115,14 @@ defmodule Storyteller.Auth.OAuth do
     )
   end
 
+  @doc "Returns an access token and its stable account subject from one token-store read."
+  def access_token_with_subject(opts \\ []) do
+    TokenStore.access_token_with_subject(
+      fn credentials -> refresh_credentials(credentials, http(opts), oidc(opts)) end,
+      store(opts)
+    )
+  end
+
   @doc "Revokes the renewable session where possible and always clears local tokens."
   def disconnect(opts \\ []) do
     TokenStore.sign_out(

@@ -14,7 +14,7 @@ defmodule Storyteller.GM.OpenAITest do
 
     credentials = %Credentials{
       client_id: "fixture-issued-client",
-      subject: "fixture-account-subject",
+      subject: "fixture-account-" <> Ecto.UUID.generate(),
       email: "fixture@example.invalid",
       host_id: TokenStore.host_id(store),
       id_token: "fixture-id-token",
@@ -175,6 +175,113 @@ defmodule Storyteller.GM.OpenAITest do
 
     assert {:ok, [%{slug: "fixture-model", display_name: "Fixture Model"}]} =
              OpenAI.models(store: context.store, http: http)
+  end
+
+  test "Automatic caches catalogs per OAuth subject, expires them, and leaves settings fresh",
+       context do
+    test_pid = self()
+
+    cache =
+      start_supervised!({Storyteller.GM.ModelCatalogCache, [name: nil, ttl_ms: 200]},
+        id: make_ref()
+      )
+
+    other_store =
+      fixture_account_store(context.credentials, "other-account-subject", "fixture-access-token")
+
+    catalog_calls = :atomics.new(1, signed: false)
+
+    http = fn method, url, options ->
+      cond do
+        method == :get and url == "https://api.openai.com/v1/models" ->
+          call = :atomics.add_get(catalog_calls, 1, 1)
+          send(test_pid, {:models_request, call})
+
+          catalog =
+            case call do
+              2 ->
+                %{
+                  "models" => [
+                    %{"slug" => "other-model", "display_name" => "Other", "visibility" => "list"}
+                  ]
+                }
+
+              4 ->
+                %{
+                  "models" => [
+                    %{"slug" => "fresh-model", "display_name" => "Fresh", "visibility" => "list"}
+                  ]
+                }
+
+              _ ->
+                model_catalog()
+            end
+
+          %{status: 200, body: Jason.encode!(catalog)}
+
+        method == :post and url == "https://api.openai.com/v1/responses" ->
+          send(test_pid, {:selected_model, Keyword.fetch!(options, :json)["model"]})
+          %{status: 200, body: split_stream(completion_event("The scene continues."))}
+
+        true ->
+          {:error, :unexpected_request}
+      end
+    end
+
+    request = %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]}
+
+    assert {:ok, _response} =
+             OpenAI.stream_response(request,
+               store: context.store,
+               http: http,
+               model_catalog_cache: cache
+             )
+
+    assert_receive {:models_request, 1}
+    assert_receive {:selected_model, "fixture-model"}
+
+    assert {:ok, _response} =
+             OpenAI.stream_response(request,
+               store: context.store,
+               http: http,
+               model_catalog_cache: cache
+             )
+
+    assert_receive {:selected_model, "fixture-model"}
+    refute_receive {:models_request, _}
+
+    assert {:ok, _response} =
+             OpenAI.stream_response(request,
+               store: other_store,
+               http: http,
+               model_catalog_cache: cache
+             )
+
+    assert_receive {:models_request, 2}
+    assert_receive {:selected_model, "other-model"}
+
+    Process.sleep(230)
+
+    assert {:ok, _response} =
+             OpenAI.stream_response(request,
+               store: context.store,
+               http: http,
+               model_catalog_cache: cache
+             )
+
+    assert_receive {:models_request, 3}
+    assert_receive {:selected_model, "fixture-model"}
+
+    # The account settings page and model-save validation use models/1, which
+    # deliberately fetches a fresh catalog rather than consulting this cache.
+    assert {:ok, [%{slug: "fresh-model"}]} =
+             OpenAI.models(
+               store: context.store,
+               http: http
+             )
+
+    assert_receive {:models_request, 4}
+    assert :atomics.get(catalog_calls, 1) == 4
   end
 
   test "does not accept partial text when the SSE stream ends without response.completed",
@@ -428,32 +535,35 @@ defmodule Storyteller.GM.OpenAITest do
 
   test "maps documented authorization failures from response.failed to actionable recovery categories",
        context do
-    Enum.each(
-      [
-        {"subscription_sharing_invalid_user", :reauth_required},
-        {"chatpass_v2_scope_not_authorized", :authorization_configuration},
-        {"chatpass_v2_invalid_authorization_context", :authorization_configuration}
-      ],
-      fn {error_code, expected_error} ->
-        failure =
-          "event: response.failed\ndata: " <>
-            Jason.encode!(%{
-              "type" => "response.failed",
-              "response" => %{"error" => %{"code" => error_code}}
-            }) <>
-            "\n\n"
+    error_cases = [
+      {"subscription_sharing_invalid_user", :reauth_required},
+      {"chatpass_v2_scope_not_authorized", :authorization_configuration},
+      {"chatpass_v2_invalid_authorization_context", :authorization_configuration}
+    ]
 
-        assert {:error, ^expected_error} =
-                 OpenAI.stream_response(
-                   %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
-                   store: context.store,
-                   http: provider_http(self(), failure)
-                 )
+    Enum.with_index(error_cases)
+    |> Enum.each(fn {{error_code, expected_error}, index} ->
+      failure =
+        "event: response.failed\ndata: " <>
+          Jason.encode!(%{
+            "type" => "response.failed",
+            "response" => %{"error" => %{"code" => error_code}}
+          }) <>
+          "\n\n"
 
-        assert_receive {:models_request, _}
-        assert_receive {:responses_request, _}
-      end
-    )
+      assert {:error, ^expected_error} =
+               OpenAI.stream_response(
+                 %{instructions: "Return text.", input: [%{role: "user", content: "Hello"}]},
+                 store: context.store,
+                 http: provider_http(self(), failure)
+               )
+
+      if index == 0,
+        do: assert_receive({:models_request, _}),
+        else: refute_receive({:models_request, _})
+
+      assert_receive {:responses_request, _}
+    end)
   end
 
   test "maps plan-sharing errors from asynchronous HTTP error bodies", context do
@@ -467,7 +577,8 @@ defmodule Storyteller.GM.OpenAITest do
       {400, "subscription_sharing_unsupported_capability", :unsupported_capability}
     ]
 
-    Enum.each(error_cases, fn {status, code, expected} ->
+    Enum.with_index(error_cases)
+    |> Enum.each(fn {{status, code, expected}, index} ->
       body = Jason.encode!(%{"error" => %{"code" => code, "param" => "model"}})
       http = provider_http_error(self(), status, async_body(split_stream(body)))
 
@@ -478,7 +589,10 @@ defmodule Storyteller.GM.OpenAITest do
                  http: http
                )
 
-      assert_receive {:models_request, _}
+      if index == 0,
+        do: assert_receive({:models_request, _}),
+        else: refute_receive({:models_request, _})
+
       assert_receive {:responses_request, _}
     end)
   end
@@ -681,6 +795,26 @@ defmodule Storyteller.GM.OpenAITest do
           {:error, :unexpected_request}
       end
     end
+  end
+
+  defp fixture_account_store(credentials, subject, access_token) do
+    directory =
+      Path.join(System.tmp_dir!(), "storyteller-openai-account-#{Ecto.UUID.generate()}")
+
+    path = Path.join(directory, "credentials.json")
+    on_exit(fn -> File.rm_rf(directory) end)
+    store = start_supervised!({TokenStore, [path: path, name: nil]}, id: make_ref())
+
+    account_credentials = %{
+      credentials
+      | subject: subject,
+        email: credentials.email,
+        host_id: TokenStore.host_id(store),
+        access_token: access_token
+    }
+
+    assert :ok = TokenStore.put_credentials(account_credentials, store)
+    store
   end
 
   defp async_body(chunks) do

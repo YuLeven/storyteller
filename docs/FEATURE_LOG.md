@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-03 — V1 story-quality iteration 10: remove repeated model-catalog lookup
+
+- The connected Automatic model preference caused a serial `/v1/models` lookup on every GM turn before `/v1/responses`. The OpenAI adapter now caches a successful, nonempty model list in memory for up to five minutes, keyed by the stable OAuth account subject. The cache holds at most 16 accounts, expires entries, and stores no access tokens, email addresses, prompts, or campaign data. The account-settings page and model-save validation still fetch a fresh catalog; failures are never cached.
+- A synthetic Quiet Observatory ensemble action produced a grounded two-person exchange: coastal surveyor Lina described evidence of a shared chart source, and Mira added a distinct caution about publication dates versus observation dates. It avoided repeating the whole investigation or taking the player's choice. The completed turn took **71 seconds** in Automatic mode; first text was visible by the 10-second progress check. This is a single sample, not a latency benchmark. The catalog cache removes one avoidable request but has not been retested with another live provider turn, so the large remaining latency is still a V1 P0 issue.
+- **Checks:** focused OAuth/provider/cache tests passed (**52 tests, 0 failures**); full WSL suite passed (**457 tests, 0 failures**); test/dev warnings-as-errors compilation, format check, and `git diff --check` passed. No additional provider request was made after implementing the cache.
+
 ## 2026-10-03 — QA follow-up: prevent ambiguous duplicate-place placement
 
 - Manual QA in the fictional Quiet Observatory campaign found two public place records with identical names and details. The campaign editor showed them as indistinguishable choices; selecting the legacy duplicate put a new character at a different canonical place ID, so the character roster showed the same place name while “Here with you” correctly omitted them.

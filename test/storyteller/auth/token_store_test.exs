@@ -180,8 +180,10 @@ defmodule Storyteller.Auth.TokenStoreTest do
       end
     end
 
-    assert {:ok, "fixture-access-after-rotation"} =
-             TokenStore.access_token(refresh, server)
+    subject = credentials.subject
+
+    assert {:ok, "fixture-access-after-rotation", ^subject} =
+             TokenStore.access_token_with_subject(refresh, server)
 
     assert :ok = stop_supervised(context.name)
     restarted = start_store(context)

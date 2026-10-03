@@ -10,6 +10,7 @@ defmodule Storyteller.Application do
     children = [
       StorytellerWeb.Telemetry,
       Storyteller.Repo,
+      Storyteller.GM.ModelCatalogCache,
       {Storyteller.Auth.TokenStore,
        Application.fetch_env!(:storyteller, Storyteller.Auth.TokenStore)
        |> Keyword.put(:name, Storyteller.Auth.TokenStore)},

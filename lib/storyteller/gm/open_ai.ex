@@ -11,6 +11,7 @@ defmodule Storyteller.GM.OpenAI do
   """
 
   alias Storyteller.Auth.{HTTP, OAuth}
+  alias Storyteller.GM.ModelCatalogCache
 
   @models_url "https://api.openai.com/v1/models"
   @responses_url "https://api.openai.com/v1/responses"
@@ -33,8 +34,9 @@ defmodule Storyteller.GM.OpenAI do
   def stream_response(request, opts) when is_map(request) do
     started_at = System.monotonic_time()
 
-    with {:ok, access_token} <- log_stage_error(:oauth, OAuth.access_token(opts)),
-         {:ok, model} <- resolve_model(request, access_token, opts),
+    with {:ok, access_token, account_subject} <-
+           log_stage_error(:oauth, OAuth.access_token_with_subject(opts)),
+         {:ok, model} <- resolve_model(request, access_token, account_subject, opts),
          {:ok, body} <- log_stage_error(:request_validation, request_body(request, model)),
          {:ok, response} <-
            log_stage_error(:responses_request, post_response(access_token, body, opts)),
@@ -66,19 +68,50 @@ defmodule Storyteller.GM.OpenAI do
 
   def stream_response(_request, _opts), do: {:error, :invalid_response}
 
-  defp resolve_model(request, access_token, opts) do
+  defp resolve_model(request, access_token, account_subject, opts) do
     case field(request, :model) do
       model when is_binary(model) and model != "" ->
         {:ok, model}
 
       nil ->
-        with {:ok, models} <- log_stage_error(:model_catalog, fetch_models(access_token, opts)) do
+        with {:ok, models} <-
+               log_stage_error(
+                 :model_catalog,
+                 cached_models(account_subject, access_token, opts)
+               ) do
           log_stage_error(:model_selection, select_model(request, models))
         end
 
       _ ->
         log_stage_error(:model_selection, {:error, :model_unavailable})
     end
+  end
+
+  defp cached_models(subject, access_token, opts) do
+    cache = Keyword.get(opts, :model_catalog_cache, ModelCatalogCache)
+
+    case cache_get(cache, subject) do
+      {:ok, models} ->
+        {:ok, models}
+
+      :miss ->
+        with {:ok, models} <- fetch_models(access_token, opts) do
+          cache_put(cache, subject, models)
+          {:ok, models}
+        end
+    end
+  end
+
+  defp cache_get(cache, subject) do
+    ModelCatalogCache.get(subject, cache)
+  catch
+    :exit, _reason -> :miss
+  end
+
+  defp cache_put(cache, subject, models) do
+    ModelCatalogCache.put(subject, models, cache)
+  catch
+    :exit, _reason -> :ok
   end
 
   defp fetch_models(access_token, opts) do

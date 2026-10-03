@@ -80,7 +80,13 @@ defmodule Storyteller.Auth.TokenStore do
   end
 
   def access_token(refresh_fun, server \\ __MODULE__) when is_function(refresh_fun, 1) do
-    GenServer.call(server, {:access_token, refresh_fun}, 60_000)
+    GenServer.call(server, {:access_token, refresh_fun, :token}, 60_000)
+  end
+
+  @doc "Returns the current access token together with its stable OAuth subject."
+  def access_token_with_subject(refresh_fun, server \\ __MODULE__)
+      when is_function(refresh_fun, 1) do
+    GenServer.call(server, {:access_token, refresh_fun, :token_and_subject}, 60_000)
   end
 
   def sign_out(revoke_fun, server \\ __MODULE__) when is_function(revoke_fun, 1) do
@@ -192,11 +198,15 @@ defmodule Storyteller.Auth.TokenStore do
     end
   end
 
-  def handle_call({:access_token, _refresh_fun}, _from, %{credentials: nil} = state) do
+  def handle_call(
+        {:access_token, _refresh_fun, _result_shape},
+        _from,
+        %{credentials: nil} = state
+      ) do
     {:reply, {:error, :not_authenticated}, expire_attempts(state)}
   end
 
-  def handle_call({:access_token, refresh_fun}, _from, state) do
+  def handle_call({:access_token, refresh_fun, result_shape}, _from, state) do
     credentials = state.credentials
 
     cond do
@@ -205,13 +215,13 @@ defmodule Storyteller.Auth.TokenStore do
 
       is_integer(credentials.expires_at) and
           credentials.expires_at > now() + @refresh_skew_seconds ->
-        {:reply, {:ok, credentials.access_token}, expire_attempts(state)}
+        {:reply, access_token_result(credentials, result_shape), expire_attempts(state)}
 
       not is_binary(credentials.refresh_token) ->
         {:reply, {:error, :reauth_required}, expire_attempts(state)}
 
       true ->
-        refresh_credentials(refresh_fun, state)
+        refresh_credentials(refresh_fun, result_shape, state)
     end
   end
 
@@ -241,7 +251,7 @@ defmodule Storyteller.Auth.TokenStore do
     end
   end
 
-  defp refresh_credentials(refresh_fun, state) do
+  defp refresh_credentials(refresh_fun, result_shape, state) do
     case safely_refresh(refresh_fun, state.credentials) do
       {:ok, %Credentials{host_id: host_id} = updated}
       when host_id == state.host_id and
@@ -251,7 +261,7 @@ defmodule Storyteller.Auth.TokenStore do
 
         case persist(updated_state) do
           :ok ->
-            {:reply, {:ok, updated.access_token}, updated_state}
+            {:reply, access_token_result(updated, result_shape), updated_state}
 
           {:error, _} ->
             {:reply, {:error, :credential_store_unavailable}, updated_state}
@@ -277,6 +287,11 @@ defmodule Storyteller.Auth.TokenStore do
         {:reply, {:error, :invalid_refresh_response}, expire_attempts(state)}
     end
   end
+
+  defp access_token_result(credentials, :token), do: {:ok, credentials.access_token}
+
+  defp access_token_result(credentials, :token_and_subject),
+    do: {:ok, credentials.access_token, credentials.subject}
 
   defp persist_credentials(credentials, state) do
     updated = %{
