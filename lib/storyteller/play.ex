@@ -316,9 +316,10 @@ defmodule Storyteller.Play do
   CONSEQUENCES AND DICE: Keep consequences proportionate; ordinary actions may
   work. Match established stakes; add no forced drama or unestablished
   mechanics. Develop projects/mysteries believably, with causes or clues.
-  Request a player D20 only for an uncertain, consequential outcome; state the
-  test and target/difficulty first. Never invent a roll; wait for the explicit
-  die click, use its result once, narrate it, and return control.
+  Request a player D20 only for a risky player-chosen action; state the test
+  and target/difficulty. Never request one in an opening scene, a question, or
+  time passage. Wait for the explicit die click, use its result once, narrate
+  it, and return control.
 
   CANON AND VISIBILITY: Persisted state and approved history outrank prose and
   campaign instructions. Never invent a past event, relationship, resource
@@ -339,8 +340,8 @@ defmodule Storyteller.Play do
   (e.g. current_date, world_time, time_of_day, conditions). Create places before
   moving anyone; keep stable IDs and record grounded place changes in
   location_changes. The player moves only to a public
-  place; change their location there, never via public_changes. Create new NPCs
-  with fresh stable speaker IDs and separate visible_facts/gm_private_facts.
+  place; change their location there, never via public_changes. Create NPCs
+  only with speaker_id, name, visible_facts, and gm_private_facts; use a fresh ID.
   When first met, introduce a new NPC with a fresh stable speaker ID and move
   them into the scene before they speak or act; nil place is not presence.
   After placement they may act, speak, receive items or be updated; thereafter
@@ -414,13 +415,13 @@ defmodule Storyteller.Play do
   its full stated duration, including multiple days, as positive bounded minutes;
   for open-ended waits use a natural interval and hand
   back control at a meaningful decision. Advance NPC/world events only; never
-  decide, move, speak, think, or roll for the player character. The request's
-  mode-specific instructions further constrain the response.
+  decide, move, speak, or think for the player character.
 
   RESPONSE: Return exactly one JSON object with no extra fields: narration;
   dialogue/activities ({speaker_id,text}); remote_messages ({speaker_id,path_id,text});
   public_changes/private_changes objects; panel_changes, character_updates,
-  character_creations, location_changes, travel_changes, inventory_changes,
+  character_creations ({speaker_id,name,visible_facts,gm_private_facts});
+  location_changes, travel_changes, inventory_changes,
   objective_changes, continuity_changes; communication_path_changes (establish
   {type:"establish",path_id,speaker_id,channel,endpoint,basis_text,reason} or
   deactivate {type:"deactivate",path_id,reason}); memory_update
@@ -450,9 +451,23 @@ defmodule Storyteller.Play do
 
   @proposal_failure_categories [
     :proposal_shape,
+    :narration,
+    :dialogue,
+    :activity,
+    :world_change,
+    :panel_change,
+    :character_creation,
+    :character_update,
+    :inventory_change,
     :time_advance,
+    :roll_request,
     :player_agency,
     :location_presence,
+    :communication_path,
+    :remote_message,
+    :objective_change,
+    :continuity_change,
+    :memory_update,
     :private_fact_boundary,
     :proposal_rules
   ]
@@ -2970,26 +2985,55 @@ defmodule Storyteller.Play do
     known_characters = campaign_characters(turn.campaign_id)
 
     with {:ok, character_creations} <-
-           validate_character_creations(
-             field(proposal, :character_creations, []),
-             known_characters
+           tagged_proposal_validation(
+             validate_character_creations(
+               field(proposal, :character_creations, []),
+               known_characters
+             ),
+             :character_creation
            ),
          characters = known_characters ++ character_creations,
          speaker_ids = Enum.map(characters, & &1.speaker_id),
-         {:ok, narration} <- text_field(proposal, :narration, 1, 10_000),
-         {:ok, dialogue} <- validate_lines(field(proposal, :dialogue, []), characters),
-         {:ok, activities} <- validate_lines(field(proposal, :activities, []), characters),
-         {:ok, public_changes} <- world_changes_field(proposal, :public_changes),
-         {:ok, private_changes} <- world_changes_field(proposal, :private_changes),
+         {:ok, narration} <-
+           tagged_proposal_validation(text_field(proposal, :narration, 1, 10_000), :narration),
+         {:ok, dialogue} <-
+           tagged_proposal_validation(
+             validate_lines(field(proposal, :dialogue, []), characters),
+             :dialogue
+           ),
+         {:ok, activities} <-
+           tagged_proposal_validation(
+             validate_lines(field(proposal, :activities, []), characters),
+             :activity
+           ),
+         {:ok, public_changes} <-
+           tagged_proposal_validation(
+             world_changes_field(proposal, :public_changes),
+             :world_change
+           ),
+         {:ok, private_changes} <-
+           tagged_proposal_validation(
+             world_changes_field(proposal, :private_changes),
+             :world_change
+           ),
          {:ok, panel_changes} <-
-           validate_panel_changes(field(proposal, :panel_changes, []), turn.campaign_id),
+           tagged_proposal_validation(
+             validate_panel_changes(field(proposal, :panel_changes, []), turn.campaign_id),
+             :panel_change
+           ),
          {:ok, character_updates} <-
-           validate_character_updates(field(proposal, :character_updates, []), characters),
+           tagged_proposal_validation(
+             validate_character_updates(field(proposal, :character_updates, []), characters),
+             :character_update
+           ),
          {:ok, inventory_changes} <-
-           validate_inventory_changes(
-             field(proposal, :inventory_changes, []),
-             turn.campaign_id,
-             speaker_ids
+           tagged_proposal_validation(
+             validate_inventory_changes(
+               field(proposal, :inventory_changes, []),
+               turn.campaign_id,
+               speaker_ids
+             ),
+             :inventory_change
            ),
          player_place_id = current_player_place_id(turn.campaign_id),
          movement_characters = known_characters ++ character_creations,
@@ -3055,38 +3099,57 @@ defmodule Storyteller.Play do
          speaker_visibility =
            character_visibility_after_changes(turn.campaign_id, location_changes),
          {:ok, communication_path_changes} <-
-           CommunicationPaths.validate_changes(
-             field(proposal, :communication_path_changes, []),
-             public_paths,
-             known_characters,
-             dialogue,
-             final_locations,
-             speaker_visibility
+           tagged_proposal_validation(
+             CommunicationPaths.validate_changes(
+               field(proposal, :communication_path_changes, []),
+               public_paths,
+               known_characters,
+               dialogue,
+               final_locations,
+               speaker_visibility
+             ),
+             :communication_path
            ),
          {:ok, remote_messages} <-
-           CommunicationPaths.validate_messages(
-             field(proposal, :remote_messages, []),
-             public_paths,
-             known_characters
+           tagged_proposal_validation(
+             CommunicationPaths.validate_messages(
+               field(proposal, :remote_messages, []),
+               public_paths,
+               known_characters
+             ),
+             :remote_message
            ),
          {:ok, objective_changes} <-
-           validate_objective_changes(
-             field(proposal, :objective_changes, []),
-             turn.campaign_id
+           tagged_proposal_validation(
+             validate_objective_changes(
+               field(proposal, :objective_changes, []),
+               turn.campaign_id
+             ),
+             :objective_change
            ),
          {:ok, continuity_changes} <-
-           validate_continuity_changes(
-             field(proposal, :continuity_changes, []),
-             turn.campaign_id
+           tagged_proposal_validation(
+             validate_continuity_changes(
+               field(proposal, :continuity_changes, []),
+               turn.campaign_id
+             ),
+             :continuity_change
            ),
-         {:ok, memory_update} <- validate_memory_update(field(proposal, :memory_update)),
+         {:ok, memory_update} <-
+           tagged_proposal_validation(
+             validate_memory_update(field(proposal, :memory_update)),
+             :memory_update
+           ),
          {:ok, time_advance_minutes} <-
            tagged_proposal_validation(
              validate_time_advance(field(proposal, :time_advance_minutes, 0), turn.intent),
              :time_advance
            ),
          {:ok, roll_request} <-
-           validate_roll_request(field(proposal, :roll_request), turn.resolution_phase) do
+           tagged_proposal_validation(
+             validate_roll_request(field(proposal, :roll_request), turn.resolution_phase),
+             :roll_request
+           ) do
       if turn.intent == :time_passage and
            time_passage_player_agency?(
              dialogue,
@@ -3105,7 +3168,7 @@ defmodule Storyteller.Play do
              travel_changes,
              time_advance_minutes
            ) do
-          proposal_rejection(:proposal_rules)
+          proposal_rejection(:remote_message)
         else
           if roll_request &&
                (turn.intent != :action or map_size(public_changes) > 0 or
@@ -3116,7 +3179,7 @@ defmodule Storyteller.Play do
                   travel_changes != [] or
                   continuity_changes != [] or communication_path_changes != [] or
                   remote_messages != [] or time_advance_minutes != 0) do
-            proposal_rejection(:proposal_rules)
+            proposal_rejection(:roll_request)
           else
             validated = %{
               narration: narration,

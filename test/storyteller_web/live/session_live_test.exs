@@ -1513,6 +1513,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
         case Agent.get_and_update(attempts, fn attempt -> {attempt, attempt + 1} end) do
           0 ->
+            send(test_pid, {:opening_instructions, request.instructions})
             {:error, :provider_error}
 
           _ ->
@@ -1557,6 +1558,12 @@ defmodule StorytellerWeb.SessionLiveTest do
     {:ok, view, _html} = live(conn, session_path(campaign, session))
 
     assert_receive {:opening_context, "opening_scene"}, 1_000
+    assert_receive {:opening_instructions, opening_instructions}, 1_000
+    assert opening_instructions =~ "Never request one in an opening scene"
+
+    assert opening_instructions =~
+             "character_creations ({speaker_id,name,visible_facts,gm_private_facts})"
+
     assert wait_until(fn -> has_element?(view, "#turn-error", "opening scene") end)
 
     opening_turn = Play.public_current_turn(campaign.id)
@@ -4943,6 +4950,134 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert Play.public_current_turn(campaign.id).id == turn.id
     assert Play.public_current_turn(campaign.id).failure_code == "provider_error"
     refute_receive {:held_provider_request, _}, 50
+  end
+
+  test "usage status changes during a failed after-roll request survive reconnect without retrying",
+       %{conn: conn} do
+    for {usage_status, status_selector, other_selector} <- [
+          {:paused, "#plan-usage-paused", "#plan-usage-unavailable"},
+          {:unavailable, "#plan-usage-unavailable", "#plan-usage-paused"}
+        ] do
+      campaign = campaign_fixture()
+      [session] = campaign.sessions
+      test_pid = self()
+
+      usage_store =
+        start_supervised!({FakeUsageStatusStore, :available},
+          id: {:usage_status_race_store, usage_status}
+        )
+
+      Application.put_env(:storyteller, :plan_usage_token_store, usage_store)
+
+      calls =
+        start_supervised!({Agent, fn -> %{} end}, id: {:usage_status_race_calls, usage_status})
+
+      set_handler(fn request ->
+        context = provider_context(request)
+        phase = context["phase"]
+        Agent.update(calls, &Map.update(&1, phase, 1, fn count -> count + 1 end))
+
+        send(
+          test_pid,
+          {:usage_status_race_provider_call, self(), phase,
+           get_in(context, ["player_roll", "result"])}
+        )
+
+        cond do
+          phase == "opening_scene" ->
+            FakeProvider.opening_scene_response(context)
+
+          phase == "initial" ->
+            {:ok,
+             %{
+               narration: "The rope strains above the dark gallery.",
+               dialogue: [],
+               activities: [],
+               public_changes: %{},
+               private_changes: %{},
+               memory_update: %{public_summary: "", gm_private_summary: ""},
+               roll_request: %{test: "Agility", difficulty: "Hard", target: 14}
+             }}
+
+          phase == "after_roll" ->
+            receive do
+              :return_provider_error -> {:error, :provider_error}
+            after
+              5_000 -> flunk("the held after-roll provider request was not released")
+            end
+
+          true ->
+            flunk("unexpected GM phase: #{inspect(phase)}")
+        end
+      end)
+
+      Application.put_env(:storyteller, :d20_roll_source, fn -> 17 end)
+      {:ok, view, _html} = live_play(conn, campaign, session)
+
+      view
+      |> form("#turn-composer", turn: %{input: "I climb the rope to the gallery."})
+      |> render_submit()
+
+      assert_receive {:usage_status_race_provider_call, _provider, "initial", nil}, 1_000
+      assert wait_until(fn -> has_element?(view, "#roll-panel", "Agility") end)
+
+      view |> element("#roll-panel button[phx-click='roll-d20']") |> render_click()
+      assert_receive {:usage_status_race_provider_call, provider, "after_roll", 17}, 1_000
+
+      turn = Play.public_current_turn(campaign.id)
+      assert turn.status == :resolving
+      assert turn.resolution_phase == :after_roll
+      assert turn.player_input == "I climb the rope to the gallery."
+
+      assert :ok = FakeUsageStatusStore.set_status(usage_store, usage_status)
+      send(view.pid, :refresh_turn)
+
+      assert wait_until(fn ->
+               has_element?(view, status_selector) and
+                 has_element?(view, "#turn-announcement", "The game master is responding")
+             end)
+
+      refute has_element?(view, other_selector)
+      assert has_element?(view, "#turn-input[disabled]")
+
+      send(provider, :return_provider_error)
+
+      assert wait_until(fn ->
+               case Play.public_current_turn(campaign.id) do
+                 %{status: :failed, failure_code: "provider_error"} ->
+                   has_element?(view, "#turn-error", "D20 result: 17") and
+                     has_element?(view, status_selector)
+
+                 _ ->
+                   false
+               end
+             end)
+
+      failed_turn = Play.public_current_turn(campaign.id)
+      assert failed_turn.player_input == "I climb the rope to the gallery."
+      assert failed_turn.resolution_phase == :after_roll
+      assert has_element?(view, "#story-timeline", failed_turn.player_input)
+      assert has_element?(view, "#turn-error button[phx-click='retry-turn'][disabled]")
+      refute has_element?(view, other_selector)
+
+      assert {:ok, timeline} = Play.public_timeline(campaign.id)
+
+      rolls =
+        Enum.filter(timeline, &(&1.turn_id == failed_turn.id and &1.event_type == :player_roll))
+
+      assert [%{payload: %{"result" => 17}}] = rolls
+
+      {:ok, resumed, _html} = live_play(conn, campaign, session)
+      assert has_element?(resumed, status_selector)
+      refute has_element?(resumed, other_selector)
+      assert has_element?(resumed, "#story-timeline", failed_turn.player_input)
+      assert has_element?(resumed, "#turn-error", "D20 result: 17")
+      assert has_element?(resumed, "#turn-error button[phx-click='retry-turn'][disabled]")
+      assert Play.public_current_turn(campaign.id).id == failed_turn.id
+      assert Play.public_current_turn(campaign.id).failure_code == "provider_error"
+      assert Agent.get(calls, & &1) == %{"initial" => 1, "after_roll" => 1}
+      refute_receive {:usage_status_race_provider_call, _, _, _}, 100
+    end
   end
 
   test "a plan limit after a D20 keeps its result and requires explicit resume before retry", %{

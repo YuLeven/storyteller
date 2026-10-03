@@ -207,6 +207,29 @@ defmodule Storyteller.PlayTest do
       }
     ]
 
+    opening_with_premature_roll =
+      ordinary_proposal(%{
+        "dialogue" => [],
+        "activities" => [],
+        "private_changes" => %{},
+        "character_updates" => [],
+        "location_changes" => opening_place_changes,
+        "roll_request" => %{"test" => "Agility", "difficulty" => "Hard", "target" => 14}
+      })
+
+    assert {:ok,
+            %{
+              status: :failed,
+              failure_code: "invalid_response",
+              failure_category: :roll_request
+            }} =
+             Play.retry_turn(opening_turn.id,
+               provider: fn _request -> {:ok, Jason.encode!(opening_with_premature_roll)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
     missing_npc_presence =
       ordinary_proposal(%{
         "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The dome is opening."}],
@@ -5767,7 +5790,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "a message needs an active public path for that sender"
     assert instructions =~ "without a matching inventory_changes operation and established cause"
     assert instructions =~ "A read-only ledger review changes nothing"
-    assert instructions =~ "Request a player D20 only for an uncertain, consequential outcome"
+    assert instructions =~ "Request a player D20 only for a risky player-chosen action"
 
     assert instructions =~
              "ADAPTIVE PACE: Match intent, not fixed length."

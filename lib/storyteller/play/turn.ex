@@ -31,9 +31,23 @@ defmodule Storyteller.Play.Turn do
           Ecto.Enum,
           values: [
             :proposal_shape,
+            :narration,
+            :dialogue,
+            :activity,
+            :world_change,
+            :panel_change,
+            :character_creation,
+            :character_update,
+            :inventory_change,
             :time_advance,
+            :roll_request,
             :player_agency,
             :location_presence,
+            :communication_path,
+            :remote_message,
+            :objective_change,
+            :continuity_change,
+            :memory_update,
             :private_fact_boundary,
             :proposal_rules
           ]

@@ -13,7 +13,18 @@ mix setup
 mix phx.server
 ```
 
-Open [http://127.0.0.1:4000](http://127.0.0.1:4000) in the Windows browser. `mix setup` fetches dependencies, creates and migrates the development database, seeds one separate fictional QA campaign, and builds the local CSS and JavaScript assets.
+Open [http://127.0.0.1:4000](http://127.0.0.1:4000) in the Windows browser. `mix setup` fetches dependencies, creates and migrates the development database, seeds fictional QA campaigns, and builds the local CSS and JavaScript assets.
+
+For isolated manual QA, the development server can use another persistent local database and loopback port:
+
+```sh
+STORYTELLER_DB_NAME=storyteller_manual_qa PORT=4003 mix ecto.create
+STORYTELLER_DB_NAME=storyteller_manual_qa PORT=4003 mix ecto.migrate
+STORYTELLER_DB_NAME=storyteller_manual_qa PORT=4003 mix run priv/repo/seeds.exs
+STORYTELLER_DB_NAME=storyteller_manual_qa PORT=4003 mix phx.server
+```
+
+Then use [http://127.0.0.1:4003](http://127.0.0.1:4003). The QA database persists independently of `storyteller_dev`; the server still binds only to loopback, and the OAuth callback follows `PORT`. Keep manual play in a fictional QA campaign and never use a comparison campaign or a personal campaign as an automated fixture.
 
 On first development startup, Storyteller generates a persistent cookie-signing key at `${STORYTELLER_AUTH_DIR:-$HOME/.config/storyteller}/dev_secret_key_base`. It is stored outside the repository with owner-only file and directory permissions, so browser sessions survive server restarts without a committed development secret. `SECRET_KEY_BASE` can override it for a local environment when needed.
 
@@ -27,7 +38,7 @@ Connect a personal ChatGPT account from the local `/auth/connect` page. Storytel
 
 The account's ChatGPT usage allowance is shared with other ChatGPT apps and can temporarily reject requests. When that happens, check ChatGPT Usage settings, resume requests in Storyteller if the account-wide pause is shown, then explicitly retry the saved turn. A retry continues the same durable turn and any already-recorded D20 result.
 
-Use the separate fictional **The Amber Orchard** campaign for live testing. The current QA session is `/campaigns/34/sessions/35`; do not use the Vineyard campaign as test data.
+Use a fictional QA campaign in the isolated manual-QA database for live play checks. Campaign IDs are local and can change as campaigns are created; do not rely on hard-coded IDs. Never use the Vineyard campaign or its comparison copy as test data.
 
 Public story events retain the campaign date/time that applied when they were recorded. A player's action can show the time before the GM advances the scene; the GM response shows the resulting time. Older events created before this metadata existed have no time label rather than a misleading UTC timestamp.
 
@@ -39,4 +50,4 @@ The default local development connection uses the WSL `root` database role over 
 
 `mix test` uses the separate `storyteller_test` database and the SQL sandbox; it does not run development seeds. Test fixtures create only fictional QA worlds. `mix run priv/repo/seeds.exs` adds the idempotent **QA Campaign: The Quiet Observatory** to the development database for manual testing. It is separate from any future approved vineyard campaign import.
 
-For persistent manual browser QA that should not interfere with ExUnit fixtures, set `MIX_TEST_PARTITION=qa` to use the separate `storyteller_testqa` database. Keep the default `storyteller_test` database for automated tests, and do not run the suite against the persistent QA partition.
+Keep the default `storyteller_test` database for ExUnit. Use the durable development QA database above for manual browser testing; `MIX_TEST_PARTITION` is for partitioned automated test runs, not persistent browser play.

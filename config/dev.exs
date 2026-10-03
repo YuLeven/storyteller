@@ -1,11 +1,17 @@
 import Config
 
+dev_port = String.to_integer(System.get_env("PORT") || "4000")
+
+# Let manual QA run against a separate durable database and local port without
+# ever switching the primary development server away from its default database.
+dev_database = System.get_env("STORYTELLER_DB_NAME") || "storyteller_dev"
+
 # Configure your database
 config :storyteller, Storyteller.Repo,
   username: System.get_env("STORYTELLER_DB_USERNAME", System.get_env("USER", "root")),
   password: System.get_env("STORYTELLER_DB_PASSWORD"),
   socket_dir: System.get_env("STORYTELLER_DB_SOCKET_DIR", "/var/run/postgresql"),
-  database: "storyteller_dev",
+  database: dev_database,
   stacktrace: true,
   show_sensitive_data_on_connection_error: false,
   pool_size: 10
@@ -19,14 +25,17 @@ config :storyteller, Storyteller.Repo,
 config :storyteller, StorytellerWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}, port: 4000],
-  check_origin: ["http://127.0.0.1:4000", "http://localhost:4000"],
+  http: [ip: {127, 0, 0, 1}, port: dev_port],
+  check_origin: ["http://127.0.0.1:#{dev_port}", "http://localhost:#{dev_port}"],
   code_reloader: true,
   debug_errors: true,
   watchers: [
     esbuild: {Esbuild, :install_and_run, [:storyteller, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:storyteller, ~w(--watch)]}
   ]
+
+config :storyteller, Storyteller.Auth.OAuth,
+  callback_uri: "http://127.0.0.1:#{dev_port}/auth/callback"
 
 # ## SSL Support
 #

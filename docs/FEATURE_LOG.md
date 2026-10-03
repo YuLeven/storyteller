@@ -1,5 +1,23 @@
 # Feature log
 
+## 2026-10-03 — Isolated local QA runtime and bounded connected replay
+
+- Development config now accepts `STORYTELLER_DB_NAME` and `PORT`, keeping the default `storyteller_dev` / 4000 behavior and loopback binding while allowing a durable manual-QA database on another local port. The Windows/WSL command sequence is documented in `docs/LOCAL_DEVELOPMENT.md`; stale campaign IDs were removed from the live-testing instructions.
+- Created a fresh fictional `storyteller_mvp_qa_20261003` database. Four bounded attempts did not produce an opening scene: the first two were safely rejected (`proposal_rules`), the third identified character creation, and the retry after clarifying the character-creation schema ended with a generic provider error. No narration or canon was saved; no further request was sent. The connected GM loop remains an MVP sign-off blocker.
+- **Checks:** the isolated database is migrated and seeded, and its Phoenix server ran on loopback port 4003. Full ExUnit passed (**439 tests, 0 failures**); warnings-as-errors compilation, format, `git diff --check`, and Gettext freshness passed in WSL. The evidence and exact boundary are in `docs/UX_ACCEPTANCE.md`. The primary 4000 server, campaign 37, the Vineyard campaign, and its source ChatGPT thread were not opened or changed.
+
+## 2026-10-03 — Tighten opening guidance and rejection diagnosis
+
+- Opening scenes now explicitly avoid D20 requests, and the response contract spells out the required NPC creation fields. Fake-provider tests verify the guidance and reject a premature opening roll without writing timeline state. Connected replay still has not confirmed this as a fix.
+- Refined internal allow-listed failure categories by proposal field/scope so safe rejection metadata can identify which validator needs review without retaining raw model output or exposing categories to players.
+- **Checks:** focused and full fake-provider suites passed. Manual connected replay remains unresolved as recorded above.
+
+## 2026-10-03 — Preserve in-flight recovery state across usage-status changes
+
+- Added an isolated fake-provider regression for an account-usage status changing to paused or unavailable while a post-roll response is resolving, followed by a generic provider failure. A fresh LiveView restores the saved action and D20 result, shows only the matching status, keeps retry disabled while requests are blocked, and makes no automatic retry.
+- The regression found no product defect; existing recovery handling passed for both status outcomes.
+- **Checks:** four focused SessionLive recovery tests passed (**4 tests, 0 failures**); test-environment `mix compile --warnings-as-errors`, focused format check, and `git diff --check` passed in WSL. No live provider or development database was used.
+
 ## 2026-10-03 — Compact the play board and retain safe rejection diagnosis
 
 - Reordered the desktop player board for the current scene, tracked resources, player character, and inventory; campaign memory/objectives and correction/roster records now open on demand. A LiveView regression covers the controls. Loaded an isolated fictional fixture from the separate `storyteller_visual_qa_20261003` database at port 4003. The rendered board contains the expected play information, but viewport scroll metrics were unavailable, so a 1280×720 and narrow-screen visual pass remains open before the no-second-scroll goal can be marked complete.
