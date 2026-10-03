@@ -576,6 +576,330 @@ defmodule Storyteller.GM.ContextBudget do
   def compile(_context, _instructions, _model, _opts),
     do: {:error, :context_compilation_failed}
 
+  @doc """
+  Builds a small scene-anchored packet for a request that can retrieve omitted
+  campaign canon through the bounded, read-only lookup tool.
+
+  This is a last-resort projection: it keeps the player's action, public scene
+  identity, game-time/weather anchors, and present cast while marking all other
+  canon unknown. It never modifies the supplied source context.
+  """
+  def compile_retrieval_packet(context, instructions, model, opts \\ [])
+
+  def compile_retrieval_packet(context, instructions, model, opts)
+      when is_map(context) and is_binary(instructions) do
+    budget = byte_budget(model, opts)
+    packet = retrieval_packet(context)
+
+    metrics =
+      measure(
+        packet,
+        instructions,
+        model,
+        budget,
+        true,
+        retrieval_packet_omissions(context)
+      )
+
+    if metrics.estimated_request_bytes <= budget do
+      {:ok,
+       %{
+         context: packet,
+         metrics: report_budget(metrics, model, opts),
+         retrieval_packet?: true
+       }}
+    else
+      emit_metrics(metrics)
+      {:error, {:context_budget_exceeded, budget_diagnostics(metrics)}}
+    end
+  rescue
+    _error -> {:error, :context_compilation_failed}
+  end
+
+  def compile_retrieval_packet(_context, _instructions, _model, _opts),
+    do: {:error, :context_compilation_failed}
+
+  defp retrieval_packet(context) do
+    characters = value(context, :characters) |> List.wrap()
+    player = Enum.find(characters, &(value(&1, :speaker_id) == "player"))
+    player_place_id = value(player, :current_place_id)
+    places = value(context, :places) || %{}
+
+    public_places = places |> value(:public) |> List.wrap()
+
+    current_place =
+      Enum.find(public_places, fn place ->
+        value(place, :place_id) == player_place_id and
+          public_visibility?(value(place, :visibility))
+      end)
+
+    current_place =
+      if current_place do
+        current_place
+      else
+        place = value(player, :current_place)
+
+        if value(place, :place_id) == player_place_id and
+             public_visibility?(value(place, :visibility)),
+           do: place,
+           else: nil
+      end
+
+    scene_is_public? = not is_nil(current_place) and is_binary(player_place_id)
+
+    player_packet = retrieval_character(player, true)
+
+    all_scene_characters =
+      if scene_is_public? do
+        characters
+        |> Enum.reject(&(value(&1, :speaker_id) == "player"))
+        |> Enum.filter(&(value(&1, :current_place_id) == player_place_id))
+      else
+        []
+      end
+
+    scene_characters =
+      all_scene_characters
+      |> Enum.take(@max_history_scene_speakers)
+      |> Enum.map(&retrieval_character(&1, false))
+
+    cast = if player_packet, do: [player_packet | scene_characters], else: scene_characters
+
+    world = value(context, :world) || %{}
+    public_world = world |> value(:public) |> retrieval_world_anchors()
+
+    public_world =
+      if scene_is_public? and is_binary(value(current_place, :name)) do
+        Map.put(public_world, "location", value(current_place, :name))
+      else
+        public_world
+      end
+
+    %{
+      "phase" => value(context, :phase),
+      "campaign" => retrieval_campaign(value(context, :campaign)),
+      "player_action" => value(context, :player_action),
+      "player_roll" => retrieval_roll(value(context, :player_roll)),
+      "interaction_mode" => value(context, :interaction_mode),
+      "world" => %{"public" => public_world},
+      "elapsed_world_clock" => retrieval_clock(value(context, :elapsed_world_clock)),
+      "characters" => cast,
+      "places" => %{
+        "public" => if(scene_is_public?, do: [retrieval_place(current_place)], else: [])
+      },
+      "communication_paths" =>
+        retrieval_communication_paths(value(context, :communication_paths)),
+      "history" => [],
+      "inventory" => %{},
+      "travel_connections" => %{},
+      "objectives" => %{},
+      "memory" => %{},
+      "continuity" => %{},
+      "panels" => [],
+      "context_completeness" => %{
+        "retrieval_packet" => true,
+        "omitted_canon_is_unknown" => true,
+        "campaign_details_omitted" => true,
+        "world_state_fields_omitted" => true,
+        "inventory_items_omitted" => true,
+        "inventory_details_omitted" => true,
+        "travel_connections_omitted" => true,
+        "objectives_omitted" => true,
+        "continuity_details_omitted" => true,
+        "memory_summary_compacted" => true,
+        "history_compacted" => true,
+        "history_omitted" => true,
+        "remote_character_profiles_omitted" => true,
+        "remote_place_details_omitted" => true,
+        "panel_fields_omitted" => true,
+        "gm_private_canon_omitted" => true,
+        "scene_cast_truncated" => length(all_scene_characters) > @max_history_scene_speakers
+      }
+    }
+  end
+
+  defp retrieval_packet_omissions(_context),
+    do: [
+      :retrieval_packet,
+      :campaign_details,
+      :world_state_fields,
+      :inventory_items,
+      :inventory_details,
+      :travel_connections,
+      :objectives,
+      :continuity_details,
+      :memory_summary,
+      :history,
+      :remote_character_profiles,
+      :remote_place_details,
+      :panel_fields,
+      :gm_private_canon
+    ]
+
+  defp retrieval_character(nil, _player?), do: nil
+
+  defp retrieval_character(character, player?) when is_map(character) do
+    fields = ["speaker_id", "name", "role", "first_story_appearance", "current_place_id"]
+
+    character
+    |> string_key_subset(fields)
+    |> compact_retrieval_fields(["name"])
+    |> maybe_add_retrieval_field(
+      "visible_activity",
+      compact_anchor_text(value(character, :visible_activity), 180)
+    )
+    |> maybe_add_retrieval_field(
+      "voice_guidance",
+      retrieval_voice(value(character, :voice_guidance))
+    )
+    |> Map.put("presence", if(player?, do: "player", else: "present"))
+  end
+
+  defp retrieval_character(_character, _player?), do: nil
+
+  defp retrieval_place(place) when is_map(place) do
+    place
+    |> string_key_subset(["place_id", "name", "visibility"])
+    |> compact_retrieval_fields(["name"])
+    |> Map.put_new("visibility", "public")
+  end
+
+  defp retrieval_place(_place), do: %{}
+
+  defp retrieval_campaign(campaign) when is_map(campaign) do
+    campaign
+    |> string_key_subset(["title", "narration_language", "genre"])
+    |> compact_retrieval_fields(["title", "narration_language", "genre"])
+    |> maybe_add_retrieval_field("premise", compact_anchor_text(value(campaign, :premise), 320))
+    |> maybe_add_retrieval_field("setting", compact_anchor_text(value(campaign, :setting), 160))
+    |> maybe_add_retrieval_field("tone", compact_anchor_text(value(campaign, :tone), 160))
+  end
+
+  defp retrieval_campaign(_campaign), do: %{}
+
+  defp retrieval_roll(roll) when is_map(roll),
+    do: string_key_subset(roll, ["die", "result", "authorized_by"])
+
+  defp retrieval_roll(_roll), do: nil
+
+  defp retrieval_clock(clock) when is_map(clock) do
+    clock
+    |> string_key_subset(["total_minutes", "anchor_minutes", "minutes_since_anchor"])
+    |> maybe_add_retrieval_field("anchor", compact_anchor_value(value(clock, :anchor), 240))
+  end
+
+  defp retrieval_clock(_clock), do: %{}
+
+  defp retrieval_world_anchors(scope) when is_map(scope) do
+    scope
+    |> Enum.reduce(%{}, fn {key, item}, acc ->
+      normalized = key |> to_string() |> String.downcase()
+
+      if normalized in ~w(location date time weather) do
+        Map.put(acc, to_string(key), compact_anchor_value(item, 240))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp retrieval_world_anchors(_scope), do: %{}
+
+  defp retrieval_communication_paths(paths) when is_list(paths),
+    do:
+      Enum.take(paths, 8)
+      |> Enum.map(
+        &string_key_subset(&1, ["path_id", "sender_id", "recipient_id", "channel", "endpoint"])
+      )
+
+  defp retrieval_communication_paths(_paths), do: %{}
+
+  defp retrieval_voice(voice) when is_map(voice) do
+    voice
+    |> Enum.take(5)
+    |> Enum.reduce(%{}, fn {key, item}, acc ->
+      case compact_anchor_text(item, 100) do
+        nil -> acc
+        value -> Map.put(acc, to_string(key), value)
+      end
+    end)
+  end
+
+  defp retrieval_voice(_voice), do: nil
+
+  defp string_key_subset(map, keys) when is_map(map) do
+    Enum.reduce(keys, %{}, fn key, acc ->
+      case field_by_name(map, key) do
+        nil -> acc
+        item -> Map.put(acc, key, item)
+      end
+    end)
+  end
+
+  defp string_key_subset(_map, _keys), do: %{}
+
+  defp field_by_name(map, key) do
+    case Map.fetch(map, key) do
+      {:ok, item} ->
+        item
+
+      :error ->
+        Enum.find_value(map, fn {map_key, item} ->
+          if to_string(map_key) == key, do: {:found, item}
+        end)
+        |> unwrap_found()
+    end
+  end
+
+  defp unwrap_found({:found, item}), do: item
+  defp unwrap_found(nil), do: nil
+
+  defp compact_retrieval_fields(map, keys) do
+    Enum.reduce(keys, map, fn key, acc ->
+      case Map.get(acc, key) do
+        value when is_binary(value) ->
+          Map.put(acc, key, String.slice(value, 0, 160))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp maybe_add_retrieval_field(map, _key, nil), do: map
+  defp maybe_add_retrieval_field(map, key, value), do: Map.put(map, key, value)
+
+  defp compact_anchor_text(value, max_chars) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.slice(0, max_chars)
+    |> then(fn text -> if text == "", do: nil, else: text end)
+  end
+
+  defp compact_anchor_text(_value, _max_chars), do: nil
+
+  defp compact_anchor_value(value, max_chars) when is_binary(value),
+    do: compact_anchor_text(value, max_chars)
+
+  defp compact_anchor_value(value, max_chars) when is_map(value) do
+    value
+    |> Enum.take(12)
+    |> Enum.reduce(%{}, fn {key, item}, acc ->
+      compacted = compact_anchor_value(item, max_chars)
+      if is_nil(compacted), do: acc, else: Map.put(acc, to_string(key), compacted)
+    end)
+  end
+
+  defp compact_anchor_value(value, max_chars) when is_list(value),
+    do: Enum.take(value, 8) |> Enum.map(&compact_anchor_value(&1, max_chars))
+
+  defp compact_anchor_value(value, _max_chars) when is_number(value) or is_boolean(value),
+    do: value
+
+  defp compact_anchor_value(_value, _max_chars), do: nil
+
+  defp public_visibility?(visibility), do: visibility in [:public, "public"]
+
   @doc "Emits only numeric size/usage data; campaign text and identifiers are never attached."
   def emit_metrics(metrics, provider_usage \\ %{})
 

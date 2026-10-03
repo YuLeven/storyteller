@@ -1503,7 +1503,7 @@ defmodule Storyteller.PlayTest do
     assert :remote_place_details in request.local_context_metrics.omissions
 
     assert request.local_context_metrics.estimated_request_bytes <=
-             request.request_size_limit_bytes - 16_000
+             request.request_size_limit_bytes - 24_000
 
     assert Enum.any?(request.input, fn item ->
              item["type"] == "additional_tools" and
@@ -1525,6 +1525,160 @@ defmodule Storyteller.PlayTest do
 
     assert private_nera["fields"]["gm_private_facts"]["secret"] ==
              "She has not yet read the sealed letter."
+  end
+
+  test "falls back to a retrieval scene packet when oversized canon cannot fit the lookup reserve" do
+    {campaign, session} = play_campaign("The Retrieval Packet Observatory")
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+
+    current_place =
+      Repo.get_by!(Place, campaign_id: campaign.id, place_id: player.current_place_id)
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    assert {:ok, _state} =
+             Repo.update(
+               State.changeset(state, %{
+                 public_state: %{
+                   "location" => current_place.name,
+                   "date" => "1567-04-12",
+                   "time" => "Midnight",
+                   "weather" => "Cool mist over the river"
+                 }
+               })
+             )
+
+    remote_places =
+      Enum.map(1..90, fn index ->
+        place_id = String.pad_trailing("remote-#{index}-", 100, "x")
+
+        Repo.insert!(
+          Place.changeset(%Place{}, %{
+            campaign_id: campaign.id,
+            place_id: place_id,
+            name: "Catalog room #{index} " <> String.duplicate("north annex ", 15),
+            visibility: :public,
+            description: String.duplicate("Distant catalog entry. ", 130),
+            facts: %{}
+          })
+        )
+      end)
+
+    target_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "northern-archive",
+          name: "Northern Archive",
+          visibility: :public,
+          description: "The sealed western stair hides the brass star chart drawer.",
+          facts: %{}
+        })
+      )
+
+    nera =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:nera",
+          name: "Nera",
+          role: :gm,
+          current_place_id: target_place.place_id,
+          visible_facts: %{"occupation" => "Keeper of the northern archive"},
+          gm_private_facts: %{"secret" => "Nera moved the chart after midnight."}
+        })
+      )
+
+    action = "I ask Lyra what she remembers about the stars."
+    owner = self()
+
+    provider = fn request ->
+      send(owner, {:retrieval_packet_request, request, decode_request(request)})
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "oversized-canon-retrieval-packet",
+               action,
+               intent: :question,
+               provider: provider,
+               model: "test-model",
+               context_input_byte_budget: 44_000
+             )
+
+    assert_receive {:retrieval_packet_request, request, packet}, 2_000
+    assert packet["context_completeness"]["retrieval_packet"]
+    assert packet["context_completeness"]["omitted_canon_is_unknown"]
+    assert packet["player_action"] == action
+    assert packet["interaction_mode"] == "question"
+    assert packet["world"]["public"]["date"] == "1567-04-12"
+    assert packet["world"]["public"]["time"] == "Midnight"
+    assert packet["world"]["public"]["weather"] == "Cool mist over the river"
+    assert packet["world"]["public"]["location"] == current_place.name
+
+    assert Enum.find(packet["characters"], &(&1["speaker_id"] == "player"))["current_place_id"] ==
+             current_place.place_id
+
+    assert Enum.find(packet["characters"], &(&1["speaker_id"] == "npc:lyra"))["presence"] ==
+             "present"
+
+    refute Enum.any?(packet["characters"], &(&1["speaker_id"] == "npc:nera"))
+    refute Enum.any?(packet["places"]["public"], &(&1["place_id"] == target_place.place_id))
+
+    assert packet_bytes = context_request_bytes(request)
+    assert packet_bytes <= request.request_size_limit_bytes - 24_000
+    assert is_function(request.campaign_lookup_executor, 1)
+
+    assert request.instructions =~
+             "Before narrating or deciding anything that depends on omitted campaign canon"
+
+    assert request.instructions =~ "treat it as unknown, never as absent"
+
+    assert Enum.any?(request.input, fn item ->
+             item["type"] == "additional_tools" and
+               Enum.any?(item["tools"], &(&1["name"] == "lookup_campaign_canon"))
+           end)
+
+    encoded_packet = Jason.encode!(packet)
+    refute encoded_packet =~ "Nera moved the chart"
+
+    lookup =
+      request.campaign_lookup_executor.(%{
+        "query" => "Nera northern archive",
+        "category" => "character"
+      })
+
+    public_nera = Enum.find(lookup["records"], &(&1["visibility"] == "public"))
+    private_nera = Enum.find(lookup["records"], &(&1["visibility"] == "gm_private"))
+
+    assert public_nera["fields"]["visible_facts"]["occupation"] ==
+             "Keeper of the northern archive"
+
+    refute Jason.encode!(public_nera) =~ "Nera moved the chart"
+
+    assert private_nera["fields"]["gm_private_facts"]["secret"] ==
+             "Nera moved the chart after midnight."
+
+    omitted_place =
+      request.campaign_lookup_executor.(%{
+        "query" => "Northern Archive sealed western stair brass star chart drawer",
+        "category" => "place"
+      })
+      |> then(&Enum.find(&1["records"], fn record -> record["id"] == "northern-archive" end))
+
+    assert omitted_place["fields"]["description"] ==
+             "The sealed western stair hides the brass star chart drawer."
+
+    assert Repo.get!(Place, target_place.id).description ==
+             "The sealed western stair hides the brass star chart drawer."
+
+    assert Repo.get!(Character, nera.id).gm_private_facts["secret"] ==
+             "Nera moved the chart after midnight."
+
+    assert Enum.all?(remote_places, &(&1.campaign_id == campaign.id))
   end
 
   test "completes a sensory tasting beat before inviting the player's reaction" do

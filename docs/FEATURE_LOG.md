@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-03 — Retrieval-first fallback for oversized GM context
+
+- The exact-envelope fix prevented a second size check from rejecting a request after compilation, but a separate gap remained: if the required projected context itself could not fit, the compiler failed before the optional lookup could help.
+- Added a last-resort retrieval packet for the production turn path. It preserves the player's action and interaction mode, the public current location/date/time/weather, the player and present cast, and bounded scene anchors. It labels all omitted canon as unknown; a request-scoped read-only lookup searches the original server-held campaign context when the GM needs an omitted fact. This does not mutate records or widen the requested campaign scope.
+- Added a synthetic `Play.submit_turn` regression that forces fallback using 90 long off-scene place records and a 36,000-byte test ceiling. It verifies that the active scene reaches the fake provider, remote canon remains retrievable, a remote character is not mistaken for present, private character facts remain in GM-private lookup results, and source records remain unchanged. An additional lookup regression prevents characters in GM-private places from being exposed as public.
+- Reserved 24,000 bytes for a bounded function continuation: up to 16,000 encoded completion-output bytes, the 6,000-byte lookup result, plus schema and framing. Exact serialized bodies are still checked before both provider calls; oversized tool completion output is treated as a provider-response failure, not misreported as campaign-context overflow.
+- This closes the case where a large but retrievable canon projection fails before lookup. It does not prove that arbitrary essential prompt/action data can fit or that every model will always choose to call the tool. Ten-turn normal-campaign and matched latency/token comparisons remain acceptance work; no real campaign 37 data or live model request was used.
+- **Checks:** WSL `ContextBudget`/`CampaignLookup`/`OpenAI` suites passed (**70 tests, 0 failures**); the existing lookup-reserve and new `Play.submit_turn` retrieval-packet regressions passed (**2 tests, 0 failures**). The complete isolated WSL suite passed (**489 tests, 0 failures**); `MIX_ENV=test mix compile --warnings-as-errors`, formatting, and `git diff --check` passed. Tests used only `storyteller_test`, synthetic campaign data, and fake providers. No live request or campaign DB was used.
+
 ## 2026-10-03 — Budget the exact GM request and strengthen long-campaign P0
 
 - The user reports the local GM size guard blocking a short campaign. The named campaign/port was not opened or queried; the audit and regression use source code plus synthetic inputs in `storyteller_test`.

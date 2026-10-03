@@ -1,7 +1,7 @@
 defmodule Storyteller.GM.ContextBudgetTest do
   use ExUnit.Case, async: true
 
-  alias Storyteller.GM.ContextBudget
+  alias Storyteller.GM.{CampaignLookup, ContextBudget}
 
   test "compacts unrelated history while retrieving an older fact named in the action" do
     context =
@@ -110,6 +110,104 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert context.campaign.premise == premise
     assert String.length(context.campaign.title) > 100_000
     assert Enum.all?(context.places.public, &(String.length(&1.description) > 900))
+  end
+
+  test "retrieval packet keeps authoritative scene anchors and leaves omitted canon unknown" do
+    player_action = "I ask the keeper what happened at the remote archive."
+
+    current_place = %{
+      place_id: "glass-room",
+      name: "The Glass Room",
+      visibility: :public,
+      description: String.duplicate("A crowded observatory wing. ", 900)
+    }
+
+    omitted_fact = "The western stair hides a brass chart drawer."
+    private_fact = "The keeper secretly altered the chart before dawn."
+
+    context =
+      base_context()
+      |> Map.put(:player_action, player_action)
+      |> Map.put(:interaction_mode, "question")
+      |> put_in([:world, :public], %{
+        location: "Stale label must not replace place",
+        date: "1567-04-12",
+        time: "Midnight",
+        weather: %{conditions: "Cool mist over the river", wind: "Light"},
+        unrelated: String.duplicate("world note ", 2_000)
+      })
+      |> put_in([:world, :gm_private], %{secret: private_fact})
+      |> put_in([:characters, Access.at(0), :current_place_id], "glass-room")
+      |> put_in([:characters, Access.at(0), :current_place], current_place)
+      |> put_in([:characters, Access.at(0), :name], "Mira Vale")
+      |> put_in([:characters, Access.at(1), :current_place_id], "glass-room")
+      |> put_in([:characters, Access.at(1), :name], "Keeper Lio")
+      |> put_in([:characters, Access.at(1), :current_place], current_place)
+      |> put_in([:characters, Access.at(1), :gm_private_facts], %{secret: private_fact})
+      |> put_in(
+        [:places, :public],
+        [current_place] ++
+          Enum.map(1..90, fn index ->
+            %{
+              place_id: "remote-#{index}",
+              name: "Remote archive room #{index}",
+              visibility: :public,
+              description:
+                if(index == 1, do: "#{omitted_fact} ", else: "") <>
+                  String.duplicate("Distant archive catalog detail. ", 500)
+            }
+          end)
+      )
+      |> Map.put(:campaign, %{
+        title: "The Quiet Observatory",
+        premise: String.duplicate("An old star map. ", 600),
+        narration_language: "English"
+      })
+
+    source_snapshot = :erlang.term_to_binary(context)
+    instructions = "Keep the current scene authoritative."
+
+    assert {:ok, %{context: packet, metrics: metrics, retrieval_packet?: true}} =
+             ContextBudget.compile_retrieval_packet(
+               context,
+               instructions,
+               "test-model",
+               context_input_byte_budget: 32_000,
+               reserve_request_bytes: 24_000
+             )
+
+    assert metrics.estimated_request_bytes <= 8_000
+    assert packet["player_action"] == player_action
+    assert packet["interaction_mode"] == "question"
+    assert packet["world"]["public"]["date"] == "1567-04-12"
+    assert packet["world"]["public"]["time"] == "Midnight"
+    assert packet["world"]["public"]["weather"]["conditions"] == "Cool mist over the river"
+    assert packet["world"]["public"]["location"] == "The Glass Room"
+    assert Enum.map(packet["characters"], & &1["speaker_id"]) == ["player", "marisol"]
+
+    assert Enum.find(packet["characters"], &(&1["speaker_id"] == "marisol"))["presence"] ==
+             "present"
+
+    assert packet["places"]["public"] == [
+             %{"place_id" => "glass-room", "name" => "The Glass Room", "visibility" => :public}
+           ]
+
+    assert packet["context_completeness"]["retrieval_packet"]
+    assert packet["context_completeness"]["omitted_canon_is_unknown"]
+
+    encoded_packet = Jason.encode!(packet)
+    refute encoded_packet =~ omitted_fact
+    refute encoded_packet =~ private_fact
+
+    retrieved =
+      CampaignLookup.execute(context, %{
+        "query" => "western stair brass chart drawer",
+        "category" => "place"
+      })
+
+    assert Enum.any?(retrieved["records"], &(&1["fields"]["description"] =~ omitted_fact))
+    refute Jason.encode!(retrieved["records"]) =~ private_fact
+    assert :erlang.term_to_binary(context) == source_snapshot
   end
 
   test "keeps a bounded recent slice of a long continuity ledger" do

@@ -244,6 +244,44 @@ defmodule Storyteller.GM.OpenAITest do
     end)
   end
 
+  test "rejects an oversized lookup continuation payload before running the lookup", context do
+    output_items = [
+      %{
+        "type" => "reasoning",
+        "id" => "rs_large_fixture",
+        "summary" => [
+          %{"type" => "summary_text", "text" => String.duplicate("reasoning ", 1_700)}
+        ]
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "call_large_fixture",
+        "name" => "lookup_campaign_canon",
+        "arguments" => "{\"query\":\"Mara\"}"
+      }
+    ]
+
+    stream = function_call_completion(output_items, nil)
+    request = lookup_request()
+    executor_called = :atomics.new(1, signed: false)
+
+    executor = fn _arguments ->
+      :atomics.put(executor_called, 1, 1)
+      %{"records" => []}
+    end
+
+    assert {:error, :provider_error} =
+             OpenAI.stream_response(
+               Map.put(request, :campaign_lookup_executor, executor),
+               store: context.store,
+               http: provider_http(self(), stream)
+             )
+
+    assert_receive {:responses_request, _options}
+    refute_receive {:responses_request, _options}
+    assert :atomics.get(executor_called, 1) == 0
+  end
+
   test "fails closed when the local lookup executor is missing or returns too much data",
        context do
     tool_call = [

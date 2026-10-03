@@ -217,9 +217,11 @@ defmodule Storyteller.GM.CampaignLookup do
   end
 
   defp collect_records(context) do
+    hidden_place_ids = private_place_ids(get(context, "places"))
+
     []
     |> collect_campaign(context)
-    |> collect_characters(get(context, "characters"))
+    |> collect_characters(get(context, "characters"), hidden_place_ids)
     |> collect_scoped_list("place", get(context, "places"), &place_record/3)
     |> collect_travel(get(context, "travel_connections"))
     |> collect_scoped_list("inventory", get(context, "inventory"), &inventory_record/3)
@@ -267,12 +269,16 @@ defmodule Storyteller.GM.CampaignLookup do
     end
   end
 
-  defp collect_characters(records, characters) when is_list(characters) do
+  defp collect_characters(records, characters, hidden_place_ids) when is_list(characters) do
     Enum.reduce(characters, records, fn character, acc ->
       if is_map(character) do
         id = first(character, ~w(speaker_id character_id id), "unknown-character")
         name = first(character, ~w(name display_name), to_string(id))
-        declared_private? = private_visibility?(get(character, "visibility"))
+
+        declared_private? =
+          private_visibility?(get(character, "visibility")) or
+            private_visibility?(get(get(character, "current_place"), "visibility")) or
+            MapSet.member?(hidden_place_ids, get(character, "current_place_id"))
 
         acc =
           if declared_private? do
@@ -321,7 +327,18 @@ defmodule Storyteller.GM.CampaignLookup do
     end)
   end
 
-  defp collect_characters(records, _), do: records
+  defp collect_characters(records, _characters, _hidden_place_ids), do: records
+
+  defp private_place_ids(places) when is_map(places) do
+    places
+    |> Enum.filter(fn {scope, _rows} -> private_visibility?(scope) end)
+    |> Enum.flat_map(fn {_scope, rows} -> listify(rows) end)
+    |> Enum.map(&get(&1, "place_id"))
+    |> Enum.filter(&is_binary/1)
+    |> MapSet.new()
+  end
+
+  defp private_place_ids(_places), do: MapSet.new()
 
   defp collect_scoped_list(records, _category, scoped, builder) when is_map(scoped) do
     Enum.reduce(scoped, records, fn {scope, rows}, acc ->

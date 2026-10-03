@@ -52,7 +52,18 @@ defmodule Storyteller.Play do
   @max_active_duty_duration_minutes 525_600
   @max_turn_text 20_000
   @max_provider_output_bytes 100_000
-  @campaign_lookup_request_reserve_bytes 16_000
+  @campaign_lookup_request_reserve_bytes 24_000
+  @campaign_lookup_guidance """
+
+  RETRIEVAL-FIRST CONTEXT: The supplied scene packet preserves authoritative
+  player location, present cast, game date/time/weather, and interaction mode.
+  Before narrating or deciding anything that depends on omitted campaign canon,
+  consult lookup_campaign_canon against the supplied campaign context. A match
+  may clarify canon but cannot override the scene anchors above. If lookup does
+  not return the needed fact, treat it as unknown, never as absent; preserve
+  uncertainty and do not invent it. Lookup covers assembled campaign canon,
+  not omitted transcript history.
+  """
   @campaign_lookup_retrieval_omissions MapSet.new([
                                          :campaign_details,
                                          :character_details,
@@ -5389,24 +5400,8 @@ defmodule Storyteller.Play do
 
     request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
 
-    with {:ok, %{context: initial_context, metrics: initial_metrics}} <-
-           ContextBudget.compile(request_context, instructions, model, opts) do
-      {compiled_context, metrics, lookup_enabled?} =
-        if campaign_lookup_recommended?(initial_metrics) do
-          reserve_opts =
-            Keyword.put(opts, :reserve_request_bytes, @campaign_lookup_request_reserve_bytes)
-
-          case ContextBudget.compile(request_context, instructions, model, reserve_opts) do
-            {:ok, %{context: reserved_context, metrics: reserved_metrics}} ->
-              {reserved_context, reserved_metrics, true}
-
-            {:error, _reason} ->
-              {initial_context, initial_metrics, false}
-          end
-        else
-          {initial_context, initial_metrics, false}
-        end
-
+    with {:ok, {compiled_context, metrics, lookup_enabled?, instructions}} <-
+           compile_provider_context(request_context, instructions, model, opts) do
       request = %{
         instructions: instructions,
         input: [
@@ -5455,6 +5450,55 @@ defmodule Storyteller.Play do
         model when is_binary(model) and model != "" -> {:ok, Map.put(request, :model, model)}
         _ -> {:ok, request}
       end
+    end
+  end
+
+  defp compile_provider_context(request_context, instructions, model, opts) do
+    case ContextBudget.compile(request_context, instructions, model, opts) do
+      {:ok, %{context: initial_context, metrics: initial_metrics}} ->
+        if campaign_lookup_recommended?(initial_metrics) do
+          compile_lookup_context(request_context, instructions, model, opts)
+        else
+          {:ok, {initial_context, initial_metrics, false, instructions}}
+        end
+
+      {:error, _reason} ->
+        compile_retrieval_packet(request_context, instructions, model, opts)
+    end
+  end
+
+  defp compile_lookup_context(request_context, instructions, model, opts) do
+    lookup_instructions = instructions <> @campaign_lookup_guidance
+
+    reserve_opts =
+      Keyword.put(opts, :reserve_request_bytes, @campaign_lookup_request_reserve_bytes)
+
+    case ContextBudget.compile(request_context, lookup_instructions, model, reserve_opts) do
+      {:ok, %{context: context, metrics: metrics}} ->
+        {:ok, {context, metrics, true, lookup_instructions}}
+
+      {:error, _reason} ->
+        compile_retrieval_packet(request_context, instructions, model, opts)
+    end
+  end
+
+  defp compile_retrieval_packet(request_context, instructions, model, opts) do
+    lookup_instructions = instructions <> @campaign_lookup_guidance
+
+    reserve_opts =
+      Keyword.put(opts, :reserve_request_bytes, @campaign_lookup_request_reserve_bytes)
+
+    case ContextBudget.compile_retrieval_packet(
+           request_context,
+           lookup_instructions,
+           model,
+           reserve_opts
+         ) do
+      {:ok, %{context: context, metrics: metrics}} ->
+        {:ok, {context, metrics, true, lookup_instructions}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

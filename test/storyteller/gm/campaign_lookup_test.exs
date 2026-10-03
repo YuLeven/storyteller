@@ -13,6 +13,7 @@ defmodule Storyteller.GM.CampaignLookupTest do
     assert spec["parameters"]["properties"]["category"]["enum"] ==
              ~w(any character place inventory objective world continuity memory panel)
 
+    assert byte_size(Jason.encode!(spec)) < 2_000
     refute Map.has_key?(spec["parameters"]["properties"], "campaign_id")
   end
 
@@ -88,6 +89,40 @@ defmodule Storyteller.GM.CampaignLookupTest do
     refute Jason.encode!(public_record) =~ "sealed observatory"
     refute Jason.encode!(public_record) =~ "nested public leak"
     assert Jason.encode!(private_record) =~ "sealed observatory"
+  end
+
+  test "keeps characters in a GM-private place inside GM-private lookup scope" do
+    context = %{
+      characters: [
+        %{
+          speaker_id: "npc:the-sleeper",
+          name: "The Sleeper",
+          role: :gm,
+          current_place_id: "sealed-vault",
+          current_place: %{place_id: "sealed-vault", visibility: :gm_private},
+          visible_facts: %{occupation: "An archivist"},
+          gm_private_facts: %{secret: "Still inside the sealed vault."}
+        }
+      ],
+      places: %{
+        public: [],
+        gm_private: [
+          %{place_id: "sealed-vault", name: "Sealed Vault", visibility: :gm_private}
+        ]
+      }
+    }
+
+    response =
+      CampaignLookup.execute(context, %{
+        "query" => "The Sleeper sealed vault",
+        "category" => "character"
+      })
+
+    assert [%{"visibility" => "gm_private", "fields" => fields}] = response["records"]
+    assert fields["current_place_id"] == "sealed-vault"
+    assert fields["visible_facts"]["occupation"] == "An archivist"
+    refute Enum.any?(response["records"], &(&1["visibility"] == "public"))
+    assert Jason.encode!(response["records"]) =~ "Still inside the sealed vault."
   end
 
   test "bounds encoded results and marks omitted matches and details" do

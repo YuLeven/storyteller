@@ -21,6 +21,7 @@ defmodule Storyteller.GM.OpenAI do
   @campaign_lookup_tool_name "lookup_campaign_canon"
   @max_tool_argument_bytes 6_000
   @max_tool_output_bytes 6_000
+  @max_tool_completion_output_bytes 16_000
   @max_tool_call_id_bytes 256
 
   @doc "Lists displayable models for the currently connected ChatGPT account."
@@ -271,7 +272,8 @@ defmodule Storyteller.GM.OpenAI do
           {:ok, public_result(completed.text, usage)}
 
         [call] when tool_calls_used == 0 ->
-          with {:ok, call_id, arguments} <- validate_tool_call(call, body["input"]),
+          with :ok <- validate_tool_completion_output(completed.response),
+               {:ok, call_id, arguments} <- validate_tool_call(call, body["input"]),
                {:ok, output} <- execute_campaign_lookup(request, arguments),
                {:ok, encoded_output} <- encode_tool_output(output),
                continuation <-
@@ -397,6 +399,20 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   defp function_calls(_), do: []
+
+  defp validate_tool_completion_output(response) do
+    output = field(response, :output)
+
+    with true <- is_list(output),
+         {:ok, encoded} <- Jason.encode(output),
+         true <- byte_size(encoded) <= @max_tool_completion_output_bytes do
+      :ok
+    else
+      _ -> {:error, :provider_error}
+    end
+  rescue
+    _error -> {:error, :provider_error}
+  end
 
   defp validate_tool_call(call, input) when is_map(call) do
     call_id = field(call, :call_id)
