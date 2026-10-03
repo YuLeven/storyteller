@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-03 — Keep long tracked-resource headings inside the play board
+
+- The player board already wrapped long field labels, units, and values, but a long unbroken campaign-panel name could still overflow the sidebar. Reused the resource-text wrapping rule on each panel heading.
+- Extended the synthetic 18-row layout regression with a 72-character unbroken panel name and asserted its heading retains the wrapping class. This covers the reported category of layout failure without reading the imported campaign.
+- **Checks:** focused WSL LiveView regression passed (**74 discovered, 1 selected, 0 failures**); asset build and `git diff --check` passed. Firefox and the protected campaign's exact overlap remain unverified.
+
 ## 2026-10-03 — V1 P0 context resilience: stress maximum bounded canon
 
 - Added a synthetic stress case with 48 characters, 64 places, 48 public and 48 GM-private objectives, long descriptions, and named scene/travel anchors. The relevance and compaction pipeline produced a **42,050-byte** request against the **64,000-byte local preflight** while keeping the current scene, forty-minute travel link, named ledger facts in both visibility scopes, and original source canon intact.

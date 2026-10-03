@@ -2943,12 +2943,13 @@ defmodule StorytellerWeb.SessionLiveTest do
     long_label = String.duplicate("Seasonal grape harvest inventory ledger ", 2)
     long_unit = String.duplicate("vineyard-barrel-units-", 2)
     long_value = String.duplicate("unbrokencellarledgerreference", 14)
+    long_panel_name = String.duplicate("cellarledger", 6)
 
     fields =
       for index <- 1..18 do
         %{
           key: "ledger_field_#{index}",
-          panel: "Vineyard resources and seasonal cellar inventory",
+          panel: long_panel_name,
           label: "#{long_label}#{index}",
           value_type: :text,
           unit: long_unit,
@@ -2967,6 +2968,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert length(rows) == 18
     assert has_element?(view, "#campaign-fields > section.col-span-full")
+    assert has_element?(view, "#campaign-fields > section > h3.resource-copy", long_panel_name)
 
     for index <- 1..18 do
       key = "ledger_field_#{index}"
