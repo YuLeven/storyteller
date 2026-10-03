@@ -17,6 +17,7 @@ defmodule Storyteller.GM.ContextBudget do
   @memory_summary_chars 1_500
   @detailed_continuity_count 12
   @max_continuity_memory_details 8
+  @max_continuity_context_rows 64
   @max_inventory_context_items 16
   @max_relevant_inventory_items 10
   @recent_inventory_context_items 6
@@ -526,7 +527,7 @@ defmodule Storyteller.GM.ContextBudget do
       )
 
     if metrics.estimated_request_bytes <= budget do
-      {:ok, %{context: first_pass.context, metrics: metrics}}
+      {:ok, %{context: first_pass.context, metrics: report_budget(metrics, model, opts)}}
     else
       {context, _compacted_omissions, metrics} =
         compact_history_to_budget(
@@ -538,16 +539,29 @@ defmodule Storyteller.GM.ContextBudget do
         )
 
       if metrics.estimated_request_bytes <= budget do
-        {:ok, %{context: context, metrics: metrics}}
+        {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
       else
         {context, _omissions, metrics} =
           omit_history_to_budget(context, instructions, budget, omissions, metrics)
 
         if metrics.estimated_request_bytes <= budget do
-          {:ok, %{context: context, metrics: metrics}}
+          {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
         else
-          emit_metrics(metrics)
-          {:error, {:context_budget_exceeded, budget_diagnostics(metrics)}}
+          {context, _compacted_omissions, metrics} =
+            compact_nonessential_details_to_budget(
+              context,
+              instructions,
+              budget,
+              omissions,
+              metrics
+            )
+
+          if metrics.estimated_request_bytes <= budget do
+            {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
+          else
+            emit_metrics(metrics)
+            {:error, {:context_budget_exceeded, budget_diagnostics(metrics)}}
+          end
         end
       end
     end
@@ -584,15 +598,26 @@ defmodule Storyteller.GM.ContextBudget do
 
   def emit_metrics(_metrics, _provider_usage), do: :ok
 
-  defp byte_budget(model, opts) do
+  @doc "Returns the configured serialized-request guard for a model without applying a reserve."
+  def request_size_limit_bytes(model, opts \\ []) do
     configured = Application.get_env(:storyteller, :gm_context_byte_budgets, %{})
 
-    budget =
+    limit =
       Keyword.get(opts, :context_input_byte_budget) ||
         Map.get(configured, model, Map.get(configured, "default", @default_budget))
 
+    if is_integer(limit) and limit > 0, do: limit, else: 0
+  end
+
+  defp byte_budget(model, opts) do
+    budget =
+      request_size_limit_bytes(model, opts) - max(Keyword.get(opts, :reserve_request_bytes, 0), 0)
+
     if is_integer(budget) and budget > 0, do: budget, else: 0
   end
+
+  defp report_budget(metrics, model, opts),
+    do: Map.put(metrics, :budget_bytes, request_size_limit_bytes(model, opts))
 
   defp measure(context, instructions, budget, compacted?, omissions) do
     context_json = Jason.encode!(context)
@@ -827,6 +852,256 @@ defmodule Storyteller.GM.ContextBudget do
       {context, omissions, metrics}
     end
   end
+
+  # Only reach this pass after relevance selection and transcript compaction
+  # have failed to meet the application byte guard. Long-form reference detail
+  # remains canonical and retrievable; keep the scene's identities/state while
+  # reducing descriptive prose enough to make a request possible.
+  defp compact_nonessential_details_to_budget(context, instructions, budget, omissions, _metrics) do
+    specified_compaction =
+      context
+      |> compact_campaign_details_for_budget()
+      |> compact_continuity_details_for_budget()
+      |> compact_place_details_for_budget()
+      |> compact_character_details_for_budget()
+      |> compact_panel_values_for_budget()
+
+    {fallback_context, generalized_compaction?} =
+      if measure(specified_compaction, instructions, budget, true, omissions).estimated_request_bytes <=
+           budget do
+        {specified_compaction, false}
+      else
+        compacted = compact_context_text(specified_compaction, 480)
+
+        if measure(compacted, instructions, budget, true, omissions).estimated_request_bytes <=
+             budget do
+          {compacted, compacted != specified_compaction}
+        else
+          compacted = compact_context_text(specified_compaction, 160)
+          {compacted, compacted != specified_compaction}
+        end
+      end
+
+    changed = %{
+      campaign_details_compacted: value(context, :campaign) != value(fallback_context, :campaign),
+      continuity_memory_details_omitted:
+        value(context, :continuity) != value(fallback_context, :continuity),
+      place_details_compacted: value(context, :places) != value(fallback_context, :places),
+      character_details_compacted:
+        value(context, :characters) != value(fallback_context, :characters),
+      panel_values_compacted: value(context, :panels) != value(fallback_context, :panels),
+      context_details_compacted: generalized_compaction?
+    }
+
+    new_omissions =
+      changed
+      |> Enum.filter(&elem(&1, 1))
+      |> Enum.map(fn {key, _} -> omission_for_completeness(key) end)
+      |> then(&Enum.uniq(omissions ++ &1))
+
+    fallback_context =
+      context_with_completeness(fallback_context, Map.filter(changed, &elem(&1, 1)))
+
+    updated_metrics = measure(fallback_context, instructions, budget, true, new_omissions)
+    {fallback_context, new_omissions, updated_metrics}
+  end
+
+  defp omission_for_completeness(:campaign_details_compacted), do: :campaign_details
+
+  defp omission_for_completeness(:continuity_memory_details_omitted),
+    do: :continuity_memory_details
+
+  defp omission_for_completeness(:place_details_compacted), do: :place_details
+  defp omission_for_completeness(:character_details_compacted), do: :character_details
+  defp omission_for_completeness(:panel_values_compacted), do: :panel_values
+  defp omission_for_completeness(:context_details_compacted), do: :context_details
+
+  @identity_context_fields ~w(
+    id key name display_name title status type visibility role speaker_id character_id place_id
+    current_place_id campaign_id owner_id holder_id location_id date current_date time current_time
+    player_action player_input interaction_mode quantity amount count unit
+  )
+
+  defp compact_context_text(value, max_chars) when is_map(value) do
+    Map.new(value, fn {key, nested} -> {key, compact_context_text(nested, max_chars, key)} end)
+  end
+
+  defp compact_context_text(value, max_chars) when is_list(value),
+    do: Enum.map(value, &compact_context_text(&1, max_chars, nil))
+
+  defp compact_context_text(value, _max_chars), do: value
+
+  defp compact_context_text(value, max_chars, _key) when is_map(value) do
+    Map.new(value, fn {nested_key, nested} ->
+      {nested_key, compact_context_text(nested, max_chars, nested_key)}
+    end)
+  end
+
+  defp compact_context_text(value, max_chars, key) when is_list(value),
+    do: Enum.map(value, &compact_context_text(&1, max_chars, key))
+
+  defp compact_context_text(value, max_chars, key) when is_binary(value) do
+    normalized_key = if is_atom(key), do: Atom.to_string(key), else: to_string(key || "")
+
+    cond do
+      normalized_key in ["player_action", "player_input"] ->
+        value
+
+      normalized_key in ["id", "key"] or String.ends_with?(normalized_key, "_id") ->
+        compact_text(value, min(max_chars, 120))
+
+      normalized_key in @identity_context_fields ->
+        compact_text(value, min(max_chars, 160))
+
+      String.length(value) <= max_chars ->
+        value
+
+      true ->
+        compact_text(value, max_chars)
+    end
+  end
+
+  defp compact_context_text(value, _max_chars, _key), do: value
+
+  defp compact_campaign_details_for_budget(context) do
+    campaign = value(context, :campaign)
+
+    if is_map(campaign) do
+      projected =
+        Enum.reduce([:premise, :setting, :tone], campaign, fn key, acc ->
+          field = value(acc, key)
+          max_chars = if key == :premise, do: 2_400, else: 280
+
+          if is_binary(field) and String.length(field) > max_chars do
+            put_context_value(acc, Atom.to_string(key), compact_text(field, max_chars))
+          else
+            acc
+          end
+        end)
+
+      put_context_value(context, "campaign", projected)
+    else
+      context
+    end
+  end
+
+  defp compact_continuity_details_for_budget(context) do
+    continuity = value(context, :continuity)
+
+    if is_map(continuity) do
+      projected =
+        Map.new(continuity, fn {visibility, entries} ->
+          {visibility,
+           if(is_list(entries),
+             do: Enum.map(entries, &compact_continuity_entry_for_budget/1),
+             else: entries
+           )}
+        end)
+
+      put_context_value(context, "continuity", projected)
+    else
+      context
+    end
+  end
+
+  defp compact_continuity_entry_for_budget(entry) when is_map(entry) do
+    details = value(entry, :details)
+
+    if is_binary(details) and String.length(details) > 280 do
+      put_context_value(entry, "details", compact_text(details, 280))
+    else
+      entry
+    end
+  end
+
+  defp compact_continuity_entry_for_budget(entry), do: entry
+
+  defp compact_place_details_for_budget(context) do
+    places = value(context, :places)
+
+    if is_map(places) do
+      projected =
+        Map.new(places, fn {visibility, rows} ->
+          {visibility,
+           if(is_list(rows), do: Enum.map(rows, &compact_place_for_budget/1), else: rows)}
+        end)
+
+      put_context_value(context, "places", projected)
+    else
+      context
+    end
+  end
+
+  defp compact_place_for_budget(place) when is_map(place) do
+    description = value(place, :description)
+    facts = value(place, :facts)
+
+    place =
+      if is_binary(description) and String.length(description) > 900 do
+        put_context_value(place, "description", compact_text(description, 900))
+      else
+        place
+      end
+
+    {facts, _compacted?} = compact_json_value(facts, MapSet.new(), 700)
+    if is_nil(facts), do: place, else: put_context_value(place, "facts", facts)
+  end
+
+  defp compact_place_for_budget(place), do: place
+
+  defp compact_character_details_for_budget(context) do
+    characters = value(context, :characters)
+
+    if is_list(characters) do
+      projected =
+        Enum.map(characters, fn character ->
+          character
+          |> compact_character_field_for_budget(:visible_facts, 320)
+          |> compact_character_field_for_budget(:gm_private_facts, 320)
+          |> compact_character_field_for_budget(:voice_guidance, 240)
+        end)
+
+      put_context_value(context, "characters", projected)
+    else
+      context
+    end
+  end
+
+  defp compact_character_field_for_budget(character, key, max_bytes) when is_map(character) do
+    details = value(character, key)
+    {details, _compacted?} = compact_json_value(details, MapSet.new(), max_bytes)
+
+    if is_map(details) do
+      put_context_value(character, Atom.to_string(key), details)
+    else
+      character
+    end
+  end
+
+  defp compact_character_field_for_budget(character, _key, _max_bytes), do: character
+
+  defp compact_panel_values_for_budget(context) do
+    panels = value(context, :panels)
+
+    if is_list(panels) do
+      panels = Enum.map(panels, &compact_panel_for_budget/1)
+      put_context_value(context, "panels", panels)
+    else
+      context
+    end
+  end
+
+  defp compact_panel_for_budget(panel) when is_map(panel) do
+    panel_value = value(panel, :value)
+
+    if is_binary(panel_value) and String.length(panel_value) > 280 do
+      put_context_value(panel, "value", compact_text(panel_value, 280))
+    else
+      panel
+    end
+  end
+
+  defp compact_panel_for_budget(panel), do: panel
 
   # Durable continuity entries remain complete in storage and on the campaign
   # board. Send detail only for a bounded, relevant set from each visibility
@@ -1901,34 +2176,60 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_place_identity(_place), do: nil
 
   defp compact_continuity(continuity, terms) when is_map(continuity) do
-    Map.new(continuity, fn {visibility, entries} ->
-      entries = if is_list(entries), do: entries, else: []
-      latest = Enum.take(entries, -@detailed_continuity_count)
-      detailed_ids = MapSet.new(latest, &value(&1, :entry_id))
+    {groups, {details_omitted?, rows_omitted?}} =
+      Enum.map_reduce(continuity, {false, false}, fn {visibility, entries},
+                                                     {any_details_omitted?, any_rows_omitted?} ->
+        entries = if is_list(entries), do: entries, else: []
 
-      rows =
-        Enum.map(entries, fn entry ->
-          active? = value(entry, :status) in ["active", :active]
-          mentioned? = relevance_score(entry_text(entry), terms) > 0
+        retained_indexes =
+          entries
+          |> Enum.with_index()
+          |> Enum.sort_by(fn {entry, index} ->
+            {if(memory_relevant?(entry, terms), do: 0, else: 1),
+             if(value(entry, :status) in ["active", :active], do: 0, else: 1), -index}
+          end)
+          |> Enum.take(@max_continuity_context_rows)
+          |> MapSet.new(&elem(&1, 1))
 
-          # The campaign database keeps the complete ledger. Before size
-          # compaction, relevant continuity details have already been selected
-          # under a separate cap; preserve those active details. Closed entries
-          # outside the recent window can safely lose detail while their stable
-          # identity/status metadata remains available.
-          if active? or MapSet.member?(detailed_ids, value(entry, :entry_id)) or mentioned? do
-            entry
-          else
-            Map.drop(entry, [:details, "details"])
-          end
-        end)
+        detailed_ids =
+          entries
+          |> Enum.with_index()
+          |> Enum.filter(fn {_entry, index} -> MapSet.member?(retained_indexes, index) end)
+          |> Enum.map(&elem(&1, 0))
+          |> Enum.take(-@detailed_continuity_count)
+          |> MapSet.new(&value(&1, :entry_id))
 
-      {visibility, rows}
-    end)
-    |> then(fn result ->
-      omitted? = result != continuity
-      {result, omitted?}
-    end)
+        {rows, {details_omitted_here?, rows_omitted_here?}} =
+          entries
+          |> Enum.with_index()
+          |> Enum.reduce({[], {false, false}}, fn {entry, index},
+                                                  {rows,
+                                                   {any_details_omitted?, any_rows_omitted?}} ->
+            if not MapSet.member?(retained_indexes, index) do
+              {rows, {any_details_omitted?, true}}
+            else
+              active? = value(entry, :status) in ["active", :active]
+              mentioned? = relevance_score(entry_text(entry), terms) > 0
+
+              # The complete ledger remains canonical. Preserve relevant and
+              # recent active entries; send only bounded identities for older,
+              # closed facts because the local lookup can retrieve them later.
+              if active? or MapSet.member?(detailed_ids, value(entry, :entry_id)) or mentioned? do
+                {rows ++ [entry], {any_details_omitted?, any_rows_omitted?}}
+              else
+                compact = Map.drop(entry, [:details, "details", :title, "title"])
+                {rows ++ [compact], {any_details_omitted? or compact != entry, any_rows_omitted?}}
+              end
+            end
+          end)
+
+        {{visibility, rows},
+         {any_details_omitted? or details_omitted_here?, any_rows_omitted? or rows_omitted_here?}}
+      end)
+
+    result = Map.new(groups)
+    omitted? = details_omitted? or rows_omitted? or result != continuity
+    {result, omitted?}
   end
 
   defp compact_continuity(continuity, _terms), do: {continuity, false}

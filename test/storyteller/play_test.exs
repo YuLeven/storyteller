@@ -1438,6 +1438,94 @@ defmodule Storyteller.PlayTest do
     assert Map.has_key?(shared_place, "facts")
   end
 
+  test "offers a bounded campaign-scoped lookup when remote canon details are omitted" do
+    {campaign, session} = play_campaign("The Readonly Lookup Observatory")
+
+    Enum.each(1..8, fn index ->
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "remote-room-#{index}",
+          name: "Remote room #{index}",
+          visibility: :public,
+          description:
+            String.duplicate("A detailed but distant room description. ", 100) <> " #{index}",
+          facts: %{}
+        })
+      )
+    end)
+
+    remote_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "remote-library",
+          name: "Remote library",
+          visibility: :public,
+          description: "A locked archive above the northern quay.",
+          facts: %{}
+        })
+      )
+
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:nera",
+        name: "Nera",
+        role: :gm,
+        current_place_id: remote_place.place_id,
+        visible_facts: %{"occupation" => "Keeper of the northern archive"},
+        gm_private_facts: %{"secret" => "She has not yet read the sealed letter."}
+      })
+    )
+
+    owner = self()
+
+    provider = fn request ->
+      send(owner, {:lookup_request, request})
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "lookup-remote-character",
+               "I read the map.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:lookup_request, request}, 2_000
+    assert request.request_size_limit_bytes == 64_000
+    assert is_function(request.campaign_lookup_executor, 1)
+    assert :remote_place_details in request.local_context_metrics.omissions
+
+    assert request.local_context_metrics.estimated_request_bytes <=
+             request.request_size_limit_bytes - 16_000
+
+    assert Enum.any?(request.input, fn item ->
+             item["type"] == "additional_tools" and
+               Enum.any?(item["tools"], &(&1["name"] == "lookup_campaign_canon"))
+           end)
+
+    assert %{"records" => records} =
+             request.campaign_lookup_executor.(%{
+               "query" => "Nera northern archive",
+               "category" => "character"
+             })
+
+    public_nera = Enum.find(records, &(&1["visibility"] == "public"))
+    private_nera = Enum.find(records, &(&1["visibility"] == "gm_private"))
+    assert public_nera["name"] == "Nera"
+
+    assert public_nera["fields"]["visible_facts"]["occupation"] ==
+             "Keeper of the northern archive"
+
+    assert private_nera["fields"]["gm_private_facts"]["secret"] ==
+             "She has not yet read the sealed letter."
+  end
+
   test "sends a scene-beat handoff rule and keeps a complete NPC exchange in one turn" do
     campaign =
       campaign_fixture(%{
@@ -8675,7 +8763,13 @@ defmodule Storyteller.PlayTest do
 
     assert_receive {:qa_context_request, request, context}, 1_000
     metrics = request.local_context_metrics
-    encoded_context = request.input |> hd() |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
+
+    encoded_context =
+      request.input
+      |> Enum.find(&Map.has_key?(&1, :content))
+      |> Map.fetch!(:content)
+      |> hd()
+      |> Map.fetch!(:text)
 
     assert context["interaction_mode"] == "question"
     assert metrics.budget_bytes == 64_000
@@ -10191,7 +10285,8 @@ defmodule Storyteller.PlayTest do
   end
 
   defp decode_request(request) do
-    text = request.input |> hd() |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
+    context_item = Enum.find(request.input, &Map.has_key?(&1, :content))
+    text = context_item |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
     Jason.decode!(text)
   end
 

@@ -1338,7 +1338,13 @@ defmodule StorytellerWeb.CampaignAuthoringLiveTest do
   end
 
   defp decode_provider_request(request) do
-    text = request.input |> hd() |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
+    text =
+      request.input
+      |> Enum.find(&Map.has_key?(&1, :content))
+      |> Map.fetch!(:content)
+      |> hd()
+      |> Map.fetch!(:text)
+
     Jason.decode!(text)
   end
 end

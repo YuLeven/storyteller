@@ -18,6 +18,10 @@ defmodule Storyteller.GM.OpenAI do
   @response_stream_receive_timeout 90_000
   @max_error_body_bytes 65_536
   @max_output_text_bytes 100_000
+  @campaign_lookup_tool_name "lookup_campaign_canon"
+  @max_tool_argument_bytes 6_000
+  @max_tool_output_bytes 6_000
+  @max_tool_call_id_bytes 256
 
   @doc "Lists displayable models for the currently connected ChatGPT account."
   def models(opts \\ []) do
@@ -116,19 +120,10 @@ defmodule Storyteller.GM.OpenAI do
   defp request_and_stream_response(access_token, body, request, opts) do
     started_at = System.monotonic_time()
 
+    first_output = one_shot_callback(local_callback(request, :on_first_output))
+
     result =
-      with {:ok, response} <-
-             log_stage_error(:responses_request, post_response(access_token, body, opts)),
-           :ok <- require_http_success(response, :responses),
-           {:ok, result} <-
-             completed_response(
-               response,
-               local_callback(request, :on_first_output),
-               local_callback(request, :on_stream_activity),
-               started_at
-             ) do
-        {:ok, result}
-      end
+      run_response_turn(access_token, body, request, opts, started_at, first_output, 0, %{})
 
     outcome = if match?({:ok, _}, result), do: :ok, else: :error
     TurnTelemetry.stop(:provider_stream, started_at, outcome)
@@ -238,16 +233,312 @@ defmodule Storyteller.GM.OpenAI do
         {:error, :unsupported_capability}
 
       true ->
-        {:ok,
-         %{
-           "model" => model,
-           "instructions" => instructions,
-           "input" => input,
-           "store" => false,
-           "stream" => true
-         }}
+        body = %{
+          "model" => model,
+          "instructions" => instructions,
+          "input" => input,
+          "store" => false,
+          "stream" => true
+        }
+
+        with :ok <- validate_advertised_tools(input),
+             {:ok, limit} <- request_size_limit(request),
+             :ok <- enforce_body_size(body, limit) do
+          {:ok, body}
+        end
     end
   end
+
+  defp run_response_turn(
+         access_token,
+         body,
+         request,
+         opts,
+         started_at,
+         first_output,
+         tool_calls_used,
+         usage
+       ) do
+    with {:ok, response} <-
+           log_stage_error(:responses_request, post_response(access_token, body, opts)),
+         :ok <- require_http_success(response, :responses),
+         {:ok, completed} <-
+           completed_response(
+             response,
+             first_output,
+             local_callback(request, :on_stream_activity),
+             started_at
+           ) do
+      usage = add_usage(usage, completed.usage)
+
+      case function_calls(completed.response) do
+        [] ->
+          {:ok, public_result(completed.text, usage)}
+
+        [call] when tool_calls_used == 0 ->
+          with {:ok, call_id, arguments} <- validate_tool_call(call, body["input"]),
+               {:ok, output} <- execute_campaign_lookup(request, arguments),
+               {:ok, encoded_output} <- encode_tool_output(output),
+               continuation <-
+                 continuation_body(body, completed.response, call_id, encoded_output),
+               :ok <- enforce_body_size(continuation, request_size_limit!(request)) do
+            run_response_turn(
+              access_token,
+              continuation,
+              request,
+              opts,
+              started_at,
+              first_output,
+              1,
+              usage
+            )
+          end
+
+        _multiple_or_repeated_calls ->
+          {:error, :unsupported_capability}
+      end
+    end
+  end
+
+  defp public_result(text, usage) do
+    result = %{text: text}
+    if map_size(usage) > 0, do: Map.put(result, :usage, usage), else: result
+  end
+
+  defp completed_response(response, on_first_output, on_stream_activity, started_at) do
+    case consume_sse(
+           response_body(response),
+           on_first_output,
+           on_stream_activity,
+           started_at
+         ) do
+      {:completed, text, usage, completed_response} ->
+        if (is_binary(text) and text != "") or function_calls(completed_response) != [] do
+          {:ok, %{text: text || "", usage: usage, response: completed_response}}
+        else
+          log_completed_response_failure(response, :completed_without_text)
+        end
+
+      {:failed, details} ->
+        log_provider_failure(
+          :response_stream,
+          response_status(response),
+          details,
+          request_id(response)
+        )
+
+        {:error, details.reason}
+
+      {:incomplete, :response_incomplete} ->
+        log_completed_response_failure(response, :response_incomplete, :stream_incomplete)
+
+      {:incomplete, diagnostic} ->
+        failure =
+          if diagnostic == :response_incomplete, do: :stream_incomplete, else: :invalid_response
+
+        log_completed_response_failure(response, diagnostic, failure)
+
+      :missing_completion ->
+        log_completed_response_failure(response, :missing_completion, :stream_incomplete)
+    end
+  end
+
+  defp log_completed_response_failure(response, diagnostic, failure \\ :invalid_response) do
+    details = stream_diagnostic(diagnostic)
+
+    log_provider_failure(
+      :response_stream,
+      response_status(response),
+      details,
+      request_id(response)
+    )
+
+    {:error, failure}
+  end
+
+  defp validate_advertised_tools(input) do
+    specs = advertised_tool_specs(input)
+
+    cond do
+      Enum.any?(
+        specs,
+        &(not is_map(&1) or field(&1, :type) != "function" or not is_binary(field(&1, :name)))
+      ) ->
+        {:error, :unsupported_capability}
+
+      Enum.count(specs, &(field(&1, :name) == @campaign_lookup_tool_name)) > 1 ->
+        {:error, :unsupported_capability}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp advertised_tool_specs(input) when is_list(input) do
+    Enum.flat_map(input, fn item ->
+      if is_map(item) and field(item, :type) == "additional_tools" and
+           field(item, :role) == "developer" do
+        case field(item, :tools) do
+          tools when is_list(tools) -> tools
+          tool when is_map(tool) -> [tool]
+          _ -> []
+        end
+      else
+        []
+      end
+    end)
+  end
+
+  defp advertised_tool_specs(_), do: []
+
+  defp function_calls(response) when is_map(response) do
+    case field(response, :output) do
+      output when is_list(output) ->
+        Enum.filter(output, &(is_map(&1) and field(&1, :type) == "function_call"))
+
+      _ ->
+        []
+    end
+  end
+
+  defp function_calls(_), do: []
+
+  defp validate_tool_call(call, input) when is_map(call) do
+    call_id = field(call, :call_id)
+    name = field(call, :name)
+    arguments = field(call, :arguments)
+
+    advertised? =
+      Enum.count(advertised_tool_specs(input), &(field(&1, :name) == @campaign_lookup_tool_name)) ==
+        1
+
+    with true <- name == @campaign_lookup_tool_name and advertised?,
+         true <- is_binary(call_id) and byte_size(call_id) in 1..@max_tool_call_id_bytes,
+         {:ok, decoded} <- decode_tool_arguments(arguments),
+         true <- is_map(decoded),
+         {:ok, encoded} <- Jason.encode(decoded),
+         true <- byte_size(encoded) <= @max_tool_argument_bytes do
+      {:ok, call_id, decoded}
+    else
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp validate_tool_call(_, _), do: {:error, :invalid_response}
+
+  defp decode_tool_arguments(arguments) when is_binary(arguments) do
+    if byte_size(arguments) <= @max_tool_argument_bytes do
+      Jason.decode(arguments)
+    else
+      {:error, :arguments_too_large}
+    end
+  end
+
+  defp decode_tool_arguments(arguments) when is_map(arguments), do: {:ok, arguments}
+  defp decode_tool_arguments(_), do: {:error, :invalid_arguments}
+
+  defp execute_campaign_lookup(request, arguments) do
+    case field(request, :campaign_lookup_executor) do
+      executor when is_function(executor, 1) ->
+        try do
+          {:ok, executor.(arguments)}
+        rescue
+          _error -> {:error, :invalid_response}
+        catch
+          _kind, _reason -> {:error, :invalid_response}
+        end
+
+      _ ->
+        {:error, :unsupported_capability}
+    end
+  end
+
+  defp encode_tool_output(output) do
+    case Jason.encode(output) do
+      {:ok, encoded} ->
+        if byte_size(Jason.encode!(%{"output" => encoded})) <= @max_tool_output_bytes do
+          {:ok, encoded}
+        else
+          {:error, :invalid_response}
+        end
+
+      {:error, _not_json_safe} ->
+        {:error, :invalid_response}
+    end
+  rescue
+    _error -> {:error, :invalid_response}
+  end
+
+  defp continuation_body(body, completed_response, call_id, encoded_output) do
+    response_output = field(completed_response, :output)
+
+    %{
+      body
+      | "input" =>
+          body["input"] ++
+            response_output ++
+            [
+              %{
+                "type" => "function_call_output",
+                "call_id" => call_id,
+                "output" => encoded_output
+              }
+            ]
+    }
+  end
+
+  defp request_size_limit(request) do
+    metrics = field(request, :local_context_metrics)
+
+    case field(request, :request_size_limit_bytes) ||
+           field(metrics || %{}, :request_size_limit_bytes) do
+      nil -> {:ok, nil}
+      limit when is_integer(limit) and limit > 0 -> {:ok, limit}
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp request_size_limit!(request) do
+    case request_size_limit(request) do
+      {:ok, limit} -> limit
+      {:error, _reason} -> 1
+    end
+  end
+
+  defp enforce_body_size(_body, nil), do: :ok
+
+  defp enforce_body_size(body, limit) when is_integer(limit) and limit > 0 do
+    try do
+      if byte_size(Jason.encode!(body)) <= limit, do: :ok, else: {:error, :context_too_large}
+    rescue
+      _error -> {:error, :invalid_response}
+    end
+  end
+
+  defp enforce_body_size(_body, _limit), do: {:error, :invalid_response}
+
+  defp add_usage(accumulated, next) when is_map(next) do
+    Enum.reduce([:input_tokens, :output_tokens], accumulated, fn key, acc ->
+      case Map.get(next, key) do
+        value when is_integer(value) and value >= 0 -> Map.update(acc, key, value, &(&1 + value))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp add_usage(accumulated, _next), do: accumulated
+
+  defp one_shot_callback(callback) when is_function(callback, 0) do
+    called = :atomics.new(1, signed: false)
+
+    fn ->
+      if :atomics.compare_exchange(called, 1, 0, 1) == :ok do
+        callback.()
+      end
+    end
+  end
+
+  defp one_shot_callback(_callback), do: nil
 
   defp post_response(access_token, body, opts) do
     HTTP.request(
@@ -285,64 +576,6 @@ defmodule Storyteller.GM.OpenAI do
     do: :provider_error
 
   defp error_for_status(_status, reason), do: reason
-
-  defp completed_response(response, on_first_output, on_stream_activity, started_at) do
-    case consume_sse(response_body(response), on_first_output, on_stream_activity, started_at) do
-      {:completed, text, usage} ->
-        result = %{text: text}
-        result = if map_size(usage) > 0, do: Map.put(result, :usage, usage), else: result
-        {:ok, result}
-
-      {:failed, details} ->
-        log_provider_failure(
-          :response_stream,
-          response_status(response),
-          details,
-          request_id(response)
-        )
-
-        {:error, details.reason}
-
-      {:incomplete, :response_incomplete} ->
-        details = stream_diagnostic(:response_incomplete)
-
-        log_provider_failure(
-          :response_stream,
-          response_status(response),
-          details,
-          request_id(response)
-        )
-
-        {:error, :stream_incomplete}
-
-      {:incomplete, diagnostic} ->
-        details = stream_diagnostic(diagnostic)
-
-        log_provider_failure(
-          :response_stream,
-          response_status(response),
-          details,
-          request_id(response)
-        )
-
-        failure =
-          if diagnostic == :response_incomplete, do: :stream_incomplete, else: :invalid_response
-
-        {:error, failure}
-
-      :missing_completion ->
-        details = stream_diagnostic(:missing_completion)
-
-        log_provider_failure(
-          :response_stream,
-          response_status(response),
-          details,
-          request_id(response)
-        )
-
-        {:error, :stream_incomplete}
-    end
-  end
 
   defp consume_sse(body, on_first_output, on_stream_activity, started_at)
        when is_binary(body),
@@ -383,7 +616,7 @@ defmodule Storyteller.GM.OpenAI do
           end
 
         case final_status do
-          {:completed, _, _} = completed -> completed
+          {:completed, _, _, _} = completed -> completed
           {:failed, _} = failed -> failed
           {:incomplete, _} = incomplete -> incomplete
           _ -> :missing_completion
@@ -420,7 +653,7 @@ defmodule Storyteller.GM.OpenAI do
     end)
   end
 
-  defp process_frame(_frame, {:completed, _, _} = completed, _callback, _started_at),
+  defp process_frame(_frame, {:completed, _, _, _} = completed, _callback, _started_at),
     do: completed
 
   defp process_frame(_frame, {:failed, _} = failed, _callback, _started_at), do: failed
@@ -515,17 +748,18 @@ defmodule Storyteller.GM.OpenAI do
   defp process_event(event, payload, deltas, size, first_output?, on_first_output, started_at) do
     case payload["type"] || event do
       "response.completed" ->
-        usage = response_usage(payload["response"])
+        response = payload["response"]
+        usage = response_usage(response)
 
-        case output_text(payload["response"]) do
+        case output_text(response) do
           {:ok, text} ->
-            {:completed, text, usage}
+            {:completed, text, usage, response}
 
           _ when size > 0 ->
-            {:completed, deltas |> Enum.reverse() |> IO.iodata_to_binary(), usage}
+            {:completed, deltas |> Enum.reverse() |> IO.iodata_to_binary(), usage, response}
 
           _ ->
-            {:incomplete, :completed_without_text}
+            {:completed, "", usage, response}
         end
 
       "response.output_text.delta" ->
@@ -826,6 +1060,7 @@ defmodule Storyteller.GM.OpenAI do
 
   defp normalize_error(:network_error), do: :timeout
   defp normalize_error(:timeout), do: :timeout
+  defp normalize_error(:context_too_large), do: :context_budget_exceeded
   defp normalize_error(:temporary_auth_error), do: :provider_error
   defp normalize_error(:not_authenticated), do: :account_ineligible
   defp normalize_error(:plan_usage_not_authorized), do: :account_ineligible

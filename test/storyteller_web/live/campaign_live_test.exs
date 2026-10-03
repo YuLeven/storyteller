@@ -1538,7 +1538,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
   defp test_opening_scene_response(request) do
     context =
       request.input
-      |> hd()
+      |> Enum.find(&Map.has_key?(&1, :content))
       |> Map.fetch!(:content)
       |> hd()
       |> Map.fetch!(:text)
@@ -1579,7 +1579,7 @@ defmodule StorytellerWeb.CampaignLiveTest do
 
   defp decode_request(request) do
     request.input
-    |> hd()
+    |> Enum.find(&Map.has_key?(&1, :content))
     |> Map.fetch!(:content)
     |> hd()
     |> Map.fetch!(:text)

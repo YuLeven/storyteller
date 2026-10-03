@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-03 — V1 P0: prevent campaign context from stranding a turn
+
+- The recurring “required campaign details too large” message is Storyteller's own serialized-byte preflight, raised before an HTTP request reaches GPT. The configured 64,000-byte application guard is not a token count or a measured Plus/model limit.
+- Kept the database as campaign memory and added a layered request policy: relevance projection, bounded continuity rows/history, prose/detail compaction, then a marked emergency compaction pass for oversized remaining strings. The saved player action and current date/time/weather/location anchors survive; canonical source records stay unchanged. The GM receives completeness flags so omitted details are treated as unknown.
+- Added an optional request-scoped local lookup function for canon omitted from the opening context. It is only offered when the reduced request can reserve space for a tool result and continuation. The executor uses the already authorized campaign context, labels public vs GM-private results, cannot accept a campaign ID or widen visibility, and cannot mutate state. One call and a small result are allowed; exact serialized size is checked before both provider requests.
+- A hosted MCP is not supported on the current ChatGPT-plan HTTP route. This uses the route's app-defined function/custom tool mechanism and replays the original input plus full response output for continuation; no provider-side conversation memory is assumed. See OpenAI's [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) and [additional tools guide](https://developers.openai.com/api/docs/guides/tools-tool-search). Tool schemas, results, and round trips can increase token use and latency, so savings and narrative improvements remain unproven until measured on matched synthetic campaigns.
+- When even the compact view cannot fit, the local adapter classifies that as a recoverable context-size error rather than a generic provider failure. Existing save/retry behavior remains in force; a polished category-specific edit/review flow for truly irreducible canon is still open.
+- **Checks:** focused context/lookup/adapter/play suites passed (**179 tests, 0 failures**); the full isolated WSL suite passed (**482 tests, 0 failures**); `MIX_ENV=test mix compile --warnings-as-errors`, formatting, and `git diff --check` passed. No live model request, OAuth consent, or campaign database was used.
+
 ## 2026-10-03 — V1 P0: bound present-scene and long-lived canon growth
 
 - The follow-up audit found three avoidable growth paths after transcript compaction: every endpoint in the travel graph could be treated as adjacent to the player, large profiles for co-present or mentioned characters had no field cap, and open objective details plus old objective rows could accumulate across the campaign.

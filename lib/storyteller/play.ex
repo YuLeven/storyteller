@@ -13,7 +13,7 @@ defmodule Storyteller.Play do
   import Ecto.Query, warn: false
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
-  alias Storyteller.GM.{ContextBudget, TurnTelemetry}
+  alias Storyteller.GM.{CampaignLookup, ContextBudget, TurnTelemetry}
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Settings
@@ -52,6 +52,28 @@ defmodule Storyteller.Play do
   @max_active_duty_duration_minutes 525_600
   @max_turn_text 20_000
   @max_provider_output_bytes 100_000
+  @campaign_lookup_request_reserve_bytes 16_000
+  @campaign_lookup_retrieval_omissions MapSet.new([
+                                         :campaign_details,
+                                         :character_details,
+                                         :characters,
+                                         :context_details,
+                                         :continuity_details,
+                                         :continuity_memory_details,
+                                         :inventory_details,
+                                         :inventory_items,
+                                         :memory_summary,
+                                         :objective_details,
+                                         :objectives,
+                                         :panel_fields,
+                                         :panel_values,
+                                         :place_details,
+                                         :places,
+                                         :remote_character_profiles,
+                                         :remote_place_details,
+                                         :world_state_details,
+                                         :world_state_fields
+                                       ])
   @max_history_events 40
   @max_relevant_older_events 40
   @max_history_search_terms 8
@@ -5368,8 +5390,24 @@ defmodule Storyteller.Play do
 
     request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
 
-    with {:ok, %{context: compiled_context, metrics: metrics}} <-
+    with {:ok, %{context: initial_context, metrics: initial_metrics}} <-
            ContextBudget.compile(request_context, instructions, model, opts) do
+      {compiled_context, metrics, lookup_enabled?} =
+        if campaign_lookup_recommended?(initial_metrics) do
+          reserve_opts =
+            Keyword.put(opts, :reserve_request_bytes, @campaign_lookup_request_reserve_bytes)
+
+          case ContextBudget.compile(request_context, instructions, model, reserve_opts) do
+            {:ok, %{context: reserved_context, metrics: reserved_metrics}} ->
+              {reserved_context, reserved_metrics, true}
+
+            {:error, _reason} ->
+              {initial_context, initial_metrics, false}
+          end
+        else
+          {initial_context, initial_metrics, false}
+        end
+
       request = %{
         instructions: instructions,
         input: [
@@ -5378,8 +5416,26 @@ defmodule Storyteller.Play do
             content: [%{type: "input_text", text: Jason.encode!(compiled_context)}]
           }
         ],
-        local_context_metrics: metrics
+        local_context_metrics: metrics,
+        request_size_limit_bytes: ContextBudget.request_size_limit_bytes(model, opts)
       }
+
+      request =
+        if lookup_enabled? do
+          tool_context = %{
+            "type" => "additional_tools",
+            "role" => "developer",
+            "tools" => [CampaignLookup.tool_spec()]
+          }
+
+          request
+          |> update_in([:input], &[tool_context | &1])
+          |> Map.put(:campaign_lookup_executor, fn arguments ->
+            CampaignLookup.execute(request_context, arguments)
+          end)
+        else
+          request
+        end
 
       request =
         case Keyword.get(opts, :on_first_output) do
@@ -5401,6 +5457,11 @@ defmodule Storyteller.Play do
         _ -> {:ok, request}
       end
     end
+  end
+
+  defp campaign_lookup_recommended?(metrics) do
+    omissions = Map.get(metrics, :omissions, [])
+    Enum.any?(omissions, &MapSet.member?(@campaign_lookup_retrieval_omissions, &1))
   end
 
   defp resolution_lease_heartbeat(turn_id, attempt_token) do

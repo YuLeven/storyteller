@@ -3,7 +3,7 @@ defmodule Storyteller.GM.OpenAITest do
   import ExUnit.CaptureLog
 
   alias Storyteller.Auth.{Credentials, TokenStore}
-  alias Storyteller.GM.{ModelCatalogCache, OpenAI, TurnTelemetry}
+  alias Storyteller.GM.{CampaignLookup, ModelCatalogCache, OpenAI, TurnTelemetry}
 
   setup do
     directory = Path.join(System.tmp_dir!(), "storyteller-openai-test-#{Ecto.UUID.generate()}")
@@ -95,6 +95,313 @@ defmodule Storyteller.GM.OpenAITest do
     assert_turn_stage(:request_to_first_output, :not_applicable)
     assert_turn_stage(:provider_stream, :not_applicable)
     :telemetry.detach(stage_handler_id)
+  end
+
+  test "executes one local lookup and replays the full completed output before its result",
+       context do
+    test_pid = self()
+    request = lookup_request()
+
+    full_output = [
+      %{
+        "type" => "reasoning",
+        "id" => "rs_fixture",
+        "summary" => [%{"type" => "summary_text", "text" => "Checking the ledger."}]
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "call_fixture_1",
+        "name" => "lookup_campaign_canon",
+        "arguments" => "{\"query\":\"Mara\",\"category\":\"character\"}"
+      }
+    ]
+
+    first = function_call_completion(full_output, %{"input_tokens" => 12, "output_tokens" => 5})
+
+    second =
+      completion_event("Mara is still at the Finca.", %{
+        "input_tokens" => 19,
+        "output_tokens" => 8
+      })
+
+    calls = :atomics.new(1, signed: false)
+
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      call = :atomics.add_get(calls, 1, 1)
+      send(test_pid, {:responses_request, call, options})
+      %{status: 200, body: if(call == 1, do: split_stream(first), else: split_stream(second))}
+    end
+
+    executor = fn arguments ->
+      send(test_pid, {:lookup_arguments, arguments})
+      %{"records" => [%{"id" => "mara", "visibility" => "public"}]}
+    end
+
+    assert {:ok,
+            %{text: "Mara is still at the Finca.", usage: %{input_tokens: 31, output_tokens: 13}}} =
+             OpenAI.stream_response(Map.put(request, :campaign_lookup_executor, executor),
+               store: context.store,
+               http: http
+             )
+
+    assert_receive {:lookup_arguments, %{"query" => "Mara", "category" => "character"}}
+    assert_receive {:responses_request, 1, first_options}
+    first_body = Keyword.fetch!(first_options, :json)
+    assert first_body["input"] == request.input
+    refute Map.has_key?(first_body, "tools")
+    assert first_body["store"] == false and first_body["stream"] == true
+
+    assert_receive {:responses_request, 2, second_options}
+    second_body = Keyword.fetch!(second_options, :json)
+    expected_output = Jason.encode!(%{"records" => [%{"id" => "mara", "visibility" => "public"}]})
+
+    assert second_body["input"] ==
+             request.input ++
+               full_output ++
+               [
+                 %{
+                   "type" => "function_call_output",
+                   "call_id" => "call_fixture_1",
+                   "output" => expected_output
+                 }
+               ]
+
+    refute Map.has_key?(second_body, "tools")
+    refute Map.has_key?(second_body, "previous_response_id")
+    assert second_body["store"] == false and second_body["stream"] == true
+    refute_receive {:responses_request, _, _}
+  end
+
+  test "rejects unknown, malformed, multiple, or unadvertised function calls without retrying",
+       context do
+    malformed_calls = [
+      [%{"type" => "function_call", "call_id" => "c1", "name" => "unknown", "arguments" => "{}"}],
+      [
+        %{
+          "type" => "function_call",
+          "call_id" => "",
+          "name" => "lookup_campaign_canon",
+          "arguments" => "{}"
+        }
+      ],
+      [
+        %{
+          "type" => "function_call",
+          "call_id" => "c1",
+          "name" => "lookup_campaign_canon",
+          "arguments" => "[]"
+        }
+      ],
+      [
+        %{
+          "type" => "function_call",
+          "call_id" => "c1",
+          "name" => "lookup_campaign_canon",
+          "arguments" => String.duplicate("x", 6_001)
+        }
+      ],
+      [
+        %{
+          "type" => "function_call",
+          "call_id" => "c1",
+          "name" => "lookup_campaign_canon",
+          "arguments" => "{}"
+        },
+        %{
+          "type" => "function_call",
+          "call_id" => "c2",
+          "name" => "lookup_campaign_canon",
+          "arguments" => "{}"
+        }
+      ]
+    ]
+
+    Enum.each(malformed_calls, fn calls_to_return ->
+      test_pid = self()
+      count = :atomics.new(1, signed: false)
+
+      http = fn :post, "https://api.openai.com/v1/responses", options ->
+        call = :atomics.add_get(count, 1, 1)
+        send(test_pid, {:responses_request, call, options})
+        %{status: 200, body: split_stream(function_call_completion(calls_to_return, nil))}
+      end
+
+      executor = fn _arguments ->
+        send(test_pid, :executor_should_not_run)
+        %{}
+      end
+
+      assert {:error, _reason} =
+               OpenAI.stream_response(
+                 Map.put(lookup_request(), :campaign_lookup_executor, executor),
+                 store: context.store,
+                 http: http
+               )
+
+      assert_receive {:responses_request, 1, _}
+      refute_receive {:responses_request, _, _}
+      refute_receive :executor_should_not_run
+    end)
+  end
+
+  test "fails closed when the local lookup executor is missing or returns too much data",
+       context do
+    tool_call = [
+      %{
+        "type" => "function_call",
+        "call_id" => "call_fixture_2",
+        "name" => "lookup_campaign_canon",
+        "arguments" => "{\"query\":\"Mara\"}"
+      }
+    ]
+
+    for executor <- [nil, fn _args -> %{"large" => String.duplicate("x", 6_001)} end] do
+      test_pid = self()
+      count = :atomics.new(1, signed: false)
+
+      http = fn :post, "https://api.openai.com/v1/responses", options ->
+        call = :atomics.add_get(count, 1, 1)
+        send(test_pid, {:responses_request, call, options})
+        %{status: 200, body: split_stream(function_call_completion(tool_call, nil))}
+      end
+
+      request = lookup_request()
+
+      request =
+        if executor, do: Map.put(request, :campaign_lookup_executor, executor), else: request
+
+      assert {:error, _reason} = OpenAI.stream_response(request, store: context.store, http: http)
+      assert_receive {:responses_request, 1, _}
+      refute_receive {:responses_request, _, _}
+    end
+  end
+
+  test "does not execute unadvertised tools or permit a second lookup in one turn", context do
+    call = fn id ->
+      %{
+        "type" => "function_call",
+        "call_id" => id,
+        "name" => "lookup_campaign_canon",
+        "arguments" => "{\"query\":\"Mara\"}"
+      }
+    end
+
+    unadvertised_request = lookup_request() |> Map.update!(:input, &Enum.take(&1, 1))
+    test_pid = self()
+
+    unadvertised_http = fn :post, "https://api.openai.com/v1/responses", options ->
+      send(test_pid, {:responses_request, options})
+      %{status: 200, body: split_stream(function_call_completion([call.("unadvertised")], nil))}
+    end
+
+    assert {:error, :invalid_response} =
+             OpenAI.stream_response(unadvertised_request,
+               store: context.store,
+               http: unadvertised_http
+             )
+
+    assert_receive {:responses_request, _}
+    refute_receive {:responses_request, _}
+
+    call_count = :atomics.new(1, signed: false)
+    executor_count = :atomics.new(1, signed: false)
+
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      round = :atomics.add_get(call_count, 1, 1)
+      send(test_pid, {:responses_request, round, options})
+
+      %{status: 200, body: split_stream(function_call_completion([call.("call_#{round}")], nil))}
+    end
+
+    executor = fn _arguments ->
+      :atomics.add(executor_count, 1, 1)
+      %{"found" => true}
+    end
+
+    assert {:error, :unsupported_capability} =
+             OpenAI.stream_response(
+               Map.put(lookup_request(), :campaign_lookup_executor, executor),
+               store: context.store,
+               http: http
+             )
+
+    assert_receive {:responses_request, 1, _}
+    assert_receive {:responses_request, 2, _}
+    refute_receive {:responses_request, 3, _}
+    assert :atomics.get(executor_count, 1) == 1
+  end
+
+  test "enforces exact serialized byte limits for the initial and tool continuation bodies",
+       context do
+    request = lookup_request()
+
+    initial_body = %{
+      "model" => "fixture-model",
+      "instructions" => request.instructions,
+      "input" => request.input,
+      "store" => false,
+      "stream" => true
+    }
+
+    initial_limit = byte_size(Jason.encode!(initial_body)) - 1
+    initial_http = provider_http(self(), completion_event("unused"))
+
+    assert {:error, :context_budget_exceeded} =
+             OpenAI.stream_response(Map.put(request, :request_size_limit_bytes, initial_limit),
+               store: context.store,
+               http: initial_http
+             )
+
+    refute_receive {:responses_request, _}
+
+    output_items = [
+      %{
+        "type" => "function_call",
+        "call_id" => "call_fixture_3",
+        "name" => "lookup_campaign_canon",
+        "arguments" => "{\"query\":\"Mara\"}"
+      }
+    ]
+
+    call_stream = function_call_completion(output_items, nil)
+    output_json = Jason.encode!(%{"found" => true})
+
+    continuation_body = %{
+      initial_body
+      | "input" =>
+          request.input ++
+            output_items ++
+            [
+              %{
+                "type" => "function_call_output",
+                "call_id" => "call_fixture_3",
+                "output" => output_json
+              }
+            ]
+    }
+
+    continuation_limit = byte_size(Jason.encode!(continuation_body)) - 1
+    test_pid = self()
+    calls = :atomics.new(1, signed: false)
+
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      call = :atomics.add_get(calls, 1, 1)
+      send(test_pid, {:responses_request, call, options})
+      %{status: 200, body: split_stream(call_stream)}
+    end
+
+    executor = fn _arguments -> %{"found" => true} end
+
+    request =
+      request
+      |> Map.put(:campaign_lookup_executor, executor)
+      |> Map.put(:local_context_metrics, %{request_size_limit_bytes: continuation_limit})
+
+    assert {:error, :context_budget_exceeded} =
+             OpenAI.stream_response(request, store: context.store, http: http)
+
+    assert_receive {:responses_request, 1, _}
+    refute_receive {:responses_request, 2, _}
   end
 
   test "reports model catalog cache miss and hit using bounded labels", context do
@@ -925,6 +1232,27 @@ defmodule Storyteller.GM.OpenAITest do
 
   defp event_frame(event, payload) do
     "event: #{event}\ndata: #{Jason.encode!(payload)}\n\n"
+  end
+
+  defp lookup_request do
+    %{
+      model: "fixture-model",
+      instructions: "Use local campaign canon lookup only when necessary.",
+      input: [
+        %{"role" => "user", "content" => "Where is Mara?"},
+        %{
+          "type" => "additional_tools",
+          "role" => "developer",
+          "tools" => [CampaignLookup.tool_spec()]
+        }
+      ]
+    }
+  end
+
+  defp function_call_completion(output_items, usage) do
+    response = %{"output" => output_items}
+    response = if is_map(usage), do: Map.put(response, "usage", usage), else: response
+    event_frame("response.completed", %{"type" => "response.completed", "response" => response})
   end
 
   defp completion_event(text, usage \\ nil) do

@@ -10,7 +10,7 @@ defmodule StorytellerWeb.SessionLiveTest.FakeProvider do
       _ ->
         context =
           request.input
-          |> hd()
+          |> Enum.find(&Map.has_key?(&1, :content))
           |> Map.fetch!(:content)
           |> hd()
           |> Map.fetch!(:text)
@@ -5856,7 +5856,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
   defp provider_context(request) do
     request.input
-    |> hd()
+    |> Enum.find(&Map.has_key?(&1, :content))
     |> Map.fetch!(:content)
     |> hd()
     |> Map.fetch!(:text)
