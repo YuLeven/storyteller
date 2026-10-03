@@ -15,6 +15,14 @@
 - Refined the release roadmap: functional QA is the MVP gate; V1 P0 is story quality and disruptive UI fixes; clone/run and secret/private-data release preparation follows once the game is polished.
 - **Checked in WSL:** full suite **429 tests, 0 failures**; warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. No live-model call or campaign mutation was made; automated tests used the isolated test database. A live stateful turn remains a required MVP sign-off check.
 
+## 2026-10-02 — Confirm the functional MVP loop across sessions
+
+- In the separate Quiet Observatory QA campaign, the first live “advance ten minutes” response failed proposal validation without changing canon. Retrying the same saved turn succeeded: server-tracked elapsed time advanced exactly ten minutes, the character stayed in the guest room, and the canonical weather fields stayed unchanged. The story and clock persisted after reload.
+- Started a later session and confirmed the board retained the clock, place, and earlier campaign story. A live Ask about Mira failed proposal validation on its first attempt; retry correctly recalled her current corridor location and that she was waiting to take Rowan to the kitchen for sherry and oatcakes before comparing charts. The completed question and state persisted after reload.
+- The LiveView route hint is now limited to action turns, so an unrelated time-passage or question validation failure does not show movement advice. A behavior test covers that distinction.
+- **Functional MVP gate passed** against separate fictional data; this is not a V1 story-quality claim. The two live turns both needed a retry, so first-try response reliability, adaptive pacing, and comparison with the in-chat reference remain V1 P0. The imported comparison campaign's resource-panel rendering was not inspected.
+- **Checked in WSL:** full suite **430 tests, 0 failures**; warnings-as-errors compilation, formatter, Gettext freshness, and `git diff --check` passed. No Vineyard content was read or changed.
+
 ## 2026-10-02 — Keep the GM inventory view within the local context budget
 
 - A maximum-size synthetic campaign exposed an avoidable context overflow: public and GM-private inventory arrays were copied into the world maps and serialized a second time in the dedicated inventory section. The local 24,000-byte preflight rejected a request whose serialized context was about 225 KB before projection.

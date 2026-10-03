@@ -302,7 +302,8 @@
           <p
             :if={
               @current_turn.failure_code == "invalid_response" and
-                @current_turn.failure_stage == :proposal_validation
+                @current_turn.failure_stage == :proposal_validation and
+                @current_turn.intent == :action
             }
             class="mt-2 text-sm leading-6 text-rose-800"
           >

@@ -1698,6 +1698,34 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute Enum.any?(events, &(&1.turn_id == failed_turn.id and &1.event_type == :gm_narration))
   end
 
+  test "time-passage validation failures do not show movement-specific recovery guidance", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+
+    Repo.insert!(
+      Turn.changeset(%Turn{}, %{
+        campaign_id: campaign.id,
+        session_id: session.id,
+        idempotency_key: "time-passage-validation-failure",
+        request_hash: String.duplicate("0", 64),
+        player_input: "Advance ten minutes quietly.",
+        intent: :time_passage,
+        status: :failed,
+        resolution_phase: :initial,
+        attempts: 1,
+        failure_code: "invalid_response",
+        failure_stage: :proposal_validation
+      })
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+
+    assert has_element?(view, "#turn-error", "This turn needs attention")
+    refute has_element?(view, "#turn-error", "If the request involved character movement")
+  end
+
   test "a follow-up submitted during resolution stays in the composer until sent", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
