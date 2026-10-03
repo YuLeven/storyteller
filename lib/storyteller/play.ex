@@ -457,10 +457,27 @@ defmodule Storyteller.Play do
     :provider_error,
     :model_unavailable,
     :context_budget_exceeded,
+    :context_compilation_failed,
     :invalid_response,
     :session_closed,
     :campaign_archived
   ]
+
+  @context_budget_section_codes %{
+    "gm_instructions" => "in",
+    "campaign" => "ca",
+    "world" => "wo",
+    "inventory" => "iv",
+    "places" => "pl",
+    "travel_connections" => "tr",
+    "communication_paths" => "cm",
+    "objectives" => "ob",
+    "memory" => "me",
+    "continuity" => "co",
+    "characters" => "ch",
+    "panels" => "pa",
+    "history" => "hi"
+  }
 
   @proposal_failure_categories [
     :proposal_shape,
@@ -1074,6 +1091,9 @@ defmodule Storyteller.Play do
         nil
 
       turn ->
+        {failure_code, context_budget_diagnostics} =
+          public_failure_diagnostics(turn.failure_code)
+
         %{
           id: turn.id,
           campaign_id: turn.campaign_id,
@@ -1083,7 +1103,8 @@ defmodule Storyteller.Play do
           status: turn.status,
           resolution_phase: turn.resolution_phase,
           roll_request: turn.roll_request,
-          failure_code: turn.failure_code,
+          failure_code: failure_code,
+          context_budget_diagnostics: context_budget_diagnostics,
           failure_stage: turn.failure_stage,
           resolution_started_at: turn.resolution_started_at
         }
@@ -1372,7 +1393,7 @@ defmodule Storyteller.Play do
           failure_category = proposal_failure_category(reason, stage)
           if failure_code == :usage_limit, do: latch_plan_usage(opts)
           log_proposal_rejection(turn, reason, stage)
-          fail_turn(turn.id, attempt_token, failure_code, stage, failure_category)
+          fail_turn(turn.id, attempt_token, failure_code, stage, failure_category, reason)
       end
 
     duration = System.monotonic_time() - started_at
@@ -5960,7 +5981,7 @@ defmodule Storyteller.Play do
 
   defp active_duty_context(_character, _places_by_id, _elapsed_world_minutes), do: %{}
 
-  defp fail_turn(turn_id, attempt_token, code, stage, failure_category) do
+  defp fail_turn(turn_id, attempt_token, code, stage, failure_category, reason) do
     Repo.transaction(fn ->
       case Repo.get(Turn, turn_id) do
         nil ->
@@ -5986,16 +6007,134 @@ defmodule Storyteller.Play do
               turn
               |> Turn.changeset(%{
                 status: :failed,
-                failure_code: Atom.to_string(normalize_failure_code(code)),
+                failure_code: stored_failure_code(code, reason),
                 failure_category: failure_category,
                 resolution_started_at: nil,
                 failure_stage: stage
               })
               |> update_or_rollback!()
+              |> then(fn failed ->
+                {failure_code, _diagnostics} = public_failure_diagnostics(failed.failure_code)
+                %{failed | failure_code: failure_code}
+              end)
           end
       end
     end)
   end
+
+  defp stored_failure_code(
+         :context_budget_exceeded,
+         {:context_budget_exceeded, diagnostics}
+       )
+       when is_map(diagnostics) do
+    sections = Map.get(diagnostics, :largest_sections, [])
+    estimated_bytes = Map.get(diagnostics, :estimated_request_bytes)
+    budget_bytes = Map.get(diagnostics, :budget_bytes)
+
+    with true <- is_list(sections) and sections != [],
+         true <- Enum.all?(sections, &valid_context_budget_section?/1),
+         true <- non_negative_integer?(estimated_bytes),
+         true <- non_negative_integer?(budget_bytes) do
+      3..1//-1
+      |> Enum.find_value(fn count ->
+        sections
+        |> Enum.take(count)
+        |> Enum.map(&encode_context_budget_section/1)
+        |> then(fn encoded_sections ->
+          Enum.join(
+            [
+              "context_budget_exceeded",
+              Enum.join(encoded_sections, ","),
+              Integer.to_string(estimated_bytes, 36),
+              Integer.to_string(budget_bytes, 36)
+            ],
+            "|"
+          )
+        end)
+        |> then(fn stored -> if byte_size(stored) <= 80, do: stored end)
+      end)
+      |> case do
+        nil -> "context_budget_exceeded"
+        stored -> stored
+      end
+    else
+      _ -> "context_budget_exceeded"
+    end
+  end
+
+  defp stored_failure_code(code, _reason),
+    do: Atom.to_string(normalize_failure_code(code))
+
+  defp public_failure_diagnostics("context_budget_exceeded|" <> details) do
+    with [encoded_sections, estimated_bytes, budget_bytes] <- String.split(details, "|"),
+         {:ok, sections} <- decode_context_budget_sections(encoded_sections),
+         {:ok, estimated_bytes} <- parse_non_negative_integer(estimated_bytes, 36),
+         {:ok, budget_bytes} <- parse_non_negative_integer(budget_bytes, 36) do
+      diagnostics = %{
+        largest_sections: sections,
+        estimated_request_bytes: estimated_bytes,
+        budget_bytes: budget_bytes
+      }
+
+      {"context_budget_exceeded", diagnostics}
+    else
+      _ -> {"context_budget_exceeded", nil}
+    end
+  end
+
+  defp public_failure_diagnostics(failure_code), do: {failure_code, nil}
+
+  defp valid_context_budget_section?(%{category: category, bytes: bytes}) do
+    Map.has_key?(@context_budget_section_codes, category) and non_negative_integer?(bytes)
+  end
+
+  defp valid_context_budget_section?(_section), do: false
+
+  defp encode_context_budget_section(%{category: category, bytes: bytes}) do
+    "#{Map.fetch!(@context_budget_section_codes, category)}:#{Integer.to_string(bytes, 36)}"
+  end
+
+  defp decode_context_budget_sections(encoded_sections) when is_binary(encoded_sections) do
+    codes_by_section =
+      Map.new(@context_budget_section_codes, fn {section, code} -> {code, section} end)
+
+    sections =
+      encoded_sections
+      |> String.split(",", trim: true)
+      |> Enum.reduce_while([], fn encoded, acc ->
+        with [code, bytes] <- String.split(encoded, ":"),
+             {:ok, category} <- Map.fetch(codes_by_section, code),
+             {:ok, bytes} <- parse_non_negative_integer(bytes, 36) do
+          {:cont, [%{category: category, bytes: bytes} | acc]}
+        else
+          _ -> {:halt, :error}
+        end
+      end)
+
+    case sections do
+      [] -> :error
+      :error -> :error
+      sections -> {:ok, Enum.reverse(sections)}
+    end
+  end
+
+  defp decode_context_budget_sections(_encoded_sections), do: :error
+
+  defp parse_non_negative_integer(value, base) when is_binary(value) do
+    case Integer.parse(value, base) do
+      {integer, ""} when integer >= 0 -> {:ok, integer}
+      _ -> :error
+    end
+  end
+
+  defp parse_non_negative_integer(_value, _base), do: :error
+
+  defp non_negative_integer?(value), do: is_integer(value) and value >= 0
+
+  defp normalize_failure_code({:context_budget_exceeded, diagnostics}) when is_map(diagnostics),
+    do: :context_budget_exceeded
+
+  defp normalize_failure_code(:context_compilation_failed), do: :context_compilation_failed
 
   defp normalize_failure_code({:invalid_response, category})
        when category in @proposal_failure_categories,

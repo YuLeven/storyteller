@@ -1415,10 +1415,27 @@ defmodule Storyteller.GM.ContextBudgetTest do
         }
       end)
 
-    assert {:error, :context_budget_exceeded} =
+    assert {:error, {:context_budget_exceeded, diagnostics}} =
              ContextBudget.compile(context, "Policy", "gpt-6-astra",
                context_input_byte_budget: 5_000
              )
+
+    assert diagnostics.estimated_request_bytes > diagnostics.budget_bytes
+    assert diagnostics.largest_sections != []
+    assert diagnostics.section_bytes["gm_instructions"] == byte_size("Policy")
+    assert Enum.all?(Map.values(diagnostics.section_bytes), &is_integer/1)
+
+    assert Map.keys(diagnostics)
+           |> Enum.all?(
+             &(&1 in [
+                 :budget_bytes,
+                 :estimated_request_bytes,
+                 :instructions_bytes,
+                 :context_json_bytes,
+                 :section_bytes,
+                 :largest_sections
+               ])
+           )
   end
 
   test "applies safe relevance compaction below the byte limit and reports omissions" do
@@ -1653,10 +1670,12 @@ defmodule Storyteller.GM.ContextBudgetTest do
         Map.put(world, :massive_state, String.duplicate("canon ", 2_000))
       end)
 
-    assert {:error, :context_budget_exceeded} =
+    assert {:error, {:context_budget_exceeded, diagnostics}} =
              ContextBudget.compile(context, "Policy", "gpt-6-astra",
                context_input_byte_budget: 2_000
              )
+
+    assert diagnostics.largest_sections |> hd() |> Map.fetch!(:bytes) > 0
   end
 
   test "emits safe provider counts and section sizes as numeric telemetry" do
@@ -1700,16 +1719,45 @@ defmodule Storyteller.GM.ContextBudgetTest do
         nil
       )
 
-    assert {:error, :context_budget_exceeded} =
+    assert {:error, {:context_budget_exceeded, diagnostics}} =
              ContextBudget.compile(base_context(), "Hidden instruction test", "test-model",
                context_input_byte_budget: 1
              )
+
+    assert diagnostics.budget_bytes == 1
+    assert diagnostics.instructions_bytes == byte_size("Hidden instruction test")
+    assert diagnostics.section_bytes |> Map.values() |> Enum.all?(&is_integer/1)
+    refute Map.values(diagnostics) |> inspect() =~ "Hidden instruction test"
 
     assert_receive {:rejected_context_metrics, measurements, %{}}
     assert measurements.budget_bytes == 1
     assert Enum.all?(Map.values(measurements), &is_number/1)
     refute Jason.encode!(measurements) =~ "Hidden instruction test"
     :telemetry.detach({__MODULE__, ref})
+  end
+
+  test "classifies invalid context encoding separately from a size overflow" do
+    assert {:error, :context_compilation_failed} =
+             ContextBudget.compile(%{unsupported: self()}, "Policy", "test-model")
+
+    assert {:error, :context_compilation_failed} =
+             ContextBudget.compile([], "Policy", "test-model")
+  end
+
+  test "includes GM instructions among the numeric categories that can dominate a request" do
+    instructions = String.duplicate("policy ", 2_000)
+
+    assert {:error, {:context_budget_exceeded, diagnostics}} =
+             ContextBudget.compile(base_context(), instructions, "test-model",
+               context_input_byte_budget: 1
+             )
+
+    assert hd(diagnostics.largest_sections) == %{
+             category: "gm_instructions",
+             bytes: byte_size(instructions)
+           }
+
+    refute inspect(diagnostics) =~ instructions
   end
 
   defp base_context do

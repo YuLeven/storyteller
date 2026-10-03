@@ -441,7 +441,7 @@ defmodule Storyteller.GM.ContextBudget do
     history: :section_history_bytes
   }
 
-  @doc "Returns a compact context and safe size metrics, or a recoverable budget error."
+  @doc "Returns a compact context and safe size metrics, or a sanitized compilation error."
   def compile(context, instructions, model, opts \\ [])
 
   def compile(context, instructions, model, opts)
@@ -513,16 +513,16 @@ defmodule Storyteller.GM.ContextBudget do
           {:ok, %{context: context, metrics: metrics}}
         else
           emit_metrics(metrics)
-          {:error, :context_budget_exceeded}
+          {:error, {:context_budget_exceeded, budget_diagnostics(metrics)}}
         end
       end
     end
   rescue
-    _error -> {:error, :context_budget_exceeded}
+    _error -> {:error, :context_compilation_failed}
   end
 
   def compile(_context, _instructions, _model, _opts),
-    do: {:error, :context_budget_exceeded}
+    do: {:error, :context_compilation_failed}
 
   @doc "Emits only numeric size/usage data; campaign text and identifiers are never attached."
   def emit_metrics(metrics, provider_usage \\ %{})
@@ -584,6 +584,29 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp metric_key(section), do: Map.fetch!(@section_metric_keys, section)
+
+  defp budget_diagnostics(metrics) do
+    section_sizes =
+      Map.new(@measured_sections, fn section ->
+        {Atom.to_string(section), Map.fetch!(metrics.section_bytes, metric_key(section))}
+      end)
+      |> Map.put("gm_instructions", metrics.instructions_bytes)
+
+    largest_sections =
+      section_sizes
+      |> Enum.sort_by(fn {section, bytes} -> {-bytes, section} end)
+      |> Enum.take(3)
+      |> Enum.map(fn {section, bytes} -> %{category: section, bytes: bytes} end)
+
+    %{
+      budget_bytes: metrics.budget_bytes,
+      estimated_request_bytes: metrics.estimated_request_bytes,
+      instructions_bytes: metrics.instructions_bytes,
+      context_json_bytes: metrics.context_json_bytes,
+      section_bytes: section_sizes,
+      largest_sections: largest_sections
+    }
+  end
 
   defp compact_context(context, preferred_history_sequences) do
     terms = query_terms(context)

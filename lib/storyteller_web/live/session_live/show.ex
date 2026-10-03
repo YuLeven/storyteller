@@ -2541,7 +2541,13 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp failure_message("context_budget_exceeded"),
     do:
       gettext(
-        "Storyteller could not fit the required campaign details into its local GM request-size limit. Your action is saved, and the request was not sent. Shorten unusually long campaign instructions or notes, then retry this turn."
+        "Your action is saved and the request was not sent because the local GM request-size limit was exceeded."
+      )
+
+  defp failure_message("context_compilation_failed"),
+    do:
+      gettext(
+        "Storyteller could not safely prepare the GM request. Your action is saved, and no request was sent. Retry this same turn."
       )
 
   defp failure_message("timeout"),
@@ -2549,6 +2555,45 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp failure_message(_),
     do: gettext("The game master could not resolve this turn. Your action is saved.")
+
+  defp context_budget_diagnostics_message(%{
+         largest_sections: sections,
+         estimated_request_bytes: estimated_bytes,
+         budget_bytes: budget_bytes
+       })
+       when is_list(sections) do
+    section_text =
+      sections
+      |> Enum.take(3)
+      |> Enum.map_join(", ", fn %{category: category, bytes: bytes} ->
+        "#{context_budget_section_label(category)} (#{bytes} bytes)"
+      end)
+
+    gettext(
+      "Largest contributing sections: %{sections}. Estimated request size: %{estimated_bytes} bytes; local limit: %{budget_bytes} bytes.",
+      sections: section_text,
+      estimated_bytes: estimated_bytes,
+      budget_bytes: budget_bytes
+    )
+  end
+
+  defp context_budget_diagnostics_message(_diagnostics),
+    do: gettext("The request exceeded Storyteller's local GM request-size limit.")
+
+  defp context_budget_section_label("gm_instructions"), do: gettext("GM instructions")
+  defp context_budget_section_label("campaign"), do: gettext("Campaign setup")
+  defp context_budget_section_label("world"), do: gettext("World state")
+  defp context_budget_section_label("inventory"), do: gettext("Inventory and resources")
+  defp context_budget_section_label("places"), do: gettext("Places")
+  defp context_budget_section_label("travel_connections"), do: gettext("Travel connections")
+  defp context_budget_section_label("communication_paths"), do: gettext("Communication paths")
+  defp context_budget_section_label("objectives"), do: gettext("Objectives")
+  defp context_budget_section_label("memory"), do: gettext("Campaign memory")
+  defp context_budget_section_label("continuity"), do: gettext("Continuity notes")
+  defp context_budget_section_label("characters"), do: gettext("Character details")
+  defp context_budget_section_label("panels"), do: gettext("Tracked resources")
+  defp context_budget_section_label("history"), do: gettext("Recent story")
+  defp context_budget_section_label(_category), do: gettext("Campaign details")
 
   defp failure_message("usage_limit", status) when status in [:paused, true],
     do:

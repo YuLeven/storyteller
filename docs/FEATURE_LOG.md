@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-03 — V1 P0 context recovery: diagnose the local size limit
+
+- A true serialized-request overflow now carries only safe numeric sizes for the largest three context sections (including GM instructions) through the failed turn. Fixed category abbreviations and base-36 byte counts fit in the existing bounded `failure_code`; the public projection decodes only whitelisted category names and numbers. Prompt, world, character, and private-state text are never placed in diagnostics.
+- Context serialization/compiler exceptions now produce a distinct `context_compilation_failed` code instead of being mislabeled as a campaign-size error.
+- The localized recovery card clarifies that no provider request was sent, shows estimated size against the local bound and its largest contributors, and links to the campaign overview and setup editor. The saved action remains visible and retry continues the same turn. Existing account usage-pause behavior remains separate.
+- This is diagnostic/review support, not a complete curation flow: canonical world/place/inventory records are not editable from that card. Add a safe category-specific review/edit action before treating truly oversized required state as fully recoverable.
+- **Checks:** full WSL suite passed (**464 tests, 0 failures**, max concurrency 8); the context-budget suite passed (**27 tests**), the localized overflow LiveView regression passed (**74 discovered, 1 selected, 0 failures**), the selected Play retry regression passed (**1 test, 0 failures**), and Gettext freshness, formatting, development warnings-as-errors compilation, and `git diff --check` passed. No live model, OAuth, development campaign, or vineyard data was used.
+
 ## 2026-10-03 — V1 P0 story pacing: complete the beat before handing control back
 
 - Tightened the GM's adaptive-pace rule: finish the consequences and relevant co-present reactions for an incidental act or line instead of handing control back immediately, unless a player choice is due. Intent still determines whether a moment stays close or moves through a montage.

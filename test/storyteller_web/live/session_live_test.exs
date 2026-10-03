@@ -4529,6 +4529,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     campaign = campaign_fixture()
     [session] = campaign.sessions
     action = "I check the vineyard ledger before deciding what to do next."
+    private_sentinel = "PRIVATE_CONTEXT_DIAGNOSTIC_SENTINEL"
     original_locale = Settings.ui_locale()
 
     original_budgets =
@@ -4555,6 +4556,14 @@ defmodule StorytellerWeb.SessionLiveTest do
         )
 
       assert opening_turn.status == :completed
+
+      state = Repo.get_by!(State, campaign_id: campaign.id)
+
+      Repo.update!(
+        State.changeset(state, %{
+          gm_private_state: Map.put(state.gm_private_state, "diagnostic_secret", private_sentinel)
+        })
+      )
 
       short_budgets =
         case original_budgets do
@@ -4591,25 +4600,50 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       failed_turn = Play.public_current_turn(campaign.id)
       assert failed_turn.player_input == action
+
+      assert %{largest_sections: [%{category: "gm_instructions", bytes: instruction_bytes} | _]} =
+               failed_turn.context_budget_diagnostics
+
+      assert instruction_bytes > 0
+      refute inspect(failed_turn.context_budget_diagnostics) =~ private_sentinel
       refute_receive {:fake_provider_request, _}, 100
 
-      for {locale, notice, retry_label} <- [
+      for {locale, notice, retry_label, locale_section, campaign_label, edit_label} <- [
             {"en",
-             "Storyteller could not fit the required campaign details into its local GM request-size limit. Your action is saved, and the request was not sent. Shorten unusually long campaign instructions or notes, then retry this turn.",
-             "Retry this turn"},
+             "Your action is saved and the request was not sent because the local GM request-size limit was exceeded.",
+             "Retry this turn", "GM instructions", "Campaign", "Edit campaign setup"},
             {"es",
-             "Storyteller no pudo incluir los detalles necesarios de la campaña dentro de su límite local de tamaño para la solicitud al DJ. Tu acción está guardada y la solicitud no se envió. Acorta las instrucciones o notas de campaña excepcionalmente largas y vuelve a intentarlo.",
-             "Reintentar este turno"},
+             "Tu acción está guardada y no se envió la solicitud porque se superó el límite local de tamaño de solicitud para el DJ.",
+             "Reintentar este turno", "Instrucciones del DJ", "Campaña",
+             "Editar la configuración de la campaña"},
             {"fr",
-             "Storyteller n'a pas pu inclure les détails nécessaires de la campagne dans sa limite locale de taille de requête au MJ. Votre action est enregistrée et la requête n'a pas été envoyée. Raccourcissez les instructions ou notes de campagne exceptionnellement longues, puis réessayez ce tour.",
-             "Réessayer ce tour"}
+             "Votre action est enregistrée et la requête n’a pas été envoyée, car la limite locale de taille de requête du MJ a été dépassée.",
+             "Réessayer ce tour", "Consignes du MJ", "Campagne",
+             "Modifier la configuration de la campagne"}
           ] do
         assert {:ok, _preference} = Settings.set_ui_locale(locale)
         {:ok, view, _html} = live_play(conn, campaign, session)
 
         assert has_element?(view, "#turn-error", notice)
+
         assert has_element?(view, "#story-pending-action", action)
         assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+        assert has_element?(view, "#context-budget-recovery")
+        assert has_element?(view, "#context-budget-diagnostics", locale_section)
+
+        assert has_element?(
+                 view,
+                 "#context-budget-open-campaign[href='/campaigns/#{campaign.id}']",
+                 campaign_label
+               )
+
+        assert has_element?(
+                 view,
+                 "#context-budget-edit-setup[href='/campaigns/#{campaign.id}/edit']",
+                 edit_label
+               )
+
+        refute render(view) =~ private_sentinel
         assert Play.public_current_turn(campaign.id).id == failed_turn.id
       end
 
