@@ -549,9 +549,13 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "Experts give qualified judgments; player reacts, never supplies them."
 
     assert policy =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
-    assert policy =~ "never blend profiles"
-    assert policy =~ "Use natural word choice, not phonetics, caricature"
-    assert policy =~ "stereotypes, catchphrases, or repeated cues."
+    assert policy =~ "Each speaker_id's voice profile shapes dialogue; never blend profiles."
+
+    assert policy =~
+             "Briefly show a configured mannerism when apt; quirks only when relevant."
+
+    assert policy =~ "Natural wording; avoid phonetics, caricature, or clichés."
+    assert policy =~ "No forced humor/gestures or repeated cues."
 
     assert policy =~
              "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"

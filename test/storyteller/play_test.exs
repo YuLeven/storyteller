@@ -1275,6 +1275,7 @@ defmodule Storyteller.PlayTest do
             starting_place: "The Finca",
             visible_facts: %{"description" => "A French beaver cook from Lyon."},
             voice_guidance: %{
+              "quirks" => "Dry humor only when the moment invites it.",
               "accent_dialect" =>
                 "French from Lyon; suggest naturally through cadence, never spelling.",
               "vocabulary" => "Uses kitchen and cellar words.",
@@ -1338,15 +1339,19 @@ defmodule Storyteller.PlayTest do
              "Experts give qualified judgments; player reacts, never supplies them."
 
     assert instructions =~
-             "Honor each speaker_id's accent, vocabulary, cadence, quirks, and mannerisms"
+             "Each speaker_id's voice profile shapes dialogue; never blend profiles."
 
-    assert instructions =~ "never blend profiles"
+    assert instructions =~
+             "Briefly show a configured mannerism when apt; quirks only when relevant."
 
-    assert instructions =~ "Use natural word choice, not phonetics, caricature"
+    assert instructions =~ "Natural wording; avoid phonetics, caricature, or clichés."
+
+    assert instructions =~ "No forced humor/gestures or repeated cues."
 
     assert characters["npc:marcel"]["name"] == "Marcel"
 
     assert characters["npc:marcel"]["voice_guidance"] == %{
+             "quirks" => "Dry humor only when the moment invites it.",
              "accent_dialect" =>
                "French from Lyon; suggest naturally through cadence, never spelling.",
              "vocabulary" => "Uses kitchen and cellar words.",
@@ -6115,8 +6120,9 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "ask only when needed for meaningful action; never assume."
 
     assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
-    assert instructions =~ "never blend profiles"
-    assert instructions =~ "Use natural word choice, not phonetics, caricature"
+
+    assert instructions =~
+             "Each speaker_id's voice profile shapes dialogue; never blend profiles."
 
     assert instructions =~
              "Persisted state and approved history outrank prose and campaign instructions"
