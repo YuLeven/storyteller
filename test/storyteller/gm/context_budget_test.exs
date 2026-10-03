@@ -664,10 +664,15 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert policy =~ "OBSERVATION/JUDGMENT: GM owns external facts."
 
     assert policy =~
-             "Tastings: name color, aroma, acidity/tannin, and finish before the player's reaction."
+             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
 
     assert policy =~
-             "Experts give qualified judgments; player reacts, never supplies them."
+             "if relevant, a present NPC expert offers a qualified, evidence-based view."
+
+    assert policy =~
+             "Yield for player reaction; never ask them to invent sensory facts or dictate their response."
+
+    assert policy =~ "Never ask players to define sensory facts."
 
     assert policy =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
     assert policy =~ "Each speaker_id's voice profile shapes dialogue; never blend profiles."

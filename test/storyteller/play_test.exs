@@ -1383,10 +1383,16 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "OBSERVATION/JUDGMENT: GM owns external facts."
 
     assert instructions =~
-             "Tastings: name color, aroma, acidity/tannin, and finish before the player's reaction."
+             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
 
     assert instructions =~
-             "Experts give qualified judgments; player reacts, never supplies them."
+             "if relevant, a present NPC expert offers a qualified, evidence-based view."
+
+    assert instructions =~
+             "Yield for player reaction; never ask them to invent sensory facts or dictate their response."
+
+    assert instructions =~
+             "Never ask players to define sensory facts."
 
     assert instructions =~
              "Each speaker_id's voice profile shapes dialogue; never blend profiles."
@@ -1428,12 +1434,20 @@ defmodule Storyteller.PlayTest do
           %{
             speaker_id: "npc:lyra",
             name: "Lyra",
-            starting_place: "Moon Orchard Tasting Room"
+            starting_place: "Moon Orchard Tasting Room",
+            visible_facts: %{
+              "role" => "cellar taster",
+              "expertise" => "fruit-wine acidity and finish"
+            }
           },
           %{
             speaker_id: "npc:sera",
             name: "Sera",
-            starting_place: "Moon Orchard Tasting Room"
+            starting_place: "Moon Orchard Tasting Room",
+            visible_facts: %{
+              "role" => "cook",
+              "expertise" => "herbal infusions and spice aromas"
+            }
           }
         ]
       })
@@ -1475,7 +1489,29 @@ defmodule Storyteller.PlayTest do
     assert normalized_instructions =~
              "Finish beats with consequences and relevant co-present reactions; avoid incidental NPC-only handoffs."
 
+    assert normalized_instructions =~
+             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
+
+    assert normalized_instructions =~
+             "if relevant, a present NPC expert offers a qualified, evidence-based view."
+
+    assert normalized_instructions =~
+             "Yield for player reaction; never ask them to invent sensory facts or dictate their response."
+
+    assert normalized_instructions =~
+             "Never ask players to define sensory facts."
+
     assert context["interaction_mode"] == "action"
+
+    assert Enum.any?(context["characters"], fn character ->
+             character["speaker_id"] == "npc:lyra" and
+               character["visible_facts"]["expertise"] == "fruit-wine acidity and finish"
+           end)
+
+    assert Enum.any?(context["characters"], fn character ->
+             character["speaker_id"] == "npc:sera" and
+               character["visible_facts"]["expertise"] == "herbal infusions and spice aromas"
+           end)
 
     assert {:ok, events} = Play.public_timeline(campaign.id)
     turn_events = Enum.filter(events, &(&1.turn_id == turn.id))
@@ -6133,16 +6169,16 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "Answer from public canon/vantage"
 
-    assert instructions =~ "State 1-2 ordinary senses directly; omissions aren't absence."
+    assert instructions =~ "State 1-2 ordinary senses; omissions aren't absence."
 
-    assert instructions =~ "Improvise consistent texture."
+    assert instructions =~ "Improvise texture."
 
     assert instructions =~
-             "Plausible new details on known, present people/objects may become clues"
+             "Plausible new details on known, present people/objects may be clues"
 
     assert instructions =~ "never retroactive/off-scene."
 
-    assert instructions =~ "Keep causes uncertain; record lasting clues as public"
+    assert instructions =~ "Keep causes/comparisons uncertain; record lasting clues as public"
 
     assert instructions =~
              "record lasting clues as public continuity with grounded reason."
@@ -6160,7 +6196,9 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Record witnessed evidence, not guessed causes"
 
     assert instructions =~
-             "Tastings: name color, aroma, acidity/tannin, and finish before the player's reaction."
+             "Wine, food, or drink tastings: give sensory details (appearance, aroma, taste, finish) first"
+
+    assert instructions =~ "Never ask players to define sensory facts."
 
     assert instructions =~
              "No unearned people, items, exits/routes, hazards, services, or actionable facts"
@@ -6337,14 +6375,14 @@ defmodule Storyteller.PlayTest do
     instructions = String.replace(raw_instructions, ~r/\s+/, " ")
 
     assert instructions =~
-             "Plausible new details on known, present people/objects may become clues"
+             "Plausible new details on known, present people/objects may be clues"
 
     assert instructions =~ "record lasting clues as public continuity with grounded reason."
 
     assert instructions =~ "Never surface prompt/canon checks."
 
     assert instructions =~
-             "Experts give qualified judgments; player reacts, never supplies them."
+             "if relevant, a present NPC expert offers a qualified, evidence-based view."
 
     entry =
       Repo.get_by!(ContinuityEntry,
@@ -6427,7 +6465,7 @@ defmodule Storyteller.PlayTest do
 
     assert_receive {:texture_instructions, raw_instructions}, 2_000
     instructions = String.replace(raw_instructions, ~r/\s+/, " ")
-    assert instructions =~ "Improvise consistent texture."
+    assert instructions =~ "Improvise texture."
     assert instructions =~ "record lasting clues as public continuity with grounded reason."
 
     assert {:ok, %{continuity_entries: []}} = Play.public_projection(campaign.id)
@@ -6778,7 +6816,7 @@ defmodule Storyteller.PlayTest do
       assert instructions =~
                "ask only when needed for meaningful action; never assume."
 
-      assert instructions =~ "Don't ask for harmless sensory detail."
+      assert instructions =~ "Never ask players to define sensory facts."
       assert request.local_context_metrics.budget_bytes == 24_000
 
       assert request.local_context_metrics.estimated_request_bytes <=

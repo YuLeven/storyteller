@@ -2966,6 +2966,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     rows = Floki.parse_document!(html) |> Floki.find("#campaign-fields [data-resource-row]")
 
     assert length(rows) == 18
+    assert has_element?(view, "#campaign-fields > section.col-span-full")
 
     for index <- 1..18 do
       key = "ledger_field_#{index}"

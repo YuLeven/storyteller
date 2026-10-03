@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-10-03 — V1 story-quality iteration 11: own the tasting, leave the reaction to the player
+
+- Tightened the GM contract for wine, food, and drink tastings: give a concise, vivid profile of relevant observable qualities first; use a qualified judgment from an established, relevant expert who is actually present; then leave the player's subjective response open. The GM must not ask the player to invent the item's sensory properties or dictate the character's opinion, feelings, words, or next action. Unsupported causes and comparisons remain uncertain. The sequence is explicitly limited to tastings so ordinary scenes are not forced into it.
+- Extended the fake-provider play test with two present specialists and distinct areas of expertise. It verifies their expertise reaches the GM request and that the provider instructions set the sensory-fact, expert-judgment, and player-agency order. This checks request construction and campaign context, not live prose quality.
+- **Checks:** focused sensory/context regressions passed; full WSL suite **457 tests, 0 failures**; test and dev warnings-as-errors compilation, formatting, and `git diff --check` passed. The sensory request remains unverified with a live model; no provider request was made.
+
+## 2026-10-03 — V1 UI iteration: give tracked-resource groups their full width
+
+- Reproduced the resource-copy squeeze on the isolated port-4003 visual QA campaign using four temporary synthetic public fields. The nested two-column grids placed each panel section in half the resource card; rows measured about **80 px** wide and the long values grew up to **327 px** tall. Each section now spans the full ledger width; the same rows measure about **171 px**, and their height fell to **109–171 px**.
+- Added a LiveView regression assertion that each panel section spans the full grid width. The temporary fields were removed and the isolated QA campaign restored to its prior state; no story events changed. This used no live model request and did not open campaign 37/38 or the Vineyard.
+- **Checks:** focused WSL LiveView test passed (**1 test, 0 failures**); `MIX_ENV=dev mix assets.build` emitted the Tailwind span utility; full WSL suite **457 tests, 0 failures**. The viewport showed only part of the full card at 720 px, so long-board scrolling and complete visual review remain open.
+
 ## 2026-10-03 — V1 story-quality iteration 10: remove repeated model-catalog lookup
 
 - The connected Automatic model preference caused a serial `/v1/models` lookup on every GM turn before `/v1/responses`. The OpenAI adapter now caches a successful, nonempty model list in memory for up to five minutes, keyed by the stable OAuth account subject. The cache holds at most 16 accounts, expires entries, and stores no access tokens, email addresses, prompts, or campaign data. The account-settings page and model-save validation still fetch a fresh catalog; failures are never cached.
