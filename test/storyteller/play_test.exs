@@ -8,6 +8,7 @@ defmodule Storyteller.PlayTest do
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
+  alias Storyteller.GM.TurnTelemetry
   alias Storyteller.Settings
 
   alias Storyteller.Play.{
@@ -1494,6 +1495,9 @@ defmodule Storyteller.PlayTest do
 
     assert normalized_instructions =~
              "if relevant, a present NPC expert offers a qualified, evidence-based view."
+
+    assert normalized_instructions =~
+             "include another present character only when their distinct reaction completes this beat"
 
     assert normalized_instructions =~
              "Yield for player reaction; never ask them to invent sensory facts or dictate their response."
@@ -6252,14 +6256,21 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "never assume follow-through."
 
     assert instructions =~
-             "NPC dialogue: A present NPC answers direct address in their own dialogue, unless silence is justified."
+             "NPC dialogue: An addressed NPC answers in their own voice unless silence is justified."
 
-    assert instructions =~ "Use one coherent reply; don't echo narration."
+    assert instructions =~
+             "Keep the answer cohesive; include another present character only when their distinct reaction completes this beat"
+
+    assert instructions =~
+             "don't make everyone speak, echo narration, or add filler/forced gestures."
 
     assert instructions =~ "Narration may be empty if dialogue completes the beat"
 
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
-    assert instructions =~ "Avoid filler, repeated gestures, and forced speech."
+
+    assert instructions =~
+             "Update panels only for meaningful activity; show warranted progress/consequences and skip padding."
+
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
@@ -9370,6 +9381,22 @@ defmodule Storyteller.PlayTest do
     {campaign, session} = play_campaign("The Glass Observatory")
     raw_provider_text = "RAW-MODEL-OUTPUT-SENTINEL"
     error_detail = "PRIVATE-PROVIDER-ERROR-SENTINEL"
+    test_pid = self()
+    stage_handler_id = {__MODULE__, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               stage_handler_id,
+               TurnTelemetry.event(),
+               fn event, measurements, metadata, _config ->
+                 if self() == test_pid do
+                   send(test_pid, {:turn_stage_diagnostic, event, measurements, metadata})
+                 end
+               end,
+               nil
+             )
+
+    on_exit(fn -> :telemetry.detach(stage_handler_id) end)
 
     failures = [
       {"provider-stage", fn _request -> {:error, {:provider_error, error_detail}} end, :provider},
@@ -9392,6 +9419,16 @@ defmodule Storyteller.PlayTest do
       assert failure_code in ["provider_error", "invalid_response"]
       refute inspect(failed) =~ raw_provider_text
       refute inspect(failed) =~ error_detail
+
+      if expected_stage == :response_decoding do
+        assert_receive {:turn_stage_diagnostic, event, measurements,
+                        %{stage: :proposal_decode, cache: :not_applicable}}
+
+        assert event == TurnTelemetry.event()
+        assert is_integer(measurements.duration) and measurements.duration >= 0
+        assert measurements.success == 0
+        assert measurements.failure == 1
+      end
     end
   end
 
@@ -9972,6 +10009,7 @@ defmodule Storyteller.PlayTest do
   defp assert_provider_latency(campaign, session, key, provider, successful_calls) do
     provider_handler_id = {__MODULE__, make_ref()}
     resolution_handler_id = {__MODULE__, make_ref()}
+    stage_handler_id = {__MODULE__, make_ref()}
     parent = self()
     expected_status = if successful_calls == 1, do: :completed, else: :failed
 
@@ -9995,9 +10033,22 @@ defmodule Storyteller.PlayTest do
         nil
       )
 
+    :ok =
+      :telemetry.attach(
+        stage_handler_id,
+        TurnTelemetry.event(),
+        fn event, measurements, metadata, _config ->
+          if self() == parent do
+            send(parent, {:gm_latency, :stage, event, measurements, metadata})
+          end
+        end,
+        nil
+      )
+
     on_exit(fn ->
       :telemetry.detach(provider_handler_id)
       :telemetry.detach(resolution_handler_id)
+      :telemetry.detach(stage_handler_id)
     end)
 
     assert {:ok, %{status: ^expected_status}} =
@@ -10015,6 +10066,20 @@ defmodule Storyteller.PlayTest do
     assert_numeric_latency_measurements(provider_metrics, successful_calls)
     assert_numeric_latency_measurements(resolution_metrics, successful_calls)
     assert provider_metrics.duration <= resolution_metrics.duration
+
+    expected_stages =
+      if successful_calls == 1 do
+        [:context_load, :context_build, :proposal_decode, :proposal_validation, :commit]
+      else
+        [:context_load, :context_build]
+      end
+
+    Enum.each(expected_stages, fn stage ->
+      assert_receive {:gm_latency, :stage, event, measurements, metadata}
+      assert event == TurnTelemetry.event()
+      assert_numeric_latency_measurements(measurements, 1)
+      assert metadata == %{stage: stage, cache: :not_applicable}
+    end)
   end
 
   defp assert_numeric_latency_measurements(measurements, successful_calls) do

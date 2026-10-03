@@ -629,7 +629,7 @@ msgstr ""
 msgid "Panel name"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:439
+#: lib/storyteller_web/live/campaign_live/edit.ex:466
 #: lib/storyteller_web/live/campaign_live/show.html.heex:51
 #, elixir-autogen, elixir-format
 msgid "Player character"
@@ -2315,13 +2315,13 @@ msgstr ""
 msgid "Add a reason for changing the campaign setup."
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:438
-#: lib/storyteller_web/live/campaign_live/edit.ex:442
+#: lib/storyteller_web/live/campaign_live/edit.ex:465
+#: lib/storyteller_web/live/campaign_live/edit.ex:469
 #, elixir-autogen, elixir-format
 msgid "Campaign setup"
 msgstr ""
 
-#: lib/storyteller_web/live/campaign_live/edit.ex:440
+#: lib/storyteller_web/live/campaign_live/edit.ex:467
 #, elixir-autogen, elixir-format
 msgid "Character details"
 msgstr ""

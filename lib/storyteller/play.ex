@@ -13,7 +13,7 @@ defmodule Storyteller.Play do
   import Ecto.Query, warn: false
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
-  alias Storyteller.GM.ContextBudget
+  alias Storyteller.GM.{ContextBudget, TurnTelemetry}
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Settings
@@ -315,13 +315,12 @@ defmodule Storyteller.Play do
   show a configured mannerism when apt; quirks only when relevant. Natural
   wording; avoid phonetics, caricature, or clichés. No forced humor/gestures or
   repeated cues. Narrate in GM voice.
-  Their meaningful visible work may continue between player actions; private
-  intent stays private until revealed.
-  NPC dialogue: A present NPC answers direct address in their own dialogue,
-  unless silence is justified. Use one coherent reply; don't echo narration.
-  Avoid filler, repeated gestures, and forced speech. Update panels only for
-  meaningful activity. Show warranted
-  progress/consequences; skip padding.
+  NPC dialogue: An addressed NPC answers in their own voice unless silence is
+  justified. Keep the answer cohesive; include another present character only
+  when their distinct reaction completes this beat. Yield at a genuine choice;
+  don't make everyone speak, echo narration, or add filler/forced gestures.
+  Update panels only for meaningful activity; show warranted
+  progress/consequences and skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
 
   CONSEQUENCES AND DICE: Keep consequences proportionate; ordinary actions may
@@ -1311,9 +1310,10 @@ defmodule Storyteller.Play do
              run_resolution_stage(:provider, fn -> {:ok, provider(opts)} end),
            provider when not is_nil(provider) <- provider,
            {:ok, :ok} <- resolution_plan_check(opts),
-           {:ok, context} <- run_resolution_stage(:context, fn -> model_context(turn.id) end),
+           {:ok, context} <-
+             run_resolution_stage(:context, :context_load, fn -> model_context(turn.id) end),
            {:ok, request} <-
-             run_resolution_stage(:context, fn ->
+             run_resolution_stage(:context, :context_build, fn ->
                request_opts =
                  Keyword.put(
                    opts,
@@ -1330,7 +1330,9 @@ defmodule Storyteller.Play do
              end),
            :ok <- emit_context_usage(request, response),
            {:ok, proposal} <-
-             run_resolution_stage(:response_decoding, fn -> decode_proposal(response) end),
+             run_resolution_stage(:response_decoding, :proposal_decode, fn ->
+               decode_proposal(response)
+             end),
            {:ok, validated} <-
              run_resolution_stage(:proposal_validation, fn ->
                with {:ok, proposal} <- validate_proposal(proposal, turn) do
@@ -1381,26 +1383,37 @@ defmodule Storyteller.Play do
     outcome
   end
 
-  defp run_resolution_stage(stage, fun) do
-    case fun.() do
-      {:ok, value} ->
-        {:ok, value}
+  defp run_resolution_stage(stage, fun), do: run_resolution_stage(stage, stage, fun)
 
-      {:error, reason} ->
-        {:error, reason, stage}
+  defp run_resolution_stage(failure_stage, telemetry_stage, fun) do
+    started_at = System.monotonic_time()
 
-      _ ->
-        log_resolution_stage_failure(stage, :unexpected_return)
-        {:error, :provider_error, stage}
-    end
-  rescue
-    error ->
-      log_resolution_stage_failure(stage, :error, error.__struct__, __STACKTRACE__)
-      {:error, :provider_error, stage}
-  catch
-    kind, _reason ->
-      log_resolution_stage_failure(stage, kind)
-      {:error, :provider_error, stage}
+    result =
+      try do
+        case fun.() do
+          {:ok, value} ->
+            {:ok, value}
+
+          {:error, reason} ->
+            {:error, reason, failure_stage}
+
+          _ ->
+            log_resolution_stage_failure(failure_stage, :unexpected_return)
+            {:error, :provider_error, failure_stage}
+        end
+      rescue
+        error ->
+          log_resolution_stage_failure(failure_stage, :error, error.__struct__, __STACKTRACE__)
+          {:error, :provider_error, failure_stage}
+      catch
+        kind, _reason ->
+          log_resolution_stage_failure(failure_stage, kind)
+          {:error, :provider_error, failure_stage}
+      end
+
+    outcome = if match?({:ok, _}, result), do: :ok, else: :error
+    TurnTelemetry.stop(telemetry_stage, started_at, outcome)
+    result
   end
 
   # Stage failures can include provider or campaign content in their exception

@@ -11,7 +11,7 @@ defmodule Storyteller.GM.OpenAI do
   """
 
   alias Storyteller.Auth.{HTTP, OAuth}
-  alias Storyteller.GM.ModelCatalogCache
+  alias Storyteller.GM.{ModelCatalogCache, TurnTelemetry}
 
   @models_url "https://api.openai.com/v1/models"
   @responses_url "https://api.openai.com/v1/responses"
@@ -32,22 +32,16 @@ defmodule Storyteller.GM.OpenAI do
 
   @doc false
   def stream_response(request, opts) when is_map(request) do
-    started_at = System.monotonic_time()
+    access_token_result =
+      timed_stage(:oauth_access_token, fn ->
+        log_stage_error(:oauth, OAuth.access_token_with_subject(opts))
+      end)
 
     with {:ok, access_token, account_subject} <-
-           log_stage_error(:oauth, OAuth.access_token_with_subject(opts)),
-         {:ok, model} <- resolve_model(request, access_token, account_subject, opts),
+           access_token_result,
+         {:ok, model} <- timed_model_resolution(request, access_token, account_subject, opts),
          {:ok, body} <- log_stage_error(:request_validation, request_body(request, model)),
-         {:ok, response} <-
-           log_stage_error(:responses_request, post_response(access_token, body, opts)),
-         :ok <- require_http_success(response, :responses),
-         {:ok, result} <-
-           completed_response(
-             response,
-             local_callback(request, :on_first_output),
-             local_callback(request, :on_stream_activity),
-             started_at
-           ) do
+         {:ok, result} <- request_and_stream_response(access_token, body, request, opts) do
       {:ok, result}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
@@ -71,20 +65,74 @@ defmodule Storyteller.GM.OpenAI do
   defp resolve_model(request, access_token, account_subject, opts) do
     case field(request, :model) do
       model when is_binary(model) and model != "" ->
-        {:ok, model}
+        {:ok, model, :not_used}
 
       nil ->
-        with {:ok, models} <-
-               log_stage_error(
-                 :model_catalog,
-                 cached_models(account_subject, access_token, opts)
-               ) do
-          log_stage_error(:model_selection, select_model(request, models))
+        case cached_models(account_subject, access_token, opts) do
+          {:ok, models, cache_status} ->
+            case log_stage_error(:model_selection, select_model(request, models)) do
+              {:ok, model} -> {:ok, model, cache_status}
+              {:error, reason} -> {:error, reason, cache_status}
+            end
+
+          {:error, reason, cache_status} ->
+            {:error, reason, cache_status}
         end
 
       _ ->
-        log_stage_error(:model_selection, {:error, :model_unavailable})
+        {:error, :model_unavailable, :not_used}
     end
+  end
+
+  defp timed_model_resolution(request, access_token, account_subject, opts) do
+    started_at = System.monotonic_time()
+
+    result = resolve_model(request, access_token, account_subject, opts)
+
+    case result do
+      {:ok, model, cache_status} ->
+        TurnTelemetry.stop(:model_resolution, started_at, :ok, cache_status)
+        {:ok, model}
+
+      {:error, reason, cache_status} ->
+        TurnTelemetry.stop(:model_resolution, started_at, :error, cache_status)
+        {:error, reason}
+    end
+  end
+
+  defp timed_stage(stage, fun) do
+    started_at = System.monotonic_time()
+    result = fun.()
+
+    outcome =
+      if is_tuple(result) and tuple_size(result) > 0 and elem(result, 0) == :ok,
+        do: :ok,
+        else: :error
+
+    TurnTelemetry.stop(stage, started_at, outcome)
+    result
+  end
+
+  defp request_and_stream_response(access_token, body, request, opts) do
+    started_at = System.monotonic_time()
+
+    result =
+      with {:ok, response} <-
+             log_stage_error(:responses_request, post_response(access_token, body, opts)),
+           :ok <- require_http_success(response, :responses),
+           {:ok, result} <-
+             completed_response(
+               response,
+               local_callback(request, :on_first_output),
+               local_callback(request, :on_stream_activity),
+               started_at
+             ) do
+        {:ok, result}
+      end
+
+    outcome = if match?({:ok, _}, result), do: :ok, else: :error
+    TurnTelemetry.stop(:provider_stream, started_at, outcome)
+    result
   end
 
   defp cached_models(subject, access_token, opts) do
@@ -92,12 +140,16 @@ defmodule Storyteller.GM.OpenAI do
 
     case cache_get(cache, subject) do
       {:ok, models} ->
-        {:ok, models}
+        {:ok, models, :hit}
 
       :miss ->
-        with {:ok, models} <- fetch_models(access_token, opts) do
-          cache_put(cache, subject, models)
-          {:ok, models}
+        case log_stage_error(:model_catalog, fetch_models(access_token, opts)) do
+          {:ok, models} ->
+            cache_put(cache, subject, models)
+            {:ok, models, :miss}
+
+          {:error, reason} ->
+            {:error, reason, :miss}
         end
     end
   end
@@ -515,6 +567,7 @@ defmodule Storyteller.GM.OpenAI do
   defp notify_first_output(on_first_output, started_at) do
     duration = System.monotonic_time() - started_at
 
+    TurnTelemetry.stop(:request_to_first_output, started_at, :ok)
     emit_first_text_delta_latency(duration)
     safely_call(on_first_output)
   end

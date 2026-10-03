@@ -9,11 +9,10 @@ defmodule StorytellerWeb.Telemetry do
   @impl true
   def init(_arg) do
     children = [
+      StorytellerWeb.Telemetry.GMTurnReporter,
       # Telemetry poller will execute the given period measurements
       # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
       {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
-      # Add reporters as children of your supervision tree.
-      # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
@@ -102,7 +101,7 @@ defmodule StorytellerWeb.Telemetry do
       sum("storyteller.gm.provider.stop.failure"),
       summary("storyteller.gm.provider.first_text_delta.stop.duration",
         unit: {:native, :millisecond},
-        description: "Time from the start of a provider call to its first streamed text delta"
+        description: "Time from Responses API request start to the first streamed text delta"
       ),
       summary("storyteller.gm.resolution.stop.duration",
         unit: {:native, :millisecond},
@@ -111,6 +110,15 @@ defmodule StorytellerWeb.Telemetry do
       ),
       sum("storyteller.gm.resolution.stop.success"),
       sum("storyteller.gm.resolution.stop.failure"),
+
+      # Fixed-label, content-free latency stages emitted for each GM turn.
+      summary("storyteller.gm.turn_stage.stop.duration",
+        tags: [:stage, :cache],
+        unit: {:native, :millisecond},
+        description: "Elapsed time for a safe, named GM turn stage"
+      ),
+      sum("storyteller.gm.turn_stage.stop.success", tags: [:stage, :cache]),
+      sum("storyteller.gm.turn_stage.stop.failure", tags: [:stage, :cache]),
 
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),

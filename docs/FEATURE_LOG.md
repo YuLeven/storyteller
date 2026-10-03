@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-03 — V1 story-quality iteration 12: complete scene beats and diagnose slow turns
+
+- Rephrased the runtime NPC handoff rule: a directly addressed character gives one cohesive answer; another present character can add a distinct reaction only when it completes the same beat. The GM yields at a genuine choice and does not make every character speak. Removed duplicated prompt text to keep the serialized instruction below the 11 KB guard. A fake-provider regression checks the rule reaches the request and that a two-character scene can persist; this does not prove live model compliance.
+- Added a supervised, local telemetry reporter for context loading/building, OAuth access-token retrieval, model resolution and catalog-cache hit/miss, request-to-first-output, full provider stream, proposal decode/validation, and commit. It logs only fixed stage/cache labels, elapsed milliseconds, and success/failure. It does not log campaign content, prompts, outputs, account identifiers, or tokens.
+- **Checks:** WSL full suite passed (**461 tests, 0 failures**); test/development warnings-as-errors compilation, formatting, Gettext freshness, asset build, and `git diff --check` passed. The generated POT source references were refreshed.
+- **Limit:** The new timings make the next isolated player-triggered turn diagnosable; they do not yet explain or reduce the recorded 71-second response. No provider request was made.
+
 ## 2026-10-03 — V1 story-quality iteration 11: own the tasting, leave the reaction to the player
 
 - Tightened the GM contract for wine, food, and drink tastings: give a concise, vivid profile of relevant observable qualities first; use a qualified judgment from an established, relevant expert who is actually present; then leave the player's subjective response open. The GM must not ask the player to invent the item's sensory properties or dictate the character's opinion, feelings, words, or next action. Unsupported causes and comparisons remain uncertain. The sequence is explicitly limited to tastings so ordinary scenes are not forced into it.

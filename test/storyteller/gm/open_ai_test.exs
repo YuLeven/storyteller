@@ -3,7 +3,7 @@ defmodule Storyteller.GM.OpenAITest do
   import ExUnit.CaptureLog
 
   alias Storyteller.Auth.{Credentials, TokenStore}
-  alias Storyteller.GM.OpenAI
+  alias Storyteller.GM.{ModelCatalogCache, OpenAI, TurnTelemetry}
 
   setup do
     directory = Path.join(System.tmp_dir!(), "storyteller-openai-test-#{Ecto.UUID.generate()}")
@@ -30,6 +30,7 @@ defmodule Storyteller.GM.OpenAITest do
 
   test "chooses a listed account model and sends only preview-supported fields", context do
     test_pid = self()
+    stage_handler_id = attach_turn_stage_handler()
     completed = completion_event("{\"narration\":\"The rain begins.\"}")
     http = provider_http(test_pid, completed)
 
@@ -60,10 +61,17 @@ defmodule Storyteller.GM.OpenAITest do
     refute Jason.encode!(body) =~ "local_context_metrics"
     refute Jason.encode!(body) =~ "local-only"
     assert Keyword.fetch!(options, :into) == :self
+
+    assert_turn_stage(:oauth_access_token, :not_applicable)
+    assert_turn_stage(:model_resolution, :miss)
+    assert_turn_stage(:request_to_first_output, :not_applicable)
+    assert_turn_stage(:provider_stream, :not_applicable)
+    :telemetry.detach(stage_handler_id)
   end
 
   test "sends an explicitly selected model without fetching the account catalog", context do
     test_pid = self()
+    stage_handler_id = attach_turn_stage_handler()
     http = provider_http(test_pid, completion_event("The selected model answered."))
 
     assert {:ok, %{text: "The selected model answered."}} =
@@ -81,6 +89,46 @@ defmodule Storyteller.GM.OpenAITest do
     assert Keyword.fetch!(options, :json)["model"] == "fixture-model"
     refute_receive {:models_request, _}
     refute_receive {:responses_request, _}
+
+    assert_turn_stage(:oauth_access_token, :not_applicable)
+    assert_turn_stage(:model_resolution, :not_used)
+    assert_turn_stage(:request_to_first_output, :not_applicable)
+    assert_turn_stage(:provider_stream, :not_applicable)
+    :telemetry.detach(stage_handler_id)
+  end
+
+  test "reports model catalog cache miss and hit using bounded labels", context do
+    test_pid = self()
+    _stage_handler_id = attach_turn_stage_handler()
+    cache = start_supervised!({ModelCatalogCache, name: nil})
+    http = provider_http(test_pid, completion_event("The scene continues."))
+
+    request = %{
+      instructions: "Return text.",
+      input: [%{role: "user", content: "Continue."}]
+    }
+
+    for _ <- 1..2 do
+      assert {:ok, %{text: "The scene continues."}} =
+               OpenAI.stream_response(request,
+                 store: context.store,
+                 http: http,
+                 model_catalog_cache: cache
+               )
+    end
+
+    assert_receive {:models_request, _}
+    assert_receive {:responses_request, _}
+    assert_receive {:responses_request, _}
+
+    assert_turn_stage(:oauth_access_token, :not_applicable)
+    assert_turn_stage(:model_resolution, :miss)
+    assert_turn_stage(:request_to_first_output, :not_applicable)
+    assert_turn_stage(:provider_stream, :not_applicable)
+    assert_turn_stage(:oauth_access_token, :not_applicable)
+    assert_turn_stage(:model_resolution, :hit)
+    assert_turn_stage(:request_to_first_output, :not_applicable)
+    assert_turn_stage(:provider_stream, :not_applicable)
   end
 
   test "returns model unavailable when a saved model is rejected by Responses", context do
@@ -761,6 +809,36 @@ defmodule Storyteller.GM.OpenAITest do
 
     assert_receive {:models_request, _}
     refute_receive {:responses_request, _}
+  end
+
+  defp attach_turn_stage_handler do
+    test_pid = self()
+    handler_id = {__MODULE__, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               TurnTelemetry.event(),
+               fn event, measurements, metadata, _config ->
+                 if self() == test_pid do
+                   send(test_pid, {:turn_stage_event, event, measurements, metadata})
+                 end
+               end,
+               nil
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    handler_id
+  end
+
+  defp assert_turn_stage(stage, cache) do
+    assert_receive {:turn_stage_event, event, measurements, metadata}, 1_000
+    assert event == TurnTelemetry.event()
+    assert is_integer(measurements.duration) and measurements.duration >= 0
+    assert measurements.success == 1
+    assert measurements.failure == 0
+    assert Map.keys(measurements) |> Enum.sort() == [:duration, :failure, :success]
+    assert metadata == %{stage: stage, cache: cache}
   end
 
   defp provider_http(test_pid, stream_body) do
