@@ -178,11 +178,41 @@ defmodule Storyteller.PlayTest do
         "location_changes" => []
       })
 
-    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
-             Play.retry_turn(opening_turn.id,
-               provider: fn _request -> {:ok, Jason.encode!(unanchored)} end,
-               model: "test-model"
-             )
+    test_pid = self()
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+                 Play.retry_turn(opening_turn.id,
+                   provider: fn request ->
+                     send(test_pid, {:opening_instructions, request.instructions})
+                     {:ok, Jason.encode!(unanchored)}
+                   end,
+                   model: "test-model"
+                 )
+      end)
+
+    assert log =~
+             "GM opening location rejected stage=player_place reason=missing_public_player_place"
+
+    refute log =~ "The Unplaced Observatory"
+
+    assert_received {:opening_instructions, opening_instructions}
+
+    assert opening_instructions =~ "location_changes is a JSON array: create a place with"
+
+    assert opening_instructions =~
+             "{type:\"create_place\",place:{place_id,name,visibility},reason}"
+
+    assert opening_instructions =~ "{type:\"move_character\",speaker_id,place_id,reason}"
+
+    assert opening_instructions =~
+             "Return character_updates: [] unless the scene establishes a durable"
+
+    assert opening_instructions =~
+             "In particular, update the player only for a durable public fact"
+
+    assert opening_instructions =~ "with gm_private_facts: {} and a concise reason"
 
     assert {:ok, []} = Play.public_timeline(campaign.id)
     assert {:ok, projection} = Play.public_projection(campaign.id)
@@ -295,6 +325,108 @@ defmodule Storyteller.PlayTest do
     player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
     assert player.current_place.name == "The Glass Observatory"
     assert player.current_place_id
+  end
+
+  test "opening scene can create and place a speaking NPC in the new scene" do
+    {campaign, session} = play_campaign("The Newly Opened Observatory", starting_location: nil)
+    assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" => "The observatory door opens onto the evening sky.",
+        "dialogue" => [%{"speaker_id" => "npc:guide", "text" => "The charts are ready."}],
+        "activities" => [],
+        "character_creations" => [
+          %{
+            "speaker_id" => "npc:guide",
+            "name" => "Mara Venn",
+            "visible_facts" => %{"role" => "observatory guide"},
+            "gm_private_facts" => %{"concern" => "A storm is approaching."}
+          }
+        ],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "opening-observatory",
+              "name" => "The Observatory",
+              "visibility" => "public"
+            },
+            "reason" => "The opening scene is set at the observatory."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "opening-observatory",
+            "reason" => "The player begins inside the observatory."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:guide",
+            "place_id" => "opening-observatory",
+            "reason" => "Mara is already present as the scene opens."
+          }
+        ]
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.retry_turn(opening_turn.id,
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    guide = Enum.find(projection.characters, &(&1.speaker_id == "npc:guide"))
+
+    assert player.current_place_id == "opening-observatory"
+    assert guide.name == "Mara Venn"
+    assert guide.current_place_id == "opening-observatory"
+    assert guide.visible_facts["role"] == "observatory guide"
+
+    places_before_reload = Repo.all(from place in Place, where: place.campaign_id == ^campaign.id)
+
+    assert {:ok, _state} = Play.initialize_campaign(campaign)
+
+    places_after_reload = Repo.all(from place in Place, where: place.campaign_id == ^campaign.id)
+
+    assert Enum.map(places_after_reload, & &1.place_id) ==
+             Enum.map(places_before_reload, & &1.place_id)
+
+    assert {:ok, reloaded_projection} = Play.public_projection(campaign.id)
+    reloaded_player = Enum.find(reloaded_projection.characters, &(&1.speaker_id == "player"))
+    reloaded_guide = Enum.find(reloaded_projection.characters, &(&1.speaker_id == "npc:guide"))
+    assert reloaded_player.current_place_id == "opening-observatory"
+    assert reloaded_guide.current_place_id == "opening-observatory"
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.any?(timeline, &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:guide"))
+  end
+
+  test "opening location diagnostics use fixed reasons and omit proposal content" do
+    {campaign, session} =
+      play_campaign("The Location Diagnostics Observatory", starting_location: nil)
+
+    assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
+    private_marker = "PRIVATE-LOCATION-DETAIL-SENTINEL"
+
+    proposal =
+      ordinary_proposal(%{
+        "location_changes" => [%{"type" => "invent_a_room", "reason" => private_marker}]
+      })
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{status: :failed, failure_category: :location_presence}} =
+                 Play.retry_turn(opening_turn.id,
+                   provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+                   model: "test-model"
+                 )
+      end)
+
+    assert log =~ "GM opening location rejected stage=location_changes reason=invalid_operation"
+    refute log =~ private_marker
   end
 
   test "out-of-character inventory corrections persist into the next session without rewriting story" do
@@ -1203,12 +1335,11 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "ask for their interpretation"
 
     assert instructions =~
-             "use each speaker_id's own accent/dialect, vocabulary, cadence, quirks, and mannerisms"
+             "honor each speaker_id's accent, vocabulary, cadence, quirks, and mannerisms"
 
-    assert instructions =~
-             "never blend profiles or flatten multiple speakers into one generic voice"
+    assert instructions =~ "never blend profiles"
 
-    assert instructions =~ "natural word choice and rhythm, never phonetic spelling or caricature"
+    assert instructions =~ "Use natural word choice, not phonetics or caricature."
 
     assert characters["npc:marcel"]["name"] == "Marcel"
 
@@ -1282,10 +1413,10 @@ defmodule Storyteller.PlayTest do
 
     assert_receive {:scene_beat_request, instructions, context}, 1_000
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
-    assert normalized_instructions =~ "Before handoff, complete the immediate scene beat"
+    assert normalized_instructions =~ "Complete the immediate beat"
 
     assert normalized_instructions =~
-             "Don't stop at one NPC line when a natural response or consequence remains"
+             "don't stop after one incidental NPC line."
 
     assert context["interaction_mode"] == "action"
 
@@ -5767,12 +5898,15 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Preserve distinct NPC knowledge, motives, work, and voices."
     assert instructions =~ "Distinct NPC voices:"
     assert instructions =~ "never blend profiles"
-    assert instructions =~ "natural word choice and rhythm, never phonetic spelling or caricature"
+    assert instructions =~ "Use natural word choice, not phonetics or caricature."
 
     assert instructions =~
              "Persisted state and approved history outrank prose and campaign instructions"
 
     assert instructions =~ "Propose state changes explicitly for application validation"
+
+    assert instructions =~
+             "character_updates: [] or [{speaker_id,visible_facts,gm_private_facts,reason?}]"
 
     assert instructions =~
              "Keep every GM-private fact, name, place, route, presence, objective, inventory value"
@@ -5796,12 +5930,12 @@ defmodule Storyteller.PlayTest do
              "ADAPTIVE PACE: Match intent, not fixed length."
 
     assert instructions =~
-             "montage meaningful progress at the requested scale"
+             "montage to requested scale"
 
     assert instructions =~ "never assume follow-through."
     assert instructions =~ "Keep dialogue proportional"
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
-    assert instructions =~ "combine related lines into one bubble"
+    assert instructions =~ "combine related lines"
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
@@ -5831,10 +5965,17 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "ADAPTIVE PACE: Match intent, not fixed length."
 
     assert instructions =~
-             "Don't stop at one NPC line when a natural response or consequence remains"
+             "don't stop after one incidental NPC line."
 
-    assert instructions =~ "Return at the first real player-owned decision"
+    assert instructions =~ "Yield at a real player choice"
     assert instructions =~ "never assume follow-through."
+    assert instructions =~ "OBJECTIVES: objective_changes=[] unless a lasting commitment changes."
+
+    assert instructions =~
+             "Create {type:create,objective:{objective_id,title,visibility},reason};"
+
+    assert instructions =~ "update {type:update,objective_id,fields...,reason} by existing ID."
+    assert instructions =~ "status=open/completed/abandoned; visibility=public/gm_private."
   end
 
   test "a follow-up look-around question gets vantage guidance without changing the scene" do
@@ -8712,6 +8853,85 @@ defmodule Storyteller.PlayTest do
       refute inspect(failed) =~ raw_provider_text
       refute inspect(failed) =~ error_detail
     end
+  end
+
+  test "unexpected validation failures log only a safe stage and exception class" do
+    {campaign, session} = play_campaign("The Validator Diagnostics Observatory")
+    private_marker = "PRIVATE-VALIDATOR-MESSAGE-SENTINEL"
+
+    proposal = ordinary_proposal(%{"narration" => private_marker <> <<255>>})
+
+    log =
+      capture_log(fn ->
+        assert {:ok,
+                %{
+                  status: :failed,
+                  failure_code: "provider_error",
+                  failure_stage: :proposal_validation,
+                  failure_category: nil
+                }} =
+                 Play.submit_turn(campaign.id, session.id, "validator-exception", "Look around.",
+                   provider: fn _request -> {:ok, proposal} end,
+                   model: "test-model"
+                 )
+      end)
+
+    assert log =~
+             "GM resolution stage failed stage=proposal_validation kind=error exception="
+
+    assert log =~ " frame="
+    assert log =~ " line="
+    refute log =~ private_marker
+  end
+
+  test "invalid character updates log a finite rejection reason without model content" do
+    {campaign, session} = play_campaign("The Character Update Diagnostics Observatory")
+    private_marker = "PRIVATE-SPEAKER-ID-SENTINEL"
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{status: :failed, failure_category: :character_update}} =
+                 Play.submit_turn(
+                   campaign.id,
+                   session.id,
+                   "character-update-diagnostic",
+                   "Look around.",
+                   provider:
+                     ordinary_provider(%{
+                       "character_updates" => [
+                         %{
+                           "speaker_id" => private_marker,
+                           "visible_facts" => %{"motive" => "A private fixture fact"},
+                           "gm_private_facts" => %{}
+                         }
+                       ]
+                     }),
+                   model: "test-model"
+                 )
+      end)
+
+    assert log =~ "GM character update rejected reason=unknown_or_missing_speaker_id"
+    refute log =~ private_marker
+    refute log =~ "A private fixture fact"
+
+    malformed_log =
+      capture_log(fn ->
+        assert {:ok, %{status: :failed, failure_category: :character_update}} =
+                 Play.submit_turn(
+                   campaign.id,
+                   session.id,
+                   "character-update-shape-diagnostic",
+                   "Check the charts.",
+                   provider:
+                     ordinary_provider(%{
+                       "character_updates" => %{"speaker_id" => private_marker}
+                     }),
+                   model: "test-model"
+                 )
+      end)
+
+    assert malformed_log =~ "GM character update rejected reason=updates_not_a_bounded_list"
+    refute malformed_log =~ private_marker
   end
 
   test "commit failures retain only the commit stage and leave the turn retryable" do

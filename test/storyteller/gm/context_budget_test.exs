@@ -544,9 +544,9 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert policy =~ "Never ask the player to invent how the world or an object tastes"
     assert policy =~ "ask for their interpretation"
     assert policy =~ "Distinct NPC voices:"
-    assert policy =~ "never blend profiles or flatten multiple speakers into one generic voice"
-    assert policy =~ "natural word choice and rhythm, never phonetic spelling or caricature"
-    assert policy =~ "avoid stereotypes, catchphrases, and repeated quirks"
+    assert policy =~ "never blend profiles"
+    assert policy =~ "Use natural word choice, not phonetics or caricature."
+    assert policy =~ "Avoid stereotypes, catchphrases, and repeated cues."
 
     compacted_characters = Map.new(compacted.characters, &{&1.speaker_id, &1})
 

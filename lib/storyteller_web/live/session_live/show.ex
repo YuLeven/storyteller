@@ -2563,10 +2563,11 @@ defmodule StorytellerWeb.SessionLive.Show do
     do: gettext("ChatGPT reported an account usage limit before the GM could respond.")
 
   defp failure_message(
-         %{failure_code: "invalid_response", failure_stage: stage},
+         %{failure_code: failure_code, failure_stage: stage},
          _plan_usage_paused?
        )
-       when stage in [:response_decoding, :proposal_validation, :commit],
+       when failure_code in ["invalid_response", "provider_error"] and
+              stage in [:response_decoding, :proposal_validation, :commit],
        do:
          gettext(
            "The GM's reply could not be used safely. No narration or campaign changes from it were saved; your action remains here to retry."

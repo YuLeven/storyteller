@@ -280,16 +280,14 @@ defmodule Storyteller.Play do
   interpretation. Keep technical uncertainty impressionistic; store only
   lasting findings.
   ADAPTIVE PACE: Match intent, not fixed length. Keep questions, tense beats,
-  consequential choices, and dialogue close. Before handoff, complete the
-  immediate scene beat: narrate observable events and consequences, plus
-  relevant co-present NPC reactions/replies when natural. Don't stop at one NPC
-  line when a natural response or consequence remains. Return at the first real
-  player-owned decision; never assume follow-through. For ongoing work or waits,
-  montage meaningful progress at the requested scale, skipping micro-actions.
-  If unclear, resolve only the immediate consequence; don't force every NPC to
-  speak or add menus.
-  No recap or board facts. Timeline
-  date/time are canonical; elapsed_world_clock is exact elapsed minutes; never
+  consequential choices, and dialogue close. Complete the immediate beat—
+  observable consequences and relevant co-present reactions—before handoff;
+  don't stop after one incidental NPC line. Yield at a real player choice; never
+  assume follow-through. For ongoing work or waits, montage to requested scale.
+  If unclear, resolve only the immediate consequence; avoid micro-actions,
+  forced dialogue, and menus.
+  No recap or board facts. Timeline date/time are canonical;
+  elapsed_world_clock is exact elapsed minutes; never
   parse labels. Keep location/date/time/weather consistent; narrate changes or
   relevant conditions only. Use public keys date, time, weather. Answer looks
   from public canon/vantage. Sparse scenes may add one brief, source-free
@@ -299,18 +297,16 @@ defmodule Storyteller.Play do
   state uncertainty. Introduce people naturally, never
   as a creation or stat notice; structured public facts belong in their record
   and panel. Preserve distinct NPC knowledge, motives, work, and voices. Distinct
-  NPC voices: use each speaker_id's own accent/dialect, vocabulary, cadence,
-  quirks, and mannerisms; never blend profiles or flatten multiple speakers into
-  one generic voice. Render accents through natural word choice and rhythm,
-  never phonetic spelling or caricature. Vary cues by moment; avoid stereotypes,
-  catchphrases, and repeated quirks. Narrate in GM voice.
+  NPC voices: honor each speaker_id's accent, vocabulary, cadence, quirks, and
+  mannerisms; never blend profiles. Use natural word choice, not phonetics or
+  caricature. Avoid stereotypes, catchphrases, and repeated cues. Narrate in GM
+  voice.
   Their meaningful visible work may continue between player actions; private
   intent stays private until revealed.
-  Keep dialogue proportional: combine related lines into one bubble, but let
-  a relevant group exchange unfold in the same scene beat when it helps. Do not
-  require every character to speak. Avoid filler and repeated gestures.
-  Update panels only for meaningful activity, leaving them unchanged otherwise.
-  Avoid padding; include the meaningful progress and consequences the scope warrants.
+  Keep dialogue proportional: combine related lines, let useful group exchanges
+  unfold, and avoid filler or repeated gestures. Do not require every character
+  to speak. Update panels only for meaningful activity. Include progress and
+  consequences the requested scale warrants; skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
 
   CONSEQUENCES AND DICE: Keep consequences proportionate; ordinary actions may
@@ -419,7 +415,8 @@ defmodule Storyteller.Play do
 
   RESPONSE: Return exactly one JSON object with no extra fields: narration;
   dialogue/activities ({speaker_id,text}); remote_messages ({speaker_id,path_id,text});
-  public_changes/private_changes objects; panel_changes, character_updates,
+  public_changes/private_changes objects; panel_changes;
+  character_updates: [] or [{speaker_id,visible_facts,gm_private_facts,reason?}];
   character_creations ({speaker_id,name,visible_facts,gm_private_facts});
   location_changes, travel_changes, inventory_changes,
   objective_changes, continuity_changes; communication_path_changes (establish
@@ -532,7 +529,12 @@ defmodule Storyteller.Play do
               existing
           end
 
-        start_place = ensure_initial_place!(campaign.id, state.public_state["location"])
+        start_place =
+          existing_character_place_at_location(
+            campaign.id,
+            "player",
+            state.public_state["location"]
+          ) || ensure_initial_place!(campaign.id, state.public_state["location"])
 
         player = %{
           campaign_id: campaign.id,
@@ -547,7 +549,12 @@ defmodule Storyteller.Play do
         ensure_character!(player)
 
         Enum.each(character_attrs, fn character ->
-          initial_place = ensure_initial_place!(campaign.id, character.initial_location)
+          initial_place =
+            existing_character_place_at_location(
+              campaign.id,
+              character.speaker_id,
+              character.initial_location
+            ) || ensure_initial_place!(campaign.id, character.initial_location)
 
           duty_attrs =
             if is_binary(character.active_duty_name) and initial_place do
@@ -1360,15 +1367,81 @@ defmodule Storyteller.Play do
 
   defp run_resolution_stage(stage, fun) do
     case fun.() do
-      {:ok, value} -> {:ok, value}
-      {:error, reason} -> {:error, reason, stage}
-      _ -> {:error, :provider_error, stage}
+      {:ok, value} ->
+        {:ok, value}
+
+      {:error, reason} ->
+        {:error, reason, stage}
+
+      _ ->
+        log_resolution_stage_failure(stage, :unexpected_return)
+        {:error, :provider_error, stage}
     end
   rescue
-    _error -> {:error, :provider_error, stage}
+    error ->
+      log_resolution_stage_failure(stage, :error, error.__struct__, __STACKTRACE__)
+      {:error, :provider_error, stage}
   catch
-    _kind, _reason -> {:error, :provider_error, stage}
+    kind, _reason ->
+      log_resolution_stage_failure(stage, kind)
+      {:error, :provider_error, stage}
   end
+
+  # Stage failures can include provider or campaign content in their exception
+  # messages. Keep logs useful for diagnosis without recording those messages.
+  defp log_resolution_stage_failure(
+         stage,
+         kind,
+         exception_module \\ nil,
+         stacktrace \\ []
+       ) do
+    exception_detail =
+      if exception_module, do: " exception=#{inspect(exception_module)}", else: ""
+
+    frame_detail = safe_stack_frame_detail(stacktrace)
+
+    Logger.warning(
+      "GM resolution stage failed stage=#{stage} kind=#{kind}#{exception_detail}#{frame_detail}"
+    )
+  end
+
+  defp safe_stack_frame_detail(stacktrace) when is_list(stacktrace) do
+    frames = Enum.map(stacktrace, &stack_frame_parts/1)
+
+    Enum.find_value(frames, fn
+      {module, function, arity, location} when is_list(location) ->
+        case Keyword.get(location, :line) do
+          line when is_integer(line) ->
+            " frame=#{inspect(module)}.#{function}/#{arity} line=#{line}"
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
+    end) ||
+      case List.first(frames) do
+        {module, function, arity, _location} -> " frame=#{inspect(module)}.#{function}/#{arity}"
+        _ -> ""
+      end
+  end
+
+  defp safe_stack_frame_detail(_stacktrace), do: ""
+
+  defp stack_frame_parts({module, function, args, location})
+       when is_atom(module) and is_atom(function) and is_list(args),
+       do: {module, function, length(args), location}
+
+  defp stack_frame_parts({module, function, arity, location})
+       when is_atom(module) and is_atom(function) and is_integer(arity),
+       do: {module, function, arity, location}
+
+  defp stack_frame_parts({module, function, arity})
+       when is_atom(module) and is_atom(function) and is_integer(arity),
+       do: {module, function, arity, []}
+
+  defp stack_frame_parts(_frame), do: nil
 
   defp resolution_plan_check(opts) do
     run_resolution_stage(:provider, fn ->
@@ -3044,7 +3117,8 @@ defmodule Storyteller.Play do
              validate_location_changes(
                field(proposal, :location_changes, []),
                turn.campaign_id,
-               speaker_ids
+               speaker_ids,
+               turn.intent
              ),
              :location_presence
            ),
@@ -3053,7 +3127,8 @@ defmodule Storyteller.Play do
              validate_travel_changes(
                field(proposal, :travel_changes, []),
                turn.campaign_id,
-               location_changes
+               location_changes,
+               turn.intent
              ),
              :location_presence
            ),
@@ -3066,7 +3141,8 @@ defmodule Storyteller.Play do
                movement_characters,
                player_place_id,
                first_placement_ids,
-               current_elapsed_world_minutes(turn.campaign_id)
+               current_elapsed_world_minutes(turn.campaign_id),
+               turn.intent
              ),
              :location_presence
            ),
@@ -3091,7 +3167,8 @@ defmodule Storyteller.Play do
                final_locations,
                player_place_id,
                turn.campaign_id,
-               location_changes
+               location_changes,
+               turn.intent
              ),
              :location_presence
            ),
@@ -3783,7 +3860,8 @@ defmodule Storyteller.Play do
   defp validate_inventory_changes(_changes, _campaign_id, _speaker_ids),
     do: {:error, :invalid_response}
 
-  defp validate_location_changes(changes, campaign_id, speaker_ids) when is_list(changes) do
+  defp validate_location_changes(changes, campaign_id, speaker_ids, intent)
+       when is_list(changes) do
     places =
       Repo.all(from place in Place, where: place.campaign_id == ^campaign_id)
       |> Enum.map(fn place ->
@@ -3791,15 +3869,27 @@ defmodule Storyteller.Play do
       end)
 
     case LocationChanges.validate(changes, places, speaker_ids) do
-      {:ok, normalized} -> {:ok, normalized}
-      {:error, _reason} -> {:error, :invalid_response}
+      {:ok, normalized} ->
+        {:ok, normalized}
+
+      {:error, reason} ->
+        log_opening_location_rejection(
+          intent,
+          :location_changes,
+          safe_location_change_reason(reason)
+        )
+
+        {:error, :invalid_response}
     end
   end
 
-  defp validate_location_changes(_changes, _campaign_id, _speaker_ids),
-    do: {:error, :invalid_response}
+  defp validate_location_changes(_changes, _campaign_id, _speaker_ids, intent) do
+    log_opening_location_rejection(intent, :location_changes, :operations_not_a_bounded_list)
+    {:error, :invalid_response}
+  end
 
-  defp validate_travel_changes(changes, campaign_id, location_changes) when is_list(changes) do
+  defp validate_travel_changes(changes, campaign_id, location_changes, intent)
+       when is_list(changes) do
     existing_places = Repo.all(from place in Place, where: place.campaign_id == ^campaign_id)
 
     created_places =
@@ -3819,13 +3909,19 @@ defmodule Storyteller.Play do
       Repo.all(from edge in PlaceConnection, where: edge.campaign_id == ^campaign_id)
 
     case TravelGraph.validate_changes(changes, places, connections) do
-      {:ok, normalized} -> {:ok, normalized}
-      {:error, _reason} -> {:error, :invalid_response}
+      {:ok, normalized} ->
+        {:ok, normalized}
+
+      {:error, _reason} ->
+        log_opening_location_rejection(intent, :travel_changes, :invalid_route_operations)
+        {:error, :invalid_response}
     end
   end
 
-  defp validate_travel_changes(_changes, _campaign_id, _location_changes),
-    do: {:error, :invalid_response}
+  defp validate_travel_changes(_changes, _campaign_id, _location_changes, intent) do
+    log_opening_location_rejection(intent, :travel_changes, :operations_not_a_bounded_list)
+    {:error, :invalid_response}
+  end
 
   defp validate_movement_routes(
          changes,
@@ -3834,7 +3930,8 @@ defmodule Storyteller.Play do
          characters,
          player_place_id,
          first_placement_ids,
-         elapsed_world_minutes
+         elapsed_world_minutes,
+         intent
        ) do
     connections =
       Repo.all(from edge in PlaceConnection, where: edge.campaign_id == ^campaign_id)
@@ -3851,7 +3948,9 @@ defmodule Storyteller.Play do
            ) do
       {:ok, routed, locations}
     else
-      {:error, _reason} -> {:error, :invalid_response}
+      {:error, _reason} ->
+        log_opening_location_rejection(intent, :movement_routes, :movement_not_reachable)
+        {:error, :invalid_response}
     end
   end
 
@@ -3860,7 +3959,7 @@ defmodule Storyteller.Play do
 
     if intent == :opening_scene do
       Enum.reduce(characters, created_ids, fn character, allowed_ids ->
-        if is_nil(character.current_place_id),
+        if is_nil(Map.get(character, :current_place_id)),
           do: MapSet.put(allowed_ids, character.speaker_id),
           else: allowed_ids
       end)
@@ -3868,6 +3967,34 @@ defmodule Storyteller.Play do
       created_ids
     end
   end
+
+  defp log_opening_location_rejection(:opening_scene, stage, reason) do
+    Logger.warning("GM opening location rejected stage=#{stage} reason=#{reason}")
+  end
+
+  defp log_opening_location_rejection(_intent, _stage, _reason), do: :ok
+
+  defp safe_location_change_reason(reason)
+       when reason in [
+              :invalid_speaker_ids,
+              :invalid_places,
+              :invalid_changes,
+              :invalid_operation,
+              :duplicate_place_id,
+              :too_many_places,
+              :unknown_character,
+              :place_not_found,
+              :invalid_place,
+              :invalid_facts,
+              :invalid_id,
+              :invalid_text,
+              :invalid_visibility,
+              :player_cannot_enter_private_place,
+              :unknown_key
+            ],
+       do: reason
+
+  defp safe_location_change_reason(_reason), do: :validation_failed
 
   defp validate_public_scene_presence(
          narration,
@@ -3877,7 +4004,8 @@ defmodule Storyteller.Play do
          locations,
          player_place_id,
          campaign_id,
-         location_changes
+         location_changes,
+         intent
        ) do
     scene_id = Map.get(locations, "player", player_place_id)
     speaker_visibility = character_visibility_after_changes(campaign_id, location_changes)
@@ -3889,6 +4017,7 @@ defmodule Storyteller.Play do
 
     cond do
       not TravelGraph.public_lines_in_scene?(public_lines, locations, scene_id) ->
+        log_opening_location_rejection(intent, :scene_presence, :speaker_not_in_player_scene)
         {:error, :invalid_response}
 
       narration_claims_off_scene_presence?(
@@ -3899,6 +4028,12 @@ defmodule Storyteller.Play do
         speaker_visibility,
         public_place_names_after_changes(campaign_id, location_changes)
       ) ->
+        log_opening_location_rejection(
+          intent,
+          :scene_presence,
+          :narration_claims_off_scene_presence
+        )
+
         {:error, :invalid_response}
 
       true ->
@@ -4058,7 +4193,17 @@ defmodule Storyteller.Play do
           false
       end)
 
-    if known_public_place? or created_public_place?, do: :ok, else: {:error, :invalid_response}
+    if known_public_place? or created_public_place? do
+      :ok
+    else
+      log_opening_location_rejection(
+        :opening_scene,
+        :player_place,
+        :missing_public_player_place
+      )
+
+      {:error, :invalid_response}
+    end
   end
 
   defp validate_opening_scene_player_place(
@@ -4559,18 +4704,23 @@ defmodule Storyteller.Play do
       case validate_character_update(update, characters) do
         {:ok, normalized} ->
           if normalized.role == :player and Enum.any?(acc, &(&1.speaker_id == "player")) do
+            log_character_update_rejection(:duplicate_player_update)
             {:halt, {:error, :invalid_response}}
           else
             {:cont, {:ok, acc ++ [normalized]}}
           end
 
-        {:error, :invalid_response} ->
+        {:error, reason} ->
+          log_character_update_rejection(reason)
           {:halt, {:error, :invalid_response}}
       end
     end)
   end
 
-  defp validate_character_updates(_updates, _characters), do: {:error, :invalid_response}
+  defp validate_character_updates(_updates, _characters) do
+    log_character_update_rejection(:updates_not_a_bounded_list)
+    {:error, :invalid_response}
+  end
 
   defp validate_character_creations(creations, known_characters)
        when is_list(creations) and length(creations) <= 30 do
@@ -4637,6 +4787,12 @@ defmodule Storyteller.Play do
 
   defp valid_speaker_id?(_value), do: false
 
+  # Validation details may identify which schema rule failed, but never include
+  # model-supplied keys, IDs, facts, reasons, or values.
+  defp log_character_update_rejection(reason) do
+    Logger.warning("GM character update rejected reason=#{reason}")
+  end
+
   defp validate_character_update(update, characters) when is_map(update) do
     keys = Enum.map(Map.keys(update), &key_name/1)
     speaker_id = field(update, :speaker_id)
@@ -4646,27 +4802,28 @@ defmodule Storyteller.Play do
 
     cond do
       not unique_normalized_keys?(update) ->
-        {:error, :invalid_response}
+        {:error, :duplicate_update_keys}
 
       Enum.any?(keys, &(&1 not in ["speaker_id", "visible_facts", "gm_private_facts", "reason"])) ->
-        {:error, :invalid_response}
+        {:error, :unsupported_update_field}
 
       not is_binary(speaker_id) or is_nil(character) ->
-        {:error, :invalid_response}
+        {:error, :unknown_or_missing_speaker_id}
 
       not is_map(visible) or not is_map(private) ->
-        {:error, :invalid_response}
+        {:error, :facts_are_not_maps}
 
-      not unique_normalized_keys?(visible) or validate_json_map(visible) != :ok or
+      not unique_normalized_keys?(visible) or not unique_normalized_keys?(private) or
+        validate_json_map(visible) != :ok or
           validate_json_map(private) != :ok ->
-        {:error, :invalid_response}
+        {:error, :invalid_fact_maps}
 
       character.role == :gm and
           (has_character_location_facts?(visible) or has_character_location_facts?(private)) ->
-        {:error, :invalid_response}
+        {:error, :location_fact_in_character_update}
 
       character.role == :gm and "reason" in keys ->
-        {:error, :invalid_response}
+        {:error, :reason_not_allowed_for_gm_update}
 
       character.role == :gm ->
         {:ok,
@@ -4689,7 +4846,7 @@ defmodule Storyteller.Play do
     end
   end
 
-  defp validate_character_update(_update, _characters), do: {:error, :invalid_response}
+  defp validate_character_update(_update, _characters), do: {:error, :update_is_not_a_map}
 
   defp validate_player_character_update(
          speaker_id,
@@ -4703,27 +4860,35 @@ defmodule Storyteller.Play do
 
     cond do
       "reason" not in keys ->
-        {:error, :invalid_response}
+        {:error, :player_update_missing_reason}
 
       map_size(visible) == 0 or private != %{} ->
-        {:error, :invalid_response}
+        {:error, :player_update_fact_shape}
 
       true ->
-        with {:ok, normalized_facts} <-
-               canonicalize_player_character_facts(visible, current_facts),
-             true <- valid_player_character_facts?(normalized_facts),
-             true <-
-               is_binary(reason) and String.trim(reason) != "" and String.length(reason) <= 240 do
-          {:ok,
-           %{
-             speaker_id: speaker_id,
-             role: :player,
-             visible_facts: normalized_facts,
-             gm_private_facts: %{},
-             reason: String.trim(reason)
-           }}
-        else
-          _ -> {:error, :invalid_response}
+        case canonicalize_player_character_facts(visible, current_facts) do
+          {:ok, normalized_facts} ->
+            cond do
+              not valid_player_character_facts?(normalized_facts) ->
+                {:error, :invalid_player_fact_keys}
+
+              not (is_binary(reason) and String.trim(reason) != "" and
+                       String.length(reason) <= 240) ->
+                {:error, :invalid_player_update_reason}
+
+              true ->
+                {:ok,
+                 %{
+                   speaker_id: speaker_id,
+                   role: :player,
+                   visible_facts: normalized_facts,
+                   gm_private_facts: %{},
+                   reason: String.trim(reason)
+                 }}
+            end
+
+          {:error, :invalid_response} ->
+            {:error, :duplicate_normalized_player_fact_keys}
         end
     end
   end
@@ -5165,6 +5330,17 @@ defmodule Storyteller.Play do
     ContextBudget.emit_metrics(Map.get(request, :local_context_metrics), usage)
   end
 
+  defp interaction_mode_guidance(:action) do
+    """
+
+    OBJECTIVES: objective_changes=[] unless a lasting commitment changes.
+    Create {type:create,objective:{objective_id,title,visibility},reason};
+    update {type:update,objective_id,fields...,reason} by existing ID. Use a
+    fresh create ID; status=open/completed/abandoned; visibility=public/gm_private.
+    Skip routine steps.
+    """
+  end
+
   defp interaction_mode_guidance(:question) do
     """
 
@@ -5217,6 +5393,18 @@ defmodule Storyteller.Play do
     If the player has no canonical public place yet, create a suitable public
     place and move the player there in this response. Place every NPC who speaks
     or acts in that scene at the same place before they do so.
+    location_changes is a JSON array: create a place with
+    {type:"create_place",place:{place_id,name,visibility},reason}, then place
+    characters with {type:"move_character",speaker_id,place_id,reason}. Use a
+    public place for the player and the exact operation names shown here.
+    Return character_updates: [] unless the scene establishes a durable
+    character fact. Updates use known speaker_ids and visibility-scoped
+    visible_facts/gm_private_facts maps; omit reason for GM updates and do not
+    set location or presence here. A newly introduced NPC belongs only in
+    character_creations, never in both creation and update lists.
+    In particular, update the player only for a durable public fact established
+    in this scene, with gm_private_facts: {} and a concise reason. Never create
+    a player update just to repeat their existing description.
     """
   end
 
@@ -5893,6 +6081,24 @@ defmodule Storyteller.Play do
         else
           existing
         end
+    end
+  end
+
+  defp existing_character_place_at_location(_campaign_id, _speaker_id, location)
+       when not is_binary(location),
+       do: nil
+
+  defp existing_character_place_at_location(campaign_id, speaker_id, location) do
+    expected_name = String.downcase(String.trim(location))
+
+    with true <- expected_name != "",
+         %Character{current_place_id: place_id} when is_binary(place_id) <-
+           Repo.get_by(Character, campaign_id: campaign_id, speaker_id: speaker_id),
+         %Place{} = place <- Repo.get_by(Place, campaign_id: campaign_id, place_id: place_id),
+         true <- String.downcase(String.trim(place.name)) == expected_name do
+      place
+    else
+      _ -> nil
     end
   end
 

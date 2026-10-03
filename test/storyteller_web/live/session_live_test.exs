@@ -1591,6 +1591,65 @@ defmodule StorytellerWeb.SessionLiveTest do
     Agent.stop(attempts)
   end
 
+  test "opening validation errors explain and retry the saved turn", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    opening_turn =
+      Repo.insert!(
+        Turn.changeset(%Turn{}, %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          idempotency_key: "opening-scene-#{session.id}",
+          request_hash: String.duplicate("0", 64),
+          player_input: "Establish the opening scene before the player has taken an action.",
+          intent: :opening_scene,
+          status: :failed,
+          resolution_phase: :initial,
+          attempts: 4,
+          failure_code: "provider_error",
+          failure_stage: :proposal_validation
+        })
+      )
+
+    test_pid = self()
+
+    set_handler(
+      fn request ->
+        send(test_pid, :opening_scene_retried)
+        FakeProvider.opening_scene_response(provider_context(request))
+      end,
+      handle_opening?: true
+    )
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    assert opening_turn.failure_category == nil
+    assert has_element?(view, "#turn-error", "The GM's reply could not be used safely")
+    assert has_element?(view, "#turn-error", "The opening scene has not been recorded yet.")
+    assert has_element?(view, "#turn-error button[phx-click='retry-turn']:not([disabled])")
+    refute_receive :opening_scene_retried, 50
+
+    view
+    |> element("#turn-error button[phx-click='retry-turn']")
+    |> render_click()
+
+    assert_receive :opening_scene_retried, 1_000
+
+    assert wait_until(fn ->
+             match?(
+               %Turn{status: :completed},
+               Repo.get!(Turn, opening_turn.id)
+             ) and has_element?(view, "#story-timeline", "The scene takes shape")
+           end)
+
+    retried_turn = Repo.get!(Turn, opening_turn.id)
+    assert retried_turn.attempts == 5
+    assert retried_turn.failure_code == nil
+    assert retried_turn.failure_stage == nil
+    assert Play.public_current_turn(campaign.id) == nil
+  end
+
   test "failed action guidance appears in the recovery card without a duplicate composer alert",
        %{
          conn: conn
@@ -1735,7 +1794,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> render_submit()
 
     recovery_hint =
-      "If the request involved character movement, make sure a valid route connects the current location to the destination."
+      "The GM's reply could not be used safely. No narration or campaign changes from it were saved; your action remains here to retry."
 
     assert wait_until(fn -> has_element?(view, "#turn-error", recovery_hint) end)
 

@@ -322,7 +322,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Toute son histoire reste enregistrée."
   end
 
-  test "proposal validation route recovery guidance follows the saved UI locale", %{conn: conn} do
+  test "proposal validation recovery guidance follows the saved UI locale", %{conn: conn} do
     campaign = campaign_fixture()
     session = hd(campaign.sessions)
 
@@ -345,20 +345,20 @@ defmodule StorytellerWeb.LocaleLiveTest do
     for {locale, hint} <- [
           {
             "en",
-            "If the request involved character movement, make sure a valid route connects the current location to the destination."
+            "The GM's reply could not be used safely. No narration or campaign changes from it were saved; your action remains here to retry."
           },
           {
             "es",
-            "Si la solicitud implicaba mover a un personaje, comprueba que haya una ruta válida entre su ubicación actual y el destino."
+            "No se pudo usar la respuesta del director de juego de forma segura. No se guardaron su narración ni sus cambios; tu acción sigue aquí para que puedas volver a intentarlo."
           },
           {
             "fr",
-            "Si la demande impliquait de déplacer un personnage, vérifiez qu’un itinéraire valide relie son lieu actuel à sa destination."
+            "La réponse du maître de jeu n’a pas pu être utilisée en toute sécurité. Sa narration et ses changements n’ont pas été enregistrés ; votre action est conservée et vous pouvez réessayer."
           }
         ] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
-      {:ok, _view, html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
-      assert html =~ hint
+      {:ok, view, _html} = live(conn, ~p"/campaigns/#{campaign.id}/sessions/#{session.id}")
+      assert has_element?(view, "#turn-error", hint)
     end
   end
 
