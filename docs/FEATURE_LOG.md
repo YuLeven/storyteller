@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-04 — Point oversized-request recovery at the largest category
+
+- The request-size recovery card previously offered only a campaign overview and setup editor, even when the largest section was inventory, resources, world state, or another record type. It now directs the player to the highest numeric contributor: setup editing; a preselected audited correction form for inventory, tracked resources, and world state; or the related scene, campaign-memory/objectives, or story section.
+- Opening the correction form is a local UI action. It does not call the provider, change canon, or retry the turn. The saved action stays attached to the same failed turn. Diagnostics still include category names and byte counts only, never GM-private prompt text.
+- Added a translated en/es/fr message and a behavioral regression that checks the saved action and retry remain intact in all locales, then opens the world correction panel on that same failed turn.
+- This is a targeted review path, not full curation: scene/routes and read-only campaign references do not yet have edit controls that can safely reduce irreducible request size. That recovery gate remains open.
+- **Checks:** the localized request-size recovery regression passed (**74 discovered, 1 selected, 0 failures**) and the complete isolated WSL suite passed (**491 tests, 0 failures**). Warnings-as-errors test compilation passed. All behavior checks used synthetic fixtures and the separate `storyteller_test` database; no campaign QA data, OAuth, or live provider was used.
+
 ## 2026-10-04 — Keep the matching detail when retrieving long canon
 
 - A lookup could rank long canon only after projecting it to the first 180 characters, so a fact buried later in a long note could be missed or omitted from the result even though the request named it.

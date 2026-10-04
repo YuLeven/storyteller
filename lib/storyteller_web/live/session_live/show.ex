@@ -140,6 +140,23 @@ defmodule StorytellerWeb.SessionLive.Show do
     {:noreply, assign(socket, correction_open?: not socket.assigns.correction_open?)}
   end
 
+  def handle_event("review-context-budget-correction", %{"kind" => kind}, socket)
+      when kind in ["inventory", "resource", "world"] do
+    if correction_changes_allowed?(socket) do
+      {:noreply,
+       assign(socket,
+         correction_open?: true,
+         campaign_tools_open?: true,
+         correction_form: Map.put(default_correction_form(), "kind", kind),
+         correction_error: nil
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("review-context-budget-correction", _params, socket), do: {:noreply, socket}
+
   def handle_event("start-canon-correction", %{"kind" => kind, "target-id" => target_id}, socket)
       when is_binary(kind) and is_binary(target_id) do
     options = socket.assigns.correction_options || %{}
@@ -2579,6 +2596,27 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp context_budget_diagnostics_message(_diagnostics),
     do: gettext("The request exceeded Storyteller's local GM request-size limit.")
+
+  defp context_budget_recovery_type(%{largest_sections: [%{category: category} | _]}) do
+    case category do
+      category when category in ["gm_instructions", "campaign", "characters"] -> :setup
+      "inventory" -> :inventory
+      "panels" -> :resource
+      "world" -> :world
+      category when category in ["places", "travel_connections", "communication_paths"] -> :scene
+      category when category in ["memory", "continuity", "objectives"] -> :reference
+      "history" -> :timeline
+      _ -> :campaign
+    end
+  end
+
+  defp context_budget_recovery_type(_diagnostics), do: :campaign
+
+  defp context_budget_next_step_message(_diagnostics) do
+    gettext(
+      "The linked section contributes most to this request. Review it, and change canon only when you know a detail is wrong. Your saved action and story remain intact."
+    )
+  end
 
   defp context_budget_section_label("gm_instructions"), do: gettext("GM instructions")
   defp context_budget_section_label("campaign"), do: gettext("Campaign setup")

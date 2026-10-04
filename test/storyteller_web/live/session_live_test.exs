@@ -4610,19 +4610,22 @@ defmodule StorytellerWeb.SessionLiveTest do
       refute inspect(failed_turn.context_budget_diagnostics) =~ private_sentinel
       refute_receive {:fake_provider_request, _}, 100
 
-      for {locale, notice, retry_label, locale_section, campaign_label, edit_label} <- [
-            {"en",
-             "Your action is saved and the request was not sent because the local GM request-size limit was exceeded.",
-             "Retry this turn", "GM instructions", "Campaign", "Edit campaign setup"},
-            {"es",
-             "Tu acción está guardada y no se envió la solicitud porque se superó el límite local de tamaño de solicitud para el DJ.",
-             "Reintentar este turno", "Instrucciones del DJ", "Campaña",
-             "Editar la configuración de la campaña"},
-            {"fr",
-             "Votre action est enregistrée et la requête n’a pas été envoyée, car la limite locale de taille de requête du MJ a été dépassée.",
-             "Réessayer ce tour", "Consignes du MJ", "Campagne",
-             "Modifier la configuration de la campagne"}
-          ] do
+      for {locale, notice, retry_label, locale_section, edit_label, next_step} <-
+            [
+              {"en",
+               "Your action is saved and the request was not sent because the local GM request-size limit was exceeded.",
+               "Retry this turn", "GM instructions", "Edit campaign setup",
+               "The linked section contributes most to this request."},
+              {"es",
+               "Tu acción está guardada y no se envió la solicitud porque se superó el límite local de tamaño de solicitud para el DJ.",
+               "Reintentar este turno", "Instrucciones del DJ",
+               "Editar la configuración de la campaña",
+               "La sección vinculada es la que más contribuye a esta solicitud. Revísala y modifica el canon solo si sabes que un dato es incorrecto. La acción guardada y la historia se mantienen intactas."},
+              {"fr",
+               "Votre action est enregistrée et la requête n’a pas été envoyée, car la limite locale de taille de requête du MJ a été dépassée.",
+               "Réessayer ce tour", "Consignes du MJ", "Modifier la configuration de la campagne",
+               "La section liée contribue le plus à cette requête. Vérifiez-la et ne modifiez le canon que si vous savez qu’un détail est erroné. Votre action enregistrée et l’histoire restent intactes."}
+            ] do
         assert {:ok, _preference} = Settings.set_ui_locale(locale)
         {:ok, view, _html} = live_play(conn, campaign, session)
 
@@ -4632,12 +4635,8 @@ defmodule StorytellerWeb.SessionLiveTest do
         assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
         assert has_element?(view, "#context-budget-recovery")
         assert has_element?(view, "#context-budget-diagnostics", locale_section)
-
-        assert has_element?(
-                 view,
-                 "#context-budget-open-campaign[href='/campaigns/#{campaign.id}']",
-                 campaign_label
-               )
+        assert has_element?(view, "#context-budget-next-step")
+        if next_step, do: assert(render(view) =~ next_step)
 
         assert has_element?(
                  view,
@@ -4645,9 +4644,21 @@ defmodule StorytellerWeb.SessionLiveTest do
                  edit_label
                )
 
+        refute has_element?(view, "#context-budget-open-campaign")
+
         refute render(view) =~ private_sentinel
         assert Play.public_current_turn(campaign.id).id == failed_turn.id
       end
+
+      assert {:ok, _preference} = Settings.set_ui_locale("en")
+      {:ok, correction_view, _html} = live_play(conn, campaign, session)
+
+      correction_view
+      |> render_click("review-context-budget-correction", %{"kind" => "world"})
+
+      assert has_element?(correction_view, "#canon-corrections[open]")
+      assert has_element?(correction_view, "#correction-kind option[selected][value='world']")
+      assert Play.public_current_turn(campaign.id).id == failed_turn.id
 
       # Relaxing the local test cap makes the still-persisted turn retryable.
       # The retry must use that same action and turn, and this is the first
