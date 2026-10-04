@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Match whole words when ranking canon by names
+
+- Canon relevance previously counted a player-action word as a name match whenever it appeared anywhere inside a longer character or place name. In a crowded-scene fallback, saying “rose” could therefore prioritize “Rosetta” over an NPC actually addressed later in the same move.
+- Name relevance now intersects normalized whole-word terms. This affects cast and place ranking as well as addressed-NPC prioritization; it does not add fuzzy, nickname, or semantic name recognition.
+- Added a crowded-scene regression where “a rose” must not promote Rosetta, while the directly addressed Sera remains in the bounded packet and a stable-order observer is retained.
+- **Checks:** focused WSL context-budget suite passed (**39 tests, 0 failures**); full isolated WSL suite passed (**499 tests, 0 failures**); warnings-as-errors compilation, formatter check, and `git diff --check` passed. Tests use synthetic data in `storyteller_test`; no campaign QA data, live model, or OAuth was used.
+
 ## 2026-10-04 — Keep an addressed NPC in the compact context fallback
 
 - If an unusually crowded present scene exceeded the emergency retrieval packet's 32-NPC cap, simple source-order truncation could omit the person the player had just addressed. Although the read-only lookup could recover them, that made a direct exchange depend on an extra model lookup.

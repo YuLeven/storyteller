@@ -2995,10 +2995,10 @@ defmodule Storyteller.GM.ContextBudget do
   defp relevance_score(_text, _terms), do: 0
 
   defp name_mentioned?(name, terms) when is_binary(name) do
-    normalized = name |> String.normalize(:nfc) |> String.downcase()
+    name_terms = raw_meaningful_terms(name)
 
-    normalized != "" and MapSet.size(terms) > 0 and
-      Enum.any?(terms, &String.contains?(normalized, &1))
+    MapSet.size(name_terms) > 0 and MapSet.size(terms) > 0 and
+      not MapSet.disjoint?(name_terms, terms)
   end
 
   defp name_mentioned?(_name, _terms), do: false

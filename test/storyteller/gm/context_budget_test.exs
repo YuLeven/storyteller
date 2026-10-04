@@ -252,6 +252,46 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.estimated_request_bytes <= 32_000
   end
 
+  test "retrieval packet does not mistake a common word for an addressed character name" do
+    scene_characters =
+      Enum.map(1..40, fn index ->
+        %{
+          speaker_id: "npc:observer-#{index}",
+          name: "Observer #{index}",
+          role: :gm,
+          current_place_id: "finca"
+        }
+      end) ++
+        [
+          %{
+            speaker_id: "npc:rosetta",
+            name: "Rosetta March",
+            role: :gm,
+            current_place_id: "finca"
+          },
+          %{speaker_id: "npc:sera", name: "Sera Vale", role: :gm, current_place_id: "finca"}
+        ]
+
+    base = base_context()
+    player = Enum.find(base.characters, &(&1.speaker_id == "player"))
+
+    context =
+      base
+      |> Map.put(:player_action, "I choose a rose for the table, then ask Sera about the chart.")
+      |> Map.put(:characters, [player | scene_characters])
+
+    assert {:ok, %{context: packet}} =
+             ContextBudget.compile_retrieval_packet(context, "Short GM policy", "test-model",
+               context_input_byte_budget: 32_000
+             )
+
+    speaker_ids = Enum.map(packet["characters"], & &1["speaker_id"])
+
+    assert "npc:sera" in speaker_ids
+    refute "npc:rosetta" in speaker_ids
+    assert "npc:observer-31" in speaker_ids
+  end
+
   test "recalls accented canon across NFC and decomposed Unicode text" do
     nfc = "La dégustation a lieu dans la salle des cartes."
     nfd = String.normalize(nfc, :nfd)
