@@ -21,6 +21,7 @@ export const StoryTimeline = {
     this.knownSequences = new Set(entriesFor(this.el).map(sequenceFor))
     this.latestSequence = Math.max(0, ...this.knownSequences)
     this.followLatest = true
+    this.initialScrollFrame = null
     this.revealQueue = []
     this.revealTimer = null
     this.reducedMotion =
@@ -44,7 +45,7 @@ export const StoryTimeline = {
 
     this.el.addEventListener("scroll", this.onScroll, {passive: true})
     this.showAllButton?.addEventListener("click", this.onShowAll)
-    this.scrollLatest()
+    this.scheduleInitialScroll()
   },
 
   beforeUpdate() {
@@ -73,6 +74,7 @@ export const StoryTimeline = {
     // available to read and never treated as newly arriving GM output.
     if (appendedEntries.length === 0) {
       if (newEntries.length > 0 && scrollSnapshot) {
+        this.cancelInitialScroll()
         this.el.scrollTop = scrollSnapshot.top + (this.el.scrollHeight - scrollSnapshot.height)
       }
 
@@ -114,7 +116,26 @@ export const StoryTimeline = {
   destroyed() {
     this.el.removeEventListener("scroll", this.onScroll)
     this.showAllButton?.removeEventListener("click", this.onShowAll)
+    this.cancelInitialScroll()
     if (this.revealTimer !== null) clearTimeout(this.revealTimer)
+  },
+
+  scheduleInitialScroll() {
+    // LiveView can connect and patch the timeline while the browser is still
+    // laying out the initial page. Wait one extra frame, then read the final
+    // scroll height so a fresh session opens at its newest visible entry.
+    this.initialScrollFrame = requestAnimationFrame(() => {
+      this.initialScrollFrame = requestAnimationFrame(() => {
+        this.initialScrollFrame = null
+        if (this.followLatest) this.el.scrollTop = this.el.scrollHeight
+      })
+    })
+  },
+
+  cancelInitialScroll() {
+    if (this.initialScrollFrame === null) return
+    cancelAnimationFrame(this.initialScrollFrame)
+    this.initialScrollFrame = null
   },
 
   scrollLatest() {

@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Open a fresh story timeline at its latest entry
+
+- The initial `StoryTimeline` hook could scroll before the first connected LiveView/layout work had settled, leaving a fresh session at the campaign's oldest visible entry. Initial alignment now waits one additional animation frame and reads the final scroll height; it stops if the player has scrolled away, is cancelled on teardown, and is cancelled when a history prepend restores the reader's anchor.
+- Added a fake-frame JavaScript regression that delays timeline growth between frames, then proves the initial viewport reaches the latest entry and does not yank a reader who moved away before alignment. Existing fake tests continue to cover prepended-history anchoring and reduced-motion reveal behavior. Composer and side-panel markup/CSS are unchanged.
+- **QA:** A read-only check of the separate fictional Quiet Observatory campaign at 1280×720 reproduced the oldest-entry landing; manually scrolling reached the latest entry while the composer stayed in view. After the fix, a fresh reload in Codex's in-app browser opened at the newest story entry with the composer still in view. No action was submitted. Firefox retest remains pending.
+- **Checks:** `mix assets.build` succeeded in WSL; bundled Node.js `--test assets/js/*.test.mjs` passed (**15 tests, 0 failures**); `git diff --check` passed. No model request or OAuth was used.
+
 ## 2026-10-04 — Give prose resources the full ledger width
 
 - Long tracked resources of type `text` now span the compact play-board ledger instead of sharing a narrow column with another field. Quantities, money, status, and date fields keep the compact two-column layout.

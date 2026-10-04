@@ -72,6 +72,7 @@ const createContext = (el, reducedMotion = false) => {
     timerCount() { return pendingTimers.length },
     reducedMotion,
     scrollLatest() { this.el.scrollTop = this.el.scrollHeight },
+    scheduleInitialScroll() { this.scrollLatest() },
     scheduleNextReveal() {
       if (this.revealTimer !== null || this.revealQueue.length === 0) return
       this.revealTimer = 1
@@ -109,6 +110,79 @@ test("existing history appears immediately on mount without replaying", () => {
   assert.equal(el.scrollTop, el.scrollHeight)
   assert.equal(el.liveTimeline.attributes["aria-live"], "off")
   assert.ok(history.every(entry => !entry.hasAttribute("data-reveal-pending")))
+})
+
+test("a fresh timeline aligns to the latest entry after initial layout settles", () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+  const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
+  const queuedFrames = new Map()
+  let nextFrameId = 0
+  globalThis.requestAnimationFrame = callback => {
+    const id = ++nextFrameId
+    queuedFrames.set(id, callback)
+    return id
+  }
+  globalThis.cancelAnimationFrame = id => queuedFrames.delete(id)
+
+  const runNextFrame = () => {
+    const next = queuedFrames.entries().next().value
+    if (!next) return
+    const [id, callback] = next
+    queuedFrames.delete(id)
+    callback()
+  }
+
+  const el = new FakeTimeline([new FakeEntry(1, "gm_narration"), new FakeEntry(2, "npc_dialogue")])
+  const context = Object.assign({el}, StoryTimeline)
+  const readerEl = new FakeTimeline([new FakeEntry(1, "gm_narration")])
+  const readerContext = Object.assign({el: readerEl}, StoryTimeline)
+  const prependEl = new FakeTimeline([new FakeEntry(8, "gm_narration")])
+  const prependContext = Object.assign({el: prependEl}, StoryTimeline)
+
+  try {
+    context.mounted()
+    assert.equal(queuedFrames.size, 1)
+
+    // The first frame runs before the initial layout/LiveView patch has
+    // reached its final height. A single-frame scroll would stop here.
+    runNextFrame()
+    assert.equal(queuedFrames.size, 1)
+    assert.equal(el.scrollTop, 0)
+
+    el.scrollHeight = 1_800
+    runNextFrame()
+
+    assert.equal(el.scrollTop, 1_800)
+    assert.equal(context.followLatest, true)
+
+    readerContext.mounted()
+    runNextFrame()
+    readerEl.scrollTop = 120
+    readerContext.onScroll()
+    readerEl.scrollHeight = 1_800
+    runNextFrame()
+
+    assert.equal(readerEl.scrollTop, 120)
+    assert.equal(readerContext.followLatest, false)
+
+    prependContext.mounted()
+    prependEl.scrollTop = 120
+    prependContext.onScroll()
+    prependContext.beforeUpdate()
+    prependEl.entries.unshift(new FakeEntry(3, "player_action"))
+    prependEl.scrollHeight += 240
+    prependContext.updated()
+
+    assert.equal(queuedFrames.size, 0)
+    assert.equal(prependEl.scrollTop, 360)
+    assert.equal(prependContext.followLatest, false)
+  } finally {
+    context.destroyed()
+    readerContext.destroyed()
+    prependContext.destroyed()
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    globalThis.cancelAnimationFrame = originalCancelAnimationFrame
+  }
 })
 
 test("a new player action is immediate while a batched GM response is paced and skippable", () => {
