@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-04 — Keep the matching detail when retrieving long canon
+
+- A lookup could rank long canon only after projecting it to the first 180 characters, so a fact buried later in a long note could be missed or omitted from the result even though the request named it.
+- Search terms now flow into the visibility-scoped record projection. Oversized text fields return a short excerpt centered on a matching term when present, retain the truncation marker, and leave the original context untouched.
+- Added a French regression with the requested detail deep in a long place description; it confirms the bounded excerpt contains the named fact and remains findable by the lookup.
+- This improves one bounded lexical lookup path; unrelated paraphrase, semantic recall, and model behavior remain separate evaluation gaps.
+- **Checks:** focused WSL `CampaignLookup` suite passed (**8 tests, 0 failures**); full isolated WSL suite passed (**491 tests, 0 failures**). Test compilation with `--warnings-as-errors`, formatter check, and `git diff --check` passed. All tests used synthetic data in `storyteller_test`; no campaign QA data, OAuth, or live provider was used.
+
 ## 2026-10-03 — Retrieval-first fallback for oversized GM context
 
 - The exact-envelope fix prevented a second size check from rejecting a request after compilation, but a separate gap remained: if the required projected context itself could not fit, the compiler failed before the optional lookup could help.

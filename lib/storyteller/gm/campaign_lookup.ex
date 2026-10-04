@@ -100,7 +100,7 @@ defmodule Storyteller.GM.CampaignLookup do
 
       ranked =
         context
-        |> collect_records()
+        |> collect_records(query_terms)
         |> Enum.filter(&(category == "any" or &1["category"] == category))
         |> Enum.map(&{&1, relevance(&1, query, query_terms)})
         |> Enum.filter(fn {_record, score} -> score > 0 end)
@@ -216,25 +216,37 @@ defmodule Storyteller.GM.CampaignLookup do
     end
   end
 
-  defp collect_records(context) do
+  defp collect_records(context, query_terms) do
     hidden_place_ids = private_place_ids(get(context, "places"))
 
     []
-    |> collect_campaign(context)
-    |> collect_characters(get(context, "characters"), hidden_place_ids)
-    |> collect_scoped_list("place", get(context, "places"), &place_record/3)
-    |> collect_travel(get(context, "travel_connections"))
-    |> collect_scoped_list("inventory", get(context, "inventory"), &inventory_record/3)
-    |> collect_scoped_list("objective", get(context, "objectives"), &objective_record/3)
-    |> collect_world(get(context, "world"))
-    |> collect_continuity(get(context, "continuity"))
-    |> collect_memory(get(context, "memory"))
-    |> collect_panels(get(context, "panels"))
+    |> collect_campaign(context, query_terms)
+    |> collect_characters(get(context, "characters"), hidden_place_ids, query_terms)
+    |> collect_scoped_list(
+      "place",
+      get(context, "places"),
+      &place_record(&1, &2, &3, query_terms)
+    )
+    |> collect_travel(get(context, "travel_connections"), query_terms)
+    |> collect_scoped_list(
+      "inventory",
+      get(context, "inventory"),
+      &inventory_record(&1, &2, &3, query_terms)
+    )
+    |> collect_scoped_list(
+      "objective",
+      get(context, "objectives"),
+      &objective_record(&1, &2, &3, query_terms)
+    )
+    |> collect_world(get(context, "world"), query_terms)
+    |> collect_continuity(get(context, "continuity"), query_terms)
+    |> collect_memory(get(context, "memory"), query_terms)
+    |> collect_panels(get(context, "panels"), query_terms)
     |> Enum.with_index()
     |> Enum.map(fn {record, index} -> Map.put(record, "_order", index) end)
   end
 
-  defp collect_campaign(records, context) do
+  defp collect_campaign(records, context, query_terms) do
     campaign = get(context, "campaign")
 
     if is_map(campaign) do
@@ -250,7 +262,8 @@ defmodule Storyteller.GM.CampaignLookup do
           "public",
           "campaign",
           campaign,
-          ~w(title premise genre setting summary)
+          ~w(title premise genre setting summary),
+          query_terms
         )
       )
       |> maybe_add(
@@ -261,7 +274,8 @@ defmodule Storyteller.GM.CampaignLookup do
           "gm_private",
           "campaign",
           campaign,
-          ~w(gm_instructions continuity_notes private_notes hidden_context)
+          ~w(gm_instructions continuity_notes private_notes hidden_context),
+          query_terms
         )
       )
     else
@@ -269,7 +283,8 @@ defmodule Storyteller.GM.CampaignLookup do
     end
   end
 
-  defp collect_characters(records, characters, hidden_place_ids) when is_list(characters) do
+  defp collect_characters(records, characters, hidden_place_ids, query_terms)
+       when is_list(characters) do
     Enum.reduce(characters, records, fn character, acc ->
       if is_map(character) do
         id = first(character, ~w(speaker_id character_id id), "unknown-character")
@@ -291,7 +306,8 @@ defmodule Storyteller.GM.CampaignLookup do
                 "gm_private",
                 "character",
                 character,
-                @public_character_fields ++ @private_character_fields
+                @public_character_fields ++ @private_character_fields,
+                query_terms
               )
             )
           else
@@ -304,7 +320,8 @@ defmodule Storyteller.GM.CampaignLookup do
                 "public",
                 "character",
                 character,
-                @public_character_fields
+                @public_character_fields,
+                query_terms
               )
             )
             |> maybe_add(
@@ -315,7 +332,8 @@ defmodule Storyteller.GM.CampaignLookup do
                 "gm_private",
                 "character",
                 character,
-                @private_character_fields
+                @private_character_fields,
+                query_terms
               )
             )
           end
@@ -327,7 +345,7 @@ defmodule Storyteller.GM.CampaignLookup do
     end)
   end
 
-  defp collect_characters(records, _characters, _hidden_place_ids), do: records
+  defp collect_characters(records, _characters, _hidden_place_ids, _query_terms), do: records
 
   defp private_place_ids(places) when is_map(places) do
     places
@@ -363,7 +381,7 @@ defmodule Storyteller.GM.CampaignLookup do
 
   defp collect_scoped_list(records, _category, _scoped, _builder), do: records
 
-  defp place_record(row, default_visibility, _scope) when is_map(row) do
+  defp place_record(row, default_visibility, _scope, query_terms) when is_map(row) do
     id = first(row, ~w(place_id id key), "unknown-place")
     name = first(row, ~w(name title label), to_string(id))
     visibility = effective_visibility(row, default_visibility)
@@ -375,12 +393,12 @@ defmodule Storyteller.GM.CampaignLookup do
         @public_place_fields ++ @private_place_fields
       end
 
-    record("place", id, name, visibility, "place", row, fields)
+    record("place", id, name, visibility, "place", row, fields, query_terms)
   end
 
-  defp place_record(_, _, _), do: nil
+  defp place_record(_, _, _, _), do: nil
 
-  defp inventory_record(row, default_visibility, scope) when is_map(row) do
+  defp inventory_record(row, default_visibility, scope, query_terms) when is_map(row) do
     id = first(row, ~w(id item_id key), "unknown-item")
     name = first(row, ~w(name label title), to_string(id))
     visibility = effective_visibility(row, default_visibility)
@@ -392,12 +410,12 @@ defmodule Storyteller.GM.CampaignLookup do
         @public_inventory_fields ++ @private_inventory_fields
       end
 
-    record("inventory", id, name, visibility, to_string(scope), row, fields)
+    record("inventory", id, name, visibility, to_string(scope), row, fields, query_terms)
   end
 
-  defp inventory_record(_, _, _), do: nil
+  defp inventory_record(_, _, _, _), do: nil
 
-  defp objective_record(row, default_visibility, scope) when is_map(row) do
+  defp objective_record(row, default_visibility, scope, query_terms) when is_map(row) do
     id = first(row, ~w(id objective_id key), "unknown-objective")
     name = first(row, ~w(title name label), to_string(id))
     visibility = effective_visibility(row, default_visibility)
@@ -409,12 +427,12 @@ defmodule Storyteller.GM.CampaignLookup do
         @public_objective_fields ++ @private_objective_fields
       end
 
-    record("objective", id, name, visibility, to_string(scope), row, fields)
+    record("objective", id, name, visibility, to_string(scope), row, fields, query_terms)
   end
 
-  defp objective_record(_, _, _), do: nil
+  defp objective_record(_, _, _, _), do: nil
 
-  defp collect_world(records, world) when is_map(world) do
+  defp collect_world(records, world, query_terms) when is_map(world) do
     Enum.reduce(world, records, fn {scope, values}, acc ->
       visibility = scope_visibility(scope)
 
@@ -424,9 +442,18 @@ defmodule Storyteller.GM.CampaignLookup do
 
           maybe_add(
             inner,
-            record("world", "world:#{key}", to_string(key), visibility, to_string(scope), row, [
-              "value"
-            ])
+            record(
+              "world",
+              "world:#{key}",
+              to_string(key),
+              visibility,
+              to_string(scope),
+              row,
+              [
+                "value"
+              ],
+              query_terms
+            )
           )
         end)
       else
@@ -435,9 +462,9 @@ defmodule Storyteller.GM.CampaignLookup do
     end)
   end
 
-  defp collect_world(records, _), do: records
+  defp collect_world(records, _, _query_terms), do: records
 
-  defp collect_continuity(records, continuity) when is_map(continuity) do
+  defp collect_continuity(records, continuity, query_terms) when is_map(continuity) do
     Enum.reduce(continuity, records, fn {scope, rows}, acc ->
       visibility = scope_visibility(scope)
 
@@ -456,7 +483,7 @@ defmodule Storyteller.GM.CampaignLookup do
 
           maybe_add(
             inner,
-            record("continuity", id, name, visibility, to_string(scope), row, fields)
+            record("continuity", id, name, visibility, to_string(scope), row, fields, query_terms)
           )
         else
           inner
@@ -465,9 +492,9 @@ defmodule Storyteller.GM.CampaignLookup do
     end)
   end
 
-  defp collect_continuity(records, _), do: records
+  defp collect_continuity(records, _, _query_terms), do: records
 
-  defp collect_memory(records, memory) when is_map(memory) do
+  defp collect_memory(records, memory, query_terms) when is_map(memory) do
     Enum.reduce(memory, records, fn {scope, summary}, acc ->
       {visibility, group} =
         case to_string(scope) do
@@ -481,9 +508,16 @@ defmodule Storyteller.GM.CampaignLookup do
 
         maybe_add(
           acc,
-          record("memory", id, "Campaign memory", visibility, group, %{"summary" => summary}, [
-            "summary"
-          ])
+          record(
+            "memory",
+            id,
+            "Campaign memory",
+            visibility,
+            group,
+            %{"summary" => summary},
+            ["summary"],
+            query_terms
+          )
         )
       else
         acc
@@ -491,9 +525,9 @@ defmodule Storyteller.GM.CampaignLookup do
     end)
   end
 
-  defp collect_memory(records, _), do: records
+  defp collect_memory(records, _, _query_terms), do: records
 
-  defp collect_panels(records, panels) when is_list(panels) do
+  defp collect_panels(records, panels, query_terms) when is_list(panels) do
     Enum.reduce(panels, records, fn panel, acc ->
       if is_map(panel) do
         id = first(panel, ~w(key id), "unknown-panel")
@@ -505,16 +539,16 @@ defmodule Storyteller.GM.CampaignLookup do
             do: @public_panel_fields,
             else: @public_panel_fields ++ @private_panel_fields
 
-        maybe_add(acc, record("panel", id, name, visibility, "panel", panel, fields))
+        maybe_add(acc, record("panel", id, name, visibility, "panel", panel, fields, query_terms))
       else
         acc
       end
     end)
   end
 
-  defp collect_panels(records, _), do: records
+  defp collect_panels(records, _, _query_terms), do: records
 
-  defp collect_travel(records, travel) when is_map(travel) do
+  defp collect_travel(records, travel, query_terms) when is_map(travel) do
     Enum.reduce(travel, records, fn {scope, rows}, acc ->
       visibility = scope_visibility(scope)
 
@@ -530,7 +564,10 @@ defmodule Storyteller.GM.CampaignLookup do
           fields =
             ~w(place_a_id place_b_id from_place_id to_place_id travel_minutes duration status)
 
-          maybe_add(inner, record("place", id, name, visibility, to_string(scope), edge, fields))
+          maybe_add(
+            inner,
+            record("place", id, name, visibility, to_string(scope), edge, fields, query_terms)
+          )
         else
           inner
         end
@@ -538,9 +575,9 @@ defmodule Storyteller.GM.CampaignLookup do
     end)
   end
 
-  defp collect_travel(records, _), do: records
+  defp collect_travel(records, _, _query_terms), do: records
 
-  defp record(category, id, name, visibility, group, source, allowed_fields) do
+  defp record(category, id, name, visibility, group, source, allowed_fields, query_terms) do
     public_only? = visibility == "public"
 
     selected =
@@ -556,7 +593,8 @@ defmodule Storyteller.GM.CampaignLookup do
         end
       end)
 
-    {fields, details_truncated?} = fit_fields(selected, id, name, category, visibility, group)
+    {fields, details_truncated?} =
+      fit_fields(selected, id, name, category, visibility, group, query_terms)
 
     %{
       "category" => category,
@@ -569,17 +607,19 @@ defmodule Storyteller.GM.CampaignLookup do
     }
   end
 
-  defp fit_fields(selected, id, name, category, visibility, group) do
+  defp fit_fields(selected, id, name, category, visibility, group, query_terms) do
     {initial, truncated?} =
       Enum.map_reduce(selected, false, fn {key, value}, any_truncated? ->
-        {safe_value, field_truncated?} = sanitize(value, 0, visibility != "public", 0)
+        {safe_value, field_truncated?} =
+          sanitize(value, 0, visibility != "public", 0, query_terms)
+
         {{to_string(key), safe_value}, any_truncated? or field_truncated?}
       end)
 
-    fit_fields(initial, id, name, category, visibility, group, truncated?)
+    fit_fields(initial, id, name, category, visibility, group, truncated?, query_terms)
   end
 
-  defp fit_fields(fields, id, name, category, visibility, group, truncated?) do
+  defp fit_fields(fields, id, name, category, visibility, group, truncated?, query_terms) do
     candidate = %{
       "category" => category,
       "id" => short_text(id, 120),
@@ -593,17 +633,17 @@ defmodule Storyteller.GM.CampaignLookup do
     if byte_size(Jason.encode!(candidate)) <= @max_record_bytes or fields == [] do
       {Map.new(fields), truncated?}
     else
-      fit_fields(Enum.drop(fields, -1), id, name, category, visibility, group, true)
+      fit_fields(Enum.drop(fields, -1), id, name, category, visibility, group, true, query_terms)
     end
   end
 
   # The allowlists above keep private data out of public records; this second
   # guard prevents nested maps from smuggling private-looking keys across a
   # scope boundary.
-  defp sanitize(value, depth, private_scope?, max_items) do
+  defp sanitize(value, depth, private_scope?, max_items, query_terms) do
     cond do
       is_binary(value) ->
-        {short_text(value, 180), String.length(value) > 180}
+        {query_excerpt(value, 180, query_terms), String.length(value) > 180}
 
       is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value) ->
         {value, false}
@@ -612,7 +652,7 @@ defmodule Storyteller.GM.CampaignLookup do
         {Atom.to_string(value), false}
 
       depth >= 2 ->
-        {short_text(inspect(value), 100), true}
+        {query_excerpt(inspect(value), 100, query_terms), true}
 
       is_map(value) ->
         entries = Enum.sort_by(value, fn {key, _} -> to_string(key) end)
@@ -625,7 +665,9 @@ defmodule Storyteller.GM.CampaignLookup do
 
         {safe_map, nested_truncated?} =
           Enum.map_reduce(selected, false, fn {key, item}, any_truncated? ->
-            {safe_item, item_truncated?} = sanitize(item, depth + 1, private_scope?, 5)
+            {safe_item, item_truncated?} =
+              sanitize(item, depth + 1, private_scope?, 5, query_terms)
+
             {{short_text(to_string(key), 48), safe_item}, any_truncated? or item_truncated?}
           end)
 
@@ -636,14 +678,16 @@ defmodule Storyteller.GM.CampaignLookup do
 
         {safe_list, nested_truncated?} =
           Enum.map_reduce(selected, false, fn item, any_truncated? ->
-            {safe_item, item_truncated?} = sanitize(item, depth + 1, private_scope?, 5)
+            {safe_item, item_truncated?} =
+              sanitize(item, depth + 1, private_scope?, 5, query_terms)
+
             {safe_item, any_truncated? or item_truncated?}
           end)
 
         {safe_list, nested_truncated? or length(value) > length(selected)}
 
       true ->
-        {short_text(inspect(value), 120), true}
+        {query_excerpt(inspect(value), 120, query_terms), true}
     end
   end
 
@@ -742,6 +786,47 @@ defmodule Storyteller.GM.CampaignLookup do
   end
 
   defp get(_, _), do: nil
+
+  defp query_excerpt(text, limit, query_terms) do
+    if String.length(text) <= limit do
+      text
+    else
+      text
+      |> matching_term_offset(query_terms)
+      |> then(&excerpt_at(text, limit, &1))
+    end
+  end
+
+  defp matching_term_offset(text, query_terms) do
+    Enum.find_value(query_terms, fn term ->
+      case Regex.compile(Regex.escape(term), "iu") do
+        {:ok, regex} ->
+          case Regex.run(regex, text, return: :index) do
+            [{byte_offset, _length} | _] ->
+              text
+              |> binary_part(0, byte_offset)
+              |> String.length()
+
+            _ ->
+              nil
+          end
+
+        {:error, _reason} ->
+          nil
+      end
+    end)
+  end
+
+  defp excerpt_at(text, limit, nil), do: short_text(text, limit)
+
+  defp excerpt_at(text, limit, match_offset) do
+    start = max(match_offset - div(limit, 3), 0)
+    prefix = if start > 0, do: "…", else: ""
+    available = limit - String.length(prefix) - 1
+    excerpt = String.slice(text, start, available)
+    suffix = if start + String.length(excerpt) < String.length(text), do: "…", else: ""
+    prefix <> excerpt <> suffix
+  end
 
   defp short_text(text, limit) when is_binary(text) do
     if String.length(text) <= limit, do: text, else: String.slice(text, 0, limit) <> "…"

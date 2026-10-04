@@ -64,6 +64,52 @@ defmodule Storyteller.GM.CampaignLookupTest do
     assert world["fields"]["value"] =~ "silent"
   end
 
+  test "returns a query-centered excerpt when the matching canon is deep in long text" do
+    distant_fact = "Au fond de la salle, une Boussole Argentée repose sous la Carte Scellée."
+
+    long_description =
+      String.duplicate("Le vieux cabinet contient de lourds atlas. ", 30) <>
+        distant_fact <>
+        String.duplicate(" La poussière couvre les étagères. ", 30)
+
+    context = %{
+      places: %{
+        public: [
+          %{
+            place_id: "chart-room",
+            name: "Salle des cartes",
+            visibility: :public,
+            description: long_description
+          },
+          %{
+            place_id: "quiet-store-room",
+            name: "Réserve calme",
+            visibility: :public,
+            description: "Les feuilles sont rangées dans des boîtes."
+          }
+        ]
+      }
+    }
+
+    source_snapshot = :erlang.term_to_binary(context)
+
+    lookup =
+      CampaignLookup.execute(context, %{
+        "query" => "boussole argentée carte scellée",
+        "category" => "place"
+      })
+
+    assert [%{"id" => "chart-room"}] = lookup["records"]
+    place = record(lookup, "place", "chart-room")
+
+    excerpt = place["fields"]["description"]
+    assert String.downcase(excerpt) =~ "boussole argentée"
+    assert String.downcase(excerpt) =~ "carte scellée"
+    assert String.length(excerpt) <= 181
+    assert place["details_truncated"]
+    assert :erlang.term_to_binary(context) == source_snapshot
+  end
+
   test "keeps public and GM-private facts in separate records" do
     context = %{
       characters: [
