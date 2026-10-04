@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-04 — Let players correct public objectives without changing the story
+
+- Public objectives now have a small **Correct** action on the player board. Players can fix a title, details, or Open/Completed/Abandoned status with a required reason; the objective keeps its stable ID and visibility, updates in the matching board section, and appears in a separate before/after receipt.
+- If objectives are the largest measured contributor to a local GM request-size failure, the recovery card opens the same objective correction panel while preserving the saved action. Opening or saving the correction makes no provider call, creates no fictional event, and does not advance the game clock. Private objectives do not appear in choices or player-facing receipts.
+- Campaign backup schema v13 preserves and validates objective correction history, and older supported schemas remain importable. Updated backup version assertions accordingly.
+- Added isolated service, backup, and LiveView behavior coverage for public/private filtering, audit receipts, recovery from a saved failed action, and unchanged story/time. Updated the plan and acceptance brief.
+- **Checks:** complete isolated WSL suite passed (**495 tests, 0 failures**); `MIX_ENV=test STORYTELLER_DB_NAME=storyteller_test mix compile --warnings-as-errors`, `mix gettext.extract --check-up-to-date`, `mix format`, and `git diff --check` passed. Tests used synthetic campaign fixtures and fake providers only; no campaign QA data, live model request, or OAuth consent was used.
+
 ## 2026-10-04 — Point oversized-request recovery at the largest category
 
 - The request-size recovery card previously offered only a campaign overview and setup editor, even when the largest section was inventory, resources, world state, or another record type. It now directs the player to the highest numeric contributor: setup editing; a preselected audited correction form for inventory, tracked resources, and world state; or the related scene, campaign-memory/objectives, or story section.

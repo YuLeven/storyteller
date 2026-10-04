@@ -141,12 +141,14 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   def handle_event("review-context-budget-correction", %{"kind" => kind}, socket)
-      when kind in ["inventory", "resource", "world", "place", "travel_connection"] do
+      when kind in ["inventory", "resource", "world", "place", "travel_connection", "objective"] do
     if correction_changes_allowed?(socket) do
       form = Map.put(default_correction_form(), "kind", kind)
 
       form =
-        if kind in ["place", "travel_connection"], do: Map.put(form, "action", "edit"), else: form
+        if kind in ["place", "travel_connection", "objective"],
+          do: Map.put(form, "action", "edit"),
+          else: form
 
       {:noreply,
        assign(socket,
@@ -187,7 +189,7 @@ defmodule StorytellerWeb.SessionLive.Show do
     values =
       Map.take(
         params,
-        ~w(action name quantity unit category description owner_id properties value place_id facts travel_minutes scene_relevance)
+        ~w(action name title details status quantity unit category description owner_id properties value place_id facts travel_minutes scene_relevance)
       )
 
     attrs = %{
@@ -1587,6 +1589,25 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
+  defp contextual_correction_form("objective", target_id, options) do
+    case Enum.find(options[:objectives] || [], &(&1.objective_id == target_id)) do
+      nil ->
+        {:error, :not_found}
+
+      objective ->
+        form = %{
+          "kind" => "objective",
+          "action" => "edit",
+          "target_id" => target_id,
+          "title" => objective.title,
+          "details" => objective.details || "",
+          "status" => Atom.to_string(objective.status)
+        }
+
+        {:ok, form}
+    end
+  end
+
   defp contextual_correction_form(_kind, _target_id, _options), do: {:error, :invalid_target}
 
   defp default_story_memory_form do
@@ -1599,6 +1620,26 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp maybe_fill_correction_default(params, previous, options) do
+    objective_changed? =
+      params["kind"] == "objective" and not is_nil(params["target_id"]) and
+        (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"])
+
+    params =
+      if objective_changed? do
+        case Enum.find(options[:objectives] || [], &(&1.objective_id == params["target_id"])) do
+          nil ->
+            params
+
+          objective ->
+            params
+            |> Map.put("title", objective.title)
+            |> Map.put("details", objective.details || "")
+            |> Map.put("status", Atom.to_string(objective.status))
+        end
+      else
+        params
+      end
+
     inventory_item_changed? =
       params["kind"] == "inventory" and params["action"] in ["set", "edit"] and
         not is_nil(params["target_id"]) and
@@ -1742,6 +1783,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp correction_kind_label("memory"), do: gettext("Campaign memory")
   defp correction_kind_label("place"), do: gettext("Place details")
   defp correction_kind_label("travel_connection"), do: gettext("Travel route")
+  defp correction_kind_label("objective"), do: gettext("Campaign objective")
   defp correction_kind_label(kind), do: kind
 
   defp world_correction_label("date"), do: gettext("Date")
@@ -1782,6 +1824,18 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp correction_receipt_value("place", %{name: name}) when is_binary(name), do: name
   defp correction_receipt_value("place", _place), do: gettext("Not recorded")
+
+  defp correction_receipt_value(
+         "objective",
+         %{title: title, details: details, status: status}
+       ) do
+    summary =
+      gettext("%{title} (%{status})", title: title, status: objective_status_label(status))
+
+    if is_binary(details) and details != "", do: "#{summary}: #{details}", else: summary
+  end
+
+  defp correction_receipt_value("objective", _objective), do: gettext("Not recorded")
 
   defp correction_receipt_value(
          "travel_connection",
@@ -2679,7 +2733,8 @@ defmodule StorytellerWeb.SessionLive.Show do
       "places" -> :place
       "travel_connections" -> :travel_connection
       "communication_paths" -> :scene
-      category when category in ["memory", "continuity", "objectives"] -> :reference
+      "objectives" -> :objective
+      category when category in ["memory", "continuity"] -> :reference
       "history" -> :timeline
       _ -> :campaign
     end

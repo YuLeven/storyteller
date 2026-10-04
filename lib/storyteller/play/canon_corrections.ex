@@ -20,6 +20,7 @@ defmodule Storyteller.Play.CanonCorrections do
     Inventory,
     Place,
     PlaceConnection,
+    Objective,
     State,
     Turn
   }
@@ -127,6 +128,7 @@ defmodule Storyteller.Play.CanonCorrections do
         end)
 
       world_labels = public_world_labels(play_projection.world)
+      objectives = play_projection.objectives
 
       player_memory_count =
         Repo.aggregate(
@@ -158,7 +160,8 @@ defmodule Storyteller.Play.CanonCorrections do
            end),
          travel_connections: travel_connections,
          player_memory_count: player_memory_count,
-         player_memory_limit: @max_player_memory_entries
+         player_memory_limit: @max_player_memory_entries,
+         objectives: objectives
        }}
     else
       _ -> {:error, :unavailable}
@@ -180,6 +183,14 @@ defmodule Storyteller.Play.CanonCorrections do
       )
       |> MapSet.new(&route_correction_id/1)
 
+    public_objective_ids =
+      Repo.all(
+        from objective in Objective,
+          where: objective.campaign_id == ^campaign_id and objective.visibility == :public,
+          select: objective.objective_id
+      )
+      |> MapSet.new()
+
     Repo.all(
       from correction in CanonCorrection,
         where: correction.campaign_id == ^campaign_id,
@@ -190,6 +201,7 @@ defmodule Storyteller.Play.CanonCorrections do
       case correction.kind do
         "place" -> MapSet.member?(public_place_ids, correction.target_id)
         "travel_connection" -> MapSet.member?(public_route_ids, correction.target_id)
+        "objective" -> MapSet.member?(public_objective_ids, correction.target_id)
         _ -> true
       end
     end)
@@ -253,6 +265,14 @@ defmodule Storyteller.Play.CanonCorrections do
     }
   end
 
+  defp receipt_snapshot("objective", %{"objective" => objective}) when is_map(objective) do
+    %{
+      title: objective["title"],
+      details: objective["details"],
+      status: objective["status"]
+    }
+  end
+
   defp receipt_snapshot(_kind, _snapshot), do: nil
 
   defp receipt_target_label("inventory", %{name: name}), do: name
@@ -262,6 +282,7 @@ defmodule Storyteller.Play.CanonCorrections do
   defp receipt_target_label("world", %{label: label}), do: label
   defp receipt_target_label("place", %{name: name}), do: name
   defp receipt_target_label("travel_connection", %{from: from, to: to}), do: "#{from} ↔ #{to}"
+  defp receipt_target_label("objective", %{title: title}), do: title
   defp receipt_target_label(_kind, _snapshot), do: nil
 
   @doc "Applies one explicit correction, rejecting stale or in-flight campaign state."
@@ -609,8 +630,87 @@ defmodule Storyteller.Play.CanonCorrections do
   defp plan_correction(:world, _target_id, _values, _campaign_id, _state),
     do: {:error, :not_found}
 
+  defp plan_correction(:objective, target_id, values, campaign_id, _state)
+       when is_binary(target_id) do
+    objective =
+      Repo.one(
+        from objective in Objective,
+          where:
+            objective.campaign_id == ^campaign_id and objective.objective_id == ^target_id and
+              objective.visibility == :public,
+          lock: "FOR UPDATE"
+      )
+
+    with %Objective{} <- objective,
+         title when is_binary(title) <- normalize_correction_text(attr(values, :title), 160),
+         {:ok, details} <- normalize_objective_details(attr(values, :details)),
+         status when not is_nil(status) <- normalize_objective_status(attr(values, :status)) do
+      before_state = %{"objective" => objective_snapshot(objective)}
+
+      updated_objective = %{objective | title: title, details: details, status: status}
+      after_state = %{"objective" => objective_snapshot(updated_objective)}
+
+      if before_state == after_state do
+        {:error, :no_change}
+      else
+        update = fn state ->
+          case objective
+               |> Objective.changeset(%{title: title, details: details, status: status})
+               |> Repo.update() do
+            {:ok, _objective} -> {:ok, state}
+            {:error, _changeset} -> {:error, :invalid_correction}
+          end
+        end
+
+        {:ok, target_id, before_state, after_state, update}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, _reason} -> {:error, :invalid_value}
+      _ -> {:error, :invalid_value}
+    end
+  end
+
   defp plan_correction(_kind, _target_id, _values, _campaign_id, _state),
     do: {:error, :invalid_correction}
+
+  defp objective_snapshot(objective) do
+    %{
+      "objective_id" => objective.objective_id,
+      "title" => objective.title,
+      "details" => objective.details,
+      "status" => Atom.to_string(objective.status),
+      "visibility" => Atom.to_string(objective.visibility)
+    }
+  end
+
+  defp normalize_correction_text(value, max_length) when is_binary(value) do
+    value = String.trim(value)
+
+    if value != "" and String.valid?(value) and String.length(value) <= max_length,
+      do: value
+  end
+
+  defp normalize_correction_text(_value, _max_length), do: nil
+
+  defp normalize_objective_details(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if String.valid?(value) and String.length(value) <= 2_000,
+      do: {:ok, if(value == "", do: nil, else: value)},
+      else: {:error, :invalid_value}
+  end
+
+  defp normalize_objective_details(nil), do: {:ok, nil}
+  defp normalize_objective_details(_value), do: {:error, :invalid_value}
+
+  defp normalize_objective_status("open"), do: :open
+  defp normalize_objective_status(:open), do: :open
+  defp normalize_objective_status("completed"), do: :completed
+  defp normalize_objective_status(:completed), do: :completed
+  defp normalize_objective_status("abandoned"), do: :abandoned
+  defp normalize_objective_status(:abandoned), do: :abandoned
+  defp normalize_objective_status(_value), do: nil
 
   defp public_world_labels(public_state) do
     Enum.flat_map([{"date", "Date"}, {"time", "Time"}, {"weather", "Weather"}], fn {
@@ -1076,6 +1176,8 @@ defmodule Storyteller.Play.CanonCorrections do
   defp normalize_kind(:place), do: :place
   defp normalize_kind("travel_connection"), do: :travel_connection
   defp normalize_kind(:travel_connection), do: :travel_connection
+  defp normalize_kind("objective"), do: :objective
+  defp normalize_kind(:objective), do: :objective
   defp normalize_kind(_), do: nil
 
   defp route_correction_id(%PlaceConnection{place_a_id: place_a_id, place_b_id: place_b_id}) do

@@ -46,7 +46,7 @@ defmodule Storyteller.Play.CanonCorrection do
     ])
     |> validate_inclusion(
       :kind,
-      ~w(inventory resource location memory world place travel_connection)
+      ~w(inventory resource location memory world place travel_connection objective)
     )
     |> validate_number(:sequence, greater_than: 0)
     |> validate_number(:expected_revision, greater_than_or_equal_to: 0)

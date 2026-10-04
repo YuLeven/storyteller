@@ -43,7 +43,8 @@ defmodule Storyteller.CampaignBackup do
   @finite_duties_version 10
   @remote_message_paths_version 11
   @place_route_corrections_version 12
-  @version @place_route_corrections_version
+  @objective_corrections_version 13
+  @version @objective_corrections_version
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -429,7 +430,8 @@ defmodule Storyteller.CampaignBackup do
              @active_duties_version,
              @finite_duties_version,
              @remote_message_paths_version,
-             @place_route_corrections_version
+             @place_route_corrections_version,
+             @objective_corrections_version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
@@ -476,6 +478,7 @@ defmodule Storyteller.CampaignBackup do
              characters,
              places,
              panels,
+             objectives,
              continuity,
              backup["schema_version"]
            ) do
@@ -521,7 +524,8 @@ defmodule Storyteller.CampaignBackup do
               @active_duties_version,
               @finite_duties_version,
               @remote_message_paths_version,
-              @place_route_corrections_version
+              @place_route_corrections_version,
+              @objective_corrections_version
             ],
        do:
          root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
@@ -1127,7 +1131,8 @@ defmodule Storyteller.CampaignBackup do
               @active_duties_version,
               @finite_duties_version,
               @remote_message_paths_version,
-              @place_route_corrections_version
+              @place_route_corrections_version,
+              @objective_corrections_version
             ],
        do: turn_backup_keys(@current_previous_version)
 
@@ -1342,6 +1347,7 @@ defmodule Storyteller.CampaignBackup do
          characters,
          places,
          _panels,
+         objectives,
          continuity,
          version
        )
@@ -1383,6 +1389,7 @@ defmodule Storyteller.CampaignBackup do
                       character_ids,
                       owner_ids,
                       public_places,
+                      objectives,
                       continuity
                     ),
                   {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false) do
@@ -1404,7 +1411,10 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp validate_canon_corrections(_, _, _, _, _, _), do: {:error, :invalid_backup}
+  defp validate_canon_corrections(_, _, _, _, _, _, _), do: {:error, :invalid_backup}
+
+  defp canon_correction_kinds(version) when version >= @objective_corrections_version,
+    do: ~w(inventory resource location memory world place travel_connection objective)
 
   defp canon_correction_kinds(version) when version >= @place_route_corrections_version,
     do: ~w(inventory resource location memory world place travel_connection)
@@ -1425,6 +1435,7 @@ defmodule Storyteller.CampaignBackup do
          _character_ids,
          owners,
          _places,
+         _objectives,
          _continuity
        ) do
     with :ok <- exact_keys(before_map, ["item"], :inventory_correction_state),
@@ -1449,6 +1460,7 @@ defmodule Storyteller.CampaignBackup do
          _ids,
          _owners,
          _places,
+         _objectives,
          _continuity
        ) do
     with :ok <- validate_resource_correction_state(before_map, target_id),
@@ -1468,6 +1480,7 @@ defmodule Storyteller.CampaignBackup do
          character_ids,
          _owners,
          places,
+         _objectives,
          _continuity
        ) do
     with true <- MapSet.member?(character_ids, target_id),
@@ -1488,6 +1501,7 @@ defmodule Storyteller.CampaignBackup do
          _character_ids,
          _owners,
          _places,
+         _objectives,
          continuity
        ) do
     public_memory_ids =
@@ -1513,6 +1527,7 @@ defmodule Storyteller.CampaignBackup do
          _character_ids,
          _owners,
          _places,
+         _objectives,
          _continuity
        ) do
     with true <- target_id in ~w(date time weather),
@@ -1533,6 +1548,7 @@ defmodule Storyteller.CampaignBackup do
          _character_ids,
          _owners,
          _places,
+         _objectives,
          _continuity
        ) do
     with :ok <- validate_place_correction_state(before_map, target_id),
@@ -1552,6 +1568,7 @@ defmodule Storyteller.CampaignBackup do
          _character_ids,
          _owners,
          _places,
+         _objectives,
          _continuity
        ) do
     with :ok <- validate_route_correction_state(before_map, target_id),
@@ -1563,7 +1580,33 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
-  defp validate_canon_correction_states(_, _, _, _, _, _, _, _),
+  defp validate_canon_correction_states(
+         "objective",
+         target_id,
+         before_map,
+         after_map,
+         _character_ids,
+         _owners,
+         _places,
+         objectives,
+         _continuity
+       ) do
+    public_objective_ids =
+      objectives
+      |> Enum.filter(&(&1.visibility == :public))
+      |> MapSet.new(& &1.objective_id)
+
+    with true <- MapSet.member?(public_objective_ids, target_id),
+         :ok <- validate_objective_correction_state(before_map, target_id),
+         :ok <- validate_objective_correction_state(after_map, target_id),
+         true <- before_map != after_map do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_canon_correction_states(_, _, _, _, _, _, _, _, _),
     do: {:error, :invalid_backup}
 
   defp validate_place_correction_state(state, target_id) do
@@ -1652,6 +1695,27 @@ defmodule Storyteller.CampaignBackup do
   end
 
   defp validate_memory_correction_state(_, _target_id), do: {:error, :invalid_backup}
+
+  defp validate_objective_correction_state(state, target_id) do
+    with :ok <- exact_keys(state, ["objective"], :objective_correction_state),
+         %{} = objective <- state["objective"],
+         :ok <-
+           exact_keys(
+             objective,
+             ~w(objective_id title details status visibility),
+             :objective_correction
+           ),
+         true <- objective["objective_id"] == target_id,
+         {:ok, _objective_id} <- stable_id(objective["objective_id"], 100),
+         {:ok, _title} <- text(objective["title"], 1, 160),
+         {:ok, _details} <- optional_text(objective["details"], 2_000),
+         {:ok, _status} <- enum(objective["status"], ~w(open completed abandoned)),
+         true <- objective["visibility"] == "public" do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
 
   defp correction_inventory_item(nil, _owners), do: {:ok, nil}
 

@@ -2556,6 +2556,70 @@ defmodule StorytellerWeb.SessionLiveTest do
     refute Enum.any?(story_events, &(&1.event_type == :state_change))
   end
 
+  test "a player can correct an objective without changing the story or game clock", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, _state} = Play.initialize_campaign(campaign)
+
+    objective =
+      Repo.insert!(
+        Objective.changeset(%Objective{}, %{
+          campaign_id: campaign.id,
+          objective_id: "repair-west-observatory-roof",
+          title: "Repair the west roof",
+          details: "Seal the roof before winter.",
+          status: :open,
+          visibility: :public
+        })
+      )
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    events_before = Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence)
+    clock_before = Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes
+
+    render_click(view, "start-canon-correction", %{
+      "kind" => "objective",
+      "target-id" => objective.objective_id
+    })
+
+    assert has_element?(view, "#canon-corrections[open]")
+    assert has_element?(view, "#correction-kind option[value='objective'][selected]")
+    assert has_element?(view, "#correction-objective-title[value='Repair the west roof']")
+    assert has_element?(view, "#correction-objective-details", "Seal the roof before winter.")
+
+    correction = %{
+      "kind" => "objective",
+      "target_id" => objective.objective_id,
+      "title" => "Clear the east gutter",
+      "details" => "Remove leaves from the east gutter before the next rain.",
+      "status" => "abandoned",
+      "reason" => "The roof was repaired already; the only remaining issue is the gutter."
+    }
+
+    view
+    |> form("#canon-correction-form", %{"correction" => correction})
+    |> render_submit()
+
+    saved = Repo.get!(Objective, objective.id)
+    assert saved.title == correction["title"]
+    assert saved.details == correction["details"]
+    assert saved.status == :abandoned
+
+    assert has_element?(
+             view,
+             "#objective-#{objective.objective_id}[data-panel-watch-state='abandoned']"
+           )
+
+    assert has_element?(view, "#recent-canon-corrections", correction["reason"])
+    assert has_element?(view, "#recent-canon-corrections", "Repair the west roof (Open)")
+    assert has_element?(view, "#recent-canon-corrections", "Clear the east gutter (Abandoned)")
+
+    assert Play.public_timeline(campaign.id) |> elem(1) |> Enum.map(& &1.sequence) ==
+             events_before
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == clock_before
+  end
+
   test "game time appears once per turn and repeats only when the clock changes", %{conn: conn} do
     campaign = campaign_fixture()
     [first_session] = campaign.sessions
@@ -4670,7 +4734,43 @@ defmodule StorytellerWeb.SessionLiveTest do
       end
 
       assert {:ok, _preference} = Settings.set_ui_locale("en")
+
+      objective =
+        Repo.insert!(
+          Objective.changeset(%Objective{}, %{
+            campaign_id: campaign.id,
+            objective_id: "review-observatory-weather",
+            title: "Review the observatory weather log",
+            details: "Check which storm damaged the north dome.",
+            status: :open,
+            visibility: :public
+          })
+        )
+
+      failed_turn = Repo.get!(Turn, failed_turn.id)
+
+      Repo.update!(
+        Turn.changeset(failed_turn, %{failure_code: "context_budget_exceeded|ob:a|100|5"})
+      )
+
       {:ok, correction_view, _html} = live_play(conn, campaign, session)
+
+      assert has_element?(
+               correction_view,
+               "#context-budget-review-objectives",
+               "Review objectives"
+             )
+
+      correction_view
+      |> element("#context-budget-review-objectives")
+      |> render_click()
+
+      assert has_element?(
+               correction_view,
+               "#correction-kind option[value='objective'][selected]"
+             )
+
+      assert has_element?(correction_view, "#correction-objective-target", objective.title)
 
       correction_view
       |> render_click("review-context-budget-correction", %{"kind" => "world"})

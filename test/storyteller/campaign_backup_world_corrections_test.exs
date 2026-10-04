@@ -4,10 +4,10 @@ defmodule Storyteller.CampaignBackupWorldCorrectionsTest do
   import Storyteller.CampaignFixtures
 
   alias Storyteller.CampaignBackup
-  alias Storyteller.Play.{CanonCorrection, CanonCorrections, State}
+  alias Storyteller.Play.{CanonCorrection, CanonCorrections, Objective, State}
   alias Storyteller.Repo
 
-  test "version twelve round-trips world correction audit and version seven remains importable" do
+  test "version thirteen round-trips objective correction audit and version seven remains importable" do
     campaign =
       campaign_fixture(%{
         starting_date: "14 October 1567",
@@ -44,11 +44,41 @@ defmodule Storyteller.CampaignBackupWorldCorrectionsTest do
                reason: "The weather label was copied incorrectly."
              })
 
+    objective =
+      Repo.insert!(
+        Objective.changeset(%Objective{}, %{
+          campaign_id: campaign.id,
+          objective_id: "seal-west-roof",
+          title: "Seal the west roof",
+          details: "Patch the storm damage before winter.",
+          status: :open,
+          visibility: :public
+        })
+      )
+
+    {:ok, objective_options} = CanonCorrections.options(campaign.id, session.id)
+
+    assert {:ok, _objective_receipt} =
+             CanonCorrections.correct(campaign.id, session.id, %{
+               kind: "objective",
+               target_id: objective.objective_id,
+               expected_revision: objective_options.revision,
+               reason: "The west roof was fixed; record the remaining work accurately.",
+               values: %{
+                 title: "Clear the north gutter",
+                 details: "Remove leaves from the north gutter before the next rain.",
+                 status: "abandoned"
+               }
+             })
+
     assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
     backup = Jason.decode!(backup_json)
-    assert backup["schema_version"] == 12
+    assert backup["schema_version"] == 13
 
-    assert [%{"kind" => "world", "target_id" => "weather"} = exported_correction] =
+    assert [
+             %{"kind" => "world", "target_id" => "weather"} = exported_correction,
+             %{"kind" => "objective", "target_id" => "seal-west-roof"} = exported_objective
+           ] =
              backup["canon_corrections"]
 
     assert exported_correction["before_state"] == %{
@@ -76,6 +106,22 @@ defmodule Storyteller.CampaignBackupWorldCorrectionsTest do
     assert imported_correction.reason == "The weather label was copied incorrectly."
     assert imported_correction.before_state == exported_correction["before_state"]
     assert imported_correction.after_state == exported_correction["after_state"]
+
+    imported_objective =
+      Repo.get_by!(Objective, campaign_id: imported.id, objective_id: "seal-west-roof")
+
+    assert imported_objective.title == "Clear the north gutter"
+    assert imported_objective.status == :abandoned
+
+    imported_objective_correction =
+      Repo.get_by!(CanonCorrection,
+        campaign_id: imported.id,
+        kind: "objective",
+        target_id: "seal-west-roof"
+      )
+
+    assert imported_objective_correction.before_state == exported_objective["before_state"]
+    assert imported_objective_correction.after_state == exported_objective["after_state"]
 
     legacy_world_correction = Map.put(v7_backup, "canon_corrections", [exported_correction])
 
