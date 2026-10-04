@@ -7,6 +7,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   alias Storyteller.Play.CanonCorrections
 
   @poll_interval 1_500
+  @long_wait_notice_after_ms 15_000
   @turn_in_progress [:pending, :resolving]
   @turn_blocking [:pending, :resolving, :awaiting_roll]
   @timeline_page_size 500
@@ -62,6 +63,9 @@ defmodule StorytellerWeb.SessionLive.Show do
             worker_tag: nil,
             worker_attempt: nil,
             turn_first_output_id: nil,
+            turn_long_wait_turn_id: nil,
+            turn_long_wait_worker_tag: nil,
+            turn_long_wait_timer_ref: nil,
             poll_scheduled?: false,
             correction_options: nil,
             correction_receipts: [],
@@ -690,6 +694,22 @@ defmodule StorytellerWeb.SessionLive.Show do
          turn_first_output_id: turn_id,
          turn_announcement:
            first_output_announcement(current_turn, socket.assigns.current_turn_roll)
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:turn_long_wait_notice, turn_id, worker_tag}, socket) do
+    current_turn = socket.assigns.current_turn
+
+    if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag and
+         same_turn?(current_turn, to_string(turn_id)) and current_turn.status in @turn_in_progress do
+      {:noreply,
+       assign(socket,
+         turn_long_wait_turn_id: turn_id,
+         turn_long_wait_worker_tag: worker_tag,
+         turn_long_wait_timer_ref: nil
        )}
     else
       {:noreply, socket}
@@ -1452,6 +1472,13 @@ defmodule StorytellerWeb.SessionLive.Show do
         {:ok, pid} ->
           ref = Process.monitor(pid)
 
+          long_wait_timer_ref =
+            Process.send_after(
+              self(),
+              {:turn_long_wait_notice, turn_id, worker_tag},
+              @long_wait_notice_after_ms
+            )
+
           socket =
             assign(socket,
               worker_turn_id: turn_id,
@@ -1459,7 +1486,10 @@ defmodule StorytellerWeb.SessionLive.Show do
               worker_monitor_ref: ref,
               worker_tag: worker_tag,
               worker_attempt: nil,
-              turn_first_output_id: nil
+              turn_first_output_id: nil,
+              turn_long_wait_turn_id: nil,
+              turn_long_wait_worker_tag: nil,
+              turn_long_wait_timer_ref: long_wait_timer_ref
             )
 
           if connected?(socket) and
@@ -1501,13 +1531,20 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp clear_resolution_worker(socket) do
+    if is_reference(socket.assigns.turn_long_wait_timer_ref) do
+      Process.cancel_timer(socket.assigns.turn_long_wait_timer_ref)
+    end
+
     assign(socket,
       worker_turn_id: nil,
       worker_pid: nil,
       worker_monitor_ref: nil,
       worker_tag: nil,
       worker_attempt: nil,
-      turn_first_output_id: nil
+      turn_first_output_id: nil,
+      turn_long_wait_turn_id: nil,
+      turn_long_wait_worker_tag: nil,
+      turn_long_wait_timer_ref: nil
     )
   end
 

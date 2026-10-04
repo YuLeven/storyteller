@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Reassure players during a long GM wait
+
+- Recent isolated connected turns took 42–71 seconds; the application withholds generated text until the complete response passes validation and commits. A static wait card did not reassure the player once that delay stretched on.
+- After 15 seconds, the active LiveView adds a localized note to the existing progress card. The copy works for an opening scene as well as a player-submitted move, keeping any submitted action visible and saying the complete checked GM response will appear when ready. It adds no story event, changes no turn state, makes no provider call, and reveals no partial text. Turn and worker fencing plus timer cleanup prevent a stale notice appearing after retry, completion, or session change.
+- Added a fake-provider LiveView regression that waits through the real delay, checks a mismatched worker tag is ignored, verifies the saved action stays visible while reply text remains hidden, then confirms the note disappears after commit. English, Spanish, and French copy is present.
+- **Checks:** focused WSL LiveView regression passed; the full isolated suite passed (**502 tests, 0 failures**); Gettext freshness passed. Test data stayed in `storyteller_test`; no real campaign, live model, or OAuth flow was used.
+
 ## 2026-10-04 — Set a soft dialogue default for ordinary solo actions
 
 - The adaptive-pace instructions already asked the GM to avoid filler and include only warranted present-character reactions, but left the routine number of chat bubbles unspecified. Added a reversible prompt default: one cohesive GM passage and normally no more than two justified NPC speech bubbles for ordinary solo actions. Player intent and scene needs explicitly override it, preserving longer dialogue-led and ensemble scenes. There is no hard validator cap, truncation, or rejection path.

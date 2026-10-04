@@ -4470,6 +4470,69 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert Enum.map(turn_events, & &1.event_type) == [:player_action, :gm_narration]
   end
 
+  @tag :long_wait_notice
+  test "a long active response reassures the player without revealing partial story", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    action = "I ask Mira to compare the two chart margins."
+    narration = "Mira notices a careful correction beside the older mark."
+
+    set_handler(fn _request ->
+      send(test_pid, {:long_wait_provider_waiting, self()})
+
+      receive do
+        :finish_long_wait ->
+          {:ok,
+           %{
+             narration: narration,
+             dialogue: [],
+             activities: [],
+             public_changes: %{},
+             private_changes: %{},
+             character_updates: [],
+             memory_update: %{public_summary: "", gm_private_summary: ""},
+             roll_request: nil
+           }}
+      after
+        30_000 -> flunk("the fake long response was not released")
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:long_wait_provider_waiting, provider_pid}, 1_000
+    assert has_element?(view, "#story-pending-action", action)
+    refute has_element?(view, "#turn-long-wait-note")
+
+    turn = Play.public_current_turn(campaign.id)
+    send(view.pid, {:turn_long_wait_notice, turn.id, make_ref()})
+    refute has_element?(view, "#turn-long-wait-note")
+
+    assert wait_until(fn -> has_element?(view, "#turn-long-wait-note") end, 700)
+
+    assert has_element?(
+             view,
+             "#turn-long-wait-note",
+             "This is taking a little longer. This turn is saved; the complete, checked GM response will appear here when it is ready."
+           )
+
+    assert has_element?(view, "#story-pending-action", action)
+    refute has_element?(view, "#story-timeline", narration)
+
+    send(provider_pid, :finish_long_wait)
+
+    assert wait_until(fn -> has_element?(view, "#story-timeline", narration) end)
+    refute has_element?(view, "#turn-long-wait-note")
+    refute has_element?(view, "#story-pending-action")
+  end
+
   test "completion announcements are localized and are not replayed on reconnect", %{conn: conn} do
     for {locale, completion} <- [
           {"es", "Tu turno se ha completado."},

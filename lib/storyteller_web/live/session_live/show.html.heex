@@ -291,6 +291,18 @@
                   gettext("Reconnecting to the saved turn…")
               end}
             </p>
+            <p
+              :if={
+                @turn_long_wait_turn_id == @current_turn.id and
+                  @turn_long_wait_worker_tag == @worker_tag
+              }
+              id="turn-long-wait-note"
+              class="mt-2 text-sm leading-6 text-amber-900"
+            >
+              {gettext(
+                "This is taking a little longer. This turn is saved; the complete, checked GM response will appear here when it is ready."
+              )}
+            </p>
           </div>
         </section>
 
