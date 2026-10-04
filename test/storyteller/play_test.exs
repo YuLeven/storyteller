@@ -9730,6 +9730,11 @@ defmodule Storyteller.PlayTest do
     assert normalized_instructions =~ "Time passage is an explicit request to advance the world"
 
     assert normalized_instructions =~
+             "player's stated minimum for this passage is 30240 in-world minutes"
+
+    assert normalized_instructions =~ "narrate at least this span"
+
+    assert normalized_instructions =~
              "Resolve routine work as a montage of progress and conversation across that span."
 
     assert normalized_instructions =~

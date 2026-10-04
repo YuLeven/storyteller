@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Give time-passage narration the canonical minimum
+
+- When the saved time-passage input contains one clear numeric duration, the GM instructions now include its derived in-world minutes and explicitly ask the narration and structured response to cover at least that span. This shares the same minimum already enforced by the server-side world clock and leaves room for a longer canonical travel floor.
+- Expanded the existing fake-provider regression to assert the 21-day duration appears as 30,240 minutes in the GM instructions and stays below the time-passage byte guard. This makes intent clearer to the model; it does not establish live prose compliance.
+- **Checks:** the focused time-passage regression passed (**1 selected, 119 excluded**), including the 12,000-byte instruction guard; full isolated WSL suite passed (**513 tests, 0 failures**). Warnings-as-errors compile, formatter, Gettext freshness, asset build, and `git diff --check` passed. Fake-provider tests only; no live model request or campaign QA data was used.
+
 ## 2026-10-04 — Keep explicit time-passage duration authoritative
 
 - A time-passage request with one clear numeric span in minutes, hours, days, or weeks (English, Spanish, or French) now determines the minimum elapsed world time. The server applies that value before validating the GM's proposed clock field, so an inconsistent zero or shorter value cannot reject or silently compress an explicit player request. Canonical travel time remains a lower bound.

@@ -5427,7 +5427,8 @@ defmodule Storyteller.Play do
   defp normalize_provider_return(_), do: {:error, :provider_error}
 
   defp provider_request(context, opts, intent) do
-    instructions = @gm_policy <> interaction_mode_guidance(intent)
+    instructions =
+      @gm_policy <> interaction_mode_guidance(intent, Map.get(context, :player_action))
 
     model =
       case Keyword.fetch(opts, :model) do
@@ -5601,9 +5602,9 @@ defmodule Storyteller.Play do
     ContextBudget.emit_metrics(Map.get(request, :local_context_metrics), usage)
   end
 
-  defp interaction_mode_guidance(:action), do: ""
+  defp interaction_mode_guidance(:action, _player_action), do: ""
 
-  defp interaction_mode_guidance(:question) do
+  defp interaction_mode_guidance(:question, _player_action) do
     """
 
     This is a direct out-of-character question from the player to you as GM, not
@@ -5623,8 +5624,8 @@ defmodule Storyteller.Play do
     """
   end
 
-  defp interaction_mode_guidance(:time_passage) do
-    """
+  defp interaction_mode_guidance(:time_passage, player_action) do
+    guidance = """
 
     The player asks time to pass; follow the general duration, route, agency,
     and dice rules above. Resolve routine work as a montage of progress and
@@ -5634,9 +5635,20 @@ defmodule Storyteller.Play do
     incidental actions or skip ahead merely to move the clock. Return control
     at a meaningful decision.
     """
+
+    case TimePassageDuration.parse(player_action, @max_turn_elapsed_minutes) do
+      {:ok, minutes} ->
+        guidance <>
+          "\nThe player's stated minimum for this passage is #{minutes} in-world minutes. " <>
+          "Set time_advance_minutes to at least this value and narrate at least this span, " <>
+          "including any longer required travel."
+
+      _not_unambiguous ->
+        guidance
+    end
   end
 
-  defp interaction_mode_guidance(:opening_scene) do
+  defp interaction_mode_guidance(:opening_scene, _player_action) do
     """
 
     This is the idempotent opening-scene request for a brand-new campaign's
@@ -5662,7 +5674,7 @@ defmodule Storyteller.Play do
     """
   end
 
-  defp interaction_mode_guidance(_intent), do: ""
+  defp interaction_mode_guidance(_intent, _player_action), do: ""
 
   defp build_request_context(turn) do
     campaign = Repo.get!(Campaign, turn.campaign_id)
