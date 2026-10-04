@@ -1564,25 +1564,22 @@ defmodule Storyteller.PlayTest do
     assert Repo.aggregate(Turn, :count, :id) == 10
   end
 
-  test "ordinary GM requests stay bounded across three sessions and thirty-six turns" do
+  test "ordinary GM requests stay bounded across ten sessions and one hundred twenty turns" do
     {campaign, first_session} = play_campaign("The Long-Running Observatory")
     owner = self()
 
-    provider = fn request ->
-      send(
-        owner,
-        {:long_campaign_request_size, request.local_context_metrics.estimated_request_bytes}
+    long_narration =
+      String.duplicate(
+        "The brass shutter turns in the cool midnight air; Lyra watches the eastern star. ",
+        20
       )
 
-      {:ok, Jason.encode!(ordinary_proposal())}
-    end
-
     {sessions, _active_session} =
-      Enum.reduce(1..36, {MapSet.new([first_session.id]), first_session}, fn turn_index,
-                                                                             {sessions,
-                                                                              active_session} ->
+      Enum.reduce(1..120, {MapSet.new([first_session.id]), first_session}, fn turn_index,
+                                                                              {sessions,
+                                                                               active_session} ->
         active_session =
-          if turn_index in [13, 25] do
+          if turn_index > 1 and rem(turn_index - 1, 12) == 0 do
             {:ok, next_session} = Campaigns.start_session(campaign)
             next_session
           else
@@ -1595,18 +1592,26 @@ defmodule Storyteller.PlayTest do
                    active_session.id,
                    "long-campaign-turn-#{turn_index}",
                    "I continue the observatory work, observation #{turn_index}.",
-                   provider: provider,
+                   provider: fn request ->
+                     send(
+                       owner,
+                       {:long_campaign_request_size,
+                        request.local_context_metrics.estimated_request_bytes}
+                     )
+
+                     {:ok, Jason.encode!(ordinary_proposal(%{"narration" => long_narration}))}
+                   end,
                    model: "test-model"
                  )
 
         {MapSet.put(sessions, active_session.id), active_session}
       end)
 
-    assert MapSet.size(sessions) == 3
-    assert Repo.aggregate(Turn, :count, :id) == 36
+    assert MapSet.size(sessions) == 10
+    assert Repo.aggregate(Turn, :count, :id) == 120
 
     request_sizes =
-      for _turn_index <- 1..36 do
+      for _turn_index <- 1..120 do
         assert_receive {:long_campaign_request_size, size}, 2_000
         size
       end

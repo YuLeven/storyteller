@@ -7,6 +7,12 @@
 - Updated the acceptance brief and plan to measure audible voice distinction in matched connected scenes; request-boundary tests cannot prove generated delivery. No live generation was run in this iteration.
 - **Checks:** focused provider-boundary, compact-context, and policy-size regressions passed (153 tests discovered, 3 selected, 0 failures); complete isolated WSL suite passed (**496 tests, 0 failures**). The new phrasing stays below the existing 11,000-byte policy cap. Tests used synthetic characters and a fake provider; no live generation or campaign QA data was used.
 
+## 2026-10-04 — Stress long-campaign transcript compaction
+
+- Expanded the ordinary-play context-growth integration test from 36 turns in three sessions to 120 turns in ten sessions. Each fake GM response now adds roughly 1.6 KB of narration, building a substantially larger persisted transcript while every move still travels through the real local turn pipeline.
+- The test measures the exact serialized request envelope on every turn and requires the fake provider to receive all 120 actions under the configured 64,000-byte preflight. It checks ordinary transcript growth across session boundaries; it does not establish a maximum campaign size, live provider acceptance, or story quality.
+- **Checks:** focused WSL integration regression passed (**117 tests discovered, 1 selected, 0 failures**); the full isolated suite passed (**496 tests, 0 failures**), as did formatter and `git diff --check`. All data was synthetic and isolated in `storyteller_test`; no QA campaign data, live model, or OAuth was used.
+
 ## 2026-10-04 — Extend the campaign-growth guard across sessions
 
 - The earlier request-size integration regression stopped at ten turns in one session. It now has a separate fictional campaign that completes 36 consecutive ordinary turns across three sessions using the real local turn pipeline and a fake provider.
