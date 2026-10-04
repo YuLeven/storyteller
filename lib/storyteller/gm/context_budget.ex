@@ -730,19 +730,32 @@ defmodule Storyteller.GM.ContextBudget do
     |> Enum.sort_by(fn {character, index} ->
       speaker_id = value(character, :speaker_id)
       mentioned? = name_mentioned?(value(character, :name), action_terms)
+      public_detail_match? = retrieval_character_detail_match?(character, action_terms)
       recent? = is_binary(speaker_id) and MapSet.member?(recent_speakers, speaker_id)
 
       priority =
         cond do
           mentioned? -> 0
-          recent? -> 1
-          true -> 2
+          public_detail_match? -> 1
+          recent? -> 2
+          true -> 3
         end
 
       {priority, index}
     end)
     |> Enum.take(@max_history_scene_speakers)
     |> Enum.map(&elem(&1, 0))
+  end
+
+  defp retrieval_character_detail_match?(character, action_terms) do
+    detail_terms =
+      [safe_json(value(character, :visible_facts)), value(character, :visible_activity)]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.join(" ")
+      |> raw_meaningful_terms()
+
+    MapSet.size(action_terms) > 0 and MapSet.size(detail_terms) > 0 and
+      not MapSet.disjoint?(action_terms, detail_terms)
   end
 
   defp retrieval_packet_omissions(_context),

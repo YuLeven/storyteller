@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Keep NPCs addressable by public role in oversized scenes
+
+- A player may address a person by an observable descriptor (“the cook”) rather than a name. The emergency packet already prioritized explicit names and recent speakers, but could truncate that character from an unusually crowded scene.
+- Scene-cast ranking now also matches the action against public character facts and current visible activity after explicit names and before recent speakers. It does not inspect private facts to infer an address and does not add hidden details to the packet.
+- Added a synthetic 41-NPC regression: “ask the cook” keeps the person whose public occupation is cook and drops the last unprioritized observer while preserving the packet bound.
+- **Checks:** focused WSL context-budget suite passed (**40 tests, 0 failures**); full isolated WSL suite passed (**500 tests, 0 failures**); warnings-as-errors compilation, formatter check, and `git diff --check` passed. Tests use synthetic data in `storyteller_test`; no campaign QA data, live model, or OAuth was used.
+
 ## 2026-10-04 — Match whole words when ranking canon by names
 
 - Canon relevance previously counted a player-action word as a name match whenever it appeared anywhere inside a longer character or place name. In a crowded-scene fallback, saying “rose” could therefore prioritize “Rosetta” over an NPC actually addressed later in the same move.

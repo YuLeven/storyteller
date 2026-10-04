@@ -292,6 +292,45 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert "npc:observer-31" in speaker_ids
   end
 
+  test "retrieval packet keeps a crowded-scene character addressed by a public role" do
+    scene_characters =
+      Enum.map(1..40, fn index ->
+        %{
+          speaker_id: "npc:observer-#{index}",
+          name: "Observer #{index}",
+          role: :gm,
+          current_place_id: "finca"
+        }
+      end) ++
+        [
+          %{
+            speaker_id: "npc:cook",
+            name: "Armand Vey",
+            role: :gm,
+            current_place_id: "finca",
+            visible_facts: %{"occupation" => "cook"}
+          }
+        ]
+
+    base = base_context()
+    player = Enum.find(base.characters, &(&1.speaker_id == "player"))
+
+    context =
+      base
+      |> Map.put(:player_action, "I ask the cook to describe the bread.")
+      |> Map.put(:characters, [player | scene_characters])
+
+    assert {:ok, %{context: packet}} =
+             ContextBudget.compile_retrieval_packet(context, "Short GM policy", "test-model",
+               context_input_byte_budget: 32_000
+             )
+
+    speaker_ids = Enum.map(packet["characters"], & &1["speaker_id"])
+
+    assert "npc:cook" in speaker_ids
+    refute "npc:observer-40" in speaker_ids
+  end
+
   test "recalls accented canon across NFC and decomposed Unicode text" do
     nfc = "La dégustation a lieu dans la salle des cartes."
     nfd = String.normalize(nfc, :nfd)
