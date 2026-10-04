@@ -13,7 +13,7 @@ defmodule Storyteller.Play do
   import Ecto.Query, warn: false
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
-  alias Storyteller.GM.{CampaignLookup, ContextBudget, TurnTelemetry}
+  alias Storyteller.GM.{CampaignLookup, ContextBudget, TimePassageDuration, TurnTelemetry}
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Settings
@@ -3309,9 +3309,18 @@ defmodule Storyteller.Play do
              validate_memory_update(field(proposal, :memory_update)),
              :memory_update
            ),
+         {:ok, requested_or_proposed_minutes} <-
+           tagged_proposal_validation(
+             effective_time_advance_minutes(
+               field(proposal, :time_advance_minutes, 0),
+               turn,
+               location_changes
+             ),
+             :time_advance
+           ),
          {:ok, time_advance_minutes} <-
            tagged_proposal_validation(
-             validate_time_advance(field(proposal, :time_advance_minutes, 0), turn.intent),
+             validate_time_advance(requested_or_proposed_minutes, turn.intent),
              :time_advance
            ),
          {:ok, roll_request} <-
@@ -3408,6 +3417,30 @@ defmodule Storyteller.Play do
   end
 
   defp validate_time_advance(_value, _intent), do: {:error, :invalid_response}
+
+  defp effective_time_advance_minutes(
+         proposed_minutes,
+         %Turn{
+           intent: :time_passage,
+           player_input: player_input
+         },
+         location_changes
+       ) do
+    case TimePassageDuration.parse(player_input, @max_turn_elapsed_minutes) do
+      {:ok, requested_minutes} ->
+        travel_minutes = canonical_travel_minutes(location_changes)
+        {:ok, max(requested_minutes, travel_minutes)}
+
+      {:error, :out_of_range} ->
+        proposal_rejection(:time_advance)
+
+      _not_unambiguous ->
+        {:ok, proposed_minutes}
+    end
+  end
+
+  defp effective_time_advance_minutes(proposed_minutes, _turn, _location_changes),
+    do: {:ok, proposed_minutes}
 
   defp remote_message_proposal_allowed?([], _intent, _public_changes, _locations, _travel, _time),
     do: true

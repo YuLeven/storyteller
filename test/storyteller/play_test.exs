@@ -9704,7 +9704,8 @@ defmodule Storyteller.PlayTest do
            "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The courier is here."}],
            "activities" => [%{"speaker_id" => "npc:lyra", "text" => "Lyra receives the letter."}],
            "public_changes" => %{"date" => "Day 22", "time" => "Morning"},
-           "time_advance_minutes" => 30_240,
+           # The player's clear duration is canonical even when the GM's structured value disagrees.
+           "time_advance_minutes" => 0,
            "roll_request" => nil
          })
        )}

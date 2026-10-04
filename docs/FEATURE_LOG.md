@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Keep explicit time-passage duration authoritative
+
+- A time-passage request with one clear numeric span in minutes, hours, days, or weeks (English, Spanish, or French) now determines the minimum elapsed world time. The server applies that value before validating the GM's proposed clock field, so an inconsistent zero or shorter value cannot reject or silently compress an explicit player request. Canonical travel time remains a lower bound.
+- Vague, qualified, conflicting, or unsupported durations remain GM-directed; an explicit span beyond the clock limit is rejected recoverably. Tests cover localized units, ambiguity, bounds, and a fake GM returning zero for a clear 21-day request. No live model request was made.
+- **Checks:** the final isolated WSL suite passed (**513 tests, 0 failures**), including parser edge cases and the zero-duration fake-GM regression. One earlier full run had two unrelated campaign-editor/session LiveView setup failures; both passed when selected directly, and subsequent full runs passed cleanly. Warnings-as-errors compile, formatter, Gettext freshness, asset build, and `git diff --check` passed on the final source. No live model request or campaign QA data was used.
+
 ## 2026-10-04 — Keep time-passage instructions focused
 
 - The time-passage addendum repeated duration, travel, player-agency, and dice rules already present in the shared GM policy. Replaced those repetitions with a compact scene-scale instruction: routine work resolves as a montage; a closely followed live event remains moment by moment; stop at a meaningful decision.
