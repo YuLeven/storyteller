@@ -880,6 +880,10 @@
     padding-top: 0.25rem;
   }
 
+  .play-page .play-sidebar #campaign-fields [data-resource-type="text"] {
+    grid-column: 1 / -1;
+  }
+
   .play-page .play-sidebar #campaign-fields .resource-copy {
     font-size: 0.75rem;
     line-height: 1.3;

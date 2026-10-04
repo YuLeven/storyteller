@@ -873,6 +873,7 @@
               <div
                 :for={field <- panel.fields}
                 data-resource-row={field.key}
+                data-resource-type={field.type}
                 class="min-w-0 border-t border-stone-100 pt-3 first:border-0 first:pt-0"
               >
                 <dt class="resource-copy min-w-0 text-sm text-stone-600">{field.label}</dt>

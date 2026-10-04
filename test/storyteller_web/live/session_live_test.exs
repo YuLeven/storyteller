@@ -3038,6 +3038,7 @@ defmodule StorytellerWeb.SessionLiveTest do
       key = "ledger_field_#{index}"
       selector = "#campaign-fields [data-resource-row='#{key}']"
 
+      assert has_element?(view, selector <> "[data-resource-type='text']")
       assert has_element?(view, selector <> " > dt.resource-copy", "#{long_label}#{index}")
       assert has_element?(view, selector <> " > dd.resource-copy", long_unit)
 

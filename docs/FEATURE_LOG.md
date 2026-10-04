@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Give prose resources the full ledger width
+
+- Long tracked resources of type `text` now span the compact play-board ledger instead of sharing a narrow column with another field. Quantities, money, status, and date fields keep the compact two-column layout.
+- Added a rendered LiveView regression using 18 long text resources and a UX acceptance note for the full-width reading treatment.
+- **Checks:** focused WSL LiveView regression passed (1 selected, 0 failures; 74 other tests excluded); warnings-as-errors compilation, formatter check, CSS build, and `git diff --check` passed. The final layout was not re-opened in a live browser after styling because opening a new development campaign auto-starts the GM and unexpectedly triggered one provider turn in a disposable visual-QA database. I stopped the server and dropped that temporary database; no existing campaign was accessed. Browser QA must use a fake provider or a fixture with its opening already completed.
+
 ## 2026-10-04 — Keep NPCs addressable by public role in oversized scenes
 
 - A player may address a person by an observable descriptor (“the cook”) rather than a name. The emergency packet already prioritized explicit names and recent speakers, but could truncate that character from an unusually crowded scene.
