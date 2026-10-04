@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-10-04 — Set a soft dialogue default for ordinary solo actions
+
+- The adaptive-pace instructions already asked the GM to avoid filler and include only warranted present-character reactions, but left the routine number of chat bubbles unspecified. Added a reversible prompt default: one cohesive GM passage and normally no more than two justified NPC speech bubbles for ordinary solo actions. Player intent and scene needs explicitly override it, preserving longer dialogue-led and ensemble scenes. There is no hard validator cap, truncation, or rejection path.
+- Added a fake-provider request-boundary regression for the ordinary default, the override, and the longer-scene exception. This verifies only that guidance reaches the model request. The hypothesis still requires matched human play review to determine whether routine turns become less chatty without flattening ensemble play.
+
 ## 2026-10-04 — Open a fresh story timeline at its latest entry
 
 - The initial `StoryTimeline` hook could scroll before the first connected LiveView/layout work had settled, leaving a fresh session at the campaign's oldest visible entry. Initial alignment now waits one additional animation frame and reads the final scroll height; it stops if the player has scrolled away, is cancelled on teardown, and is cancelled when a history prepend restores the reader's anchor.

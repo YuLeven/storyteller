@@ -1397,13 +1397,13 @@ defmodule Storyteller.PlayTest do
              "Never ask players to define sensory facts."
 
     assert instructions =~
-             "Use each speaker's profile for distinct word choice and rhythm;"
+             "Follow each speaker profile for distinct word choice and rhythm."
 
     assert instructions =~
              "accents naturally in the campaign language, never phonetically."
 
     assert instructions =~
-             "Keep quirks selective and mannerisms brief; avoid catchphrases, caricature, and forced cues."
+             "Keep quirks and mannerisms brief/selective; avoid catchphrases, caricature, or forced cues."
 
     assert instructions =~ "Never blend voices."
 
@@ -1859,7 +1859,7 @@ defmodule Storyteller.PlayTest do
              "A present NPC expert may offer a qualified, evidence-based view;"
 
     assert normalized_instructions =~
-             "include another present character only when their distinct reaction completes this beat"
+             "extra speakers need distinct reactions."
 
     assert normalized_instructions =~ "never dictate the player's response."
 
@@ -6678,7 +6678,7 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
 
-    assert instructions =~ "Use each speaker's profile for distinct word choice and rhythm;"
+    assert instructions =~ "Follow each speaker profile for distinct word choice and rhythm."
 
     assert instructions =~ "Never blend voices."
 
@@ -6718,20 +6718,22 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "never assume player follow-through."
 
     assert instructions =~
-             "NPC dialogue: An addressed NPC answers in their own voice unless silence is justified."
+             "Addressed NPCs answer in their own voice unless silence is justified."
 
     assert instructions =~
-             "Keep the answer cohesive; include another present character only when their distinct reaction completes this beat"
+             "Solo-Act default: one cohesive GM passage, normally at most two warranted NPC bubbles."
 
-    assert instructions =~
-             "don't make everyone speak, echo narration, or add filler/forced gestures."
+    assert instructions =~ "Player intent/scene needs may expand invited dialogue/ensemble"
+
+    assert instructions =~ "extra speakers need distinct reactions."
+
+    assert instructions =~ "Avoid round-robin, narration echoes, filler, and stock closers."
 
     assert instructions =~ "Narration may be empty if dialogue completes the beat"
 
     refute instructions =~ "Use one concise, relevant utterance per character per turn"
 
-    assert instructions =~
-             "Update panels only for meaningful activity; show warranted progress/consequences and skip padding."
+    assert instructions =~ "Update panels only for meaningful activity; skip padding."
 
     assert instructions =~ "Act describes the player's in-character action or speech"
   end

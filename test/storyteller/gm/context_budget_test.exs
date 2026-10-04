@@ -1598,13 +1598,13 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert policy =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
 
     assert policy =~
-             "Use each speaker's profile for distinct word choice and rhythm;"
+             "Follow each speaker profile for distinct word choice and rhythm."
 
     assert policy =~
              "accents naturally in the campaign language, never phonetically."
 
     assert policy =~
-             "Keep quirks selective and mannerisms brief; avoid catchphrases, caricature, and forced cues."
+             "Keep quirks and mannerisms brief/selective; avoid catchphrases, caricature, or forced cues."
 
     assert policy =~ "Never blend voices."
 
