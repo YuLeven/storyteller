@@ -14,6 +14,13 @@
 - Expanded request-contract regressions to assert the sensory handoff and clue-grounding language.
 - **Checks:** focused Play and context-budget suites passed (**159 tests, 0 failures**); the full suite passed (**509 tests, 0 failures**). Warnings-as-errors compilation, formatter, Gettext extraction freshness, asset build, and `git diff --check` passed. Tests verify what Storyteller sends; they cannot establish that every model response follows the instruction.
 
+## 2026-10-04 — Let the GM author evidence found through inspection
+
+- A read-only review of the fictional Quiet Observatory QA session exposed an old investigation turn where the GM stopped at “the supplied canon does not specify” and asked the player to establish chart markings. That makes the player author an external fact the GM should reveal through the character's chosen inspection.
+- Clarified the prompt boundary: when an established target is inspected, the GM authors observable present evidence from the action and vantage, even when the exact result was not prewritten. Unsupported cause and off-scene history remain unknown; a lasting finding may be proposed as public continuity. This separates newly observed evidence from invented history.
+- Extended request-contract assertions beside the existing event-provenance regression for an action-grounded finding. The added wording was kept under the 11 KB instruction guard by compacting duplicated voice phrasing; no state or validation rule was loosened. No live provider request was made; the QA session was read-only and no new campaign/session was opened.
+- **Checks:** focused Play/context-budget tests passed (**159 tests, 0 failures**); full WSL suite passed (**509 tests, 0 failures**). Warnings-as-errors compilation, format check, Gettext freshness, asset build, and `git diff --check` passed. Tests verify the contract and persistence boundary, not live-model compliance.
+
 ## 2026-10-04 — Inspect tracked-resource wrapping in isolated QA
 
 - A disposable 1280×720 Quiet Observatory QA view with 18 tracked text fields showed wrapping and internal scrolling, with no overlap observed. The content felt dense, so that layout still merits polish.

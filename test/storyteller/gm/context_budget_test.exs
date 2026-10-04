@@ -1582,7 +1582,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.estimated_request_bytes <= 24_000
 
     policy = String.replace(policy, ~r/\s+/, " ")
-    assert policy =~ "OBSERVATION/JUDGMENT: GM owns external facts."
+    assert policy =~ "OBSERVATION: GM authors external facts."
+
+    assert policy =~
+             "On focused inspection of an established target, supply present, action/vantage-grounded evidence, even if not prewritten; never ask the player to invent it."
 
     assert policy =~
              "Tastings cover appearance,"
@@ -1591,23 +1594,20 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "A present expert may offer a qualified view."
 
     assert policy =~
-             "never dictate the player's response."
+             "Don't dictate the response."
 
     assert policy =~
-             "SENSORY AGENCY: Describe what the character senses; don't ask the player to"
+             "SENSORY AGENCY: Describe external sensory facts before asking the player to react; never ask them to invent"
 
-    assert policy =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
-
-    assert policy =~
-             "Follow each speaker profile for distinct word choice and rhythm."
+    assert policy =~ "Preserve each NPC's knowledge, motives, work, and voice."
 
     assert policy =~
-             "accents naturally in the campaign language, never phonetically."
+             "Follow speaker profiles for distinct wording/rhythm; express accents naturally in campaign language, never phonetically."
 
     assert policy =~
-             "Keep quirks and mannerisms brief/selective; avoid catchphrases, caricature, or forced cues."
+             "Keep quirks and mannerisms brief; avoid catchphrases, caricature, or forced cues."
 
-    assert policy =~ "Never blend voices."
+    assert policy =~ "Never blend voices; narrate in GM voice."
 
     assert policy =~
              "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"
