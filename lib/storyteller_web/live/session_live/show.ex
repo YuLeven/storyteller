@@ -2688,6 +2688,12 @@ defmodule StorytellerWeb.SessionLive.Show do
         "Your action is saved and the request was not sent because the local GM request-size limit was exceeded."
       )
 
+  defp failure_message("context_followup_too_large"),
+    do:
+      gettext(
+        "This is Storyteller's local size limit, not an account usage-limit response. The initial GM request was sent, but Storyteller stopped its oversized follow-up before sending it. Your action is saved; no story or canon change was applied."
+      )
+
   defp failure_message("context_compilation_failed"),
     do:
       gettext(

@@ -32,6 +32,13 @@
 - Added a crowded-scene regression where “a rose” must not promote Rosetta, while the directly addressed Sera remains in the bounded packet and a stable-order observer is retained.
 - **Checks:** focused WSL context-budget suite passed (**39 tests, 0 failures**); full isolated WSL suite passed (**499 tests, 0 failures**); warnings-as-errors compilation, formatter check, and `git diff --check` passed. Tests use synthetic data in `storyteller_test`; no campaign QA data, live model, or OAuth was used.
 
+## 2026-10-04 — Distinguish an oversized lookup follow-up from preflight
+
+- The adapter's exact body guard also runs after a model response requests a bounded, read-only campaign lookup. If the initial request fit but its continuation does not, the initial request has already reached the provider; it is inaccurate to present that as a pre-send failure.
+- The adapter now preserves a separate context_followup_too_large failure code. The localized recovery notice says the first request was sent, only the follow-up was stopped by Storyteller's local size guard, no story or canon change was applied, and retry sends a new request. It does not display lookup payloads, invent diagnostics about contributing canon sections, or infer a usage charge. The initial compile-time size failure still says no request was sent and retains its numeric-only section diagnostics. Account usage pauses keep their separate UI state.
+- Added exact adapter coverage that observes one Responses HTTP request and blocks the follow-up, a production Play.submit_turn fake-provider regression proving the distinct failure code, saved move, unchanged canon, same-turn retry, and no duplicate player action, plus LiveView recovery copy/preserved-action checks in English, Spanish, and French. The curation gate remains open for any essential data category without a useful safe correction path.
+- **Checks:** focused adapter, Play, and LiveView regressions passed; the complete WSL suite passed (**501 tests, 0 failures**). `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix gettext.extract --check-up-to-date`, and `git diff --check` passed. Tests use synthetic fixtures and `storyteller_test`; no live provider, OAuth, or campaign QA data was used.
+
 ## 2026-10-04 — Keep an addressed NPC in the compact context fallback
 
 - If an unusually crowded present scene exceeded the emergency retrieval packet's 32-NPC cap, simple source-order truncation could omit the person the player had just addressed. Although the read-only lookup could recover them, that made a direct exchange depend on an extra model lookup.

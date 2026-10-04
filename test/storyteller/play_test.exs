@@ -9175,6 +9175,58 @@ defmodule Storyteller.PlayTest do
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
   end
 
+  test "an oversized lookup follow-up keeps the saved action and canon under its own failure code" do
+    {campaign, session} = play_campaign("The Lookup Follow-up Observatory")
+    state_before = Repo.get_by!(State, campaign_id: campaign.id)
+    caller = self()
+
+    provider = fn _request ->
+      send(caller, :lookup_followup_provider_called)
+      {:error, :context_followup_too_large}
+    end
+
+    assert {:ok,
+            %{
+              status: :failed,
+              failure_code: "context_followup_too_large",
+              player_input: "Ask whether the north dome can be repaired."
+            } = failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "oversized-followup",
+               "Ask whether the north dome can be repaired.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive :lookup_followup_provider_called
+    assert failed.failure_stage == :provider
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    state_after = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state_after.public_state == state_before.public_state
+    assert state_after.gm_private_state == state_before.gm_private_state
+
+    retry_provider = fn _request ->
+      send(caller, :lookup_followup_retry_provider_called)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed, player_input: input} = retried} =
+             Play.retry_turn(failed.id,
+               provider: retry_provider,
+               model: "test-model"
+             )
+
+    assert input == failed.player_input
+    assert retried.id == failed.id
+    assert_receive :lookup_followup_retry_provider_called
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+  end
+
   test "large canonical inventory is projected by relevance without changing saved items" do
     {campaign, session} = play_campaign("The Inventory Context Observatory")
 

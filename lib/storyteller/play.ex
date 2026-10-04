@@ -489,6 +489,7 @@ defmodule Storyteller.Play do
     :provider_error,
     :model_unavailable,
     :context_budget_exceeded,
+    :context_followup_too_large,
     :context_compilation_failed,
     :invalid_response,
     :session_closed,

@@ -4734,6 +4734,51 @@ defmodule StorytellerWeb.SessionLiveTest do
         assert Play.public_current_turn(campaign.id).id == failed_turn.id
       end
 
+      Repo.update!(
+        Repo.get!(Turn, failed_turn.id)
+        |> Turn.changeset(%{failure_code: "context_followup_too_large"})
+      )
+
+      for {locale, followup_notice, retry_guidance, retry_label} <-
+            [
+              {
+                "en",
+                "This is Storyteller's local size limit, not an account usage-limit response. The initial GM request was sent, but Storyteller stopped its oversized follow-up before sending it. Your action is saved; no story or canon change was applied.",
+                "Retry this turn to send a new GM request. It will use the same saved action without duplicating it.",
+                "Retry this turn"
+              },
+              {
+                "es",
+                "Este es el límite local de tamaño de Storyteller, no un aviso de límite de uso de la cuenta. La solicitud inicial al DJ sí se envió, pero Storyteller detuvo el seguimiento porque excedía el tamaño permitido. Tu acción está guardada; no se aplicaron cambios a la historia ni al canon.",
+                "Reintenta este turno para enviar una nueva solicitud al DJ. Usará la misma acción guardada, sin duplicarla.",
+                "Reintentar este turno"
+              },
+              {
+                "fr",
+                "Il s’agit de la limite locale de taille de Storyteller, et non d’un avis de limite d’utilisation du compte. La première requête au MJ a été envoyée, mais Storyteller a bloqué le suivi, trop volumineux, avant de l’envoyer. Votre action est enregistrée ; aucun changement à l’histoire ni au canon n’a été appliqué.",
+                "Réessayez ce tour pour envoyer une nouvelle requête au MJ. Elle réutilisera la même action enregistrée sans la dupliquer.",
+                "Réessayer ce tour"
+              }
+            ] do
+        assert {:ok, _preference} = Settings.set_ui_locale(locale)
+        {:ok, view, _html} = live_play(conn, campaign, session)
+
+        assert has_element?(view, "#context-budget-recovery", followup_notice)
+        assert has_element?(view, "#context-budget-next-step", retry_guidance)
+        assert has_element?(view, "#story-pending-action", action)
+        assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+        refute has_element?(view, "#context-budget-diagnostics")
+        refute has_element?(view, "#context-budget-open-campaign")
+        refute render(view) =~ private_sentinel
+        assert Play.public_current_turn(campaign.id).id == failed_turn.id
+        refute_receive {:fake_provider_request, _}, 50
+      end
+
+      Repo.update!(
+        Repo.get!(Turn, failed_turn.id)
+        |> Turn.changeset(%{failure_code: "context_budget_exceeded"})
+      )
+
       assert {:ok, _preference} = Settings.set_ui_locale("en")
 
       objective =

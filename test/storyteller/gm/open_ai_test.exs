@@ -435,7 +435,7 @@ defmodule Storyteller.GM.OpenAITest do
       |> Map.put(:campaign_lookup_executor, executor)
       |> Map.put(:local_context_metrics, %{request_size_limit_bytes: continuation_limit})
 
-    assert {:error, :context_budget_exceeded} =
+    assert {:error, :context_followup_too_large} =
              OpenAI.stream_response(request, store: context.store, http: http)
 
     assert_receive {:responses_request, 1, _}

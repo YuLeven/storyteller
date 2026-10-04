@@ -278,7 +278,7 @@ defmodule Storyteller.GM.OpenAI do
                {:ok, encoded_output} <- encode_tool_output(output),
                continuation <-
                  continuation_body(body, completed.response, call_id, encoded_output),
-               :ok <- enforce_body_size(continuation, request_size_limit!(request)) do
+               :ok <- enforce_followup_body_size(continuation, request_size_limit!(request)) do
             run_response_turn(
               access_token,
               continuation,
@@ -527,6 +527,13 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   defp enforce_body_size(_body, _limit), do: {:error, :invalid_response}
+
+  defp enforce_followup_body_size(body, limit) do
+    case enforce_body_size(body, limit) do
+      {:error, :context_too_large} -> {:error, :context_followup_too_large}
+      result -> result
+    end
+  end
 
   defp add_usage(accumulated, next) when is_map(next) do
     Enum.reduce([:input_tokens, :output_tokens], accumulated, fn key, acc ->
