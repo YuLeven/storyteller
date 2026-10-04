@@ -3033,6 +3033,20 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert length(rows) == 18
     assert has_element?(view, "#campaign-fields > section.col-span-full")
     assert has_element?(view, "#campaign-fields > section > h3.resource-copy", long_panel_name)
+    assert has_element?(view, "#tracked-resources-more-0 > summary", "See 14 more")
+    refute has_element?(view, "#tracked-resources-more-0[open]")
+
+    assert has_element?(
+             view,
+             "#campaign-fields > section > dl > [data-resource-row='ledger_field_1']"
+           )
+
+    assert has_element?(
+             view,
+             "#tracked-resources-more-0 [data-resource-row='ledger_field_18']"
+           )
+
+    assert has_element?(view, "#correct-resource-ledger_field_18", "Correct")
 
     for index <- 1..18 do
       key = "ledger_field_#{index}"

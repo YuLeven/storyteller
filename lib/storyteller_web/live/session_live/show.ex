@@ -1027,6 +1027,45 @@ defmodule StorytellerWeb.SessionLive.Show do
     """
   end
 
+  attr :field, :map, required: true
+  attr :latest_change, :map, default: nil
+  attr :can_correct, :boolean, default: false
+
+  defp tracked_resource_field(assigns) do
+    ~H"""
+    <div
+      data-resource-row={@field.key}
+      data-resource-type={@field.type}
+      class="min-w-0 border-t border-stone-100 pt-3 first:border-0 first:pt-0"
+    >
+      <dt class="resource-copy min-w-0 text-sm text-stone-600">{@field.label}</dt>
+      <dd :if={@field.unit} class="resource-copy mt-0.5 min-w-0 text-xs text-stone-400">
+        {@field.unit}
+      </dd>
+      <dd
+        data-panel-watch={"resource-#{@field.key}"}
+        class="resource-copy mt-1 min-w-0 text-left text-sm font-semibold text-stone-900"
+      >
+        <span data-panel-value class="resource-copy block whitespace-pre-wrap break-words">{panel_field_value(
+          @field
+        )}</span>
+        <.panel_change_receipt :if={@latest_change} change={@latest_change} />
+        <a
+          :if={@can_correct}
+          id={"correct-resource-#{@field.key}"}
+          href="#canon-corrections"
+          phx-click="start-canon-correction"
+          phx-value-kind="resource"
+          phx-value-target-id={@field.key}
+          class="mt-1 block min-h-8 rounded px-1 py-1 text-xs font-semibold text-amber-800 underline decoration-amber-700/40 underline-offset-2 hover:bg-amber-50"
+        >
+          {gettext("Correct")}<span class="sr-only">: {@field.label}</span>
+        </a>
+      </dd>
+    </div>
+    """
+  end
+
   attr :id, :string, required: true
   attr :change, :map, required: true
 

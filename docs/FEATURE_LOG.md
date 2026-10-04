@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Keep dense tracked resources compact on the play board
+
+- Resource groups with more than four fields now show four at a glance and place the remaining rows in a native, closed-by-default “See more” disclosure. A shared LiveView component keeps values, last-change receipts, and canon-correction links identical in both locations.
+- Expanded the existing 18-field stress regression to verify all rows remain present, later values and their correction action stay inside the disclosure, and the disclosure starts closed.
+- **Checks:** full WSL suite passed (**510 tests, 0 failures**); warnings-as-errors compile, format check, Gettext freshness, asset build, and `git diff --check` passed. The test proves markup and data retention, not actual viewport geometry; 1280×720 browser measurement remains open. No live campaign or model request was used.
+
 ## 2026-10-04 — Match scene pace to routine work or close-up live play
 
 - Clarified the adaptive-pace contract: routine work and waits cover the requested span as a montage, while a player who follows a live event closely can keep it at moment-by-moment scale. The close-up pace never authorizes the GM to decide the player's follow-through.
