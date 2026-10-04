@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Connected Quiet Observatory story-quality spot check
+
+- One turn completed through the current ChatGPT-plan connection in the separate fictional Quiet Observatory QA campaign. The GM described one coherent chart-analysis beat followed by two distinct NPC reactions, kept uncertain dates/identities unresolved, preserved earlier evidence, and did not invent a player reaction or unrelated canon change.
+- The next investigative lead was left implicit rather than posed as a formulaic final question. This is a useful player opening, but prompts-to-decision still needs matched review across routine work, focused inspection, and ensemble scenes.
+- The service-level turn took **35.6 seconds** end to end. This single observation is not a latency benchmark and did not measure first-token time or LiveView streaming/reveal behavior. Treat it as a latency signal to investigate while continuing story-quality review, not as proof that the experience matches in-chat ChatGPT.
+- **QA:** one authorized provider call, turn 25 in the dedicated isolated QA database; no other campaign was read or modified. No code or canon logic changed.
+
 ## 2026-10-04 — Escalate repeated GM context-size rejections
 
 - A lookup follow-up can exceed Storyteller's exact serialized-byte guard after the first GM request has already been sent. Retrying the same action previously rebuilt the same full-context request, so the model could ask for the same lookup and hit the same local guard again. A provider may also reject the compact retry; offering the identical compact request again does not make progress.
