@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Keep time-passage instructions focused
+
+- The time-passage addendum repeated duration, travel, player-agency, and dice rules already present in the shared GM policy. Replaced those repetitions with a compact scene-scale instruction: routine work resolves as a montage; a closely followed live event remains moment by moment; stop at a meaningful decision.
+- Updated fake-provider regressions to check the shared exact-duration rule, the intent-specific pacing, and the accepted two-minute football-match advance. This reduces repeated instruction text; it does not establish lower response latency or live prose compliance.
+- **Checks:** targeted pacing regressions passed (**2 selected, 118 excluded**); full WSL suite passed (**510 tests, 0 failures**). Warnings-as-errors compile, format check, Gettext freshness, asset build, and `git diff --check` passed. Synthetic test data only; no campaign QA data, live model request, or OAuth flow used.
+
 ## 2026-10-04 — Keep dense tracked resources compact on the play board
 
 - Resource groups with more than four fields now show four at a glance and place the remaining rows in a native, closed-by-default “See more” disclosure. A shared LiveView component keeps values, last-change receipts, and canon-correction links identical in both locations.

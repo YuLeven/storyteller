@@ -9722,19 +9722,18 @@ defmodule Storyteller.PlayTest do
              )
 
     assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions}
-    assert instructions =~ "multi-day durations"
-    assert instructions =~ "Advance NPC/world events only"
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
+    assert normalized_instructions =~ "full stated duration, including multiple days"
+    assert normalized_instructions =~ "Time passage is an explicit request to advance the world"
 
     assert normalized_instructions =~
-             "Resolve routine activity across the interval as a montage"
+             "Resolve routine work as a montage of progress and conversation across that span."
 
-    assert normalized_instructions =~ "Do not stop after each incidental action"
+    assert normalized_instructions =~
+             "Do not stop for incidental actions or skip ahead merely to move the clock."
 
     assert normalized_instructions =~
              "If the player follows a live event closely (e.g. a match at an asado), keep it moment by moment."
-
-    assert normalized_instructions =~ "Don't skip ahead just to advance time."
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.public_state["date"] == "Day 22"
@@ -9792,7 +9791,8 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "If the player follows a live event closely (e.g. a match at an asado)"
 
-    assert instructions =~ "Don't skip ahead just to advance time."
+    assert instructions =~
+             "Do not stop for incidental actions or skip ahead merely to move the clock."
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.elapsed_world_minutes == 2

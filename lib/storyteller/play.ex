@@ -5593,24 +5593,13 @@ defmodule Storyteller.Play do
   defp interaction_mode_guidance(:time_passage) do
     """
 
-    The player explicitly asks to let time pass. Treat this as an out-of-
-    character request to advance the world, not as an action performed by their
-    character. Preserve an explicit requested duration exactly, including
-    multi-day durations within the bounded time field; never silently shorten
-    it. If the request is open-ended, advance a natural interval and return control when a
-    meaningful decision is due. Keep calendar, time, weather, and other world
-    changes canonical and consistent. Set time_advance_minutes to the total
-    fictional minutes that pass, including travel. The request authorizes passage of time
-    only. Resolve routine activity across the interval as a montage at the
-    requested scale, bringing relevant progress and conversation together. If
-    the player follows a live event closely (e.g. a match at an asado), keep it
-    moment by moment. Don't skip ahead just to advance time. Do not stop after each
-    incidental action. Pause at the next meaningful player decision. Do not
-    choose or narrate actions, speech, thoughts, or decisions for
-    the player's character, do not move or update that character, and do not
-    request a player roll. Narrate relevant world and non-player-character
-    developments and return control as soon as a meaningful player decision is
-    due.
+    The player asks time to pass; follow the general duration, route, agency,
+    and dice rules above. Resolve routine work as a montage of progress and
+    conversation across that span. If the player follows a live event closely
+    (e.g. a match at an asado), keep it moment by moment. Advance only relevant
+    world/NPC developments, not player-character actions. Do not stop for
+    incidental actions or skip ahead merely to move the clock. Return control
+    at a meaningful decision.
     """
   end
 
