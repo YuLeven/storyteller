@@ -141,13 +141,18 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   def handle_event("review-context-budget-correction", %{"kind" => kind}, socket)
-      when kind in ["inventory", "resource", "world"] do
+      when kind in ["inventory", "resource", "world", "place", "travel_connection"] do
     if correction_changes_allowed?(socket) do
+      form = Map.put(default_correction_form(), "kind", kind)
+
+      form =
+        if kind in ["place", "travel_connection"], do: Map.put(form, "action", "edit"), else: form
+
       {:noreply,
        assign(socket,
          correction_open?: true,
          campaign_tools_open?: true,
-         correction_form: Map.put(default_correction_form(), "kind", kind),
+         correction_form: form,
          correction_error: nil
        )}
     else
@@ -182,7 +187,7 @@ defmodule StorytellerWeb.SessionLive.Show do
     values =
       Map.take(
         params,
-        ~w(action name quantity unit category description owner_id properties value place_id)
+        ~w(action name quantity unit category description owner_id properties value place_id facts travel_minutes scene_relevance)
       )
 
     attrs = %{
@@ -1560,6 +1565,28 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
+  defp contextual_correction_form("place", target_id, options) do
+    case Enum.find(options[:places] || [], &(&1.id == target_id)) do
+      nil ->
+        {:error, :not_found}
+
+      _place ->
+        form = %{"kind" => "place", "action" => "edit", "target_id" => target_id}
+        {:ok, maybe_fill_correction_default(form, %{}, options)}
+    end
+  end
+
+  defp contextual_correction_form("travel_connection", target_id, options) do
+    case Enum.find(options[:travel_connections] || [], &(&1.id == target_id)) do
+      nil ->
+        {:error, :not_found}
+
+      _route ->
+        form = %{"kind" => "travel_connection", "action" => "edit", "target_id" => target_id}
+        {:ok, maybe_fill_correction_default(form, %{}, options)}
+    end
+  end
+
   defp contextual_correction_form(_kind, _target_id, _options), do: {:error, :invalid_target}
 
   defp default_story_memory_form do
@@ -1584,6 +1611,14 @@ defmodule StorytellerWeb.SessionLive.Show do
 
     world_label_changed? =
       params["kind"] == "world" and not is_nil(params["target_id"]) and
+        (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"])
+
+    place_changed? =
+      params["kind"] == "place" and not is_nil(params["target_id"]) and
+        (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"])
+
+    route_changed? =
+      params["kind"] == "travel_connection" and not is_nil(params["target_id"]) and
         (params["kind"] != previous["kind"] or params["target_id"] != previous["target_id"])
 
     cond do
@@ -1613,6 +1648,29 @@ defmodule StorytellerWeb.SessionLive.Show do
         case Enum.find(options[:world_labels] || [], &(&1.key == params["target_id"])) do
           nil -> params
           field -> Map.put(params, "value", correction_value(field.value))
+        end
+
+      place_changed? ->
+        case Enum.find(options[:places] || [], &(&1.id == params["target_id"])) do
+          nil ->
+            params
+
+          place ->
+            params
+            |> Map.put("name", place.name)
+            |> Map.put("description", place.description || "")
+            |> Map.put("facts", Jason.encode!(place.facts || %{}, pretty: true))
+        end
+
+      route_changed? ->
+        case Enum.find(options[:travel_connections] || [], &(&1.id == params["target_id"])) do
+          nil ->
+            params
+
+          route ->
+            params
+            |> Map.put("travel_minutes", to_string(route.travel_minutes))
+            |> Map.put("scene_relevance", route.scene_relevance || "")
         end
 
       true ->
@@ -1682,6 +1740,8 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp correction_kind_label("location"), do: gettext("Character location")
   defp correction_kind_label("world"), do: gettext("World state")
   defp correction_kind_label("memory"), do: gettext("Campaign memory")
+  defp correction_kind_label("place"), do: gettext("Place details")
+  defp correction_kind_label("travel_connection"), do: gettext("Travel route")
   defp correction_kind_label(kind), do: kind
 
   defp world_correction_label("date"), do: gettext("Date")
@@ -1719,6 +1779,19 @@ defmodule StorytellerWeb.SessionLive.Show do
   end
 
   defp correction_receipt_value("memory", _entry), do: gettext("Not recorded")
+
+  defp correction_receipt_value("place", %{name: name}) when is_binary(name), do: name
+  defp correction_receipt_value("place", _place), do: gettext("Not recorded")
+
+  defp correction_receipt_value(
+         "travel_connection",
+         %{travel_minutes: minutes, scene_relevance: scene_relevance}
+       ) do
+    minutes = gettext("%{minutes} minutes", minutes: minutes)
+    if scene_relevance, do: "#{minutes} · #{scene_relevance}", else: minutes
+  end
+
+  defp correction_receipt_value("travel_connection", _route), do: gettext("Not recorded")
   defp correction_receipt_value(_kind, _snapshot), do: gettext("Not recorded")
 
   defp story_memory_status_label("active"), do: gettext("Active")
@@ -2603,7 +2676,9 @@ defmodule StorytellerWeb.SessionLive.Show do
       "inventory" -> :inventory
       "panels" -> :resource
       "world" -> :world
-      category when category in ["places", "travel_connections", "communication_paths"] -> :scene
+      "places" -> :place
+      "travel_connections" -> :travel_connection
+      "communication_paths" -> :scene
       category when category in ["memory", "continuity", "objectives"] -> :reference
       "history" -> :timeline
       _ -> :campaign

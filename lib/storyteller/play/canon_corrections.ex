@@ -19,6 +19,7 @@ defmodule Storyteller.Play.CanonCorrections do
     ContinuityEntry,
     Inventory,
     Place,
+    PlaceConnection,
     State,
     Turn
   }
@@ -50,6 +51,29 @@ defmodule Storyteller.Play.CanonCorrections do
         )
 
       place_ids = MapSet.new(places, & &1.place_id)
+      public_place_ids = MapSet.to_list(place_ids)
+      place_names = Map.new(places, &{&1.place_id, &1.name})
+
+      travel_connections =
+        Repo.all(
+          from connection in PlaceConnection,
+            where:
+              connection.campaign_id == ^campaign_id and connection.visibility == :public and
+                connection.place_a_id in ^public_place_ids and
+                connection.place_b_id in ^public_place_ids,
+            order_by: [asc: connection.place_a_id, asc: connection.place_b_id]
+        )
+        |> Enum.map(fn connection ->
+          %{
+            id: route_correction_id(connection),
+            place_a_id: connection.place_a_id,
+            place_a_name: Map.fetch!(place_names, connection.place_a_id),
+            place_b_id: connection.place_b_id,
+            place_b_name: Map.fetch!(place_names, connection.place_b_id),
+            travel_minutes: connection.travel_minutes,
+            scene_relevance: connection.scene_relevance
+          }
+        end)
 
       characters =
         Repo.all(
@@ -123,7 +147,16 @@ defmodule Storyteller.Play.CanonCorrections do
          resources: resources,
          world_labels: world_labels,
          characters: characters,
-         places: Enum.map(places, &%{id: &1.place_id, name: &1.name}),
+         places:
+           Enum.map(places, fn place ->
+             %{
+               id: place.place_id,
+               name: place.name,
+               description: place.description,
+               facts: place.facts
+             }
+           end),
+         travel_connections: travel_connections,
          player_memory_count: player_memory_count,
          player_memory_limit: @max_player_memory_entries
        }}
@@ -134,12 +167,32 @@ defmodule Storyteller.Play.CanonCorrections do
 
   @doc "Returns concise out-of-character receipts; before/after snapshots stay in the audit record."
   def list_receipts(campaign_id) do
+    public_place_ids = public_places(campaign_id) |> MapSet.new(& &1.place_id)
+    public_place_id_list = MapSet.to_list(public_place_ids)
+
+    public_route_ids =
+      Repo.all(
+        from connection in PlaceConnection,
+          where:
+            connection.campaign_id == ^campaign_id and connection.visibility == :public and
+              connection.place_a_id in ^public_place_id_list and
+              connection.place_b_id in ^public_place_id_list
+      )
+      |> MapSet.new(&route_correction_id/1)
+
     Repo.all(
       from correction in CanonCorrection,
         where: correction.campaign_id == ^campaign_id,
         order_by: [desc: correction.sequence],
         limit: ^@max_corrections
     )
+    |> Enum.filter(fn correction ->
+      case correction.kind do
+        "place" -> MapSet.member?(public_place_ids, correction.target_id)
+        "travel_connection" -> MapSet.member?(public_route_ids, correction.target_id)
+        _ -> true
+      end
+    end)
     |> Enum.map(fn correction ->
       before = receipt_snapshot(correction.kind, correction.before_state)
       after_snapshot = receipt_snapshot(correction.kind, correction.after_state)
@@ -187,6 +240,19 @@ defmodule Storyteller.Play.CanonCorrections do
     %{key: key, label: label, value: value}
   end
 
+  defp receipt_snapshot("place", %{"place" => place}) when is_map(place) do
+    %{name: place["name"], description: place["description"], facts: place["facts"]}
+  end
+
+  defp receipt_snapshot("travel_connection", %{"route" => route}) when is_map(route) do
+    %{
+      from: route["place_a_name"],
+      to: route["place_b_name"],
+      travel_minutes: route["travel_minutes"],
+      scene_relevance: route["scene_relevance"]
+    }
+  end
+
   defp receipt_snapshot(_kind, _snapshot), do: nil
 
   defp receipt_target_label("inventory", %{name: name}), do: name
@@ -194,6 +260,8 @@ defmodule Storyteller.Play.CanonCorrections do
   defp receipt_target_label("location", %{character_name: name}), do: name
   defp receipt_target_label("memory", %{title: title}), do: title
   defp receipt_target_label("world", %{label: label}), do: label
+  defp receipt_target_label("place", %{name: name}), do: name
+  defp receipt_target_label("travel_connection", %{from: from, to: to}), do: "#{from} ↔ #{to}"
   defp receipt_target_label(_kind, _snapshot), do: nil
 
   @doc "Applies one explicit correction, rejecting stale or in-flight campaign state."
@@ -352,6 +420,123 @@ defmodule Storyteller.Play.CanonCorrections do
       end
     else
       _ -> {:error, :not_found}
+    end
+  end
+
+  defp plan_correction(:place, target_id, values, campaign_id, _state)
+       when is_binary(target_id) do
+    place =
+      Repo.one(
+        from place in Place,
+          where:
+            place.campaign_id == ^campaign_id and place.place_id == ^target_id and
+              place.visibility == :public,
+          lock: "FOR UPDATE"
+      )
+
+    with %Place{} <- place,
+         {:ok, name} <- normalize_place_name(attr(values, :name)),
+         {:ok, description} <- normalize_place_description(attr(values, :description)),
+         {:ok, facts} <- parse_properties(attr(values, :facts)) do
+      before_state = %{"place" => place_snapshot(place)}
+
+      after_place = %{
+        place
+        | name: name,
+          description: description,
+          facts: facts
+      }
+
+      after_state = %{"place" => place_snapshot(after_place)}
+
+      if before_state == after_state do
+        {:error, :no_change}
+      else
+        update = fn state ->
+          case place
+               |> Place.changeset(%{name: name, description: description, facts: facts})
+               |> Repo.update() do
+            {:ok, _place} -> {:ok, state}
+            {:error, _changeset} -> {:error, :invalid_correction}
+          end
+        end
+
+        {:ok, place.place_id, before_state, after_state, update}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, _reason} -> {:error, :invalid_value}
+      _ -> {:error, :invalid_value}
+    end
+  end
+
+  defp plan_correction(:travel_connection, target_id, values, campaign_id, _state)
+       when is_binary(target_id) do
+    public_place_ids =
+      Repo.all(
+        from place in Place,
+          where: place.campaign_id == ^campaign_id and place.visibility == :public,
+          select: place.place_id
+      )
+
+    connection =
+      Repo.all(
+        from connection in PlaceConnection,
+          where:
+            connection.campaign_id == ^campaign_id and connection.visibility == :public and
+              connection.place_a_id in ^public_place_ids and
+              connection.place_b_id in ^public_place_ids,
+          lock: "FOR UPDATE"
+      )
+      |> Enum.find(fn connection -> route_correction_id(connection) == target_id end)
+
+    with %PlaceConnection{} <- connection,
+         travel_minutes when is_integer(travel_minutes) and travel_minutes in 1..10_080 <-
+           parse_integer(attr(values, :travel_minutes)),
+         {:ok, scene_relevance} <- normalize_scene_relevance(attr(values, :scene_relevance)) do
+      place_ids = [connection.place_a_id, connection.place_b_id]
+
+      place_names =
+        Repo.all(
+          from place in Place,
+            where:
+              place.campaign_id == ^campaign_id and place.visibility == :public and
+                place.place_id in ^place_ids,
+            select: {place.place_id, place.name}
+        )
+        |> Map.new()
+
+      before_state = %{"route" => route_snapshot(connection, place_names)}
+
+      after_connection = %{
+        connection
+        | travel_minutes: travel_minutes,
+          scene_relevance: scene_relevance
+      }
+
+      after_state = %{"route" => route_snapshot(after_connection, place_names)}
+
+      if before_state == after_state do
+        {:error, :no_change}
+      else
+        update = fn state ->
+          case connection
+               |> PlaceConnection.changeset(%{
+                 travel_minutes: travel_minutes,
+                 scene_relevance: scene_relevance
+               })
+               |> Repo.update() do
+            {:ok, _connection} -> {:ok, state}
+            {:error, _changeset} -> {:error, :invalid_correction}
+          end
+        end
+
+        {:ok, target_id, before_state, after_state, update}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, _reason} -> {:error, :invalid_value}
+      _ -> {:error, :invalid_value}
     end
   end
 
@@ -887,7 +1072,79 @@ defmodule Storyteller.Play.CanonCorrections do
   defp normalize_kind(:memory), do: :memory
   defp normalize_kind("world"), do: :world
   defp normalize_kind(:world), do: :world
+  defp normalize_kind("place"), do: :place
+  defp normalize_kind(:place), do: :place
+  defp normalize_kind("travel_connection"), do: :travel_connection
+  defp normalize_kind(:travel_connection), do: :travel_connection
   defp normalize_kind(_), do: nil
+
+  defp route_correction_id(%PlaceConnection{place_a_id: place_a_id, place_b_id: place_b_id}) do
+    [first, second] = Enum.sort([place_a_id, place_b_id])
+    digest = :crypto.hash(:sha256, "#{byte_size(first)}:#{first}:#{second}")
+    "route:" <> Base.encode16(digest, case: :lower)
+  end
+
+  defp place_snapshot(place) do
+    %{
+      "place_id" => place.place_id,
+      "name" => place.name,
+      "description" => place.description,
+      "facts" => place.facts,
+      "visibility" => "public"
+    }
+  end
+
+  defp route_snapshot(connection, place_names) do
+    %{
+      "place_a_id" => connection.place_a_id,
+      "place_a_name" => Map.fetch!(place_names, connection.place_a_id),
+      "place_b_id" => connection.place_b_id,
+      "place_b_name" => Map.fetch!(place_names, connection.place_b_id),
+      "travel_minutes" => connection.travel_minutes,
+      "scene_relevance" => connection.scene_relevance,
+      "visibility" => "public"
+    }
+  end
+
+  defp normalize_place_name(value) when is_binary(value) do
+    name = String.trim(value)
+
+    if name != "" and String.valid?(name) and String.length(name) <= 300,
+      do: {:ok, name},
+      else: {:error, :invalid_name}
+  end
+
+  defp normalize_place_name(_), do: {:error, :invalid_name}
+
+  defp normalize_place_description(value) when is_binary(value) do
+    case blank_to_nil(value) do
+      nil ->
+        {:ok, nil}
+
+      description ->
+        if String.valid?(description) and String.length(description) <= 10_000,
+          do: {:ok, description},
+          else: {:error, :invalid_description}
+    end
+  end
+
+  defp normalize_place_description(nil), do: {:ok, nil}
+  defp normalize_place_description(_), do: {:error, :invalid_description}
+
+  defp normalize_scene_relevance(value) when is_binary(value) do
+    case blank_to_nil(value) do
+      nil ->
+        {:ok, nil}
+
+      relevance ->
+        if String.valid?(relevance) and String.length(relevance) <= 1_000,
+          do: {:ok, relevance},
+          else: {:error, :invalid_scene_relevance}
+    end
+  end
+
+  defp normalize_scene_relevance(nil), do: {:ok, nil}
+  defp normalize_scene_relevance(_), do: {:error, :invalid_scene_relevance}
 
   defp normalize_reason(value) when is_binary(value) do
     value = String.trim(value)
@@ -907,7 +1164,12 @@ defmodule Storyteller.Play.CanonCorrections do
 
   defp parse_integer(_), do: nil
 
-  defp parse_properties(value) when is_map(value), do: {:ok, value}
+  defp parse_properties(value) when is_map(value) do
+    case Jason.encode(value) do
+      {:ok, encoded} when byte_size(encoded) <= 10_000 -> {:ok, value}
+      _ -> {:error, :invalid_properties}
+    end
+  end
 
   defp parse_properties(value) when is_binary(value) and byte_size(value) <= 10_000 do
     case Jason.decode(value) do

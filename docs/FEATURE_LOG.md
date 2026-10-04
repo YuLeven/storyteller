@@ -8,6 +8,15 @@
 - This is a targeted review path, not full curation: scene/routes and read-only campaign references do not yet have edit controls that can safely reduce irreducible request size. That recovery gate remains open.
 - **Checks:** the localized request-size recovery regression passed (**74 discovered, 1 selected, 0 failures**) and the complete isolated WSL suite passed (**491 tests, 0 failures**). Warnings-as-errors test compilation passed. All behavior checks used synthetic fixtures and the separate `storyteller_test` database; no campaign QA data, OAuth, or live provider was used.
 
+## 2026-10-04 — Give oversized place and route context an audited correction path
+
+- The request-size recovery card now maps the largest `places` or `travel_connections` section to the matching correction panel. Players can explicitly update a public place's name, description, and facts, or a public route's travel time and scene context; opening the form leaves the saved turn and story untouched.
+- Correction choices include only public places and public routes whose endpoints are public. A correction revision-checks and audits its before/after state, changes the canonical record without creating a fictional event or moving game time, and is hidden from player-facing receipts if the record later becomes private.
+- Campaign backup schema v12 preserves the new public correction records and validates their bounded fields and stable IDs; schema versions 1–11 retain their import behavior. The database constraint allows the new audit kinds and refuses a rollback that would discard saved corrections.
+- Added behavior tests for public/private filtering, place and route changes, no fabricated story event or clock advance, backup round-trip, and category-specific LiveView forms on the same saved failed action.
+- The recovery review still needs safe curation paths for any other oversized section that has no editing path; the app does not silently delete canon or trim player notes.
+- **Checks:** complete isolated WSL suite passed (**493 tests, 0 failures**); focused place/route, backup, and session LiveView suites passed (**89 tests, 0 failures**); `mix compile --warnings-as-errors`, `mix format --check-formatted`, Gettext freshness, and `git diff --check` passed. Tests used synthetic fixtures and `storyteller_test`; no campaign QA data, OAuth, or live provider was used.
+
 ## 2026-10-04 — Keep the matching detail when retrieving long canon
 
 - A lookup could rank long canon only after projecting it to the first 180 characters, so a fact buried later in a long note could be missed or omitted from the result even though the request named it.

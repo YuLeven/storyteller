@@ -4559,6 +4559,25 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       assert opening_turn.status == :completed
 
+      {:ok, correction_options} = CanonCorrections.options(campaign.id, session.id)
+      known_place_option = hd(correction_options.places)
+      known_place = Repo.get_by!(Place, campaign_id: campaign.id, place_id: known_place_option.id)
+
+      recovery_place =
+        Repo.insert!(
+          Place.changeset(%Place{}, %{
+            campaign_id: campaign.id,
+            place_id: "context-budget-recovery-place",
+            name: "Lantern Causeway",
+            description: "A narrow stone crossing.",
+            visibility: :public,
+            facts: %{"surface" => "wet stone"}
+          })
+        )
+
+      insert_place_connection!(campaign.id, known_place, recovery_place, 25, :public)
+      {:ok, correction_options} = CanonCorrections.options(campaign.id, session.id)
+
       state = Repo.get_by!(State, campaign_id: campaign.id)
 
       Repo.update!(
@@ -4658,6 +4677,47 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       assert has_element?(correction_view, "#canon-corrections[open]")
       assert has_element?(correction_view, "#correction-kind option[selected][value='world']")
+
+      correction_view
+      |> render_click("review-context-budget-correction", %{"kind" => "place"})
+
+      assert has_element?(correction_view, "#correction-kind option[selected][value='place']")
+      assert has_element?(correction_view, "#correction-place-details-target")
+
+      correction_view
+      |> render_change("change-correction-form", %{
+        "correction" => %{
+          "kind" => "place",
+          "target_id" => recovery_place.place_id
+        }
+      })
+
+      assert has_element?(correction_view, "#correction-place-name")
+      assert has_element?(correction_view, "#correction-place-facts")
+
+      correction_view
+      |> render_click("review-context-budget-correction", %{"kind" => "travel_connection"})
+
+      assert has_element?(
+               correction_view,
+               "#correction-kind option[selected][value='travel_connection']"
+             )
+
+      assert has_element?(correction_view, "#correction-travel-route")
+
+      route = hd(correction_options.travel_connections)
+
+      correction_view
+      |> render_change("change-correction-form", %{
+        "correction" => %{
+          "kind" => "travel_connection",
+          "target_id" => route.id
+        }
+      })
+
+      assert has_element?(correction_view, "#correction-travel-minutes")
+      assert has_element?(correction_view, "#correction-travel-relevance")
+
       assert Play.public_current_turn(campaign.id).id == failed_turn.id
 
       # Relaxing the local test cap makes the still-persisted turn retryable.

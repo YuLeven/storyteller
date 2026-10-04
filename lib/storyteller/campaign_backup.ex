@@ -42,7 +42,8 @@ defmodule Storyteller.CampaignBackup do
   @active_duties_version 9
   @finite_duties_version 10
   @remote_message_paths_version 11
-  @version @remote_message_paths_version
+  @place_route_corrections_version 12
+  @version @place_route_corrections_version
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -427,7 +428,8 @@ defmodule Storyteller.CampaignBackup do
              @world_label_corrections_version,
              @active_duties_version,
              @finite_duties_version,
-             @remote_message_paths_version
+             @remote_message_paths_version,
+             @place_route_corrections_version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
@@ -518,7 +520,8 @@ defmodule Storyteller.CampaignBackup do
               @world_label_corrections_version,
               @active_duties_version,
               @finite_duties_version,
-              @remote_message_paths_version
+              @remote_message_paths_version,
+              @place_route_corrections_version
             ],
        do:
          root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
@@ -1123,7 +1126,8 @@ defmodule Storyteller.CampaignBackup do
               @world_label_corrections_version,
               @active_duties_version,
               @finite_duties_version,
-              @remote_message_paths_version
+              @remote_message_paths_version,
+              @place_route_corrections_version
             ],
        do: turn_backup_keys(@current_previous_version)
 
@@ -1333,7 +1337,14 @@ defmodule Storyteller.CampaignBackup do
 
   defp validate_authoring_corrections(_, _version), do: {:error, :invalid_backup}
 
-  defp validate_canon_corrections(rows, characters, places, _panels, continuity, version)
+  defp validate_canon_corrections(
+         rows,
+         characters,
+         places,
+         _panels,
+         continuity,
+         version
+       )
        when is_list(rows) and length(rows) <= 100_000 do
     character_ids = MapSet.new(characters, & &1.speaker_id)
     owner_ids = ["party" | Enum.map(characters, & &1.speaker_id)]
@@ -1394,6 +1405,9 @@ defmodule Storyteller.CampaignBackup do
   end
 
   defp validate_canon_corrections(_, _, _, _, _, _), do: {:error, :invalid_backup}
+
+  defp canon_correction_kinds(version) when version >= @place_route_corrections_version,
+    do: ~w(inventory resource location memory world place travel_connection)
 
   defp canon_correction_kinds(version) when version >= @world_label_corrections_version,
     do: ~w(inventory resource location memory world)
@@ -1511,8 +1525,93 @@ defmodule Storyteller.CampaignBackup do
     end
   end
 
+  defp validate_canon_correction_states(
+         "place",
+         target_id,
+         before_map,
+         after_map,
+         _character_ids,
+         _owners,
+         _places,
+         _continuity
+       ) do
+    with :ok <- validate_place_correction_state(before_map, target_id),
+         :ok <- validate_place_correction_state(after_map, target_id),
+         true <- before_map != after_map do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_canon_correction_states(
+         "travel_connection",
+         target_id,
+         before_map,
+         after_map,
+         _character_ids,
+         _owners,
+         _places,
+         _continuity
+       ) do
+    with :ok <- validate_route_correction_state(before_map, target_id),
+         :ok <- validate_route_correction_state(after_map, target_id),
+         true <- before_map != after_map do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
   defp validate_canon_correction_states(_, _, _, _, _, _, _, _),
     do: {:error, :invalid_backup}
+
+  defp validate_place_correction_state(state, target_id) do
+    with :ok <- exact_keys(state, ["place"], :place_correction_state),
+         %{} = place <- state["place"],
+         :ok <-
+           exact_keys(place, ~w(place_id name description facts visibility), :place_correction),
+         true <- place["place_id"] == target_id,
+         true <- place["visibility"] == "public",
+         {:ok, _place_id} <- stable_id(place["place_id"], 100),
+         {:ok, _name} <- text(place["name"], 1, 300),
+         {:ok, _description} <- optional_text(place["description"], 10_000),
+         {:ok, _facts} <- json_map(place["facts"], 100_000) do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp validate_route_correction_state(state, target_id) do
+    with :ok <- exact_keys(state, ["route"], :route_correction_state),
+         %{} = route <- state["route"],
+         :ok <-
+           exact_keys(
+             route,
+             ~w(place_a_id place_a_name place_b_id place_b_name travel_minutes scene_relevance visibility),
+             :route_correction
+           ),
+         {:ok, place_a_id} <- stable_id(route["place_a_id"], 100),
+         {:ok, place_b_id} <- stable_id(route["place_b_id"], 100),
+         true <- place_a_id < place_b_id,
+         true <- backup_route_correction_id(place_a_id, place_b_id) == target_id,
+         true <- route["visibility"] == "public",
+         {:ok, _name_a} <- text(route["place_a_name"], 1, 300),
+         {:ok, _name_b} <- text(route["place_b_name"], 1, 300),
+         {:ok, _minutes} <- integer_range(route["travel_minutes"], 1, 10_080),
+         {:ok, _relevance} <- optional_text(route["scene_relevance"], 1_000) do
+      :ok
+    else
+      _ -> {:error, :invalid_backup}
+    end
+  end
+
+  defp backup_route_correction_id(place_a_id, place_b_id) do
+    [first, second] = Enum.sort([place_a_id, place_b_id])
+    digest = :crypto.hash(:sha256, "#{byte_size(first)}:#{first}:#{second}")
+    "route:" <> Base.encode16(digest, case: :lower)
+  end
 
   defp validate_world_correction_state(state, target_id) do
     expected_label = %{"date" => "Date", "time" => "Time", "weather" => "Weather"}[target_id]
