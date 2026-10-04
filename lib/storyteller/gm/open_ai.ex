@@ -1074,6 +1074,8 @@ defmodule Storyteller.GM.OpenAI do
        when code in ["model_not_found", "model_unavailable", "invalid_model"],
        do: :model_unavailable
 
+  defp map_error_code("context_length_exceeded"), do: :context_length_exceeded
+
   defp map_error_code(_), do: :provider_error
 
   defp normalize_error(:network_error), do: :timeout

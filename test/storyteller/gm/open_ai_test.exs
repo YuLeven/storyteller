@@ -1004,6 +1004,24 @@ defmodule Storyteller.GM.OpenAITest do
     end)
   end
 
+  test "maps a model context-window rejection to a distinct retryable failure", context do
+    body = Jason.encode!(%{"error" => %{"code" => "context_length_exceeded", "param" => "input"}})
+
+    assert {:error, :context_length_exceeded} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return text.",
+                 input: [%{role: "user", content: "Hello"}],
+                 model: "fixture-model"
+               },
+               store: context.store,
+               http: provider_http_error(self(), 400, body)
+             )
+
+    assert_receive {:responses_request, _}
+    refute_receive {:models_request, _}
+  end
+
   test "logs safe HTTP diagnostics without logging campaign input", context do
     request_id = "req_fixture_123"
 

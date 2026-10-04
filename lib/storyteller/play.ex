@@ -490,6 +490,7 @@ defmodule Storyteller.Play do
     :model_unavailable,
     :context_budget_exceeded,
     :context_followup_too_large,
+    :context_length_exceeded,
     :context_compilation_failed,
     :invalid_response,
     :session_closed,
@@ -511,6 +512,7 @@ defmodule Storyteller.Play do
     "panels" => "pa",
     "history" => "hi"
   }
+  @compact_context_retry_byte_budget 48_000
 
   @proposal_failure_categories [
     :proposal_shape,
@@ -5399,6 +5401,8 @@ defmodule Storyteller.Play do
         :error -> Settings.preferred_gm_model()
       end
 
+    opts = compact_context_retry_options(opts, model)
+
     request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
 
     with {:ok, {compiled_context, metrics, lookup_enabled?, instructions}} <-
@@ -5451,6 +5455,20 @@ defmodule Storyteller.Play do
         model when is_binary(model) and model != "" -> {:ok, Map.put(request, :model, model)}
         _ -> {:ok, request}
       end
+    end
+  end
+
+  defp compact_context_retry_options(opts, model) do
+    if Keyword.get(opts, :compact_context_retry?, false) do
+      configured_limit = ContextBudget.request_size_limit_bytes(model, opts)
+
+      Keyword.put(
+        opts,
+        :context_input_byte_budget,
+        min(configured_limit, @compact_context_retry_byte_budget)
+      )
+    else
+      opts
     end
   end
 

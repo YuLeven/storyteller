@@ -9175,6 +9175,69 @@ defmodule Storyteller.PlayTest do
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
   end
 
+  test "provider context-window rejection can retry the same action under a smaller request cap" do
+    {campaign, session} = play_campaign("The Compact Observatory")
+    caller = self()
+    calls = :atomics.new(1, signed: false)
+    place = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+    description = String.duplicate("A fine line of brass marks the chart rim. ", 100)
+
+    Repo.update!(
+      Place.changeset(place, %{
+        description: description
+      })
+    )
+
+    provider = fn request ->
+      call = :atomics.add_get(calls, 1, 1)
+
+      send(
+        caller,
+        {:context_window_retry_request, call, request.request_size_limit_bytes,
+         request.local_context_metrics.estimated_request_bytes,
+         request.local_context_metrics.omissions}
+      )
+
+      if call == 1,
+        do: {:error, :context_length_exceeded},
+        else: {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    action = "I compare the latest chart reading with the marked star positions."
+
+    assert {:ok,
+            %{status: :failed, failure_code: "context_length_exceeded", player_input: ^action} =
+              failed} =
+             Play.submit_turn(campaign.id, session.id, "provider-context-window", action,
+               provider: provider,
+               model: "test-model",
+               context_input_byte_budget: 50_000
+             )
+
+    assert_receive {:context_window_retry_request, 1, 50_000, first_size, first_omissions}
+    assert first_size <= 50_000
+    refute :place_details in first_omissions
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    assert {:ok, %{status: :completed, player_input: ^action} = retried} =
+             Play.retry_turn(failed.id,
+               provider: provider,
+               model: "test-model",
+               context_input_byte_budget: 50_000,
+               compact_context_retry?: true
+             )
+
+    assert_receive {:context_window_retry_request, 2, 48_000, compact_size, compact_omissions}
+    assert compact_size <= 48_000
+    assert compact_size < first_size
+    assert :place_details in compact_omissions
+    assert retried.id == failed.id
+    assert retried.player_input == action
+    assert Repo.get!(Place, place.id).description == description
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+  end
+
   test "an oversized lookup follow-up keeps the saved action and canon under its own failure code" do
     {campaign, session} = play_campaign("The Lookup Follow-up Observatory")
     state_before = Repo.get_by!(State, campaign_id: campaign.id)

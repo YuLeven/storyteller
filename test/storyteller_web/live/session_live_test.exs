@@ -4962,6 +4962,70 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
   end
 
+  test "a provider context-window rejection offers a same-action compact retry", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    action = "I compare the latest chart reading with the marked star positions."
+    caller = self()
+    calls = :atomics.new(1, signed: false)
+
+    set_handler(fn request ->
+      call = :atomics.add_get(calls, 1, 1)
+      send(caller, {:provider_context_retry_limit, call, request.request_size_limit_bytes})
+
+      if call == 1 do
+        {:error, :context_length_exceeded}
+      else
+        FakeProvider.opening_scene_response(provider_context(request))
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             match?(
+               %{status: :failed, failure_code: "context_length_exceeded"},
+               Play.public_current_turn(campaign.id)
+             ) and
+               has_element?(
+                 view,
+                 "#turn-error",
+                 "could not fit this turn into its context window"
+               )
+           end)
+
+    failed_turn = Play.public_current_turn(campaign.id)
+    assert failed_turn.player_input == action
+    assert_receive {:provider_context_retry_limit, 1, 64_000}, 1_000
+    assert has_element?(view, "#story-pending-action", action)
+    assert has_element?(view, "#retry-with-compact-context", "Retry with a compact scene brief")
+
+    refute has_element?(
+             view,
+             "#turn-error button[phx-click='retry-turn']:not(#retry-with-compact-context)"
+           )
+
+    refute has_element?(view, "#context-budget-recovery")
+
+    view
+    |> element("#retry-with-compact-context")
+    |> render_click()
+
+    assert_receive {:provider_context_retry_limit, 2, 48_000}, 1_000
+
+    assert wait_until(fn ->
+             match?(%{status: :completed, player_input: ^action}, Repo.get(Turn, failed_turn.id))
+           end)
+
+    assert Enum.count(Play.public_timeline(campaign.id) |> elem(1), fn event ->
+             event.turn_id == failed_turn.id and event.event_type == :player_action
+           end) == 1
+  end
+
   test "a usage limit during the GM opening keeps the first scene retryable without repeating the pause",
        %{
          conn: conn

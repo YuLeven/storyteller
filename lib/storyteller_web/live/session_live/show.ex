@@ -597,7 +597,9 @@ defmodule StorytellerWeb.SessionLive.Show do
         else
           socket =
             socket
-            |> start_resolution(latest.id)
+            |> start_resolution(latest.id,
+              compact_context_retry?: latest.failure_code == "context_length_exceeded"
+            )
             |> maybe_schedule_poll()
 
           {:noreply, socket}
@@ -1449,7 +1451,7 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
-  defp start_resolution(socket, turn_id) do
+  defp start_resolution(socket, turn_id, opts \\ []) do
     if socket.assigns.worker_turn_id == turn_id do
       socket
     else
@@ -1457,17 +1459,24 @@ defmodule StorytellerWeb.SessionLive.Show do
       worker_tag = make_ref()
       provider = Application.get_env(:storyteller, :gm_provider, Storyteller.GM.OpenAI)
 
+      retry_opts = [
+        provider: provider,
+        token_store: plan_usage_store(),
+        on_claim: fn claimed_turn_id, attempt ->
+          send(owner, {:turn_resolution_claimed, claimed_turn_id, worker_tag, attempt})
+        end,
+        on_first_output: fn ->
+          send(owner, {:turn_first_output, turn_id, worker_tag})
+        end
+      ]
+
+      retry_opts =
+        if Keyword.get(opts, :compact_context_retry?, false),
+          do: Keyword.put(retry_opts, :compact_context_retry?, true),
+          else: retry_opts
+
       case Task.start(fn ->
-             Play.retry_turn(turn_id,
-               provider: provider,
-               token_store: plan_usage_store(),
-               on_claim: fn claimed_turn_id, attempt ->
-                 send(owner, {:turn_resolution_claimed, claimed_turn_id, worker_tag, attempt})
-               end,
-               on_first_output: fn ->
-                 send(owner, {:turn_first_output, turn_id, worker_tag})
-               end
-             )
+             Play.retry_turn(turn_id, retry_opts)
            end) do
         {:ok, pid} ->
           ref = Process.monitor(pid)
@@ -2723,6 +2732,12 @@ defmodule StorytellerWeb.SessionLive.Show do
     do:
       gettext(
         "Your action is saved and the request was not sent because the local GM request-size limit was exceeded."
+      )
+
+  defp failure_message("context_length_exceeded"),
+    do:
+      gettext(
+        "The GM model could not fit this turn into its context window. Your action is saved; no story or canon changes from the rejected request were applied."
       )
 
   defp failure_message("context_followup_too_large"),

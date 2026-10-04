@@ -556,7 +556,10 @@
           </p>
           <div id="turn-error-actions" class="mt-4 flex flex-wrap items-center gap-3">
             <button
-              :if={retryable?(@current_turn) && playable?(@session)}
+              :if={
+                retryable?(@current_turn) && playable?(@session) &&
+                  @current_turn.failure_code != "context_length_exceeded"
+              }
               type="button"
               phx-click="retry-turn"
               phx-value-turn_id={@current_turn.id}
@@ -573,6 +576,20 @@
               opening_scene?(@current_turn) -> gettext("Retry opening scene")
               true -> gettext("Retry this turn")
             end}</button>
+            <button
+              :if={
+                retryable?(@current_turn) && playable?(@session) &&
+                  @current_turn.failure_code == "context_length_exceeded"
+              }
+              type="button"
+              phx-click="retry-turn"
+              phx-value-turn_id={@current_turn.id}
+              id="retry-with-compact-context"
+              disabled={@worker_turn_id == @current_turn.id || @plan_usage_blocked?}
+              class="rounded-lg bg-amber-800 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-wait disabled:opacity-60"
+            >{if @worker_turn_id == @current_turn.id,
+              do: gettext("Retrying with a compact scene brief…"),
+              else: gettext("Retry with a compact scene brief")}</button>
             <.link
               :if={reconnect_needed?(@current_turn.failure_code)}
               navigate="/auth/connect"

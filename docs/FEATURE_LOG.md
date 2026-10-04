@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Recover from provider context-window rejections
+
+- A provider can reject an exact serialized request because it exceeds the selected model's context window, even when Storyteller's byte preflight accepted it. Recognize the documented `context_length_exceeded` code separately from local size failures and account usage pauses.
+- Keep the turn/action saved and canon unchanged. The play page offers a clear retry action that rebuilds a compact, scene-focused projection: it shortens history to four recent beats and compact excerpts, trims long reference detail, preserves the player action and scene anchors, and marks omitted detail. The retry uses a 48,000-byte request cap, leaving room for the bounded lookup reserve; the adapter still exact-checks the outgoing body. This is byte-based recovery, not calibration of provider token limits.
+- Added adapter, Play, and LiveView regressions for the provider error mapping, localized recovery, saved-action idempotency, and a genuinely smaller retry request. The compact path preserves canon in storage and writes exactly one player-action event after a successful retry.
+- **Checks:** targeted WSL provider/Play/LiveView regressions passed (**224 discovered, 3 selected, 0 failures**); the full isolated suite passed (**505 tests, 0 failures**). Warnings-as-errors compilation, formatter check, Gettext freshness, asset build, and `git diff --check` also passed. Tests use `storyteller_test` with synthetic data and fake providers; no real campaign, OAuth consent, or live model request was used.
+
 ## 2026-10-04 — Reassure players during a long GM wait
 
 - Recent isolated connected turns took 42–71 seconds; the application withholds generated text until the complete response passes validation and commits. A static wait card did not reassure the player once that delay stretched on.
