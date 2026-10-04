@@ -7,6 +7,18 @@
 - Safe stage telemetry for that isolated request recorded context load/build at 34/17 ms, OAuth access at 0 ms, model resolution at 851 ms (catalog cache miss), first text at 2,139 ms after Responses dispatch, provider stream at 15,795 ms, proposal validation at 22 ms, and commit at 6 ms. First-text time is inside provider-stream time. Completion was first checked by a later browser poll, so no exact submit-to-visible-completion latency is claimed.
 - **Checks:** the focused Play request-contract test passed (**1 selected, 118 excluded**). The live check used only the isolated QA campaign and one ChatGPT-plan request; no Vineyard source or state was read or changed.
 
+## 2026-10-04 — State the sensory-authority boundary in plain language
+
+- Tightened the GM request contract to say that the GM supplies observable sensory facts before inviting the character's reaction, and may ask for judgment only after presenting evidence. It now explicitly calls out “What does it taste like?” as a question to avoid.
+- Clarified the nearby clue rule: ordinary ambient texture is not itself a clue or cause. Clues can arise from an established premise or in-scene action, then become public continuity if they matter later; off-scene or retroactive evidence remains disallowed.
+- Expanded request-contract regressions to assert the sensory handoff and clue-grounding language.
+- **Checks:** focused Play and context-budget suites passed (**159 tests, 0 failures**); the full suite passed (**509 tests, 0 failures**). Warnings-as-errors compilation, formatter, Gettext extraction freshness, asset build, and `git diff --check` passed. Tests verify what Storyteller sends; they cannot establish that every model response follows the instruction.
+
+## 2026-10-04 — Inspect tracked-resource wrapping in isolated QA
+
+- A disposable 1280×720 Quiet Observatory QA view with 18 tracked text fields showed wrapping and internal scrolling, with no overlap observed. The content felt dense, so that layout still merits polish.
+- The reported campaign-37 overlap was not reproduced or inspected. Only the temporary campaign in the isolated 4003 QA database was used, and it was deleted afterward. Opening its new session auto-started one GM opening turn; this was an unintended test side effect, now stopped and removed with the disposable campaign. No player move was submitted, and QA campaign 1 remained unchanged. The separate Vineyard campaign and port 4000 were untouched; no further provider request was made.
+
 ## 2026-10-04 — Redact credentials from Phoenix parameter logs
 
 - Local Phoenix request and WebSocket logs include parameter maps. Added recursive parameter filtering for OAuth codes/states, CSRF values, credentials, tokens, and authorization data, while leaving ordinary parameters available for development diagnostics. Application-specific GM timing metrics remain visible.
