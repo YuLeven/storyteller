@@ -1133,6 +1133,7 @@ defmodule Storyteller.Play do
           id: turn.id,
           campaign_id: turn.campaign_id,
           session_id: turn.session_id,
+          attempts: turn.attempts,
           player_input: turn.player_input,
           intent: turn.intent,
           status: turn.status,
@@ -5473,16 +5474,20 @@ defmodule Storyteller.Play do
   end
 
   defp compile_provider_context(request_context, instructions, model, opts) do
-    case ContextBudget.compile(request_context, instructions, model, opts) do
-      {:ok, %{context: initial_context, metrics: initial_metrics}} ->
-        if campaign_lookup_recommended?(initial_metrics) do
-          compile_lookup_context(request_context, instructions, model, opts)
-        else
-          {:ok, {initial_context, initial_metrics, false, instructions}}
-        end
+    if Keyword.get(opts, :retrieval_packet_retry?, false) do
+      compile_retrieval_packet(request_context, instructions, model, opts)
+    else
+      case ContextBudget.compile(request_context, instructions, model, opts) do
+        {:ok, %{context: initial_context, metrics: initial_metrics}} ->
+          if campaign_lookup_recommended?(initial_metrics) do
+            compile_lookup_context(request_context, instructions, model, opts)
+          else
+            {:ok, {initial_context, initial_metrics, false, instructions}}
+          end
 
-      {:error, _reason} ->
-        compile_retrieval_packet(request_context, instructions, model, opts)
+        {:error, _reason} ->
+          compile_retrieval_packet(request_context, instructions, model, opts)
+      end
     end
   end
 

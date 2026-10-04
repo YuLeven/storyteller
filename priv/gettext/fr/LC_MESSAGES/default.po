@@ -3479,6 +3479,11 @@ msgstr "Cela prend un peu plus de temps. Ce tour est enregistré ; la réponse c
 msgid "Retry with a compact scene brief"
 msgstr "Réessayer avec un résumé compact de la scène"
 
+#: lib/storyteller_web/live/session_live/show.html.heex:601
+#, elixir-autogen, elixir-format
+msgid "Retry with a minimal scene brief"
+msgstr "Réessayer avec un résumé minimal de la scène"
+
 #: lib/storyteller_web/live/session_live/show.html.heex:591
 #, elixir-autogen, elixir-format
 msgid "Retrying with a compact scene brief…"

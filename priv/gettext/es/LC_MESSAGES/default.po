@@ -3479,6 +3479,11 @@ msgstr "Esto está tardando un poco más. El turno está guardado; aquí aparece
 msgid "Retry with a compact scene brief"
 msgstr "Reintentar con un resumen compacto de la escena"
 
+#: lib/storyteller_web/live/session_live/show.html.heex:601
+#, elixir-autogen, elixir-format
+msgid "Retry with a minimal scene brief"
+msgstr "Reintentar con un resumen mínimo de la escena"
+
 #: lib/storyteller_web/live/session_live/show.html.heex:591
 #, elixir-autogen, elixir-format
 msgid "Retrying with a compact scene brief…"

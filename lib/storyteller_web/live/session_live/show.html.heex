@@ -558,7 +558,10 @@
             <button
               :if={
                 retryable?(@current_turn) && playable?(@session) &&
-                  @current_turn.failure_code != "context_length_exceeded"
+                  @current_turn.failure_code not in [
+                    "context_length_exceeded",
+                    "context_followup_too_large"
+                  ]
               }
               type="button"
               phx-click="retry-turn"
@@ -579,7 +582,10 @@
             <button
               :if={
                 retryable?(@current_turn) && playable?(@session) &&
-                  @current_turn.failure_code == "context_length_exceeded"
+                  @current_turn.failure_code in [
+                    "context_length_exceeded",
+                    "context_followup_too_large"
+                  ]
               }
               type="button"
               phx-click="retry-turn"
@@ -587,9 +593,16 @@
               id="retry-with-compact-context"
               disabled={@worker_turn_id == @current_turn.id || @plan_usage_blocked?}
               class="rounded-lg bg-amber-800 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-wait disabled:opacity-60"
-            >{if @worker_turn_id == @current_turn.id,
-              do: gettext("Retrying with a compact scene brief…"),
-              else: gettext("Retry with a compact scene brief")}</button>
+            >{cond do
+              @worker_turn_id == @current_turn.id ->
+                gettext("Retrying with a compact scene brief…")
+
+              minimal_context_retry?(@current_turn) ->
+                gettext("Retry with a minimal scene brief")
+
+              true ->
+                gettext("Retry with a compact scene brief")
+            end}</button>
             <.link
               :if={reconnect_needed?(@current_turn.failure_code)}
               navigate="/auth/connect"

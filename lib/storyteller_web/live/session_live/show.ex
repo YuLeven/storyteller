@@ -598,7 +598,8 @@ defmodule StorytellerWeb.SessionLive.Show do
           socket =
             socket
             |> start_resolution(latest.id,
-              compact_context_retry?: latest.failure_code == "context_length_exceeded"
+              compact_context_retry?: compact_context_retry?(latest),
+              retrieval_packet_retry?: retrieval_packet_retry?(latest)
             )
             |> maybe_schedule_poll()
 
@@ -1473,6 +1474,11 @@ defmodule StorytellerWeb.SessionLive.Show do
       retry_opts =
         if Keyword.get(opts, :compact_context_retry?, false),
           do: Keyword.put(retry_opts, :compact_context_retry?, true),
+          else: retry_opts
+
+      retry_opts =
+        if Keyword.get(opts, :retrieval_packet_retry?, false),
+          do: Keyword.put(retry_opts, :retrieval_packet_retry?, true),
           else: retry_opts
 
       case Task.start(fn ->
@@ -2852,6 +2858,21 @@ defmodule StorytellerWeb.SessionLive.Show do
 
   defp reconnect_needed?(code),
     do: code in ["reauth_required", "account_ineligible", "model_unavailable"]
+
+  defp compact_context_retry?(turn) do
+    turn.failure_code in ["context_length_exceeded", "context_followup_too_large"] and
+      turn.attempts >= 1
+  end
+
+  defp retrieval_packet_retry?(turn) do
+    turn.failure_code in ["context_length_exceeded", "context_followup_too_large"] and
+      turn.attempts >= 2
+  end
+
+  defp minimal_context_retry?(turn) do
+    turn.failure_code in ["context_length_exceeded", "context_followup_too_large"] and
+      turn.attempts >= 2
+  end
 
   defp game_time_label(game_time) when is_map(game_time) do
     [Map.get(game_time, "date"), Map.get(game_time, "time")]

@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Escalate repeated GM context-size rejections
+
+- A lookup follow-up can exceed Storyteller's exact serialized-byte guard after the first GM request has already been sent. Retrying the same action previously rebuilt the same full-context request, so the model could ask for the same lookup and hit the same local guard again. A provider may also reject the compact retry; offering the identical compact request again does not make progress.
+- The first recovery click for either size failure now applies the compact scene projection and a 48,000-byte request cap. If that is rejected again, the following click sends a minimal current-scene packet with omissions marked as unknown and bounded read-only lookup available. Canonical source data remains unchanged, and exact serialized-size checks remain in force. The localized error card labels compact and minimal retries, using the same saved action without duplicate timeline events.
+- Added behavioral LiveView regressions for the oversized follow-up and repeated provider-window rejection; they verify the compact and minimal request envelopes and confirm only one player-action event after success. Extended English, Spanish, and French recovery assertions.
+- **Checks:** the two focused recovery regressions passed (**79 discovered, 0 failures**); the complete isolated WSL suite passed (**507 tests, 0 failures**). Warnings-as-errors compilation, formatter check, Gettext extraction freshness, and `git diff --check` passed. All fixtures used `storyteller_test` and fake providers; no connected campaign, live model request, or OAuth flow was used.
+
 ## 2026-10-04 — Recover from provider context-window rejections
 
 - A provider can reject an exact serialized request because it exceeds the selected model's context window, even when Storyteller's byte preflight accepted it. Recognize the documented `context_length_exceeded` code separately from local size failures and account usage pauses.

@@ -4802,25 +4802,25 @@ defmodule StorytellerWeb.SessionLiveTest do
         |> Turn.changeset(%{failure_code: "context_followup_too_large"})
       )
 
-      for {locale, followup_notice, retry_guidance, retry_label} <-
+      for {locale, followup_notice, retry_guidance, compact_retry_label} <-
             [
               {
                 "en",
                 "This is Storyteller's local size limit, not an account usage-limit response. The initial GM request was sent, but Storyteller stopped its oversized follow-up before sending it. Your action is saved; no story or canon change was applied.",
                 "Retry this turn to send a new GM request. It will use the same saved action without duplicating it.",
-                "Retry this turn"
+                "Retry with a compact scene brief"
               },
               {
                 "es",
                 "Este es el límite local de tamaño de Storyteller, no un aviso de límite de uso de la cuenta. La solicitud inicial al DJ sí se envió, pero Storyteller detuvo el seguimiento porque excedía el tamaño permitido. Tu acción está guardada; no se aplicaron cambios a la historia ni al canon.",
                 "Reintenta este turno para enviar una nueva solicitud al DJ. Usará la misma acción guardada, sin duplicarla.",
-                "Reintentar este turno"
+                "Reintentar con un resumen compacto de la escena"
               },
               {
                 "fr",
                 "Il s’agit de la limite locale de taille de Storyteller, et non d’un avis de limite d’utilisation du compte. La première requête au MJ a été envoyée, mais Storyteller a bloqué le suivi, trop volumineux, avant de l’envoyer. Votre action est enregistrée ; aucun changement à l’histoire ni au canon n’a été appliqué.",
                 "Réessayez ce tour pour envoyer une nouvelle requête au MJ. Elle réutilisera la même action enregistrée sans la dupliquer.",
-                "Réessayer ce tour"
+                "Réessayer avec un résumé compact de la scène"
               }
             ] do
         assert {:ok, _preference} = Settings.set_ui_locale(locale)
@@ -4829,7 +4829,13 @@ defmodule StorytellerWeb.SessionLiveTest do
         assert has_element?(view, "#context-budget-recovery", followup_notice)
         assert has_element?(view, "#context-budget-next-step", retry_guidance)
         assert has_element?(view, "#story-pending-action", action)
-        assert has_element?(view, "#turn-error button[phx-click='retry-turn']", retry_label)
+        assert has_element?(view, "#retry-with-compact-context", compact_retry_label)
+
+        refute has_element?(
+                 view,
+                 "#turn-error button[phx-click='retry-turn']:not(#retry-with-compact-context)"
+               )
+
         refute has_element?(view, "#context-budget-diagnostics")
         refute has_element?(view, "#context-budget-open-campaign")
         refute render(view) =~ private_sentinel
@@ -5016,6 +5022,142 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> render_click()
 
     assert_receive {:provider_context_retry_limit, 2, 48_000}, 1_000
+
+    assert wait_until(fn ->
+             match?(%{status: :completed, player_input: ^action}, Repo.get(Turn, failed_turn.id))
+           end)
+
+    assert Enum.count(Play.public_timeline(campaign.id) |> elem(1), fn event ->
+             event.turn_id == failed_turn.id and event.event_type == :player_action
+           end) == 1
+  end
+
+  test "an oversized lookup follow-up offers a compact same-action retry", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    action = "I compare the latest chart reading with the marked star positions."
+    caller = self()
+    calls = :atomics.new(1, signed: false)
+
+    set_handler(fn request ->
+      call = :atomics.add_get(calls, 1, 1)
+
+      send(
+        caller,
+        {:followup_context_retry_request, call, request.request_size_limit_bytes,
+         request.local_context_metrics.estimated_request_bytes}
+      )
+
+      if call == 1 do
+        {:error, :context_followup_too_large}
+      else
+        FakeProvider.opening_scene_response(provider_context(request))
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             match?(
+               %{status: :failed, failure_code: "context_followup_too_large"},
+               Play.public_current_turn(campaign.id)
+             )
+           end)
+
+    failed_turn = Play.public_current_turn(campaign.id)
+    assert failed_turn.player_input == action
+    assert_receive {:followup_context_retry_request, 1, 64_000, _first_size}, 1_000
+    assert has_element?(view, "#story-pending-action", action)
+    assert has_element?(view, "#retry-with-compact-context", "Retry with a compact scene brief")
+
+    refute has_element?(
+             view,
+             "#turn-error button[phx-click='retry-turn']:not(#retry-with-compact-context)"
+           )
+
+    view
+    |> element("#retry-with-compact-context")
+    |> render_click()
+
+    assert_receive {:followup_context_retry_request, 2, 48_000, compact_size}, 1_000
+    assert compact_size <= 48_000
+
+    assert wait_until(fn ->
+             match?(%{status: :completed, player_input: ^action}, Repo.get(Turn, failed_turn.id))
+           end)
+
+    assert Enum.count(Play.public_timeline(campaign.id) |> elem(1), fn event ->
+             event.turn_id == failed_turn.id and event.event_type == :player_action
+           end) == 1
+  end
+
+  test "a repeated context-window rejection retries with a minimal scene packet", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    action = "I compare the latest chart reading with the marked star positions."
+    caller = self()
+    calls = :atomics.new(1, signed: false)
+
+    set_handler(fn request ->
+      call = :atomics.add_get(calls, 1, 1)
+      context = provider_context(request)
+
+      send(
+        caller,
+        {:minimal_context_retry_request, call, request.request_size_limit_bytes,
+         request.local_context_metrics.estimated_request_bytes,
+         get_in(context, ["context_completeness", "retrieval_packet"]) == true}
+      )
+
+      if call < 3 do
+        {:error, :context_length_exceeded}
+      else
+        FakeProvider.opening_scene_response(context)
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert wait_until(fn ->
+             match?(
+               %{status: :failed, failure_code: "context_length_exceeded", attempts: 1},
+               Play.public_current_turn(campaign.id)
+             )
+           end)
+
+    failed_turn = Play.public_current_turn(campaign.id)
+    assert_receive {:minimal_context_retry_request, 1, 64_000, _initial_size, false}, 1_000
+    assert has_element?(view, "#retry-with-compact-context", "Retry with a compact scene brief")
+
+    view
+    |> element("#retry-with-compact-context")
+    |> render_click()
+
+    assert_receive {:minimal_context_retry_request, 2, 48_000, _compact_size, false}, 1_000
+
+    assert wait_until(fn ->
+             match?(
+               %{status: :failed, failure_code: "context_length_exceeded", attempts: 2},
+               Repo.get(Turn, failed_turn.id)
+             )
+           end)
+
+    assert has_element?(view, "#retry-with-compact-context", "Retry with a minimal scene brief")
+
+    view
+    |> element("#retry-with-compact-context")
+    |> render_click()
+
+    assert_receive {:minimal_context_retry_request, 3, 48_000, retrieval_size, true}, 1_000
+    assert retrieval_size <= 24_000
 
     assert wait_until(fn ->
              match?(%{status: :completed, player_input: ^action}, Repo.get(Turn, failed_turn.id))
