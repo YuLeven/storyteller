@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Refresh the campaign-engine benchmark
+
+- Rechecked current official pages for Friends & Fables, World Anvil, LegendKeeper, and Apple's design principles. The focused review adds the AI campaign-engine distinction described by Friends & Fables' 2024 ACE-1 announcement, its context-selection and per-message inspection pattern, and the age of those claims; the 2026 homepage remains separate evidence of current product positioning.
+- Updated product guidance to keep Storyteller's local canonical engine separate from the GM voice, preserve durable canon while retrieving selectively, keep private context private in diagnostics, and make intent-sensitive pacing a tested behavior rather than another default control. The wiki/map comparison reinforces a scene-first player surface with deeper reference available when needed.
+- No product behavior changed. Desk research only; no competitor account, user campaign, or live model was used.
+
 ## 2026-10-04 — Normalize accented canon retrieval
 
 - Memory relevance and bounded campaign lookup now normalize query and searchable text to Unicode NFC. A word typed with decomposed accent marks matches canon stored with composed accents, and vice versa; long-record excerpts still center the matching fact.
