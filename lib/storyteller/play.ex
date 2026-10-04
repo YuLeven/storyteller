@@ -5601,9 +5601,10 @@ defmodule Storyteller.Play do
     meaningful decision is due. Keep calendar, time, weather, and other world
     changes canonical and consistent. Set time_advance_minutes to the total
     fictional minutes that pass, including travel. The request authorizes passage of time
-    only. Resolve routine activity across the interval as a coherent montage
-    at the requested scale, bringing relevant progress and conversation
-    together. Do not stop after each
+    only. Resolve routine activity across the interval as a montage at the
+    requested scale, bringing relevant progress and conversation together. If
+    the player follows a live event closely (e.g. a match at an asado), keep it
+    moment by moment. Don't skip ahead just to advance time. Do not stop after each
     incidental action. Pause at the next meaningful player decision. Do not
     choose or narrate actions, speech, thoughts, or decisions for
     the player's character, do not move or update that character, and do not

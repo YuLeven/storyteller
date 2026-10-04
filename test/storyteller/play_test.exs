@@ -9727,9 +9727,14 @@ defmodule Storyteller.PlayTest do
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
 
     assert normalized_instructions =~
-             "Resolve routine activity across the interval as a coherent montage"
+             "Resolve routine activity across the interval as a montage"
 
     assert normalized_instructions =~ "Do not stop after each incidental action"
+
+    assert normalized_instructions =~
+             "If the player follows a live event closely (e.g. a match at an asado), keep it moment by moment."
+
+    assert normalized_instructions =~ "Don't skip ahead just to advance time."
 
     state = Repo.get_by!(State, campaign_id: campaign.id)
     assert state.public_state["date"] == "Day 22"
@@ -9744,6 +9749,53 @@ defmodule Storyteller.PlayTest do
     assert Enum.any?(timeline, &(&1.event_type == :npc_dialogue))
     assert Enum.any?(timeline, &(&1.event_type == :character_activity))
     refute Enum.any?(timeline, &(&1.event_type in [:player_action, :roll_request, :player_roll]))
+  end
+
+  test "an explicit live-event time passage preserves the requested moment-by-moment scale" do
+    {campaign, session} = play_campaign("The Glass Observatory")
+    test_pid = self()
+
+    player_action =
+      "Stay by the asado and follow the football match play by play, minute by minute."
+
+    provider = fn request ->
+      context = decode_request(request)
+      send(test_pid, {:live_event_request, context, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => "The winger breaks down the right; the fullback closes the gap.",
+           "time_advance_minutes" => 2,
+           "roll_request" => nil
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "follow-the-match-closely",
+               player_action,
+               intent: :time_passage,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:live_event_request, context, raw_instructions}, 1_000
+    assert context["interaction_mode"] == "time_passage"
+    assert context["player_action"] == player_action
+
+    instructions = String.replace(raw_instructions, ~r/\s+/, " ")
+
+    assert instructions =~
+             "If the player follows a live event closely (e.g. a match at an asado)"
+
+    assert instructions =~ "Don't skip ahead just to advance time."
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.elapsed_world_minutes == 2
   end
 
   test "pending turns reconnect with the same record and can be resumed without duplicating input" do

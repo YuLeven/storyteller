@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Match scene pace to routine work or close-up live play
+
+- Clarified the adaptive-pace contract: routine work and waits cover the requested span as a montage, while a player who follows a live event closely can keep it at moment-by-moment scale. The close-up pace never authorizes the GM to decide the player's follow-through.
+- Added a fake-provider behavioral test for a play-by-play football match during a time-passage turn; it verifies the request preserves the exact player wording and that the accepted response advances only its stated two game minutes. Existing multi-day coverage continues to verify routine work resolves at montage scale.
+- Kept the live-event exception in time-passage-specific guidance, so ordinary turns do not carry extra prompt text or token cost.
+- **Checks:** focused story, pacing, and voice regressions passed (**162 tests, 0 failures; 158 excluded**); full WSL suite passed (**510 tests, 0 failures**). Warnings-as-errors compilation, formatter, Gettext extraction freshness, asset build, and `git diff --check` passed. All tests used fake providers and test data; no connected QA campaign, model request, or OAuth flow was used.
+
 ## 2026-10-04 — Let direct answers finish without a stock invitation
 
 - The Ask GM follow-up guidance required a “low-pressure next step” even when a direct answer was complete. It now allows that suggestion only when the answer creates a concrete, useful opening; otherwise it ends naturally. The focused look-around fixture is a complete standalone observation, and the request contract rejects generic closers.
