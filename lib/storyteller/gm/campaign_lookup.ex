@@ -127,7 +127,7 @@ defmodule Storyteller.GM.CampaignLookup do
       chars = String.length(query)
 
       if chars > 0 and chars <= @max_query_chars do
-        {:ok, query}
+        {:ok, String.normalize(query, :nfc)}
       else
         {:error, "Query must contain 1–160 characters."}
       end
@@ -695,13 +695,15 @@ defmodule Storyteller.GM.CampaignLookup do
   defp maybe_add(records, record), do: [record | records]
 
   defp relevance(record, query, terms) do
-    name = String.downcase(record["name"])
-    id = String.downcase(record["id"])
+    name = record["name"] |> String.normalize(:nfc) |> String.downcase()
+    id = record["id"] |> String.normalize(:nfc) |> String.downcase()
 
     encoded =
-      Jason.encode!(Map.drop(record, ["_order", "details_truncated"])) |> String.downcase()
+      Jason.encode!(Map.drop(record, ["_order", "details_truncated"]))
+      |> String.normalize(:nfc)
+      |> String.downcase()
 
-    q = String.downcase(query)
+    q = query |> String.normalize(:nfc) |> String.downcase()
 
     cond do
       id == q ->
@@ -727,6 +729,7 @@ defmodule Storyteller.GM.CampaignLookup do
 
   defp tokenize(text) do
     text
+    |> String.normalize(:nfc)
     |> String.downcase()
     |> then(&Regex.scan(~r/[\p{L}\p{N}_-]+/u, &1))
     |> List.flatten()
@@ -788,6 +791,8 @@ defmodule Storyteller.GM.CampaignLookup do
   defp get(_, _), do: nil
 
   defp query_excerpt(text, limit, query_terms) do
+    text = String.normalize(text, :nfc)
+
     if String.length(text) <= limit do
       text
     else

@@ -2060,6 +2060,7 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp raw_meaningful_terms(text) when is_binary(text) do
     text
+    |> String.normalize(:nfc)
     |> String.downcase()
     |> then(&Regex.scan(~r/[\p{L}\p{N}]{3,}/u, &1))
     |> List.flatten()
@@ -2960,14 +2961,14 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp relevance_score(text, terms) when is_binary(text) do
-    text = String.downcase(text)
+    text = text |> String.normalize(:nfc) |> String.downcase()
     Enum.count(terms, &String.contains?(text, &1))
   end
 
   defp relevance_score(_text, _terms), do: 0
 
   defp name_mentioned?(name, terms) when is_binary(name) do
-    normalized = String.downcase(name)
+    normalized = name |> String.normalize(:nfc) |> String.downcase()
 
     normalized != "" and MapSet.size(terms) > 0 and
       Enum.any?(terms, &String.contains?(normalized, &1))

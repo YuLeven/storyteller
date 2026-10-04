@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Normalize accented canon retrieval
+
+- Memory relevance and bounded campaign lookup now normalize query and searchable text to Unicode NFC. A word typed with decomposed accent marks matches canon stored with composed accents, and vice versa; long-record excerpts still center the matching fact.
+- Added a behavioral regression for both forms through durable memory selection and the campaign-scoped lookup tool. This preserves player-facing canon as authored in storage except for normalized excerpts; it does not broaden the curated vocabulary or claim semantic synonym search.
+- **Checks:** isolated WSL context-budget suite passed (**37 tests, 0 failures**); full isolated suite passed (**497 tests, 0 failures**), as did warnings-as-errors compilation, formatter check, and `git diff --check`. Tests use synthetic data in `storyteller_test`; no QA campaign data, live model, or OAuth was used.
+
 ## 2026-10-04 — Make character voice guidance actionable
 
 - Strengthened the runtime GM policy to ask for distinct per-speaker word choice and rhythm, with accent carried naturally in the campaign language. It explicitly avoids phonetic spelling, caricature, repeated catchphrases, and mannerism spam while keeping quirks selective.

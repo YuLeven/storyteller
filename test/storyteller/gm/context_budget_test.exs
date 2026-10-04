@@ -210,6 +210,66 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert :erlang.term_to_binary(context) == source_snapshot
   end
 
+  test "recalls accented canon across NFC and decomposed Unicode text" do
+    nfc = "La dégustation a lieu dans la salle des cartes."
+    nfd = String.normalize(nfc, :nfd)
+
+    memory = %{
+      entry_id: "map-room-tasting",
+      kind: "fact",
+      title: "Dégustation",
+      details: nfc,
+      status: "active",
+      visibility: "public",
+      player_managed: true
+    }
+
+    for {action, details} <- [
+          {String.normalize("dégustation", :nfd), nfc},
+          {"dégustation", nfd}
+        ] do
+      context =
+        base_context()
+        |> Map.put(:player_action, action)
+        |> Map.put(:continuity, %{public: [%{memory | details: details}], gm_private: []})
+
+      assert {:ok, %{context: compiled}} =
+               ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+
+      assert Enum.find(compiled.continuity.public, &(&1.entry_id == "map-room-tasting")).details ==
+               details
+    end
+
+    long_description =
+      String.duplicate("Description sans détail. ", 12) <>
+        "La dégustation est mentionnée derrière les archives."
+
+    for {query, description} <- [
+          {"dégustation", String.normalize(long_description, :nfd)},
+          {String.normalize("dégustation", :nfd), long_description}
+        ] do
+      result =
+        CampaignLookup.execute(
+          %{
+            places: %{
+              public: [
+                %{
+                  place_id: "map-room",
+                  name: "Salle des cartes",
+                  visibility: :public,
+                  description: description
+                }
+              ]
+            }
+          },
+          %{"query" => query, "category" => "place"}
+        )
+
+      assert [record] = result["records"]
+      assert String.normalize(record["fields"]["description"], :nfc) =~ "dégustation"
+    end
+  end
+
   test "keeps a bounded recent slice of a long continuity ledger" do
     entries =
       Enum.map(1..140, fn index ->
