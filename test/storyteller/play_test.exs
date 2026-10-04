@@ -9722,6 +9722,8 @@ defmodule Storyteller.PlayTest do
              )
 
     assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions}
+    assert byte_size(instructions) < 12_000
+
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
     assert normalized_instructions =~ "full stated duration, including multiple days"
     assert normalized_instructions =~ "Time passage is an explicit request to advance the world"
