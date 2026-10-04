@@ -3050,6 +3050,44 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
   end
 
+  test "tracked resource values preserve long lines and intentional indentation", %{
+    conn: conn
+  } do
+    long_reference = String.duplicate("unbroken-storage-reference-", 12)
+
+    value =
+      "Storage notes:\n  North rack: #{long_reference}\n    East rack:\n      Keep sealed until harvest."
+
+    campaign =
+      campaign_fixture(%{
+        panel_fields: [
+          %{
+            key: "storage_notes",
+            panel: "Workshop ledger",
+            label: "Storage notes",
+            value_type: :text,
+            visibility: :public,
+            initial_value: value
+          }
+        ]
+      })
+
+    session = hd(campaign.sessions)
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    [value_node] =
+      view
+      |> render()
+      |> Floki.parse_document!()
+      |> Floki.find("#campaign-fields [data-resource-row='storage_notes'] span[data-panel-value]")
+
+    assert Floki.text(value_node) == value
+
+    value_classes = value_node |> Floki.attribute("class") |> hd() |> String.split()
+    assert "whitespace-pre-wrap" in value_classes
+    assert "break-words" in value_classes
+  end
+
   test "tracked resources created in setup render through campaign detail and live play", %{
     conn: conn
   } do

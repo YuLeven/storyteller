@@ -5580,7 +5580,9 @@ defmodule Storyteller.Play do
     instead of repeating the situation panel, timeline, or an earlier answer.
     For a follow-up look-around, add at most one supported new detail. If none
     is evident, say briefly that nothing else stands out; a source-free ambient
-    impression is allowed under the scene rule. Offer a low-pressure next step.
+    impression is allowed under the scene rule. Offer a low-pressure next step
+    only when the observation creates a concrete, useful opening; end naturally
+    otherwise. Never append a generic invitation or question.
     Do not advance fictional time or change any
     canonical world, character, inventory, location, objective, continuity,
     memory, or tracked-resource data; set time_advance_minutes to 0. Do not create NPC dialogue, activities,

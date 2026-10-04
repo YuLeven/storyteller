@@ -68,6 +68,19 @@ config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
+# Phoenix logs request and socket parameters by default. Redact common credential,
+# OAuth callback, and CSRF parameter names before they reach local logs.
+config :phoenix, :filter_parameters, [
+  "authorization",
+  "token",
+  "code",
+  "state",
+  "secret",
+  "password",
+  "api_key",
+  "api-key"
+]
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 

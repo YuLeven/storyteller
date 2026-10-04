@@ -76,8 +76,8 @@ config :storyteller, dev_routes: true
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
 
-# Phoenix debug logs include LiveView event and session parameters. Keep player
-# text and session values out of the local console while retaining safe info logs.
+# Keep verbose LiveView event/session payloads out of the local console; Phoenix
+# request logging separately redacts credential and CSRF parameter names.
 config :logger, level: :info
 
 # Set a higher stacktrace during development. Avoid configuring such

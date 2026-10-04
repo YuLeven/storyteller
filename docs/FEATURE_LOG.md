@@ -1,5 +1,22 @@
 # Feature log
 
+## 2026-10-04 — Let direct answers finish without a stock invitation
+
+- The Ask GM follow-up guidance required a “low-pressure next step” even when a direct answer was complete. It now allows that suggestion only when the answer creates a concrete, useful opening; otherwise it ends naturally. The focused look-around fixture is a complete standalone observation, and the request contract rejects generic closers.
+- One connected Ask GM check in the separate Quiet Observatory campaign asked what a chart's epoch establishes. The GM answered the exact question, left the unresolved observation date uncertain, and did not append a generic invitation. The world clock remained at 06:07. This is one live prose sample, not proof of general model compliance.
+- Safe stage telemetry for that isolated request recorded context load/build at 34/17 ms, OAuth access at 0 ms, model resolution at 851 ms (catalog cache miss), first text at 2,139 ms after Responses dispatch, provider stream at 15,795 ms, proposal validation at 22 ms, and commit at 6 ms. First-text time is inside provider-stream time. Completion was first checked by a later browser poll, so no exact submit-to-visible-completion latency is claimed.
+- **Checks:** the focused Play request-contract test passed (**1 selected, 118 excluded**). The live check used only the isolated QA campaign and one ChatGPT-plan request; no Vineyard source or state was read or changed.
+
+## 2026-10-04 — Redact credentials from Phoenix parameter logs
+
+- Local Phoenix request and WebSocket logs include parameter maps. Added recursive parameter filtering for OAuth codes/states, CSRF values, credentials, tokens, and authorization data, while leaving ordinary parameters available for development diagnostics. Application-specific GM timing metrics remain visible.
+- Added an ExUnit regression that confirms nested and top-level auth parameter values are replaced and a harmless page parameter remains readable. Restarted the isolated port-4003 QA server and confirmed the socket log shows the CSRF field redacted. No credential values are committed or included in diagnostics.
+
+## 2026-10-04 — Preserve long tracked-resource text in LiveView
+
+- Added a synthetic LiveView regression for long unbroken text plus multiline values with intentional indentation. It verifies the content is preserved exactly and retains wrapping/whitespace classes.
+- The fixture did not reproduce a current visual overlap, so no additional markup or CSS change was justified. DOM assertions do not verify browser geometry; the previously fixed full-width layout remains the known visual correction.
+
 ## 2026-10-04 — Connected Quiet Observatory story-quality spot check
 
 - One turn completed through the current ChatGPT-plan connection in the separate fictional Quiet Observatory QA campaign. The GM described one coherent chart-analysis beat followed by two distinct NPC reactions, kept uncertain dates/identities unresolved, preserved earlier evidence, and did not invent a player reaction or unrelated canon change.

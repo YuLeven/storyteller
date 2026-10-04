@@ -7054,7 +7054,7 @@ defmodule Storyteller.PlayTest do
     question = "What can I see from here that I haven't noticed yet?"
 
     answer =
-      "Overcast late-afternoon light leaves the room in a soft gray wash. A faint, clean scent and a low, indistinct hush lend the air a still, quiet feel. You can ask about a specific feature or choose what to do next."
+      "Overcast late-afternoon light leaves the room in a soft gray wash. A faint, clean scent and a low, indistinct hush lend the air a still, quiet feel."
 
     provider = fn request ->
       send(owner, {:look_around_request, request, decode_request(request)})
@@ -7087,6 +7087,13 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "For a follow-up look-around, add at most one supported new detail"
 
     assert instructions =~ "a source-free ambient impression is allowed under the scene rule"
+
+    assert instructions =~
+             "Offer a low-pressure next step only when the observation creates a concrete, useful opening"
+
+    assert instructions =~ "Never append a generic invitation or question."
+
+    refute answer =~ "You can ask about a specific feature or choose what to do next."
 
     assert {:ok, after_projection} = Play.public_projection(campaign.id)
     assert after_projection.world == before.world
