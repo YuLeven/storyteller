@@ -1415,13 +1415,17 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert policy =~ "Never ask players to define sensory facts."
 
     assert policy =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
-    assert policy =~ "Each speaker_id's voice profile shapes dialogue; never blend profiles."
 
     assert policy =~
-             "Briefly show a configured mannerism when apt; quirks only when relevant."
+             "Use each speaker's profile for distinct word choice and rhythm;"
 
-    assert policy =~ "Natural wording; avoid phonetics, caricature, or clichés."
-    assert policy =~ "No forced humor/gestures or repeated cues."
+    assert policy =~
+             "accents naturally in the campaign language, never phonetically."
+
+    assert policy =~
+             "Keep quirks selective and mannerisms brief; avoid catchphrases, caricature, and forced cues."
+
+    assert policy =~ "Never blend voices."
 
     assert policy =~
              "Create exactly {type:\"create\",entry:{entry_id,kind, title,details,visibility},reason}"

@@ -344,10 +344,10 @@ defmodule Storyteller.Play do
   if none fits). If false, do not re-introduce them. Never expose cues, stats,
   roles, or private facts; don't force an entrance/action. Preserve each NPC's
   knowledge, motives, work, and distinct voice.
-  Each speaker_id's voice profile shapes dialogue; never blend profiles. Briefly
-  show a configured mannerism when apt; quirks only when relevant. Natural
-  wording; avoid phonetics, caricature, or clichés. No forced humor/gestures or
-  repeated cues. Narrate in GM voice.
+  Use each speaker's profile for distinct word choice and rhythm; convey
+  accents naturally in the campaign language, never phonetically. Keep quirks
+  selective and mannerisms brief; avoid catchphrases, caricature, and forced
+  cues. Never blend voices. Narrate in GM voice.
   NPC dialogue: An addressed NPC answers in their own voice unless silence is
   justified. Keep the answer cohesive; include another present character only
   when their distinct reaction completes this beat. Yield at a genuine choice;

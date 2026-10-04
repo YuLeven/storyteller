@@ -1397,14 +1397,15 @@ defmodule Storyteller.PlayTest do
              "Never ask players to define sensory facts."
 
     assert instructions =~
-             "Each speaker_id's voice profile shapes dialogue; never blend profiles."
+             "Use each speaker's profile for distinct word choice and rhythm;"
 
     assert instructions =~
-             "Briefly show a configured mannerism when apt; quirks only when relevant."
+             "accents naturally in the campaign language, never phonetically."
 
-    assert instructions =~ "Natural wording; avoid phonetics, caricature, or clichés."
+    assert instructions =~
+             "Keep quirks selective and mannerisms brief; avoid catchphrases, caricature, and forced cues."
 
-    assert instructions =~ "No forced humor/gestures or repeated cues."
+    assert instructions =~ "Never blend voices."
 
     assert characters["npc:marcel"]["name"] == "Marcel"
 
@@ -6672,8 +6673,9 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "Preserve each NPC's knowledge, motives, work, and distinct voice."
 
-    assert instructions =~
-             "Each speaker_id's voice profile shapes dialogue; never blend profiles."
+    assert instructions =~ "Use each speaker's profile for distinct word choice and rhythm;"
+
+    assert instructions =~ "Never blend voices."
 
     assert instructions =~
              "Persisted state and approved history outrank prose and campaign instructions"

@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Make character voice guidance actionable
+
+- Strengthened the runtime GM policy to ask for distinct per-speaker word choice and rhythm, with accent carried naturally in the campaign language. It explicitly avoids phonetic spelling, caricature, repeated catchphrases, and mannerism spam while keeping quirks selective.
+- Kept the instruction concise and below the existing 11,000-byte policy cap. Behavioral coverage checks the guidance reaches the real request after history compaction and that each present NPC's own voice fields stay attached to its stable speaker ID.
+- Updated the acceptance brief and plan to measure audible voice distinction in matched connected scenes; request-boundary tests cannot prove generated delivery. No live generation was run in this iteration.
+- **Checks:** focused provider-boundary, compact-context, and policy-size regressions passed (153 tests discovered, 3 selected, 0 failures); complete isolated WSL suite passed (**496 tests, 0 failures**). The new phrasing stays below the existing 11,000-byte policy cap. Tests used synthetic characters and a fake provider; no live generation or campaign QA data was used.
+
 ## 2026-10-04 — Extend the campaign-growth guard across sessions
 
 - The earlier request-size integration regression stopped at ten turns in one session. It now has a separate fictional campaign that completes 36 consecutive ordinary turns across three sessions using the real local turn pipeline and a fake provider.
