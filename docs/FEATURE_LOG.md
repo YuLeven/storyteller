@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-04 — Extend the campaign-growth guard across sessions
+
+- The earlier request-size integration regression stopped at ten turns in one session. It now has a separate fictional campaign that completes 36 consecutive ordinary turns across three sessions using the real local turn pipeline and a fake provider.
+- The test records each exact serialized GM request envelope and asserts all stay below Storyteller's configured 64,000-byte preflight. This checks that ordinary history growth across session boundaries does not cause a local size failure; it does not test generated-story quality, arbitrary campaign scale, or provider acceptance.
+- **Checks:** the focused regression passed (117 tests discovered, 1 selected, 0 failures); full isolated WSL suite passed (**496 tests, 0 failures**), and test compilation with warnings-as-errors, `mix format --check-formatted`, and `git diff --check` passed. All rows are isolated in `storyteller_test`; no live model, OAuth, or campaign QA data was used.
+
 ## 2026-10-04 — Let players correct public objectives without changing the story
 
 - Public objectives now have a small **Correct** action on the player board. Players can fix a title, details, or Open/Completed/Abandoned status with a required reason; the objective keeps its stable ID and visibility, updates in the matching board section, and appears in a separate before/after receipt.

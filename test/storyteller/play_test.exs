@@ -1563,6 +1563,56 @@ defmodule Storyteller.PlayTest do
     assert Repo.aggregate(Turn, :count, :id) == 10
   end
 
+  test "ordinary GM requests stay bounded across three sessions and thirty-six turns" do
+    {campaign, first_session} = play_campaign("The Long-Running Observatory")
+    owner = self()
+
+    provider = fn request ->
+      send(
+        owner,
+        {:long_campaign_request_size, request.local_context_metrics.estimated_request_bytes}
+      )
+
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    {sessions, _active_session} =
+      Enum.reduce(1..36, {MapSet.new([first_session.id]), first_session}, fn turn_index,
+                                                                             {sessions,
+                                                                              active_session} ->
+        active_session =
+          if turn_index in [13, 25] do
+            {:ok, next_session} = Campaigns.start_session(campaign)
+            next_session
+          else
+            active_session
+          end
+
+        assert {:ok, %{status: :completed}} =
+                 Play.submit_turn(
+                   campaign.id,
+                   active_session.id,
+                   "long-campaign-turn-#{turn_index}",
+                   "I continue the observatory work, observation #{turn_index}.",
+                   provider: provider,
+                   model: "test-model"
+                 )
+
+        {MapSet.put(sessions, active_session.id), active_session}
+      end)
+
+    assert MapSet.size(sessions) == 3
+    assert Repo.aggregate(Turn, :count, :id) == 36
+
+    request_sizes =
+      for _turn_index <- 1..36 do
+        assert_receive {:long_campaign_request_size, size}, 2_000
+        size
+      end
+
+    assert Enum.all?(request_sizes, &(&1 <= 64_000))
+  end
+
   test "falls back to a retrieval scene packet when oversized canon cannot fit the lookup reserve" do
     {campaign, session} = play_campaign("The Retrieval Packet Observatory")
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
