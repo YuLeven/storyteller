@@ -660,7 +660,7 @@ defmodule Storyteller.GM.ContextBudget do
 
     scene_characters =
       all_scene_characters
-      |> Enum.take(@max_history_scene_speakers)
+      |> prioritize_retrieval_scene_cast(context)
       |> Enum.map(&retrieval_character(&1, false))
 
     cast = if player_packet, do: [player_packet | scene_characters], else: scene_characters
@@ -716,6 +716,33 @@ defmodule Storyteller.GM.ContextBudget do
         "scene_cast_truncated" => length(all_scene_characters) > @max_history_scene_speakers
       }
     }
+  end
+
+  # Keep a character the player explicitly addressed in a retrieval fallback,
+  # even when an unusually large crowd exceeds the compact scene-cast limit.
+  # Preserve recent speakers next, then retain the stable source order.
+  defp prioritize_retrieval_scene_cast(characters, context) do
+    action_terms = raw_meaningful_terms(value(context, :player_action))
+    recent_speakers = recent_history_speaker_ids(value(context, :history))
+
+    characters
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {character, index} ->
+      speaker_id = value(character, :speaker_id)
+      mentioned? = name_mentioned?(value(character, :name), action_terms)
+      recent? = is_binary(speaker_id) and MapSet.member?(recent_speakers, speaker_id)
+
+      priority =
+        cond do
+          mentioned? -> 0
+          recent? -> 1
+          true -> 2
+        end
+
+      {priority, index}
+    end)
+    |> Enum.take(@max_history_scene_speakers)
+    |> Enum.map(&elem(&1, 0))
   end
 
   defp retrieval_packet_omissions(_context),

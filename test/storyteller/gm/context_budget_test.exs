@@ -210,6 +210,48 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert :erlang.term_to_binary(context) == source_snapshot
   end
 
+  test "retrieval packet keeps the addressed present character when a crowded scene is truncated" do
+    scene_characters =
+      Enum.map(1..40, fn index ->
+        %{
+          speaker_id: "npc:observer-#{index}",
+          name: "Observer #{index}",
+          role: :gm,
+          current_place_id: "finca"
+        }
+      end) ++
+        [
+          %{
+            speaker_id: "npc:sera",
+            name: "Sera Villeneuve",
+            role: :gm,
+            current_place_id: "finca"
+          }
+        ]
+
+    base = base_context()
+    player = Enum.find(base.characters, &(&1.speaker_id == "player"))
+
+    context =
+      base
+      |> Map.put(:player_action, "I ask Sera Villeneuve what she found at the observatory.")
+      |> Map.put(:characters, [player | scene_characters])
+
+    assert {:ok, %{context: packet, metrics: metrics}} =
+             ContextBudget.compile_retrieval_packet(context, "Short GM policy", "test-model",
+               context_input_byte_budget: 32_000
+             )
+
+    speaker_ids = Enum.map(packet["characters"], & &1["speaker_id"])
+
+    assert length(speaker_ids) == 1 + 32
+    assert "player" in speaker_ids
+    assert "npc:sera" in speaker_ids
+    refute "npc:observer-40" in speaker_ids
+    assert packet["context_completeness"]["scene_cast_truncated"]
+    assert metrics.estimated_request_bytes <= 32_000
+  end
+
   test "recalls accented canon across NFC and decomposed Unicode text" do
     nfc = "La dégustation a lieu dans la salle des cartes."
     nfd = String.normalize(nfc, :nfd)

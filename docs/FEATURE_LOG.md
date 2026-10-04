@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-04 — Keep an addressed NPC in the compact context fallback
+
+- If an unusually crowded present scene exceeded the emergency retrieval packet's 32-NPC cap, simple source-order truncation could omit the person the player had just addressed. Although the read-only lookup could recover them, that made a direct exchange depend on an extra model lookup.
+- The compact packet now prioritizes NPCs named in the current action, then recent speakers, and then preserves the previous stable cast order. The full cast stays server-side and available to the scoped lookup; the packet still marks that its scene cast is truncated.
+- Added a synthetic behavioral regression with 41 present NPCs: the addressed NPC survives while the final unprioritized observer is omitted, the player is retained, and the request remains within its configured byte bound. This only improves a crowded emergency packet; it does not raise the cast cap or prove general name recognition.
+- **Checks:** focused WSL context-budget suite passed (**38 tests, 0 failures**); full isolated WSL suite passed (**498 tests, 0 failures**); warnings-as-errors compilation, formatter check, and `git diff --check` passed. Tests use synthetic data in `storyteller_test`; no campaign QA data, live model, or OAuth was used.
+
 ## 2026-10-04 — Refresh the campaign-engine benchmark
 
 - Rechecked current official pages for Friends & Fables, World Anvil, LegendKeeper, and Apple's design principles. The focused review adds the AI campaign-engine distinction described by Friends & Fables' 2024 ACE-1 announcement, its context-selection and per-message inspection pattern, and the age of those claims; the 2026 homepage remains separate evidence of current product positioning.
