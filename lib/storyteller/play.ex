@@ -214,15 +214,17 @@ defmodule Storyteller.Play do
     cocinero cocinera guardia guardian guardián guardiana capitan capitana
     cuisinier cuisiniere cuisinier cuisinière gardien gardienne capitaine
   ))
-  # Include common Rioplatense voseo imperatives so those look/inspect requests
+  # Include common Rioplatense voseo imperatives so those sensory requests
   # keep the same player-vantage retrieval boundary as other locales.
   @history_observation_terms MapSet.new(~w(
     look looks looking looked see sees seeing seen notice notices noticing noticed
     observe observes observing observed inspect inspects inspecting inspected hear hears
-    hearing heard smell smells smelling smelled feel feels feeling felt visible
+    hearing heard smell smells smelling smelled feel feels feeling felt taste tastes
+    tasting tasted sip sips sipping sipped visible
     ver veo ves ve vemos ven viendo vi viste vio vimos vieron visto veía veías veíamos veían
     mirar miro miras mira miramos miran mirando miré miró miraron mirado mirá
-    fijate observá notá escuchá sentí probá revisá
+    fijate observá notá escuchá sentí probá revisá probar pruebo prueba probamos
+    prueban probando probé probó probado degustá
     notar noto notas nota notamos notan notando noté notó notaron notado
     observar observo observas observa observamos observan observando observé observó observaron observado
     oír oigo oyes oye oímos oyen oyendo oído oía oías oíamos oían
@@ -232,7 +234,8 @@ defmodule Storyteller.Play do
     remarquer remarque remarques remarquons remarquez remarquent remarquant remarqué
     observer observe observes observons observez observent observant observé
     entendre entends entend entendons entendez entendent entendant entendu
-    sentir sens sent sentons sentez sentent sentant senti
+    sentir sens sent sentons sentez sentent sentant senti goûter goûte goûtes goûtons goûtez
+    goûtent goûtant goûté déguster déguste dégustes dégustons dégustez dégustent dégustant dégusté
   ))
   @history_explicit_travel_terms MapSet.new(~w(
     travel travels traveled travelling traveling trip trips journey journeys journeyed journeying
