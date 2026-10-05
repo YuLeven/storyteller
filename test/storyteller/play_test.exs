@@ -7462,10 +7462,12 @@ defmodule Storyteller.PlayTest do
     assert state.elapsed_world_minutes == 40
   end
 
-  test "same-turn travel and look recalls destination facts in Spanish and French" do
+  test "same-turn travel and look recalls destination facts in Spanish, French, and Rioplatense Spanish" do
     for {title, input} <- [
           {"Spanish Travel and Look Recall", "Voy a la Bodega y miro alrededor."},
-          {"French Travel and Look Recall", "Je vais à la Bodega et je regarde autour."}
+          {"French Travel and Look Recall", "Je vais à la Bodega et je regarde autour."},
+          {"Rioplatense Travel and Look Recall",
+           "Viajo a la Bodega; mirá la puerta de roble al llegar."}
         ] do
       scenario = destination_observation_scenario!(title)
       %{campaign: campaign, bodega: bodega} = scenario
@@ -10531,7 +10533,7 @@ defmodule Storyteller.PlayTest do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     archive_decoy_text =
-      "At the Copper Archive, a pale blue chalk line crosses the map cabinet's side door."
+      "At the Copper Archive, a pale blue chalk line crosses the map cabinet's side door (puerta lateral)."
 
     unrelated_events =
       Enum.map(1..50, fn offset ->

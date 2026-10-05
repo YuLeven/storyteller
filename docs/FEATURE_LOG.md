@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-05 — Keep Rioplatense look commands inside the character's vantage
+
+- The history retriever recognized standard Spanish “mira” but not the common voseo imperative “mirá.” That sent a look request through broad action-term search instead of the stricter current-place/destination observation anchors, risking unrelated same-word history from elsewhere.
+- Added common voseo observation commands and extended the isolated same-turn travel/inspection regression with “Viajo a la Bodega; mirá la puerta de roble al llegar.” The archive decoy includes the matching Spanish noun “puerta”; the expected destination observation is retained while the unvisited archive detail stays out.
+- Updated the active story-quality and UX acceptance guidance. **Checks:** full isolated WSL suite passed (**513 tests, 0 failures**), including the expanded language/retrieval regression; warnings-as-errors compile, format check, Gettext freshness, and `git diff --check` passed. Synthetic test data only; no campaign QA data or live model request was used.
+
 ## 2026-10-05 — Keep focused sensory descriptions at the depth the scene needs
 
 - The shared GM policy's “State 1-2 senses” wording could be read as a hard cap on every observation, including focused inspection and tasting. Clarified that one or two details are only a ceiling for sparse ambient texture; descriptions of an inspected target should provide enough action- and vantage-grounded evidence for the player to react.
