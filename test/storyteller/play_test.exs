@@ -1382,7 +1382,7 @@ defmodule Storyteller.PlayTest do
     assert request_context["context_completeness"]["history_compacted"]
 
     assert instructions =~ "Preserve each NPC's knowledge, motives, work, and voice."
-    assert instructions =~ "OBSERVATION: GM authors external facts."
+    assert instructions =~ "OBSERVATION: GM authors external facts at action-appropriate depth."
 
     assert instructions =~
              "Tastings cover appearance,"
@@ -1391,10 +1391,10 @@ defmodule Storyteller.PlayTest do
              "A present expert may offer a qualified view."
 
     assert instructions =~
-             "Don't dictate the response."
+             "Don't dictate their response."
 
     assert instructions =~
-             "SENSORY AGENCY: Describe external sensory facts before asking the player to react; never ask them to invent"
+             "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
 
     assert instructions =~
              "Follow speaker profiles for distinct wording/rhythm; express accents naturally in campaign language, never phonetically."
@@ -1858,10 +1858,10 @@ defmodule Storyteller.PlayTest do
     assert normalized_instructions =~
              "extra speakers need distinct reactions."
 
-    assert normalized_instructions =~ "Don't dictate the response."
+    assert normalized_instructions =~ "Don't dictate their response."
 
     assert normalized_instructions =~
-             "SENSORY AGENCY: Describe external sensory facts before asking the player to react; never ask them to invent"
+             "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
 
     assert context["interaction_mode"] == "action"
 
@@ -2006,7 +2006,7 @@ defmodule Storyteller.PlayTest do
              "Finish bounded tasks delegated to capable, present NPCs with canon-supported results."
 
     assert instructions =~
-             "Lead with evidence; repeat limits only when new or relevant. Continue useful checks;"
+             "Lead with evidence; repeat limits only when relevant. Continue useful checks;"
 
     assert instructions =~ "Yield at real choices; never assume player follow-through."
 
@@ -2059,7 +2059,7 @@ defmodule Storyteller.PlayTest do
     follow_up_instructions = String.replace(follow_up_request.instructions, ~r/\s+/, " ")
 
     assert follow_up_instructions =~
-             "Lead with evidence; repeat limits only when new or relevant. Continue useful checks;"
+             "Lead with evidence; repeat limits only when relevant. Continue useful checks;"
 
     assert {:ok, follow_up_events} = Play.public_timeline(campaign.id)
 
@@ -6631,15 +6631,21 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "Answer from public canon/vantage"
 
-    assert instructions =~ "State 1-2 senses; omission isn't absence."
+    assert instructions =~ "GM authors external facts at action-appropriate depth."
+
+    assert instructions =~
+             "Sparse scenes get at most 1-2 ambient details; omission isn't absence."
+
+    assert instructions =~
+             "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten"
 
     assert instructions =~ "Ambient texture isn't a clue/cause."
 
     assert instructions =~
-             "New clues need an established premise or current action; preserve lasting evidence as public continuity."
+             "New clues need a premise or current action; preserve lasting evidence as public continuity."
 
     assert instructions =~
-             "On focused inspection of an established target, supply present, action/vantage-grounded evidence, even if not prewritten; never ask the player to invent it."
+             "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten; never ask the player to invent it."
 
     assert instructions =~ "Invent no past/off-scene evidence or unsupported causes."
 
@@ -6663,7 +6669,7 @@ defmodule Storyteller.PlayTest do
              "Tastings cover appearance, aroma, palate, and finish."
 
     assert instructions =~
-             "SENSORY AGENCY: Describe external sensory facts before asking the player to react; never ask them to invent"
+             "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
 
     assert instructions =~
              "Answer from public canon/vantage; no unearned people, items, routes, hazards, or services."
@@ -6854,10 +6860,10 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Ambient texture isn't a clue/cause."
 
     assert instructions =~
-             "New clues need an established premise or current action; preserve lasting evidence as public continuity."
+             "New clues need a premise or current action; preserve lasting evidence as public continuity."
 
     assert instructions =~
-             "On focused inspection of an established target, supply present, action/vantage-grounded evidence, even if not prewritten; never ask the player to invent it."
+             "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten; never ask the player to invent it."
 
     assert instructions =~
              "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
@@ -7308,7 +7314,7 @@ defmodule Storyteller.PlayTest do
       assert instructions =~ "Missing canon stays unknown; ask only when a choice requires it."
 
       assert instructions =~
-               "SENSORY AGENCY: Describe external sensory facts before asking the player to react; never ask them to invent"
+               "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
 
       assert request.local_context_metrics.budget_bytes == 64_000
 

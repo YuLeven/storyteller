@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-05 — Keep focused sensory descriptions at the depth the scene needs
+
+- The shared GM policy's “State 1-2 senses” wording could be read as a hard cap on every observation, including focused inspection and tasting. Clarified that one or two details are only a ceiling for sparse ambient texture; descriptions of an inspected target should provide enough action- and vantage-grounded evidence for the player to react.
+- Kept the boundary around clues and canon unchanged: ambient texture does not create clues or causes, and inspection may reveal present evidence without inventing unsupported history. Added a request-contract regression and aligned the active story-quality and UX acceptance guidance. Compressed redundant sensory-agency wording to keep the common GM request under its 11,000-byte budget.
+- **Checks:** the full isolated WSL suite passed (**513 tests, 0 failures**); warnings-as-errors compilation, format check, Gettext freshness, asset build, and `git diff --check` passed. Fake-provider tests verify the request contract and its byte bound, not live generated prose. No campaign QA data or live model request was used.
+
 ## 2026-10-04 — Give time-passage narration the canonical minimum
 
 - When the saved time-passage input contains one clear numeric duration, the GM instructions now include its derived in-world minutes and explicitly ask the narration and structured response to cover at least that span. This shares the same minimum already enforced by the server-side world clock and leaves room for a longer canonical travel floor.
