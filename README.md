@@ -15,15 +15,33 @@ The project is in active development. Its current focus is improving story quali
 
 The game master uses ChatGPT through the locally hosted app's OAuth connection and the Responses API. It uses your ChatGPT plan allowance, not an API key or API credits; usage limits are shared with your other ChatGPT apps. Relevant campaign context and your submitted actions are sent to ChatGPT to generate each response. Campaign records remain in the local database.
 
-## Play a campaign
+## Connect ChatGPT and play
+
+Storyteller is a local web app that connects to ChatGPT with your account's authorization; there is no separate plugin to install in a custom GPT.
 
 1. Start the app using the instructions below and open [http://127.0.0.1:4000](http://127.0.0.1:4000).
-2. Open **Connect ChatGPT** at `/auth/connect` and authorize the account. This plan-usage preview is available only for eligible accounts and apps.
-3. Choose **New campaign**, enter the story and character details, review the setup, and create the campaign. A first session is ready to resume.
-4. In the session, describe what your character does, ask the GM a question, inspect the scene, or choose **Time passage** for an uninterrupted interval. Roll your own D20 when the GM calls for one.
-5. Return to the campaign to resume the current session or start another. Use the campaign's backup controls to export or restore a separate copy.
+2. Open **Connect ChatGPT** at [http://127.0.0.1:4000/auth/connect](http://127.0.0.1:4000/auth/connect), choose **Continue with ChatGPT**, and review and approve access in ChatGPT. You will return to the local app when authorization completes. This plan-usage preview is available only for eligible accounts and apps.
+3. On the same page, optionally choose an available model under **Game master model**. **Automatic** uses the first model available to the connected account.
+4. Choose **New campaign**, enter and review the campaign details, and create it. Open the campaign and resume its first session; Storyteller prepares the opening scene automatically.
+5. In the session, describe what your character does, ask the GM a question, inspect the scene, or choose **Time passage** for an uninterrupted interval. Roll your own D20 when the GM calls for one.
+6. Return to the campaign to resume the current session or start another. Starting another session completes the active one while keeping its history. Use the campaign's backup controls to export or restore a separate copy.
 
-The development database is seeded with fictional QA campaigns for trying the game. Create a separate campaign for your own play.
+The development database is seeded with fictional QA campaigns for trying the game. Their settings and characters are examples; create a separate campaign with your own world and cast for your play.
+
+### Example: start a campaign at your own finca
+
+The campaign wizard lets you define the setting, premise, player character, opening location, date, weather, inventory, and optional campaign panels. For example, you could enter:
+
+- **Title:** Finca La Quebrada
+- **Premise:** A late frost threatens the coming harvest at a small family-run finca in Mendoza. I play its newly returned vineyard manager, who must balance the vines' needs with the people who depend on the estate.
+- **Setting:** A working vineyard and winery in Mendoza, Argentina.
+- **Tone:** Grounded, warm, and character-driven.
+- **Player character:** Lucía Ferreyra, the vineyard manager; replace this name and role with your own character.
+- **Opening location:** The lower vineyard at dawn.
+
+Use any names, region, crop, family, staff, or starting problem you like. You do not need to reuse the sample QA campaign or its characters. After the opening scene appears, a first action could be:
+
+> I walk through the lower vineyard to inspect how the vines handled last night's rain. Describe what I can observe and who is already there; I'll decide what to do next.
 
 ## Run locally
 
