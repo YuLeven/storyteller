@@ -1,6 +1,6 @@
 FROM elixir:1.18.4-otp-27-slim AS build
 
-RUN apt-get update -y && apt-get install -y --no-install-recommends build-essential git \
+RUN apt-get update -y && apt-get install -y --no-install-recommends build-essential ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
