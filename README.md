@@ -64,11 +64,36 @@ cd storyteller
 
 For the isolated manual-QA database, database connection options, and additional local setup details, see [Local development](docs/LOCAL_DEVELOPMENT.md).
 
+## Run with Docker
+
+Docker Compose builds the production release, starts a PostgreSQL database, applies database migrations, and starts Storyteller on port 4000. The app listens on `0.0.0.0` inside the container, and Compose publishes port 4000 on all host interfaces.
+
+1. Copy the Docker environment template and generate two random hexadecimal secrets:
+
+   ```sh
+   cp .env.docker.example .env
+   openssl rand -hex 32
+   openssl rand -hex 64
+   ```
+
+   Put the first value in `.env` as `POSTGRES_PASSWORD` and the second as `SECRET_KEY_BASE`. Keep `.env` private; it is ignored by Git.
+
+2. Build and start the containers from the repository directory:
+
+   ```sh
+   docker compose up --build -d
+   ```
+
+3. Open [http://127.0.0.1:4000](http://127.0.0.1:4000). Connect ChatGPT and play as described above. Use the loopback URL when completing ChatGPT authorization.
+
+The PostgreSQL database and ChatGPT credentials are stored in Docker named volumes and survive container rebuilds and `docker compose down`. To stop Storyteller, run `docker compose down`; avoid `docker compose down -v` unless you intend to delete the campaign database and saved ChatGPT credentials. View startup logs with `docker compose logs -f storyteller`.
+
 ## Local data and configuration
 
 - Campaigns and sessions are stored in PostgreSQL on the local development machine.
 - ChatGPT OAuth credentials and the generated development cookie-signing key are stored outside the repository in `${STORYTELLER_AUTH_DIR:-$HOME/.config/storyteller}` with owner-only permissions. Set `STORYTELLER_AUTH_DIR` to use another private directory.
 - The development server binds to `127.0.0.1` by default. Keep it local when using personal campaign data.
+- The Docker setup stores PostgreSQL data and ChatGPT OAuth credentials in persistent named volumes and requires a stable `SECRET_KEY_BASE` in `.env`.
 - `PORT` changes the development server port and OAuth callback port. `STORYTELLER_DB_NAME` changes the development database name. Database username, password, and socket directory can be set with `STORYTELLER_DB_USERNAME`, `STORYTELLER_DB_PASSWORD`, and `STORYTELLER_DB_SOCKET_DIR`.
 - `mix test` uses the separate `storyteller_test` database; it does not use the development QA campaigns.
 

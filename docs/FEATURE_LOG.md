@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-10-06 — Run Storyteller in Docker
+
+- Added a multi-stage production release image and Docker Compose setup with PostgreSQL, startup migrations, persistent database and ChatGPT credential volumes, and port 4000 published on `0.0.0.0`.
+- Production listener binding is configurable with `STORYTELLER_BIND_ADDRESS`; it remains loopback by default and the Docker image selects `0.0.0.0`. Added environment variable examples and Docker startup instructions to the README.
+- **Verification:** `git diff --check` passed. Docker and Erlang are unavailable in this environment, so image build and application startup could not be verified.
+
+## 2026-10-06 — Reduce GM wait and retry transient provider failures
+
+- Requests now ask recognized GPT-5, GPT-6, and o-series models for low reasoning effort. Other models keep their defaults, and account settings explain the behavior.
+- GM generation gets one automatic retry after a brief 300 ms pause for invalid responses, provider errors, incomplete streams, timeouts, and proposals rejected by decoding or safety validation. Usage-limit, authorization, capability, and local context failures still surface immediately. Nothing is committed until a proposal passes validation.
+- **Verification:** tests and live model calls were not run. The ChatGPT-plan preview limitations do not list `reasoning` among unsupported Responses fields; OpenAI's reasoning guide says lower effort favors speed and token use, with a possible quality tradeoff.
+
 ## 2026-10-05 — Keep sensory observations inside the character's vantage
 
 - The history retriever recognized common looking verbs but missed Rioplatense “mirá” and tasting verbs. Those actions could fall through to broad keyword search, which risks pulling a same-word description from a place the character cannot observe.

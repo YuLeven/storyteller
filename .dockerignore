@@ -1,0 +1,17 @@
+.git
+.elixir_ls
+_build
+deps
+cover
+doc
+test
+tmp
+assets/node_modules
+priv/static/assets
+priv/static/cache_manifest.json
+secrets
+.env
+.env.*
+chatgpt_credentials.json
+dev_secret_key_base
+erl_crash.dump

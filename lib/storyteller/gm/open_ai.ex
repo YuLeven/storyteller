@@ -4,10 +4,11 @@ defmodule Storyteller.GM.OpenAI do
   @moduledoc """
   Calls the public Responses API with the selected ChatGPT-plan OAuth account.
 
-  This adapter intentionally sends only `model`, `instructions`, and `input`,
-  plus the preview-required `store: false` and `stream: true` fields. It does not
-  persist provider-side conversation state and reports success only after the
-  terminal `response.completed` event.
+  The request includes `model`, `instructions`, and `input`, plus the
+  preview-required `store: false` and `stream: true` fields. Recognized reasoning
+  models also receive low reasoning effort. It does not persist provider-side
+  conversation state and reports success only after the terminal
+  `response.completed` event.
   """
 
   alias Storyteller.Auth.{HTTP, OAuth}

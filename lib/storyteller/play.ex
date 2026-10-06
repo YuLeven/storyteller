@@ -518,6 +518,8 @@ defmodule Storyteller.Play do
     "history" => "hi"
   }
   @compact_context_retry_byte_budget 48_000
+  @provider_retryable_errors [:invalid_response, :provider_error, :stream_incomplete, :timeout]
+  @provider_retry_delay_ms 300
 
   @proposal_failure_categories [
     :proposal_shape,
@@ -1387,21 +1389,7 @@ defmodule Storyteller.Play do
                provider_request(context, request_opts, turn.intent)
              end),
            {:ok, :ok} <- resolution_plan_check(opts),
-           {:ok, response} <-
-             run_resolution_stage(:provider, fn ->
-               call_provider(provider, request)
-             end),
-           :ok <- emit_context_usage(request, response),
-           {:ok, proposal} <-
-             run_resolution_stage(:response_decoding, :proposal_decode, fn ->
-               decode_proposal(response)
-             end),
-           {:ok, validated} <-
-             run_resolution_stage(:proposal_validation, fn ->
-               with {:ok, proposal} <- validate_proposal(proposal, turn) do
-                 {:ok, constrain_proposal_to_intent(proposal, turn.intent)}
-               end
-             end) do
+           {:ok, validated} <- generate_validated_proposal(provider, request, turn) do
         run_resolution_stage(:commit, fn -> commit_proposal(turn.id, attempt_token, validated) end)
       else
         nil ->
@@ -1447,6 +1435,58 @@ defmodule Storyteller.Play do
   end
 
   defp run_resolution_stage(stage, fun), do: run_resolution_stage(stage, stage, fun)
+
+  defp generate_validated_proposal(provider, request, turn) do
+    case generate_and_validate_once(provider, request, turn) do
+      {:error, reason, stage} = error
+      when stage in [:provider, :response_decoding, :proposal_validation] ->
+        if retryable_proposal_failure?(reason) do
+          Logger.warning(
+            "GM proposal generation failed; retrying once stage=#{stage} reason=#{inspect(reason)}"
+          )
+
+          Process.sleep(@provider_retry_delay_ms)
+          generate_and_validate_once(provider, request, turn)
+        else
+          error
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp generate_and_validate_once(provider, request, turn) do
+    with {:ok, response} <-
+           run_resolution_stage(:provider, fn -> call_provider(provider, request) end),
+         :ok <- emit_context_usage(request, response),
+         {:ok, proposal} <-
+           run_resolution_stage(:response_decoding, :proposal_decode, fn ->
+             decode_proposal(response)
+           end),
+         {:ok, validated} <-
+           run_resolution_stage(:proposal_validation, fn ->
+             with {:ok, proposal} <- validate_proposal(proposal, turn) do
+               {:ok, constrain_proposal_to_intent(proposal, turn.intent)}
+             end
+           end) do
+      {:ok, validated}
+    else
+      {:error, reason, stage} ->
+        {:error, reason, stage}
+
+      {:error, reason} ->
+        {:error, reason, :provider}
+    end
+  end
+
+  defp retryable_proposal_failure?(reason) when reason in @provider_retryable_errors, do: true
+
+  defp retryable_proposal_failure?({:invalid_response, category})
+       when category in @proposal_failure_categories,
+       do: true
+
+  defp retryable_proposal_failure?(_reason), do: false
 
   defp run_resolution_stage(failure_stage, telemetry_stage, fun) do
     started_at = System.monotonic_time()

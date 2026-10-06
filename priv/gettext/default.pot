@@ -3212,7 +3212,7 @@ msgstr ""
 
 #: lib/storyteller_web/controllers/auth_html/connect.html.heex:94
 #, elixir-autogen, elixir-format
-msgid "No explicit reasoning effort is set; the selected model uses its default."
+msgid "Storyteller requests low reasoning effort for supported models to help turns resolve faster."
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:278

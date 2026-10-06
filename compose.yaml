@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: storyteller_prod
+      POSTGRES_USER: storyteller
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storyteller -d storyteller_prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  storyteller:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ecto://storyteller:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/storyteller_prod
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in .env}
+      POOL_SIZE: ${POOL_SIZE:-10}
+    ports:
+      - "0.0.0.0:4000:4000"
+    volumes:
+      - storyteller_auth:/data/auth
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  storyteller_auth:

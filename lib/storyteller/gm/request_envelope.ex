@@ -8,13 +8,17 @@ defmodule Storyteller.GM.RequestEnvelope do
 
   def body(model, instructions, input)
       when is_binary(model) and is_binary(instructions) and is_list(input) do
-    %{
+    body = %{
       "model" => model,
       "instructions" => instructions,
       "input" => input,
       "store" => false,
       "stream" => true
     }
+
+    if reasoning_model?(model) or model == @automatic_model_slug,
+      do: Map.put(body, "reasoning", %{"effort" => "low"}),
+      else: body
   end
 
   def encoded_size(model, instructions, input) do
@@ -23,6 +27,10 @@ defmodule Storyteller.GM.RequestEnvelope do
   end
 
   def maximum_model_slug_bytes, do: @max_model_slug_bytes
+
+  defp reasoning_model?(model) do
+    Regex.match?(~r/\A(?:gpt-[56](?:[.-]|$)|o[1-9](?:[.-]|$))/i, model)
+  end
 
   defp envelope_model(model) when is_binary(model) and model != "", do: model
   defp envelope_model(_model), do: @automatic_model_slug

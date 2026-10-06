@@ -13,6 +13,7 @@ dev_secret_key_base
 /.env
 /.env.*
 !/.env.example
+!/.env.docker.example
 /secrets/
 .elixir_ls/
 /priv/static/assets/

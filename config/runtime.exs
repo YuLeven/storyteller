@@ -65,14 +65,30 @@ if config_env() == :prod do
   config :storyteller, Storyteller.Auth.OAuth,
     callback_uri: "http://127.0.0.1:#{port}/auth/callback"
 
+  auth_store_dir =
+    System.get_env("STORYTELLER_AUTH_DIR") ||
+      Path.join(System.user_home!(), ".config/storyteller")
+
+  config :storyteller, Storyteller.Auth.TokenStore,
+    path: Path.join(auth_store_dir, "chatgpt_credentials.json")
+
   config :storyteller, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+
+  bind_address =
+    case System.get_env("STORYTELLER_BIND_ADDRESS", "127.0.0.1") do
+      "0.0.0.0" -> {0, 0, 0, 0}
+      "127.0.0.1" -> {127, 0, 0, 1}
+      address ->
+        case :inet.parse_address(String.to_charlist(address)) do
+          {:ok, parsed_address} -> parsed_address
+          {:error, _reason} -> raise "STORYTELLER_BIND_ADDRESS must be a valid IP address"
+        end
+    end
 
   config :storyteller, StorytellerWeb.Endpoint,
     url: [host: "127.0.0.1", port: port, scheme: "http"],
     http: [
-      # Keep the self-hosted campaign site on this machine unless that product
-      # boundary is explicitly changed in a reviewed configuration.
-      ip: {127, 0, 0, 1},
+      ip: bind_address,
       port: port
     ],
     secret_key_base: secret_key_base

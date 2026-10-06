@@ -3212,8 +3212,8 @@ msgstr "Dettagli del luogo"
 
 #: lib/storyteller_web/controllers/auth_html/connect.html.heex:94
 #, elixir-autogen, elixir-format
-msgid "No explicit reasoning effort is set; the selected model uses its default."
-msgstr "Non è stato impostato un livello di ragionamento esplicito; il modello selezionato usa quello predefinito."
+msgid "Storyteller requests low reasoning effort for supported models to help turns resolve faster."
+msgstr "Storyteller richiede un livello di ragionamento basso per i modelli supportati, così i turni si risolvono più rapidamente."
 
 #: lib/storyteller_web/live/campaign_live/edit.html.heex:278
 #, elixir-autogen, elixir-format
