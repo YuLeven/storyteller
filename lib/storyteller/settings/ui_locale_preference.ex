@@ -16,6 +16,6 @@ defmodule Storyteller.Settings.UILocalePreference do
     preference
     |> cast(attrs, [:locale])
     |> validate_required([:locale])
-    |> validate_inclusion(:locale, ["en", "es", "fr"])
+    |> validate_inclusion(:locale, ["en", "es", "fr", "it"])
   end
 end

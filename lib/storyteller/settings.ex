@@ -5,7 +5,7 @@ defmodule Storyteller.Settings do
   alias Storyteller.Settings.GMModelPreference
   alias Storyteller.Settings.UILocalePreference
 
-  @locales ~w(en es fr)
+  @locales ~w(en es fr it)
 
   def ui_locale do
     case Repo.get(UILocalePreference, 1) do

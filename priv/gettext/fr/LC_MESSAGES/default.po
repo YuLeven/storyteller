@@ -241,8 +241,8 @@ msgstr "La connexion à ChatGPT a été annulée. Votre connexion actuelle est i
 #: lib/storyteller_web/controllers/locale_controller.ex:18
 #: lib/storyteller_web/controllers/locale_controller.ex:25
 #, elixir-autogen, elixir-format
-msgid "Choose English, Spanish, or French."
-msgstr "Choisissez l’anglais, l’espagnol ou le français."
+msgid "Choose English, Spanish, French, or Italian."
+msgstr "Choisissez l’anglais, l’espagnol, le français ou l’italien."
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:726
 #, elixir-autogen, elixir-format

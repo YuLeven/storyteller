@@ -73,7 +73,7 @@ msgstr ""
 msgid "Add panel field"
 msgstr ""
 
-#: lib/storyteller_web/components/layouts/app.html.heex:49
+#: lib/storyteller_web/components/layouts/app.html.heex:50
 #, elixir-autogen, elixir-format
 msgid "Apply"
 msgstr ""
@@ -243,12 +243,6 @@ msgstr ""
 #: lib/storyteller_web/controllers/auth_controller.ex:104
 #, elixir-autogen, elixir-format
 msgid "ChatGPT sign-in was cancelled. Your current connection is unchanged."
-msgstr ""
-
-#: lib/storyteller_web/controllers/locale_controller.ex:18
-#: lib/storyteller_web/controllers/locale_controller.ex:25
-#, elixir-autogen, elixir-format
-msgid "Choose English, Spanish, or French."
 msgstr ""
 
 #: lib/storyteller_web/live/campaign_live/new.html.heex:726
@@ -3012,7 +3006,7 @@ msgstr ""
 msgid "An active duty needs a name up to 160 characters, a known current place, and a whole-number duration from 0 to 525600 minutes."
 msgstr ""
 
-#: lib/storyteller_web/components/layouts/app.html.heex:54
+#: lib/storyteller_web/components/layouts/app.html.heex:55
 #, elixir-autogen, elixir-format
 msgid "Account and GM model"
 msgstr ""
@@ -3500,4 +3494,10 @@ msgstr ""
 #: lib/storyteller_web/live/session_live/show.html.heex:601
 #, elixir-autogen, elixir-format
 msgid "Retry with a minimal scene brief"
+msgstr ""
+
+#: lib/storyteller_web/controllers/locale_controller.ex:18
+#: lib/storyteller_web/controllers/locale_controller.ex:25
+#, elixir-autogen, elixir-format
+msgid "Choose English, Spanish, French, or Italian."
 msgstr ""

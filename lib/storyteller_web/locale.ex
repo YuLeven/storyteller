@@ -21,7 +21,7 @@ defmodule StorytellerWeb.Locale do
   def on_mount(:default, _params, session, socket) do
     locale =
       case session["ui_locale"] do
-        locale when locale in ["en", "es", "fr"] -> locale
+        locale when locale in ["en", "es", "fr", "it"] -> locale
         _ -> Settings.ui_locale()
       end
 

@@ -11,7 +11,7 @@ The project is in active development. Its current focus is improving story quali
 - Keep campaign state such as character presence, places and routes, inventory, resources, and story notes alongside the session history.
 - Validate proposed game-state changes before saving them, and resume a campaign in another session.
 - Export and restore campaigns as JSON backups. A backup includes session history and private GM context, so keep it somewhere private.
-- Use the interface in English, Spanish, or French.
+- Use the interface in English, Spanish, French, or Italian.
 
 The game master uses ChatGPT through the locally hosted app's OAuth connection and the Responses API. It uses your ChatGPT plan allowance, not an API key or API credits; usage limits are shared with your other ChatGPT apps. Relevant campaign context and your submitted actions are sent to ChatGPT to generate each response. Campaign records remain in the local database.
 

@@ -15,14 +15,14 @@ defmodule StorytellerWeb.LocaleController do
 
       {:error, _reason} ->
         conn
-        |> put_flash(:error, gettext("Choose English, Spanish, or French."))
+        |> put_flash(:error, gettext("Choose English, Spanish, French, or Italian."))
         |> redirect(to: return_path(conn))
     end
   end
 
   def update(conn, _params) do
     conn
-    |> put_flash(:error, gettext("Choose English, Spanish, or French."))
+    |> put_flash(:error, gettext("Choose English, Spanish, French, or Italian."))
     |> redirect(to: return_path(conn))
   end
 
