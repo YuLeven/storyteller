@@ -322,7 +322,7 @@ defmodule StorytellerWeb.LocaleLiveTest do
     assert french_html =~ "Toute son histoire reste enregistrée."
   end
 
-  test "proposal validation recovery guidance follows the saved UI locale", %{conn: conn} do
+  test "generic turn failure text follows the saved UI locale", %{conn: conn} do
     campaign = campaign_fixture()
     session = hd(campaign.sessions)
 
@@ -345,15 +345,15 @@ defmodule StorytellerWeb.LocaleLiveTest do
     for {locale, hint} <- [
           {
             "en",
-            "The GM's reply could not be used safely. No narration or campaign changes from it were saved; your action remains here to retry."
+            "The game master could not resolve this turn. Your action is saved."
           },
           {
             "es",
-            "No se pudo usar la respuesta del director de juego de forma segura. No se guardaron su narración ni sus cambios; tu acción sigue aquí para que puedas volver a intentarlo."
+            "El director de juego no pudo resolver este turno. Tu acción está guardada."
           },
           {
             "fr",
-            "La réponse du maître de jeu n’a pas pu être utilisée en toute sécurité. Sa narration et ses changements n’ont pas été enregistrés ; votre action est conservée et vous pouvez réessayer."
+            "Le maître du jeu n’a pas pu résoudre ce tour. Votre action est enregistrée."
           }
         ] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)

@@ -9,7 +9,7 @@
 ## 2026-10-06 — Reduce GM wait and retry transient provider failures
 
 - Requests now ask recognized GPT-5, GPT-6, and o-series models for low reasoning effort. Other models keep their defaults, and account settings explain the behavior.
-- GM generation gets one automatic retry after a brief 300 ms pause for invalid responses, provider errors, incomplete streams, timeouts, and proposals rejected by decoding or safety validation. Usage-limit, authorization, capability, and local context failures still surface immediately. Nothing is committed until a proposal passes validation.
+- GM generation gets up to two internal retries after a brief 300 ms pause for invalid responses, provider errors, incomplete streams, timeouts, and proposals rejected during decoding, validation, or final campaign-state checks. A rejected proposal adds concise, rule-specific correction guidance to the next GM request; the player-facing failure stays generic if recovery is exhausted. Usage-limit, authorization, capability, and local context failures still surface immediately. Nothing is committed until a proposal passes validation.
 - **Verification:** tests and live model calls were not run. The ChatGPT-plan preview limitations do not list `reasoning` among unsupported Responses fields; OpenAI's reasoning guide says lower effort favors speed and token use, with a possible quality tradeoff.
 
 ## 2026-10-05 — Keep sensory observations inside the character's vantage

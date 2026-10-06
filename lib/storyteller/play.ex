@@ -520,6 +520,8 @@ defmodule Storyteller.Play do
   @compact_context_retry_byte_budget 48_000
   @provider_retryable_errors [:invalid_response, :provider_error, :stream_incomplete, :timeout]
   @provider_retry_delay_ms 300
+  @proposal_repair_retry_limit 2
+  @proposal_repair_reserve_bytes 768
 
   @proposal_failure_categories [
     :proposal_shape,
@@ -1389,8 +1391,9 @@ defmodule Storyteller.Play do
                provider_request(context, request_opts, turn.intent)
              end),
            {:ok, :ok} <- resolution_plan_check(opts),
-           {:ok, validated} <- generate_validated_proposal(provider, request, turn) do
-        run_resolution_stage(:commit, fn -> commit_proposal(turn.id, attempt_token, validated) end)
+           {:ok, committed} <-
+             generate_and_commit_proposal(provider, request, turn, attempt_token) do
+        {:ok, committed}
       else
         nil ->
           {:error, :model_unavailable, :provider}
@@ -1436,23 +1439,62 @@ defmodule Storyteller.Play do
 
   defp run_resolution_stage(stage, fun), do: run_resolution_stage(stage, stage, fun)
 
-  defp generate_validated_proposal(provider, request, turn) do
-    case generate_and_validate_once(provider, request, turn) do
-      {:error, reason, stage} = error
-      when stage in [:provider, :response_decoding, :proposal_validation] ->
-        if retryable_proposal_failure?(reason) do
+  defp generate_and_commit_proposal(provider, request, turn, attempt_token) do
+    generate_and_commit_proposal(provider, request, turn, attempt_token, 0, nil)
+  end
+
+  defp generate_and_commit_proposal(
+         provider,
+         base_request,
+         turn,
+         attempt_token,
+         retries,
+         repair_guidance
+       ) do
+    request = add_proposal_repair_guidance(base_request, repair_guidance)
+
+    case generate_and_commit_once(provider, request, turn, attempt_token) do
+      {:error, reason, stage} = error ->
+        if retries < @proposal_repair_retry_limit and
+             retryable_proposal_failure?(stage, reason) do
+          next_guidance = proposal_repair_guidance(stage, reason, repair_guidance)
+
           Logger.warning(
-            "GM proposal generation failed; retrying once stage=#{stage} reason=#{inspect(reason)}"
+            "GM proposal generation failed; requesting internal correction " <>
+              "attempt=#{retries + 1} stage=#{stage} reason=#{inspect(reason)}"
           )
 
           Process.sleep(@provider_retry_delay_ms)
-          generate_and_validate_once(provider, request, turn)
+          generate_and_commit_proposal(
+            provider,
+            base_request,
+            turn,
+            attempt_token,
+            retries + 1,
+            next_guidance
+          )
         else
           error
         end
 
       result ->
         result
+    end
+  end
+
+  defp generate_and_commit_once(provider, request, turn, attempt_token) do
+    with {:ok, validated} <- generate_and_validate_once(provider, request, turn),
+         {:ok, committed} <-
+           run_resolution_stage(:commit, fn ->
+             commit_proposal(turn.id, attempt_token, validated)
+           end) do
+      {:ok, committed}
+    else
+      {:error, reason, stage} ->
+        {:error, reason, stage}
+
+      {:error, reason} ->
+        {:error, reason, :provider}
     end
   end
 
@@ -1480,6 +1522,16 @@ defmodule Storyteller.Play do
     end
   end
 
+  # A commit-stage invalid_response is returned only after Repo.rollback/1, so
+  # the proposal can be regenerated safely. Never retry other commit failures.
+  defp retryable_proposal_failure?(:commit, :invalid_response), do: true
+
+  defp retryable_proposal_failure?(stage, reason)
+       when stage in [:provider, :response_decoding, :proposal_validation],
+       do: retryable_proposal_failure?(reason)
+
+  defp retryable_proposal_failure?(_stage, _reason), do: false
+
   defp retryable_proposal_failure?(reason) when reason in @provider_retryable_errors, do: true
 
   defp retryable_proposal_failure?({:invalid_response, category})
@@ -1487,6 +1539,72 @@ defmodule Storyteller.Play do
        do: true
 
   defp retryable_proposal_failure?(_reason), do: false
+
+  defp add_proposal_repair_guidance(request, nil), do: request
+
+  defp add_proposal_repair_guidance(request, guidance) when is_binary(guidance) do
+    Map.update(request, :instructions, guidance, &(&1 <> "\n\n" <> guidance))
+  end
+
+  defp proposal_repair_guidance(:response_decoding, :invalid_response, _previous_guidance) do
+    proposal_repair_instruction(
+      "the required response format",
+      "Return one complete proposal in the required structure. Check its formatting and field names."
+    )
+  end
+
+  defp proposal_repair_guidance(
+         :proposal_validation,
+         {:invalid_response, category},
+         _previous_guidance
+       ) do
+    proposal_repair_instruction(
+      proposal_repair_check(category),
+      "Review that rule and correct the proposal."
+    )
+  end
+
+  defp proposal_repair_guidance(:commit, :invalid_response, _previous_guidance) do
+    proposal_repair_instruction(
+      "final campaign-state consistency",
+      "Recheck proposed movement and tracked-state changes against the current campaign state."
+    )
+  end
+
+  defp proposal_repair_guidance(_stage, _reason, previous_guidance), do: previous_guidance
+
+  defp proposal_repair_instruction(check, direction) do
+    "Internal correction: the prior GM proposal did not satisfy #{check}. #{direction} " <>
+      "Recheck the campaign context and GM instructions, make the smallest necessary correction, " <>
+      "and return a complete proposal. Do not mention this correction to the player."
+  end
+
+  defp proposal_repair_check(:proposal_shape), do: "the required response structure"
+  defp proposal_repair_check(:narration), do: "the narration requirements"
+  defp proposal_repair_check(:dialogue), do: "the dialogue speaker rules"
+  defp proposal_repair_check(:activity), do: "the activity speaker rules"
+  defp proposal_repair_check(:world_change), do: "the canonical world-change rules"
+  defp proposal_repair_check(:panel_change), do: "the tracked-panel rules"
+  defp proposal_repair_check(:character_creation), do: "the new-character rules"
+  defp proposal_repair_check(:character_update), do: "the character-update rules"
+  defp proposal_repair_check(:inventory_change), do: "the inventory rules"
+  defp proposal_repair_check(:time_advance), do: "the turn-specific time-advance rules"
+  defp proposal_repair_check(:roll_request), do: "the roll timing and restrictions"
+  defp proposal_repair_check(:player_agency), do: "the player's control of their character"
+
+  defp proposal_repair_check(:location_presence),
+    do: "place, character-presence, or movement consistency"
+
+  defp proposal_repair_check(:communication_path), do: "the communication-path rules"
+  defp proposal_repair_check(:remote_message), do: "the remote-message restrictions"
+  defp proposal_repair_check(:objective_change), do: "the objective rules"
+  defp proposal_repair_check(:continuity_change), do: "the continuity rules"
+  defp proposal_repair_check(:memory_update), do: "the campaign-memory rules"
+
+  defp proposal_repair_check(:private_fact_boundary),
+    do: "the boundary between public narration and GM-only facts"
+
+  defp proposal_repair_check(_category), do: "the campaign proposal rules"
 
   defp run_resolution_stage(failure_stage, telemetry_stage, fun) do
     started_at = System.monotonic_time()
@@ -5481,7 +5599,10 @@ defmodule Storyteller.Play do
         :error -> Settings.preferred_gm_model()
       end
 
-    opts = compact_context_retry_options(opts, model)
+    opts =
+      opts
+      |> Keyword.put_new(:reserve_request_bytes, @proposal_repair_reserve_bytes)
+      |> compact_context_retry_options(model)
 
     request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
 
