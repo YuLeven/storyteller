@@ -3289,7 +3289,12 @@ msgstr ""
 
 #: lib/storyteller_web/live/session_live/show.html.heex:88
 #, elixir-autogen, elixir-format
-msgid "Storyteller cannot verify account usage right now. Game master requests are held until the status can be checked. This does not mean ChatGPT reported a usage limit."
+msgid "Storyteller cannot verify account usage right now. New game master requests are held until the status can be checked. A request already in progress may still finish. This does not mean ChatGPT reported a usage limit."
+msgstr ""
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your action is saved. Storyteller is retrying this same turn automatically; you do not need to send it again."
 msgstr ""
 
 #: lib/storyteller_web/live/session_live/show.ex:2209

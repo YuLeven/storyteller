@@ -10172,6 +10172,44 @@ defmodule Storyteller.PlayTest do
     assert Repo.aggregate(Roll, :count) == 0
   end
 
+  test "exhausted fast transport retries automatically reclaim the same saved turn" do
+    {campaign, session} = play_campaign("The Automatic Transport Recovery Observatory")
+    test_pid = self()
+    provider_calls = :atomics.new(1, signed: false)
+    proposal_text = Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))
+
+    provider = fn _request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+
+      if attempt <= 5 do
+        {:error, :network_error}
+      else
+        {:ok, proposal_text}
+      end
+    end
+
+    retry_notifier = fn turn_id, next_attempt ->
+      send(test_pid, {:automatic_retry_scheduled, turn_id, next_attempt})
+    end
+
+    assert {:ok, %{status: :completed, attempts: 2} = completed} =
+             Play.submit_turn(campaign.id, session.id, "automatic-recovery", "Check the clock.",
+               provider: provider,
+               model: "test-model",
+               transient_retry_base_delay_ms: 0,
+               on_automatic_retry: retry_notifier
+             )
+
+    assert_receive {:automatic_retry_scheduled, turn_id, 2}, 1_000
+    assert turn_id == completed.id
+    assert :atomics.get(provider_calls, 1) == 6
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+    assert Enum.at(timeline, 0).payload["text"] == "Check the clock."
+  end
+
   test "an elapsed stream receive timeout keeps its single recovery attempt" do
     {campaign, session} = play_campaign("The Long Stream Timeout Observatory")
     test_pid = self()

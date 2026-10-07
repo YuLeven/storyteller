@@ -1567,27 +1567,22 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert opening_instructions =~
              "character_creations ({speaker_id,name,visible_facts,gm_private_facts})"
 
-    assert wait_until(fn -> has_element?(view, "#turn-error", "opening scene") end)
+    assert wait_until(
+             fn ->
+               has_element?(view, "#story-timeline", "A lantern burns above the sleeping harbor.")
+             end,
+             400
+           )
 
-    opening_turn = Play.public_current_turn(campaign.id)
+    opening_turn =
+      Repo.get_by!(Turn, idempotency_key: "opening-scene-#{session.id}")
+
     assert opening_turn.intent == :opening_scene
-    assert Agent.get(attempts, & &1) == 5
-
+    assert opening_turn.status == :completed
+    assert Agent.get(attempts, & &1) == 6
     assert {:ok, same_opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
     assert same_opening_turn.id == opening_turn.id
-
-    assert has_element?(view, "#turn-input[disabled]")
-    assert Play.public_current_turn(campaign.id).id == opening_turn.id
-
-    view
-    |> element("#turn-error button[phx-click='retry-turn']")
-    |> render_click()
-
-    assert_receive {:opening_context, "opening_scene"}, 1_000
-
-    assert wait_until(fn ->
-             has_element?(view, "#story-timeline", "A lantern burns above the sleeping harbor.")
-           end)
+    refute has_element?(view, "#turn-error")
 
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 0
@@ -1652,6 +1647,83 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert retried_turn.failure_code == nil
     assert retried_turn.failure_stage == nil
     assert Play.public_current_turn(campaign.id) == nil
+  end
+
+  test "a transient provider outage retries the same saved action without showing manual retry",
+       %{
+         conn: conn
+       } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    provider_calls = :atomics.new(1, signed: false)
+    recovered_text = "Inés opens the log beside the stopped clock."
+
+    set_handler(fn request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+
+      if attempt <= 5 do
+        {:error, :network_error}
+      else
+        send(test_pid, {:recovered_provider_request, self()})
+
+        receive do
+          :return_recovered_proposal ->
+            context = provider_context(request)
+            {:ok, proposal} = FakeProvider.opening_scene_response(context)
+
+            {:ok,
+             Jason.encode!(
+               Map.merge(proposal, %{
+                 narration: recovered_text,
+                 dialogue: [],
+                 time_advance_minutes: 0,
+                 character_updates: [],
+                 character_creations: [],
+                 travel_changes: [],
+                 remote_messages: [],
+                 communication_path_changes: []
+               })
+             )}
+        end
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    action = "I ask the keeper to check the observatory log."
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:recovered_provider_request, provider_pid}, 5_000
+    turn = Play.public_current_turn(campaign.id)
+    assert turn.player_input == action
+    assert turn.status == :resolving
+    assert turn.attempts == 2
+
+    assert wait_until(fn ->
+             has_element?(view, "#turn-auto-recovery", "retrying this same turn automatically")
+           end)
+
+    assert has_element?(view, "#story-pending-action", action)
+    refute has_element?(view, "#turn-error")
+
+    send(provider_pid, :return_recovered_proposal)
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", recovered_text) and
+               Play.public_current_turn(campaign.id) == nil
+           end)
+
+    assert :atomics.get(provider_calls, 1) == 6
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.turn_id == turn.id and &1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.turn_id == turn.id and &1.event_type == :gm_narration)) == 1
+
+    assert Enum.find(timeline, &(&1.turn_id == turn.id and &1.event_type == :player_action)).payload[
+             "text"
+           ] == action
   end
 
   test "an unusable GM reply is corrected internally before a turn error appears",
@@ -5467,7 +5539,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> form("#turn-composer", turn: %{input: "I ask about the distant lighthouse."})
     |> render_submit()
 
-    assert wait_until(fn -> has_element?(view, "#turn-error") end)
+    assert wait_until(fn -> has_element?(view, "#turn-error") end, 400)
     refute has_element?(view, "#plan-usage-paused")
 
     refute Play.plan_usage_paused?(
@@ -5522,7 +5594,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(
              view,
              "#plan-usage-unavailable",
-             "This does not mean ChatGPT reported a usage limit."
+             "A request already in progress may still finish."
            )
 
     refute has_element?(view, "#plan-usage-paused")
@@ -5584,13 +5656,13 @@ defmodule StorytellerWeb.SessionLiveTest do
           {
             "es",
             "Estado de uso de la cuenta no disponible",
-            "Storyteller no puede verificar ahora el uso de la cuenta. Las solicitudes al director de juego quedan en espera hasta que se compruebe el estado. Esto no significa que ChatGPT haya informado de un límite de uso.",
+            "Storyteller no puede verificar ahora el uso de la cuenta. Las nuevas solicitudes al director de juego quedan en espera hasta que se compruebe el estado. Una solicitud ya iniciada aún podría completarse. Esto no significa que ChatGPT haya informado de un límite de uso.",
             "Volver a comprobar"
           },
           {
             "fr",
             "Statut d’utilisation du compte indisponible",
-            "Storyteller ne peut pas vérifier l’utilisation du compte pour le moment. Les requêtes au maître du jeu sont suspendues jusqu’à ce que le statut puisse être vérifié. Cela ne signifie pas que ChatGPT a signalé une limite d’utilisation.",
+            "Storyteller ne peut pas vérifier l’utilisation du compte pour le moment. Les nouvelles requêtes au maître du jeu sont suspendues jusqu’à ce que le statut puisse être vérifié. Une requête déjà en cours peut encore aboutir. Cela ne signifie pas que ChatGPT a signalé une limite d’utilisation.",
             "Vérifier à nouveau"
           }
         ],
@@ -5958,7 +6030,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert render(resumed) =~ "The saved action now moves the story forward."
   end
 
-  test "an exited GM task releases its claim and leaves same-view retry enabled", %{conn: conn} do
+  test "an exited GM task automatically resumes its saved turn", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
     {:ok, attempts} = Agent.start_link(fn -> 0 end)
@@ -5996,24 +6068,17 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert_receive {:monitored_gm_attempt, 0, worker_pid}, 1_000
     Process.exit(worker_pid, :kill)
 
-    assert wait_until(fn ->
-             case Play.public_current_turn(campaign.id) do
-               %{status: :failed, failure_stage: :provider} ->
-                 has_element?(view, "#turn-error button[phx-click='retry-turn']") and
-                   not has_element?(view, "#turn-error button[phx-click='retry-turn'][disabled]")
-
-               _ ->
-                 false
-             end
-           end)
-
-    view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
     assert_receive {:monitored_gm_attempt, 1, _worker_pid}, 1_000
 
-    assert wait_until(fn ->
-             has_element?(view, "#story-timeline", "The saved action moves on.")
-           end)
+    assert wait_until(
+             fn ->
+               has_element?(view, "#story-timeline", "The saved action moves on.")
+             end,
+             400
+           )
 
+    assert Agent.get(attempts, & &1) == 2
+    refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
     assert Play.public_current_turn(campaign.id) == nil
   end
 
@@ -6082,7 +6147,7 @@ defmodule StorytellerWeb.SessionLiveTest do
            ) == 1
   end
 
-  test "a duplicate retry event cannot replace an active retry worker", %{conn: conn} do
+  test "a duplicate retry event cannot replace an active recovery worker", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
     {:ok, attempts} = Agent.start_link(fn -> 0 end)
@@ -6124,40 +6189,26 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> render_submit()
 
     assert_receive {:idempotent_retry_attempt, 0, _initial_worker}, 1_000
-    assert wait_until(fn -> Play.public_current_turn(campaign.id).status == :failed end)
-
-    failed_turn = Repo.get!(Turn, Play.public_current_turn(campaign.id).id)
-    assert failed_turn.attempts == 1
-    assert Agent.get(attempts, & &1) == 5
-
-    view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
-    assert_receive {:idempotent_retry_attempt, 5, retry_worker}, 1_000
+    assert_receive {:idempotent_retry_attempt, 5, retry_worker}, 2_000
 
     on_exit(fn ->
       if Process.alive?(retry_worker), do: send(retry_worker, :release)
     end)
 
-    resolving_turn = Repo.get!(Turn, failed_turn.id)
-    assert resolving_turn.status == :resolving
-    assert resolving_turn.attempts == failed_turn.attempts + 1
+    public_turn = Play.public_current_turn(campaign.id)
+    resolving_turn = Repo.get!(Turn, public_turn.id)
+    failed_turn = resolving_turn
+    assert failed_turn.attempts == 2
     assert Agent.get(attempts, & &1) == 6
+    assert resolving_turn.status == :resolving
+    assert has_element?(view, "#turn-auto-recovery")
 
-    # A retry button can still be rendered briefly after the click. Simulate the
-    # failure becoming visible before the monitored worker's DOWN is handled.
-    # A duplicate event in that window must leave the existing provider call alone.
-    Repo.update!(
-      Turn.changeset(resolving_turn, %{
-        status: :failed,
-        failure_code: "provider_error",
-        failure_stage: :provider,
-        resolution_started_at: nil
-      })
-    )
-
+    # A duplicate event sent while the automatic recovery worker is active must
+    # leave that provider call alone.
     render_click(view, "retry-turn", %{"turn_id" => to_string(failed_turn.id)})
 
     assert Process.alive?(retry_worker)
-    assert Repo.get!(Turn, failed_turn.id).attempts == failed_turn.attempts + 1
+    assert Repo.get!(Turn, failed_turn.id).attempts == failed_turn.attempts
     assert Agent.get(attempts, & &1) == 6
 
     worker_monitor = Process.monitor(retry_worker)

@@ -86,7 +86,7 @@
     </h2>
     <p class="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
       {gettext(
-        "Storyteller cannot verify account usage right now. Game master requests are held until the status can be checked. This does not mean ChatGPT reported a usage limit."
+        "Storyteller cannot verify account usage right now. New game master requests are held until the status can be checked. A request already in progress may still finish. This does not mean ChatGPT reported a usage limit."
       )}
     </p>
     <button
@@ -241,7 +241,10 @@
     <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
       <main class="min-w-0 space-y-5">
         <section
-          :if={@current_turn && @current_turn.status in [:pending, :resolving]}
+          :if={
+            @current_turn && @current_turn.status in [:pending, :resolving] &&
+              @auto_recovery_turn_id != @current_turn.id
+          }
           id="turn-status"
           class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4"
         >
@@ -307,7 +310,29 @@
         </section>
 
         <section
-          :if={@current_turn && @current_turn.status == :failed}
+          :if={@current_turn && @auto_recovery_turn_id == @current_turn.id}
+          id="turn-auto-recovery"
+          role="status"
+          class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4"
+        >
+          <span class="mt-1 h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-amber-600"></span>
+          <div>
+            <h2 class="font-semibold text-amber-950">
+              {gettext("Reconnecting to the game master")}
+            </h2>
+            <p class="mt-1 text-sm leading-6 text-amber-900">
+              {gettext(
+                "Your action is saved. Storyteller is retrying this same turn automatically; you do not need to send it again."
+              )}
+            </p>
+          </div>
+        </section>
+
+        <section
+          :if={
+            @current_turn && @current_turn.status == :failed &&
+              @auto_recovery_turn_id != @current_turn.id
+          }
           id="turn-error"
           class={
             if @current_turn.failure_code in [

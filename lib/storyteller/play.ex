@@ -527,6 +527,9 @@ defmodule Storyteller.Play do
   ]
   @provider_retry_delay_ms 300
   @transient_provider_retry_limit 4
+  @transient_auto_recovery_attempt_limit 4
+  @transient_auto_recovery_delay_cap_ms 8_000
+  @transient_auto_recovery_failure_codes ["network_error", "stream_incomplete", "provider_error"]
   @proposal_repair_retry_limit 2
   @proposal_repair_reserve_bytes 768
 
@@ -1339,7 +1342,20 @@ defmodule Storyteller.Play do
         case claim_turn(turn_id) do
           {:ok, {:claimed, turn, attempt_token}} ->
             notify_resolution_claim(opts, turn.id, attempt_token)
-            resolve_claimed_turn(turn, attempt_token, opts)
+
+            case resolve_claimed_turn(turn, attempt_token, opts) do
+              {:ok, %Turn{status: :failed} = failed_turn} = result ->
+                if transient_auto_recovery?(failed_turn, attempt_token) do
+                  notify_transient_auto_recovery(opts, failed_turn.id, attempt_token + 1)
+                  Process.sleep(transient_auto_recovery_delay_ms(attempt_token, opts))
+                  resolve_turn(failed_turn.id, opts)
+                else
+                  result
+                end
+
+              result ->
+                result
+            end
 
           {:ok, {:done, turn}} ->
             {:ok, turn}
@@ -1374,6 +1390,44 @@ defmodule Storyteller.Play do
       _ ->
         :ok
     end
+  end
+
+  defp transient_auto_recovery?(
+         %Turn{failure_code: code, failure_stage: :provider},
+         attempt_token
+       ) do
+    code in @transient_auto_recovery_failure_codes and
+      attempt_token < @transient_auto_recovery_attempt_limit
+  end
+
+  defp transient_auto_recovery?(_turn, _attempt_token), do: false
+
+  defp notify_transient_auto_recovery(opts, turn_id, next_attempt) do
+    case Keyword.get(opts, :on_automatic_retry) do
+      callback when is_function(callback, 2) ->
+        try do
+          callback.(turn_id, next_attempt)
+        rescue
+          _error -> :ok
+        catch
+          _kind, _reason -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp transient_auto_recovery_delay_ms(attempt_token, opts) do
+    base_delay =
+      Keyword.get(
+        opts,
+        :transient_retry_base_delay_ms,
+        Application.get_env(:storyteller, :gm_transient_retry_base_delay_ms, 1_000)
+      )
+
+    multiplier = Integer.pow(2, max(attempt_token - 1, 0))
+    min(max(base_delay, 0) * multiplier, @transient_auto_recovery_delay_cap_ms)
   end
 
   defp resolve_claimed_turn(turn, attempt_token, opts) do

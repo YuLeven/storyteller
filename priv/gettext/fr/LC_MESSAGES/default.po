@@ -3292,8 +3292,13 @@ msgstr "Vérifier à nouveau"
 
 #: lib/storyteller_web/live/session_live/show.html.heex:88
 #, elixir-autogen, elixir-format
-msgid "Storyteller cannot verify account usage right now. Game master requests are held until the status can be checked. This does not mean ChatGPT reported a usage limit."
-msgstr "Storyteller ne peut pas vérifier l’utilisation du compte pour le moment. Les requêtes au maître du jeu sont suspendues jusqu’à ce que le statut puisse être vérifié. Cela ne signifie pas que ChatGPT a signalé une limite d’utilisation."
+msgid "Storyteller cannot verify account usage right now. New game master requests are held until the status can be checked. A request already in progress may still finish. This does not mean ChatGPT reported a usage limit."
+msgstr "Storyteller ne peut pas vérifier l’utilisation du compte pour le moment. Les nouvelles requêtes au maître du jeu sont suspendues jusqu’à ce que le statut puisse être vérifié. Une requête déjà en cours peut encore aboutir. Cela ne signifie pas que ChatGPT a signalé une limite d’utilisation."
+
+#: lib/storyteller_web/live/session_live/show.html.heex
+#, elixir-autogen, elixir-format
+msgid "Your action is saved. Storyteller is retrying this same turn automatically; you do not need to send it again."
+msgstr "Votre action est enregistrée. Storyteller réessaie automatiquement ce même tour ; vous n’avez pas besoin de l’envoyer à nouveau."
 
 #: lib/storyteller_web/live/session_live/show.ex:2128
 #: lib/storyteller_web/live/session_live/show.ex:2831

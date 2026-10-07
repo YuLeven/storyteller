@@ -7,6 +7,7 @@ config :storyteller, Storyteller.Auth.TokenStore,
   path: Path.join(auth_test_dir, "credentials.json")
 
 config :storyteller, :gm_model_catalog, Storyteller.TestGMModelCatalog
+config :storyteller, :gm_transient_retry_base_delay_ms, 0
 
 # Configure your database
 #

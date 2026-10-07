@@ -63,6 +63,7 @@ defmodule StorytellerWeb.SessionLive.Show do
             worker_tag: nil,
             worker_attempt: nil,
             turn_first_output_id: nil,
+            auto_recovery_turn_id: nil,
             turn_long_wait_turn_id: nil,
             turn_long_wait_worker_tag: nil,
             turn_long_wait_timer_ref: nil,
@@ -662,13 +663,7 @@ defmodule StorytellerWeb.SessionLive.Show do
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, _reason}, socket) do
     if socket.assigns.worker_monitor_ref == ref do
-      if is_integer(socket.assigns.worker_attempt) do
-        _ =
-          Play.abandon_resolution_attempt(
-            socket.assigns.worker_turn_id,
-            socket.assigns.worker_attempt
-          )
-      end
+      abandon_worker_attempt(socket)
 
       socket = socket |> clear_resolution_worker() |> refresh_game()
       socket = maybe_start_resolution(socket, socket.assigns.current_turn)
@@ -682,6 +677,14 @@ defmodule StorytellerWeb.SessionLive.Show do
   def handle_info({:turn_resolution_claimed, turn_id, worker_tag, attempt}, socket) do
     if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag do
       {:noreply, assign(socket, worker_attempt: attempt)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:turn_automatic_retry, turn_id, worker_tag, _next_attempt}, socket) do
+    if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag do
+      {:noreply, assign(socket, auto_recovery_turn_id: turn_id)}
     else
       {:noreply, socket}
     end
@@ -1517,7 +1520,24 @@ defmodule StorytellerWeb.SessionLive.Show do
           end
 
         :failed ->
-          retire_resolution_worker(socket, turn.id)
+          cond do
+            socket.assigns.worker_turn_id == turn.id ->
+              socket
+
+            automatic_recovery_turn?(turn) ->
+              start_resolution(
+                assign(socket,
+                  auto_recovery_turn_id: turn.id
+                ),
+                turn.id,
+                automatic_retry?: true
+              )
+
+            true ->
+              socket
+              |> retire_resolution_worker(turn.id)
+              |> clear_auto_recovery()
+          end
 
         _ ->
           socket
@@ -1538,8 +1558,13 @@ defmodule StorytellerWeb.SessionLive.Show do
       retry_opts = [
         provider: provider,
         token_store: plan_usage_store(),
+        transient_retry_base_delay_ms:
+          Application.get_env(:storyteller, :gm_transient_retry_base_delay_ms, 1_000),
         on_claim: fn claimed_turn_id, attempt ->
           send(owner, {:turn_resolution_claimed, claimed_turn_id, worker_tag, attempt})
+        end,
+        on_automatic_retry: fn retrying_turn_id, next_attempt ->
+          send(owner, {:turn_automatic_retry, retrying_turn_id, worker_tag, next_attempt})
         end,
         on_first_output: fn ->
           send(owner, {:turn_first_output, turn_id, worker_tag})
@@ -1577,6 +1602,11 @@ defmodule StorytellerWeb.SessionLive.Show do
               worker_tag: worker_tag,
               worker_attempt: nil,
               turn_first_output_id: nil,
+              auto_recovery_turn_id:
+                if(Keyword.get(opts, :automatic_retry?, false),
+                  do: turn_id,
+                  else: socket.assigns.auto_recovery_turn_id
+                ),
               turn_long_wait_turn_id: nil,
               turn_long_wait_worker_tag: nil,
               turn_long_wait_timer_ref: long_wait_timer_ref
@@ -1600,6 +1630,7 @@ defmodule StorytellerWeb.SessionLive.Show do
 
         {:error, _reason} ->
           socket
+          |> clear_auto_recovery()
       end
     end
   end
@@ -1632,6 +1663,7 @@ defmodule StorytellerWeb.SessionLive.Show do
       worker_tag: nil,
       worker_attempt: nil,
       turn_first_output_id: nil,
+      auto_recovery_turn_id: nil,
       turn_long_wait_turn_id: nil,
       turn_long_wait_worker_tag: nil,
       turn_long_wait_timer_ref: nil
@@ -1650,6 +1682,41 @@ defmodule StorytellerWeb.SessionLive.Show do
       assign(socket, poll_scheduled?: true)
     else
       socket
+    end
+  end
+
+  defp automatic_recovery_turn?(%{
+         status: :failed,
+         failure_stage: :provider,
+         failure_code: failure_code,
+         attempts: attempts
+       }) do
+    failure_code in ["network_error", "stream_incomplete", "provider_error"] and attempts < 4
+  end
+
+  defp automatic_recovery_turn?(_turn), do: false
+
+  defp clear_auto_recovery(socket) do
+    assign(socket, auto_recovery_turn_id: nil)
+  end
+
+  defp abandon_worker_attempt(%{assigns: %{worker_turn_id: turn_id, worker_attempt: attempt}})
+       when is_integer(attempt) do
+    Play.abandon_resolution_attempt(turn_id, attempt)
+  end
+
+  defp abandon_worker_attempt(%{assigns: %{worker_turn_id: turn_id, session: session}}) do
+    case Play.public_current_turn(session.campaign_id) do
+      %{id: ^turn_id, status: :resolving, attempts: attempt} = turn
+      when is_integer(attempt) ->
+        if Play.resolution_lease_expired?(turn) do
+          :ok
+        else
+          Play.abandon_resolution_attempt(turn_id, attempt)
+        end
+
+      _ ->
+        :ok
     end
   end
 

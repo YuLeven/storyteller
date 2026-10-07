@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-07 — Keep transient failures on the saved turn
+
+- A live Quiet Observatory turn completed after about 30 seconds. Around the ten-second mark, the in-progress page briefly showed an account-usage warning saying requests were held even though the saved turn was still resolving. The message now distinguishes new requests from a request already in progress; English, Spanish, and French copy are covered by LiveView tests.
+- After the existing four quick provider retries per claim, safe transient network, incomplete-stream, and server errors now receive up to three further same-turn claims with 1/2/4-second backoff. Account usage is checked again before every claim; limit, authorization, long-timeout, and proposal-correction failures do not enter this loop. If recovery is underway, the board says Storyteller is retrying automatically, keeps the action visible, and hides the manual Retry control. A failed transient turn also resumes this bounded recovery when the session is reopened. An unexpected local resolver exit releases its claim and resumes the same saved turn when it is still eligible.
+- Added Play and LiveView regressions that exhaust the quick retry budget, hold the automatic retry open for inspection, then complete the original action. They verify one saved player action and one GM narration, no second retry worker, opening-scene recovery, and same-turn recovery after a worker exit. Usage-status copy now clarifies that a request already in progress may still finish. Persistent outages still reach the same-turn Retry control after four claims; this is bounded recovery, not an unlimited background service.
+- **Verification:** WSL `MIX_ENV=test mix test` passed (**526 tests, 0 failures**); focused retry regressions passed (**6 selected, 0 failures**), localization tests passed (**2 tests, 0 failures**), `MIX_ENV=dev mix compile --warnings-as-errors`, `mix format --check-formatted`, and `git diff --check` passed. The campaign-editor test that once redirected under parallel suite load passed in isolation and on the repeated full run. Live QA used only the isolated fictional Quiet Observatory database; no Vineyard data was accessed.
+
 ## 2026-10-07 — Retry fast provider timeouts automatically
 
 - Req reports both a fast connection timeout and an idle response-stream receive timeout as `:timeout`. Storyteller previously treated both as the long-timeout case, so a quick transport hiccup got only one automatic retry before the player saw Retry.
