@@ -97,9 +97,11 @@ defmodule Storyteller.GM.OpenAITest do
     :telemetry.detach(stage_handler_id)
   end
 
-  test "preserves fast transport disconnects separately from receive timeouts", context do
-    http = fn :post, "https://api.openai.com/v1/responses", _options ->
-      {:error, %Req.TransportError{reason: :econnrefused}}
+  test "maps a fast Req receive-timeout transport error to the quick-retry class", context do
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      assert Keyword.fetch!(options, :receive_timeout) == 90_000
+      refute Keyword.has_key?(options, :timeout_classification)
+      {:error, %Req.TransportError{reason: :timeout}}
     end
 
     assert {:error, :network_error} =
@@ -111,6 +113,59 @@ defmodule Storyteller.GM.OpenAITest do
                },
                store: context.store,
                http: http
+             )
+  end
+
+  test "maps a fast Req receive-timeout error during body enumeration to the quick class",
+       context do
+    partial_delta =
+      "event: response.output_text.delta\ndata: " <>
+        Jason.encode!(%{"type" => "response.output_text.delta", "delta" => "partial text"}) <>
+        "\n\n"
+
+    http = fn :post, "https://api.openai.com/v1/responses", _options ->
+      %{
+        status: 200,
+        body: async_body_with_error([partial_delta], %Req.TransportError{reason: :timeout}, 0)
+      }
+    end
+
+    assert {:error, :network_error} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return text.",
+                 input: [%{role: "user", content: "Hello"}],
+                 model: "gpt-6-luna"
+               },
+               store: context.store,
+               http: http
+             )
+  end
+
+  test "keeps an elapsed Req receive timeout during body enumeration in the long-timeout class",
+       context do
+    partial_delta =
+      "event: response.output_text.delta\ndata: " <>
+        Jason.encode!(%{"type" => "response.output_text.delta", "delta" => "partial text"}) <>
+        "\n\n"
+
+    http = fn :post, "https://api.openai.com/v1/responses", _options ->
+      %{
+        status: 200,
+        body: async_body_with_error([partial_delta], %Req.TransportError{reason: :timeout}, 150)
+      }
+    end
+
+    assert {:error, :timeout} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return text.",
+                 input: [%{role: "user", content: "Hello"}],
+                 model: "gpt-6-luna"
+               },
+               store: context.store,
+               http: http,
+               response_stream_receive_timeout: 150
              )
   end
 
@@ -1299,6 +1354,29 @@ defmodule Storyteller.GM.OpenAITest do
 
     Enum.each(chunks, &send(self(), {ref, {:data, &1}}))
     send(self(), {ref, :done})
+
+    %Req.Response.Async{
+      pid: self(),
+      ref: ref,
+      stream_fun: stream_fun,
+      cancel_fun: fn _ref -> :ok end
+    }
+  end
+
+  defp async_body_with_error(chunks, reason, delay_ms) do
+    ref = make_ref()
+
+    stream_fun = fn
+      ^ref, {^ref, {:data, chunk}} ->
+        {:ok, [data: chunk]}
+
+      ^ref, {^ref, {:error, error}} ->
+        if delay_ms > 0, do: Process.sleep(delay_ms)
+        {:error, error}
+    end
+
+    Enum.each(chunks, fn chunk -> send(self(), {ref, {:data, chunk}}) end)
+    send(self(), {ref, {:error, reason}})
 
     %Req.Response.Async{
       pid: self(),

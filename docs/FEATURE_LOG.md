@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-07 — Retry fast provider timeouts automatically
+
+- Req reports both a fast connection timeout and an idle response-stream receive timeout as `:timeout`. Storyteller previously treated both as the long-timeout case, so a quick transport hiccup got only one automatic retry before the player saw Retry.
+- The local HTTP boundary now distinguishes fast timeouts from the configured receive-timeout interval on the Responses route only. The stream parser tracks idle time from the last SSE chunk, so an active long response followed by a quick disconnect still gets the transient retry budget. Fast timeouts before response headers and during body enumeration use the four-retry network recovery path; a genuine 90-second idle receive timeout retains its single retry. OAuth and other unmarked HTTP callers keep their old timeout classification. Any body timeout discards partial stream content.
+- Added adapter and Play regressions for fast timeouts before and after headers, elapsed receive timeouts, and a player action that survives four actual Req transport-timeout failures before completing exactly once. Its action, narration, and world-time change each appear once; no roll or state change is duplicated.
+- **Verification:** full WSL `MIX_ENV=test mix test` passed (**524 tests, 0 failures**); focused auth/OpenAI/Play tests passed (**156 tests, 0 failures**); `MIX_ENV=dev mix compile --warnings-as-errors`, `mix format --check-formatted`, and `git diff --check` passed. No live provider/OAuth requests or Vineyard data were used. Req exposes the same timeout reason for both phases, so the boundary uses elapsed idle time with a 500ms/5% margin; the tests inject 150ms instead of waiting 90 seconds.
+
 ## 2026-10-07 — Keep player moves out of the retry loop
 
 - Product direction: a player must not lose momentum or act as the operator for transient provider failures. A single fast retry followed by a hard failure is not acceptable. Keep the original move and roll in the active turn, make recovery automatic when the fault is transient, and ask for player intervention only when there is a meaningful action to take (for example, resume a paused account or correct oversized local context). Bounded retries still need account and duplicate-event safeguards; presenting a same-turn retry after exhausting recovery remains a known V1 P0 gap, not a solved UX.

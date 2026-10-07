@@ -256,15 +256,21 @@ defmodule Storyteller.GM.OpenAI do
          tool_calls_used,
          usage
        ) do
+    stream_receive_timeout = response_stream_receive_timeout(opts)
+
     with {:ok, response} <-
-           log_stage_error(:responses_request, post_response(access_token, body, opts)),
+           log_stage_error(
+             :responses_request,
+             post_response(access_token, body, opts, stream_receive_timeout)
+           ),
          :ok <- require_http_success(response, :responses),
          {:ok, completed} <-
            completed_response(
              response,
              first_output,
              local_callback(request, :on_stream_activity),
-             started_at
+             started_at,
+             stream_receive_timeout
            ) do
       usage = add_usage(usage, completed.usage)
 
@@ -303,42 +309,92 @@ defmodule Storyteller.GM.OpenAI do
     if map_size(usage) > 0, do: Map.put(result, :usage, usage), else: result
   end
 
-  defp completed_response(response, on_first_output, on_stream_activity, started_at) do
-    case consume_sse(
-           response_body(response),
-           on_first_output,
-           on_stream_activity,
-           started_at
-         ) do
-      {:completed, text, usage, completed_response} ->
-        if (is_binary(text) and text != "") or function_calls(completed_response) != [] do
-          {:ok, %{text: text || "", usage: usage, response: completed_response}}
-        else
-          log_completed_response_failure(response, :completed_without_text)
+  defp completed_response(
+         response,
+         on_first_output,
+         on_stream_activity,
+         started_at,
+         stream_receive_timeout
+       ) do
+    {last_stream_activity, on_stream_activity} = track_stream_activity(on_stream_activity)
+
+    try do
+      case consume_sse(
+             response_body(response),
+             on_first_output,
+             on_stream_activity,
+             started_at
+           ) do
+        {:completed, text, usage, completed_response} ->
+          if (is_binary(text) and text != "") or function_calls(completed_response) != [] do
+            {:ok, %{text: text || "", usage: usage, response: completed_response}}
+          else
+            log_completed_response_failure(response, :completed_without_text)
+          end
+
+        {:failed, details} ->
+          log_provider_failure(
+            :response_stream,
+            response_status(response),
+            details,
+            request_id(response)
+          )
+
+          {:error, details.reason}
+
+        {:incomplete, :response_incomplete} ->
+          log_completed_response_failure(response, :response_incomplete, :stream_incomplete)
+
+        {:incomplete, diagnostic} ->
+          failure =
+            if diagnostic == :response_incomplete, do: :stream_incomplete, else: :invalid_response
+
+          log_completed_response_failure(response, diagnostic, failure)
+
+        {:transport_error, %Req.TransportError{reason: :timeout}} ->
+          failure =
+            HTTP.classify_stream_timeout(
+              :atomics.get(last_stream_activity, 1),
+              stream_receive_timeout
+            )
+
+          log_stream_transport_failure(response, failure, :transport_timeout)
+          {:error, failure}
+
+        {:transport_error, %Req.TransportError{}} ->
+          log_stream_transport_failure(response, :network_error, :transport_error)
+          {:error, :network_error}
+
+        :missing_completion ->
+          log_completed_response_failure(response, :missing_completion, :stream_incomplete)
+      end
+    rescue
+      error in Req.TransportError ->
+        case error.reason do
+          :timeout ->
+            failure =
+              HTTP.classify_stream_timeout(
+                :atomics.get(last_stream_activity, 1),
+                stream_receive_timeout
+              )
+
+            log_stream_transport_failure(response, failure, :transport_timeout)
+            {:error, failure}
+
+          _reason ->
+            log_stream_transport_failure(response, :network_error, :transport_error)
+            {:error, :network_error}
         end
-
-      {:failed, details} ->
-        log_provider_failure(
-          :response_stream,
-          response_status(response),
-          details,
-          request_id(response)
-        )
-
-        {:error, details.reason}
-
-      {:incomplete, :response_incomplete} ->
-        log_completed_response_failure(response, :response_incomplete, :stream_incomplete)
-
-      {:incomplete, diagnostic} ->
-        failure =
-          if diagnostic == :response_incomplete, do: :stream_incomplete, else: :invalid_response
-
-        log_completed_response_failure(response, diagnostic, failure)
-
-      :missing_completion ->
-        log_completed_response_failure(response, :missing_completion, :stream_incomplete)
     end
+  end
+
+  defp log_stream_transport_failure(response, failure, shape) do
+    log_provider_failure(
+      :response_stream,
+      response_status(response),
+      %{reason: failure, code: nil, param: nil, shape: shape},
+      request_id(response)
+    )
   end
 
   defp log_completed_response_failure(response, diagnostic, failure \\ :invalid_response) do
@@ -559,7 +615,7 @@ defmodule Storyteller.GM.OpenAI do
 
   defp one_shot_callback(_callback), do: nil
 
-  defp post_response(access_token, body, opts) do
+  defp post_response(access_token, body, opts, stream_receive_timeout) do
     HTTP.request(
       :post,
       @responses_url,
@@ -567,10 +623,30 @@ defmodule Storyteller.GM.OpenAI do
         headers: bearer_headers(access_token, "text/event-stream"),
         json: body,
         into: :self,
-        receive_timeout: @response_stream_receive_timeout
+        receive_timeout: stream_receive_timeout,
+        timeout_classification: :stream_receive_timeout
       ],
       http(opts)
     )
+  end
+
+  defp response_stream_receive_timeout(opts) do
+    case Keyword.get(opts, :response_stream_receive_timeout) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _ -> @response_stream_receive_timeout
+    end
+  end
+
+  defp track_stream_activity(callback) do
+    last_activity = :atomics.new(1, signed: true)
+    :atomics.put(last_activity, 1, System.monotonic_time(:millisecond))
+
+    tracked_callback = fn ->
+      :atomics.put(last_activity, 1, System.monotonic_time(:millisecond))
+      safely_call(callback)
+    end
+
+    {last_activity, tracked_callback}
   end
 
   defp require_http_success(response, phase) do
@@ -645,6 +721,7 @@ defmodule Storyteller.GM.OpenAI do
         terminal
     end
   rescue
+    error in Req.TransportError -> {:transport_error, error}
     error -> {:incomplete, {:stream_read_exception, error.__struct__}}
   catch
     kind, _reason -> {:incomplete, {:stream_read_throw, kind}}

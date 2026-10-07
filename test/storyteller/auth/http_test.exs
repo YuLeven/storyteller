@@ -20,20 +20,54 @@ defmodule Storyteller.Auth.HTTPTest do
              )
   end
 
-  test "only an explicit receive timeout is classified as a long timeout" do
-    for {reason, expected} <- [
-          {:timeout, :timeout},
-          {:econnrefused, :network_error},
-          {:closed, :network_error}
-        ] do
+  test "distinguishes fast stream connection timeouts from elapsed receive timeouts" do
+    for reason <- [:econnrefused, :closed] do
       stub = make_ref()
 
       Req.Test.stub(stub, fn conn ->
         Req.Test.transport_error(conn, reason)
       end)
 
-      assert {:error, ^expected} =
+      assert {:error, :network_error} =
                HTTP.request(:post, "https://provider.example/responses", plug: {Req.Test, stub})
     end
+
+    fast_timeout_stub = make_ref()
+
+    Req.Test.stub(fast_timeout_stub, fn conn ->
+      Req.Test.transport_error(conn, :timeout)
+    end)
+
+    assert {:error, :network_error} =
+             HTTP.request(:post, "https://provider.example/responses",
+               receive_timeout: 90_000,
+               timeout_classification: :stream_receive_timeout,
+               plug: {Req.Test, fast_timeout_stub}
+             )
+
+    slow_timeout_stub = make_ref()
+
+    Req.Test.stub(slow_timeout_stub, fn conn ->
+      Process.sleep(150)
+      Req.Test.transport_error(conn, :timeout)
+    end)
+
+    assert {:error, :timeout} =
+             HTTP.request(:post, "https://provider.example/responses",
+               receive_timeout: 150,
+               timeout_classification: :stream_receive_timeout,
+               plug: {Req.Test, slow_timeout_stub}
+             )
+
+    generic_timeout_stub = make_ref()
+
+    Req.Test.stub(generic_timeout_stub, fn conn ->
+      Req.Test.transport_error(conn, :timeout)
+    end)
+
+    assert {:error, :timeout} =
+             HTTP.request(:post, "https://provider.example/responses",
+               plug: {Req.Test, generic_timeout_stub}
+             )
   end
 end

@@ -4,8 +4,10 @@ defmodule Storyteller.PlayTest do
   import ExUnit.CaptureLog
   import Storyteller.CampaignFixtures
 
+  alias Storyteller.Auth.{Credentials, TokenStore}
   alias Storyteller.Campaigns
   alias Storyteller.GM.RequestEnvelope
+  alias Storyteller.GM.OpenAI
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
@@ -10099,6 +10101,105 @@ defmodule Storyteller.PlayTest do
     end
   end
 
+  test "fast Req transport timeouts retry silently and commit a turn's effects once" do
+    {campaign, session} = play_campaign("The Silent Transport Retry Observatory")
+    test_pid = self()
+    turn_key = "fast-transport-timeout-retry"
+    store = local_plan_usage_store!()
+    provider_calls = :atomics.new(1, signed: false)
+
+    proposal_text =
+      Jason.encode!(ordinary_proposal(%{"public_changes" => %{"time" => "Second watch"}}))
+
+    response_stream =
+      "event: response.output_text.delta\ndata: " <>
+        Jason.encode!(%{"type" => "response.output_text.delta", "delta" => proposal_text}) <>
+        "\n\nevent: response.completed\ndata: " <>
+        Jason.encode!(%{
+          "type" => "response.completed",
+          "response" => %{
+            "output" => [
+              %{
+                "type" => "message",
+                "content" => [%{"type" => "output_text", "text" => proposal_text}]
+              }
+            ]
+          }
+        }) <>
+        "\n\n"
+
+    http = fn :post, "https://api.openai.com/v1/responses", _options ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+      turn = Play.get_turn(campaign.id, turn_key)
+      send(test_pid, {:fast_transport_timeout_attempt, attempt, turn.status})
+
+      if attempt <= 4 do
+        {:error, %Req.TransportError{reason: :timeout}}
+      else
+        %{status: 200, body: [response_stream]}
+      end
+    end
+
+    provider = fn request ->
+      OpenAI.stream_response(request, store: store, http: http)
+    end
+
+    assert {:ok, %{status: :completed, attempts: 1} = completed_turn} =
+             Play.submit_turn(campaign.id, session.id, turn_key, "I watch the eastern sky.",
+               provider: provider,
+               token_store: store,
+               model: "gpt-6-luna"
+             )
+
+    for expected_attempt <- 1..5 do
+      assert_receive {:fast_transport_timeout_attempt, ^expected_attempt, :resolving}, 2_000
+    end
+
+    assert :atomics.get(provider_calls, 1) == 5
+    assert completed_turn.failure_code == nil
+    assert {:ok, %{world: %{"time" => "Second watch"}}} = Play.public_projection(campaign.id)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+
+    assert Enum.count(timeline, fn event ->
+             event.event_type == :state_change and
+               event.payload["changes"] == %{"time" => "Second watch"}
+           end) == 1
+
+    refute Enum.any?(timeline, &(&1.event_type in [:roll_request, :player_roll]))
+    assert Repo.aggregate(Roll, :count) == 0
+  end
+
+  test "an elapsed stream receive timeout keeps its single recovery attempt" do
+    {campaign, session} = play_campaign("The Long Stream Timeout Observatory")
+    test_pid = self()
+    turn_key = "long-stream-timeout"
+    provider_calls = :atomics.new(1, signed: false)
+    before = Play.public_projection(campaign.id)
+
+    provider = fn _request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+      turn = Play.get_turn(campaign.id, turn_key)
+      send(test_pid, {:long_stream_timeout_attempt, attempt, turn.status})
+      {:error, :timeout}
+    end
+
+    assert {:ok, %{status: :failed, failure_code: "timeout"}} =
+             Play.submit_turn(campaign.id, session.id, turn_key, "I watch the eastern sky.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:long_stream_timeout_attempt, 1, :resolving}, 2_000
+    assert_receive {:long_stream_timeout_attempt, 2, :resolving}, 2_000
+    assert :atomics.get(provider_calls, 1) == 2
+    assert Play.public_projection(campaign.id) == before
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+    assert Repo.aggregate(Roll, :count) == 0
+  end
+
   test "superseding a failed turn preserves its safe failure diagnosis" do
     {campaign, session} = play_campaign("The Glass Observatory")
 
@@ -10679,6 +10780,31 @@ defmodule Storyteller.PlayTest do
         visibility: :public
       })
     )
+  end
+
+  defp local_plan_usage_store! do
+    directory =
+      Path.join(System.tmp_dir!(), "storyteller-play-openai-test-#{Ecto.UUID.generate()}")
+
+    path = Path.join(directory, "credentials.json")
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    store = start_supervised!({TokenStore, path: path, name: nil}, id: make_ref())
+
+    credentials = %Credentials{
+      client_id: "fixture-issued-client",
+      subject: "fixture-account-" <> Ecto.UUID.generate(),
+      email: "fixture@example.invalid",
+      host_id: TokenStore.host_id(store),
+      id_token: "fixture-id-token",
+      access_token: "fixture-access-token",
+      refresh_token: "fixture-refresh-token",
+      expires_at: System.system_time(:second) + 3_600,
+      scopes: ["offline_access", "chatgpt.tokens.use.direct"]
+    }
+
+    assert :ok = TokenStore.put_credentials(credentials, store)
+    store
   end
 
   defp play_campaign(title, opts \\ []) do

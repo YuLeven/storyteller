@@ -1552,11 +1552,11 @@ defmodule Storyteller.Play do
 
   defp retryable_proposal_failure?(_reason), do: false
 
-  # A streaming timeout may already have cost the player most of a minute and
-  # a half, so give it one silent recovery attempt. Req distinguishes an
-  # expired receive timeout from quick network disconnects; the latter use the
-  # fuller transient-retry budget. Malformed or canonically invalid answers
-  # get fewer repair calls.
+  # A long streaming receive timeout may already have cost the player most of
+  # a minute and a half, so give it one silent recovery attempt. The OpenAI
+  # HTTP boundary classifies faster transport timeouts as network errors; those
+  # use the fuller transient-retry budget. Malformed or canonically invalid
+  # answers get fewer repair calls.
   defp proposal_repair_retry_limit(:provider, :timeout), do: 1
 
   defp proposal_repair_retry_limit(:provider, reason)
