@@ -9492,6 +9492,81 @@ defmodule Storyteller.PlayTest do
              Play.click_player_d20(turn.id, roll_source: fn -> flunk("no roll was requested") end)
   end
 
+  test "repairs GM-invented player words as an agency violation before committing" do
+    {campaign, session} = play_campaign("The Agency Observatory")
+    test_pid = self()
+    output_sentinel = "UNAUTHORIZED-PLAYER-VOICE-SENTINEL"
+    attempts = start_supervised!({Agent, fn -> 0 end})
+
+    provider = fn request ->
+      attempt = Agent.get_and_update(attempts, fn count -> {count, count + 1} end)
+
+      case attempt do
+        0 ->
+          {:ok,
+           Jason.encode!(
+             ordinary_proposal(%{
+               "dialogue" => [%{"speaker_id" => "player", "text" => output_sentinel}],
+               "activities" => [%{"speaker_id" => "player", "text" => output_sentinel}]
+             })
+           )}
+
+        1 ->
+          send(test_pid, {:agency_repair_instructions, request.instructions})
+          {:ok, Jason.encode!(ordinary_proposal())}
+      end
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "agency-repair",
+               "I ask Lyra about the chart.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:agency_repair_instructions, instructions}
+    assert instructions =~ "player's control of their character"
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.any?(timeline, &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:lyra"))
+    refute Enum.any?(timeline, &(&1.speaker_id == "player" and &1.event_type != :player_action))
+    refute Jason.encode!(timeline) =~ output_sentinel
+  end
+
+  test "player-agency protection still permits GM-adjudicated consequences and NPC dialogue" do
+    {campaign, session} = play_campaign("The Consequence Observatory")
+
+    player_update = %{
+      "speaker_id" => "player",
+      "visible_facts" => %{"Condition" => "A bruised shoulder"},
+      "gm_private_facts" => %{},
+      "reason" => "Lyra tends the scrape after the fall."
+    }
+
+    proposal = ordinary_proposal(%{"character_updates" => [player_update]})
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "adjudicated-consequence",
+               "I stumble against the railing.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+           |> Map.fetch!(:visible_facts)
+           |> Map.fetch!("Condition") == "A bruised shoulder"
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.any?(timeline, &(&1.event_type == :npc_dialogue and &1.speaker_id == "npc:lyra"))
+  end
+
   test "time passage rejects player updates, movement, and rolls without committing world changes" do
     {campaign, session} = play_campaign("The Glass Observatory")
     state_before = Repo.get_by!(State, campaign_id: campaign.id)

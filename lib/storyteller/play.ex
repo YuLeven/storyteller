@@ -3385,6 +3385,9 @@ defmodule Storyteller.Play do
           turn.intent == :time_passage and time_passage_player_agency_proposed?(proposal) ->
             proposal_rejection(:player_agency)
 
+          turn.intent != :question and player_voice_proposed?(proposal) ->
+            proposal_rejection(:player_agency)
+
           true ->
             proposal =
               if turn.intent == :question do
@@ -3417,6 +3420,14 @@ defmodule Storyteller.Play do
   end
 
   defp player_line_proposed?(_lines), do: false
+
+  # The saved player turn is the only source for player words and activity.
+  # Character updates remain separate: the GM may record an adjudicated,
+  # event-grounded consequence without deciding what the player says or does.
+  defp player_voice_proposed?(proposal) do
+    player_line_proposed?(field(proposal, :dialogue, [])) or
+      player_line_proposed?(field(proposal, :activities, []))
+  end
 
   defp player_character_update_proposed?(updates) when is_list(updates) do
     Enum.any?(updates, &(is_map(&1) and field(&1, :speaker_id) == "player"))

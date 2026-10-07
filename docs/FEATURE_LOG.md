@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Repair player-voice agency violations precisely
+
+- The saved player action is the sole source of player dialogue and activity. Ordinary GM proposals that try to add either as a player-speaker event now fail validation as a player-agency violation and get a focused correction so the provider can repair the turn without asking the player to repeat their move. Time-passage turns keep their broader agency guard.
+- The repair remains narrowly scoped: it does not block validated GM-adjudicated player-character facts such as an injury, nor ordinary NPC dialogue. Fake-provider regressions cover an invented PC line followed by a corrected response and a separate accepted consequence with NPC dialogue. This verifies the server boundary and correction guidance, not live-model compliance.
+- **Verification:** full WSL `MIX_ENV=test mix test --max-cases 4` passed (**530 tests, 0 failures**); the focused agency regressions passed (**127 discovered, 2 selected, 0 failures**) and the existing time-passage agency regression passed separately. `MIX_ENV=test mix format --check-formatted` and `git diff --check` passed. All provider behavior used fake responses; no live model request, OAuth consent, or campaign data was involved.
+
 ## 2026-10-07 — Keep transient turn recovery automatic
 
 - The player no longer hits a fixed four-claim ceiling for safe transient LiveView failures. Network drops, incomplete streams, provider-unavailable responses, and long receive timeouts retry the same saved turn with exponentially increasing waits capped at five minutes. The first four claims retain quick in-claim retries; later cooldowns use a single half-open probe. The submitted action and roll stay attached to that turn; only one accepted proposal can commit.
