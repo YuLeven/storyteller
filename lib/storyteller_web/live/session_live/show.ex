@@ -653,7 +653,7 @@ defmodule StorytellerWeb.SessionLive.Show do
     socket =
       socket
       |> assign(poll_scheduled?: false)
-      |> refresh_game()
+      |> refresh_turn_progress()
 
     socket = maybe_start_resolution(socket, socket.assigns.current_turn)
     {:noreply, maybe_schedule_poll(socket)}
@@ -1227,16 +1227,17 @@ defmodule StorytellerWeb.SessionLive.Show do
            token_store: plan_usage_store(),
            intent: intent
          ) do
-      {:ok, _turn} ->
+      {:ok, turn} ->
         socket =
           socket
           |> assign(
             draft: "",
             interaction_mode: :action,
             input_error?: false,
-            submission_key: Ecto.UUID.generate()
+            submission_key: Ecto.UUID.generate(),
+            current_turn: turn,
+            current_turn_roll: nil
           )
-          |> refresh_game()
 
         socket = maybe_start_resolution(socket, socket.assigns.current_turn)
         {:noreply, maybe_schedule_poll(socket)}
@@ -1349,6 +1350,41 @@ defmodule StorytellerWeb.SessionLive.Show do
     else
       _ ->
         assign(socket, game_error: gettext("The campaign's play state could not be refreshed."))
+    end
+  end
+
+  # While the GM is working, the public board cannot change: proposals are
+  # applied atomically only after validation. Polling the full projection and
+  # scanning the story timeline every 1.5 seconds made long replies needlessly
+  # expensive, especially for campaigns with deep histories. Read only the
+  # active turn until it reaches a player-visible state transition; then do one
+  # full refresh to reveal the committed narration and state changes.
+  defp refresh_turn_progress(socket) do
+    previous_turn = socket.assigns.current_turn
+
+    current_turn =
+      case Play.public_current_turn(socket.assigns.session.campaign_id) do
+        %{session_id: session_id} = turn when session_id == socket.assigns.session.id -> turn
+        _ -> nil
+      end
+
+    case current_turn do
+      %{status: status} = turn when status in @turn_in_progress ->
+        current_turn_roll = player_roll_result(socket.assigns.timeline, turn)
+        usage_status = current_plan_usage_status()
+
+        socket
+        |> assign(
+          current_turn: turn,
+          current_turn_roll: current_turn_roll,
+          plan_usage_status: usage_status,
+          plan_usage_paused?: usage_status == :paused,
+          plan_usage_blocked?: usage_status != :available
+        )
+        |> announce_turn_status(previous_turn, turn, current_turn_roll)
+
+      _ ->
+        refresh_game(socket)
     end
   end
 

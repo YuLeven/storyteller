@@ -520,6 +520,7 @@ defmodule Storyteller.Play do
   @compact_context_retry_byte_budget 48_000
   @provider_retryable_errors [:invalid_response, :provider_error, :stream_incomplete, :timeout]
   @provider_retry_delay_ms 300
+  @transient_provider_retry_limit 4
   @proposal_repair_retry_limit 2
   @proposal_repair_reserve_bytes 768
 
@@ -719,8 +720,8 @@ defmodule Storyteller.Play do
       nearby_places = public_nearby_places(campaign_id, player && player.current_place_id, places)
 
       world =
-        state.public_state
-        |> canonical_public_world(campaign_id)
+        state
+        |> elapsed_public_world(campaign_id)
         |> Map.drop(["inventory", "communication_paths"])
 
       world =
@@ -1392,7 +1393,7 @@ defmodule Storyteller.Play do
              end),
            {:ok, :ok} <- resolution_plan_check(opts),
            {:ok, committed} <-
-             generate_and_commit_proposal(provider, request, turn, attempt_token) do
+             generate_and_commit_proposal(provider, request, turn, attempt_token, opts) do
         {:ok, committed}
       else
         nil ->
@@ -1439,8 +1440,8 @@ defmodule Storyteller.Play do
 
   defp run_resolution_stage(stage, fun), do: run_resolution_stage(stage, stage, fun)
 
-  defp generate_and_commit_proposal(provider, request, turn, attempt_token) do
-    generate_and_commit_proposal(provider, request, turn, attempt_token, 0, nil)
+  defp generate_and_commit_proposal(provider, request, turn, attempt_token, opts) do
+    generate_and_commit_proposal(provider, request, turn, attempt_token, opts, 0, nil)
   end
 
   defp generate_and_commit_proposal(
@@ -1448,6 +1449,7 @@ defmodule Storyteller.Play do
          base_request,
          turn,
          attempt_token,
+         opts,
          retries,
          repair_guidance
        ) do
@@ -1455,8 +1457,10 @@ defmodule Storyteller.Play do
 
     case generate_and_commit_once(provider, request, turn, attempt_token) do
       {:error, reason, stage} = error ->
-        if retries < @proposal_repair_retry_limit and
-             retryable_proposal_failure?(stage, reason) do
+        if retries < proposal_repair_retry_limit(stage, reason) and
+             retryable_proposal_failure?(stage, reason) and
+             ensure_plan_usage_allowed(opts) == :ok and
+             resolution_attempt_active?(turn.id, attempt_token) do
           next_guidance = proposal_repair_guidance(stage, reason, repair_guidance)
 
           Logger.warning(
@@ -1465,11 +1469,13 @@ defmodule Storyteller.Play do
           )
 
           Process.sleep(@provider_retry_delay_ms)
+
           generate_and_commit_proposal(
             provider,
             base_request,
             turn,
             attempt_token,
+            opts,
             retries + 1,
             next_guidance
           )
@@ -1539,6 +1545,18 @@ defmodule Storyteller.Play do
        do: true
 
   defp retryable_proposal_failure?(_reason), do: false
+
+  # A streaming timeout may already have cost the player most of a minute and
+  # a half, so give it one silent recovery attempt. Quick transport failures
+  # get a few more brief attempts to ride out transient provider hiccups; a
+  # malformed or canonically invalid answer gets fewer repair calls.
+  defp proposal_repair_retry_limit(:provider, :timeout), do: 1
+
+  defp proposal_repair_retry_limit(:provider, reason)
+       when reason in @provider_retryable_errors,
+       do: @transient_provider_retry_limit
+
+  defp proposal_repair_retry_limit(_stage, _reason), do: @proposal_repair_retry_limit
 
   defp add_proposal_repair_guidance(request, nil), do: request
 
@@ -1977,6 +1995,14 @@ defmodule Storyteller.Play do
       speaker_visibility =
         character_visibility_after_changes(turn.campaign_id, proposal.location_changes)
 
+      proposal_public_state =
+        state.public_state
+        |> canonical_public_world(turn.campaign_id)
+        |> deep_merge(proposal.public_changes)
+        |> canonical_public_world()
+
+      world_clock_attrs = advance_world_clock(state, proposal_public_state, proposal)
+
       # Create new speaker records before appending dialogue/activity events so
       # their names and visible activity resolve inside this same transaction.
       apply_character_creations!(
@@ -1994,15 +2020,18 @@ defmodule Storyteller.Play do
       clear_private_character_activities!(turn.campaign_id, speaker_visibility)
 
       {sequence, _events} =
-        append_proposal_events(state, turn, proposal, include_action?, speaker_visibility)
+        append_proposal_events(
+          state,
+          turn,
+          proposal,
+          include_action?,
+          speaker_visibility,
+          world_clock_attrs.public_state
+        )
 
       continuity_event_state = %{
         state
-        | public_state:
-            state.public_state
-            |> canonical_public_world(turn.campaign_id)
-            |> deep_merge(proposal.public_changes)
-            |> canonical_public_world()
+        | public_state: world_clock_attrs.public_state
       }
 
       {sequence, continuity_source_events} =
@@ -2025,7 +2054,13 @@ defmodule Storyteller.Play do
 
       updated_state =
         if state_changes? or proposal.memory_update do
-          apply_proposed_state!(state, turn.campaign_id, proposal, speaker_visibility)
+          apply_proposed_state!(
+            state,
+            turn.campaign_id,
+            proposal,
+            speaker_visibility,
+            world_clock_attrs
+          )
         else
           state
         end
@@ -2068,16 +2103,18 @@ defmodule Storyteller.Play do
   defp player_input_event_type(:time_passage), do: :time_passage
   defp player_input_event_type(:opening_scene), do: nil
 
-  defp append_proposal_events(state, turn, proposal, include_action?, speaker_visibility) do
+  defp append_proposal_events(
+         state,
+         turn,
+         proposal,
+         include_action?,
+         speaker_visibility,
+         resolved_public_state
+       ) do
     canonical_public_state = canonical_public_world(state.public_state, turn.campaign_id)
 
-    resolution_public_state =
-      canonical_public_state
-      |> deep_merge(proposal.public_changes)
-      |> canonical_public_world()
-
     action_state = %{state | public_state: canonical_public_state}
-    resolution_state = %{state | public_state: resolution_public_state}
+    resolution_state = %{state | public_state: resolved_public_state}
     sequence = state.event_sequence
 
     sequence =
@@ -2890,7 +2927,7 @@ defmodule Storyteller.Play do
     end
   end
 
-  defp apply_proposed_state!(state, campaign_id, proposal, speaker_visibility) do
+  defp apply_proposed_state!(state, campaign_id, proposal, speaker_visibility, world_clock_attrs) do
     public_state =
       state.public_state
       |> canonical_public_world(campaign_id)
@@ -3000,7 +3037,11 @@ defmodule Storyteller.Play do
     state_attrs =
       %{public_state: public_state, gm_private_state: gm_private_state}
       |> Map.merge(proposal.memory_update || %{})
-      |> Map.merge(advance_world_clock(state, public_state, proposal))
+      |> Map.merge(Map.delete(world_clock_attrs, :public_state))
+      |> Map.put(
+        :public_state,
+        Map.merge(public_state, Map.take(world_clock_attrs.public_state, ["date", "time"]))
+      )
 
     case Repo.update(State.changeset(state, state_attrs)) do
       {:ok, updated} -> updated
@@ -5910,7 +5951,7 @@ defmodule Storyteller.Play do
       world: %{
         public:
           public_world_with_player_location(
-            state.public_state,
+            elapsed_public_world(state, turn.campaign_id),
             characters,
             places_by_id,
             turn.campaign_id
@@ -6923,6 +6964,18 @@ defmodule Storyteller.Play do
     end
   end
 
+  defp resolution_attempt_active?(turn_id, attempt_token) do
+    Repo.exists?(
+      from turn in Turn,
+        where:
+          turn.id == ^turn_id and turn.status == :resolving and turn.attempts == ^attempt_token
+    )
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
   defp plan_usage_state(opts) do
     case TokenStore.plan_usage_paused?(token_store(opts)) do
       paused? when is_boolean(paused?) -> {:ok, paused?}
@@ -7002,14 +7055,30 @@ defmodule Storyteller.Play do
     prior_labels = world_time_labels(state.public_state)
     next_labels = world_time_labels(public_state)
 
-    {anchor_labels, anchor_minutes} =
+    {public_state, anchor_labels, anchor_minutes} =
       if prior_labels != next_labels do
-        {next_labels, elapsed_minutes}
+        {public_state, next_labels, elapsed_minutes}
       else
-        {state.elapsed_world_anchor, state.elapsed_world_anchor_minutes}
+        anchor_labels =
+          if map_size(state.elapsed_world_anchor || %{}) == 0,
+            do: prior_labels,
+            else: state.elapsed_world_anchor
+
+        anchor_minutes =
+          if map_size(state.elapsed_world_anchor || %{}) == 0,
+            do: state.elapsed_world_minutes,
+            else: state.elapsed_world_anchor_minutes
+
+        elapsed_since_anchor = max(elapsed_minutes - anchor_minutes, 0)
+
+        advanced_public_state =
+          Storyteller.Play.WorldClock.advance(public_state, anchor_labels, elapsed_since_anchor)
+
+        {advanced_public_state, anchor_labels, anchor_minutes}
       end
 
     %{
+      public_state: public_state,
       elapsed_world_minutes: elapsed_minutes,
       elapsed_world_anchor_minutes: anchor_minutes,
       elapsed_world_anchor: anchor_labels
@@ -7050,6 +7119,19 @@ defmodule Storyteller.Play do
       minutes_since_anchor: state.elapsed_world_minutes - state.elapsed_world_anchor_minutes,
       anchor: state.elapsed_world_anchor
     }
+  end
+
+  defp elapsed_public_world(state, campaign_id) do
+    world = canonical_public_world(state.public_state, campaign_id)
+
+    elapsed_since_anchor =
+      max(state.elapsed_world_minutes - state.elapsed_world_anchor_minutes, 0)
+
+    Storyteller.Play.WorldClock.advance(
+      world,
+      state.elapsed_world_anchor,
+      elapsed_since_anchor
+    )
   end
 
   defp public_objectives(campaign_id) do

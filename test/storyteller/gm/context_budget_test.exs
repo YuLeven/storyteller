@@ -1,7 +1,7 @@
 defmodule Storyteller.GM.ContextBudgetTest do
   use ExUnit.Case, async: true
 
-  alias Storyteller.GM.{CampaignLookup, ContextBudget}
+  alias Storyteller.GM.{CampaignLookup, ContextBudget, RequestEnvelope}
 
   test "compacts unrelated history while retrieving an older fact named in the action" do
     context =
@@ -2916,21 +2916,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
   end
 
   defp request_bytes(context, instructions, model \\ "gpt-6-astra") do
-    model = if is_binary(model), do: model, else: String.duplicate("m", 255)
-
-    body = %{
-      "model" => model,
-      "instructions" => instructions,
-      "input" => [
-        %{
-          role: "user",
-          content: [%{type: "input_text", text: Jason.encode!(context)}]
-        }
-      ],
-      "store" => false,
-      "stream" => true
-    }
-
-    byte_size(Jason.encode!(body))
+    RequestEnvelope.encoded_size(
+      model,
+      instructions,
+      [%{role: "user", content: [%{type: "input_text", text: Jason.encode!(context)}]}]
+    )
   end
 end

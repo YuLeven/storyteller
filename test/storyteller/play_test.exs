@@ -81,7 +81,7 @@ defmodule Storyteller.PlayTest do
     assert DateTime.compare(refreshed_turn.resolution_started_at, stale_at) == :gt
 
     send(provider_pid, :finish_stream)
-    assert {:ok, %{status: :completed}} = Task.await(task, 5_000)
+    assert {:ok, %{status: :completed}} = Task.await(task, 15_000)
   end
 
   test "superseded stream callbacks and outcomes cannot change a newer resolution attempt" do
@@ -140,7 +140,7 @@ defmodule Storyteller.PlayTest do
 
       send(old_provider_pid, :release_old_stream)
 
-      assert {:ok, %{status: :resolving, attempts: ^newer_attempt}} = Task.await(task, 5_000)
+      assert {:ok, %{status: :resolving, attempts: ^newer_attempt}} = Task.await(task, 15_000)
 
       unchanged_turn = Repo.get!(Turn, pending.id)
       assert unchanged_turn.status == :resolving
@@ -9819,6 +9819,70 @@ defmodule Storyteller.PlayTest do
     assert state.elapsed_world_minutes == 2
   end
 
+  test "canonical elapsed minutes advance a readable in-world clock and roll its date at midnight" do
+    {campaign, session} = play_campaign("The Glass Observatory Clock")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    initial_date = "12 October 2026"
+    initial_time = "9:10 p.m."
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          Map.merge(state.public_state, %{"date" => initial_date, "time" => initial_time}),
+        elapsed_world_anchor: %{"date" => initial_date, "time" => initial_time},
+        elapsed_world_anchor_minutes: state.elapsed_world_minutes
+      })
+    )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "quiet-hour-advances-clock",
+               "Let a quiet hour pass.",
+               intent: :time_passage,
+               provider:
+                 ordinary_provider(%{
+                   "narration" => "The quiet hour passes without incident.",
+                   "time_advance_minutes" => 60
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, %{world: %{"date" => ^initial_date, "time" => "10:10 p.m."}}} =
+             Play.public_projection(campaign.id)
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "late-hour-crosses-midnight",
+               "Let two more hours pass.",
+               intent: :time_passage,
+               provider:
+                 ordinary_provider(%{
+                   "narration" => "The late hour passes.",
+                   "time_advance_minutes" => 120
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, %{world: %{"date" => "13 October 2026", "time" => "12:10 a.m."}}} =
+             Play.public_projection(campaign.id)
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 180
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    final_narration =
+      Enum.find(
+        timeline,
+        &(&1.event_type == :gm_narration and &1.payload["text"] == "The late hour passes.")
+      )
+
+    assert final_narration.game_time == %{"date" => "13 October 2026", "time" => "12:10 a.m."}
+  end
+
   test "pending turns reconnect with the same record and can be resumed without duplicating input" do
     {campaign, session} = play_campaign("The Glass Observatory")
 
@@ -9919,7 +9983,7 @@ defmodule Storyteller.PlayTest do
     assert Enum.find(timeline, &(&1.event_type == :player_roll)).payload["result"] == 17
   end
 
-  test "retry after a D20 provider failure reuses the recorded roll without duplicating events" do
+  test "a D20 provider timeout recovers automatically and reuses the recorded roll" do
     {campaign, session} = play_campaign("The Glass Observatory")
     provider_calls = :atomics.new(1, [])
     roll_source_calls = :atomics.new(1, [])
@@ -9952,7 +10016,7 @@ defmodule Storyteller.PlayTest do
     assert {:ok, before_roll_resolution} = Play.public_projection(campaign.id)
     assert before_roll_resolution.world["time"] == "First watch"
 
-    assert {:ok, %{turn: failed, roll: %Roll{result: 17}}} =
+    assert {:ok, %{turn: completed_turn, roll: %Roll{result: 17}}} =
              Play.click_player_d20(waiting.id,
                roll_source: fn ->
                  :atomics.add(roll_source_calls, 1, 1)
@@ -9962,21 +10026,14 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    assert failed.status == :failed
-    assert failed.resolution_phase == :after_roll
+    assert completed_turn.status == :completed
     assert Repo.get_by!(Roll, turn_id: waiting.id).result == 17
-    assert :atomics.get(provider_calls, 1) == 2
-    assert :atomics.get(roll_source_calls, 1) == 1
-    assert Play.public_projection(campaign.id) == {:ok, before_roll_resolution}
-
-    assert {:ok, completed} = Play.retry_turn(failed.id, provider: provider, model: "test-model")
-    assert completed.status == :completed
     assert :atomics.get(provider_calls, 1) == 3
     assert :atomics.get(roll_source_calls, 1) == 1
 
-    [_, failed_context, retry_context] = Agent.get(captured_contexts, & &1)
+    [_, timed_out_context, recovered_context] = Agent.get(captured_contexts, & &1)
 
-    for context <- [failed_context, retry_context] do
+    for context <- [timed_out_context, recovered_context] do
       assert context["phase"] == "after_roll"
       assert context["player_roll"]["result"] == 17
       assert context["player_roll"]["authorized_by"] == "player_click"
@@ -10274,7 +10331,7 @@ defmodule Storyteller.PlayTest do
 
     assert current.status == :completed
     send(old_provider_pid, :return_old_result)
-    assert {:ok, late} = Task.await(old_worker, 5_000)
+    assert {:ok, late} = Task.await(old_worker, 15_000)
     assert late.status == :completed
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
@@ -10298,7 +10355,7 @@ defmodule Storyteller.PlayTest do
       send(owner, {:old_provider_started, self()})
 
       receive do
-        :return_old_failure -> {:error, :timeout}
+        :return_old_failure -> {:error, :provider_error}
       end
     end
 
@@ -10315,10 +10372,11 @@ defmodule Storyteller.PlayTest do
 
     assert current.status == :completed
     send(old_provider_pid, :return_old_failure)
-    assert {:ok, late} = Task.await(old_worker, 5_000)
+    assert {:ok, late} = Task.await(old_worker, 15_000)
     assert late.status == :completed
     assert late.failure_code == nil
     assert Repo.get!(Turn, pending.id).status == :completed
+    refute_receive {:old_provider_started, _}, 100
 
     assert Enum.count(
              Play.public_timeline(campaign.id) |> elem(1),
@@ -10359,7 +10417,7 @@ defmodule Storyteller.PlayTest do
     assert closed.failure_code == "session_closed"
 
     send(provider_pid, :return_after_rollover)
-    assert {:ok, late} = Task.await(worker, 5_000)
+    assert {:ok, late} = Task.await(worker, 15_000)
     assert late.status == :failed
 
     assert Play.public_projection(campaign.id)
@@ -10416,7 +10474,7 @@ defmodule Storyteller.PlayTest do
     assert closed.failure_code == "session_closed"
 
     send(provider_pid, :return_after_archive)
-    assert {:ok, late} = Task.await(worker, 5_000)
+    assert {:ok, late} = Task.await(worker, 15_000)
     assert late.status == :failed
 
     assert Play.public_projection(campaign.id)

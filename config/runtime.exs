@@ -76,8 +76,12 @@ if config_env() == :prod do
 
   bind_address =
     case System.get_env("STORYTELLER_BIND_ADDRESS", "127.0.0.1") do
-      "0.0.0.0" -> {0, 0, 0, 0}
-      "127.0.0.1" -> {127, 0, 0, 1}
+      "0.0.0.0" ->
+        {0, 0, 0, 0}
+
+      "127.0.0.1" ->
+        {127, 0, 0, 1}
+
       address ->
         case :inet.parse_address(String.to_charlist(address)) do
           {:ok, parsed_address} -> parsed_address

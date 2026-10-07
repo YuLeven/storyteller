@@ -1516,6 +1516,9 @@ defmodule StorytellerWeb.SessionLiveTest do
             send(test_pid, {:opening_instructions, request.instructions})
             {:error, :provider_error}
 
+          attempt when attempt in 1..4 ->
+            {:error, :provider_error}
+
           _ ->
             {:ok,
              %{
@@ -1568,6 +1571,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     opening_turn = Play.public_current_turn(campaign.id)
     assert opening_turn.intent == :opening_scene
+    assert Agent.get(attempts, & &1) == 5
 
     assert {:ok, same_opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)
     assert same_opening_turn.id == opening_turn.id
@@ -4363,6 +4367,72 @@ defmodule StorytellerWeb.SessionLiveTest do
            ) == 1
   end
 
+  test "an active-turn poll does not rescan story history while the saved action stays visible",
+       %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    action = "I follow the lamplight toward the observatory."
+
+    set_handler(fn _request ->
+      send(test_pid, {:held_turn_provider, self()})
+
+      receive do
+        :finish_turn ->
+          {:ok,
+           %{
+             narration: "The lamplight leads to the observatory's open door.",
+             dialogue: [],
+             activities: [],
+             public_changes: %{},
+             private_changes: %{},
+             character_updates: [],
+             memory_update: %{public_summary: "", gm_private_summary: ""},
+             roll_request: nil
+           }}
+      after
+        5_000 -> flunk("the held turn was not released")
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    query_handler_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        query_handler_id,
+        [:storyteller, :repo, :query],
+        fn _event, _measurements, metadata, owner ->
+          if String.contains?(Map.get(metadata, :query, ""), "play_events") do
+            send(owner, :campaign_story_query)
+          end
+        end,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(query_handler_id) end)
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:held_turn_provider, provider_pid}, 1_000
+    assert render(view) =~ action
+    discard_campaign_story_queries()
+
+    # Exercise the in-flight poll directly so this regression test does not
+    # need to sleep through its production interval.
+    send(view.pid, :refresh_turn)
+    assert render(view) =~ action
+    refute_receive :campaign_story_query, 0
+
+    send(provider_pid, :finish_turn)
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", "The lamplight leads to the observatory")
+           end)
+  end
+
   test "opening scene progress changes only after the GM begins composing", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
@@ -5947,6 +6017,71 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert Play.public_current_turn(campaign.id) == nil
   end
 
+  test "a player action recovers from several quick provider failures without manual retry", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    test_pid = self()
+
+    set_handler(fn _request ->
+      attempt = Agent.get_and_update(attempts, fn value -> {value, value + 1} end)
+      send(test_pid, {:quick_recovery_attempt, attempt})
+
+      if attempt < 3 do
+        {:error, :provider_error}
+      else
+        {:ok,
+         %{
+           narration: "The same saved action carries the story forward.",
+           dialogue: [],
+           activities: [],
+           public_changes: %{},
+           private_changes: %{},
+           character_updates: [],
+           memory_update: %{public_summary: "", gm_private_summary: ""},
+           roll_request: nil
+         }}
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    action = "I call out to Mara from the observatory steps."
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive {:quick_recovery_attempt, 0}, 1_000
+    assert render(view) =~ action
+
+    for attempt <- 1..3 do
+      assert_receive {:quick_recovery_attempt, ^attempt}, 2_000
+      assert render(view) =~ action
+      refute has_element?(view, "#turn-error")
+    end
+
+    assert wait_until(fn ->
+             has_element?(
+               view,
+               "#story-timeline",
+               "The same saved action carries the story forward"
+             )
+           end)
+
+    assert Agent.get(attempts, & &1) == 4
+    refute has_element?(view, "#turn-error")
+    assert Play.public_current_turn(campaign.id) == nil
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    assert Enum.count(
+             timeline,
+             &(&1.event_type == :player_action and &1.payload["text"] == action)
+           ) == 1
+  end
+
   test "a duplicate retry event cannot replace an active retry worker", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
@@ -5958,10 +6093,10 @@ defmodule StorytellerWeb.SessionLiveTest do
       send(test_pid, {:idempotent_retry_attempt, attempt, self()})
 
       case attempt do
-        0 ->
+        attempt when attempt in 0..4 ->
           {:error, :provider_error}
 
-        1 ->
+        5 ->
           receive do
             :release ->
               {:ok,
@@ -5993,9 +6128,10 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     failed_turn = Repo.get!(Turn, Play.public_current_turn(campaign.id).id)
     assert failed_turn.attempts == 1
+    assert Agent.get(attempts, & &1) == 5
 
     view |> element("#turn-error button[phx-click='retry-turn']") |> render_click()
-    assert_receive {:idempotent_retry_attempt, 1, retry_worker}, 1_000
+    assert_receive {:idempotent_retry_attempt, 5, retry_worker}, 1_000
 
     on_exit(fn ->
       if Process.alive?(retry_worker), do: send(retry_worker, :release)
@@ -6004,7 +6140,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     resolving_turn = Repo.get!(Turn, failed_turn.id)
     assert resolving_turn.status == :resolving
     assert resolving_turn.attempts == failed_turn.attempts + 1
-    assert Agent.get(attempts, & &1) == 2
+    assert Agent.get(attempts, & &1) == 6
 
     # A retry button can still be rendered briefly after the click. Simulate the
     # failure becoming visible before the monitored worker's DOWN is handled.
@@ -6022,7 +6158,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert Process.alive?(retry_worker)
     assert Repo.get!(Turn, failed_turn.id).attempts == failed_turn.attempts + 1
-    assert Agent.get(attempts, & &1) == 2
+    assert Agent.get(attempts, & &1) == 6
 
     worker_monitor = Process.monitor(retry_worker)
     send(retry_worker, :release)
@@ -6390,6 +6526,14 @@ defmodule StorytellerWeb.SessionLiveTest do
     else
       Process.sleep(25)
       wait_until(fun, attempts - 1)
+    end
+  end
+
+  defp discard_campaign_story_queries do
+    receive do
+      :campaign_story_query -> discard_campaign_story_queries()
+    after
+      0 -> :ok
     end
   end
 

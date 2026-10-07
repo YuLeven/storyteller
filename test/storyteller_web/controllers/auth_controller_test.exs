@@ -43,17 +43,17 @@ defmodule StorytellerWeb.AuthControllerTest do
           {
             "en",
             "Automatic (first model in account list: Fixture Model (fixture-model))",
-            "No explicit reasoning effort is set; the selected model uses its default."
+            "Storyteller requests low reasoning effort for supported models to help turns resolve faster."
           },
           {
             "es",
             "Automático (primer modelo de la lista de la cuenta: Fixture Model (fixture-model))",
-            "No se establece un nivel de razonamiento explícito; se usa el valor predeterminado del modelo elegido."
+            "Storyteller solicita un nivel bajo de razonamiento en los modelos compatibles para resolver los turnos más rápido."
           },
           {
             "fr",
             "Automatique (premier modèle de la liste du compte : Fixture Model (fixture-model))",
-            "Aucun niveau de raisonnement explicite n’est défini ; le modèle choisi utilise sa valeur par défaut."
+            "Storyteller demande un niveau de raisonnement faible pour les modèles compatibles afin d’accélérer les tours."
           }
         ] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
@@ -86,7 +86,7 @@ defmodule StorytellerWeb.AuthControllerTest do
              "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
 
     assert html =~
-             "No explicit reasoning effort is set; the selected model uses its default."
+             "Storyteller requests low reasoning effort for supported models to help turns resolve faster."
 
     assert html =~ "value=\"automatic\" selected"
   end
