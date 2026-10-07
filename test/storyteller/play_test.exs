@@ -1792,6 +1792,15 @@ defmodule Storyteller.PlayTest do
               "role" => "cook",
               "expertise" => "herbal infusions and spice aromas"
             }
+          },
+          %{
+            speaker_id: "npc:marco",
+            name: "Marco",
+            starting_place: "Moon Orchard Tasting Room",
+            visible_facts: %{
+              "role" => "cellar keeper",
+              "expertise" => "fermentation and wine structure"
+            }
           }
         ]
       })
@@ -1814,7 +1823,7 @@ defmodule Storyteller.PlayTest do
       proposal =
         ordinary_proposal(%{
           "narration" =>
-            "In the lanternlight, La Bella 2028 shows a deep violet core and bright purple rim. Ripe plum and blackberry lead the nose, with a faint dried-herb note as the glass opens. It is broad and juicy on the palate; acidity is present but quiet, tannins are moderate with a slight grip, and the medium finish turns peppery. Both women take a second taste.",
+            "In the lanternlight, La Bella 2028 shows a deep violet core and bright purple rim. Ripe plum and blackberry lead the nose, with a faint dried-herb note as the glass opens. It is broad and juicy on the palate; acidity is present but quiet, tannins are moderate with a slight grip, and the medium finish turns peppery. The three compare a second taste.",
           "dialogue" => [
             %{
               "speaker_id" => "npc:lyra",
@@ -1824,6 +1833,10 @@ defmodule Storyteller.PlayTest do
             %{
               "speaker_id" => "npc:sera",
               "text" => "The dried herb comes forward as the glass warms."
+            },
+            %{
+              "speaker_id" => "npc:marco",
+              "text" => "That quiet acidity keeps the peppery finish from feeling heavy."
             }
           ],
           "activities" => [],
@@ -1838,7 +1851,7 @@ defmodule Storyteller.PlayTest do
                campaign.id,
                session.id,
                "complete-tasting-beat",
-               "I taste La Bella 2028 and listen.",
+               "I taste La Bella 2028 and ask Lyra, Sera, and Marco to compare what each of them notices before I respond.",
                provider: provider,
                model: "test-model"
              )
@@ -1856,7 +1869,7 @@ defmodule Storyteller.PlayTest do
              "A present expert may offer a qualified view."
 
     assert normalized_instructions =~
-             "extra speakers need distinct reactions."
+             "An invited ensemble may include each relevant present NPC's distinct reaction in the same beat."
 
     assert normalized_instructions =~ "Don't dictate their response."
 
@@ -1875,6 +1888,11 @@ defmodule Storyteller.PlayTest do
                character["visible_facts"]["expertise"] == "herbal infusions and spice aromas"
            end)
 
+    assert Enum.any?(context["characters"], fn character ->
+             character["speaker_id"] == "npc:marco" and
+               character["visible_facts"]["expertise"] == "fermentation and wine structure"
+           end)
+
     assert Enum.any?(context["places"]["public"], fn place ->
              place["name"] == "Moon Orchard Tasting Room" and
                place["facts"]["table"] =~ "La Bella 2028 has been poured"
@@ -1887,13 +1905,15 @@ defmodule Storyteller.PlayTest do
              :player_action,
              :gm_narration,
              :npc_dialogue,
+             :npc_dialogue,
              :npc_dialogue
            ]
 
     assert Enum.map(Enum.drop(turn_events, 1), & &1.payload["text"]) == [
-             "In the lanternlight, La Bella 2028 shows a deep violet core and bright purple rim. Ripe plum and blackberry lead the nose, with a faint dried-herb note as the glass opens. It is broad and juicy on the palate; acidity is present but quiet, tannins are moderate with a slight grip, and the medium finish turns peppery. Both women take a second taste.",
+             "In the lanternlight, La Bella 2028 shows a deep violet core and bright purple rim. Ripe plum and blackberry lead the nose, with a faint dried-herb note as the glass opens. It is broad and juicy on the palate; acidity is present but quiet, tannins are moderate with a slight grip, and the medium finish turns peppery. The three compare a second taste.",
              "The fruit is generous, but there is a little more grip than I expected at the finish. Before we pour the next sample, what stands out to you?",
-             "The dried herb comes forward as the glass warms."
+             "The dried herb comes forward as the glass warms.",
+             "That quiet acidity keeps the peppery finish from feeling heavy."
            ]
 
     refute Enum.any?(Enum.drop(turn_events, 1), fn event ->
@@ -6728,12 +6748,10 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Addressed NPCs answer in their own voice unless silence is justified."
 
+    assert instructions =~ "Keep GM narration cohesive and dialogue proportionate to the beat."
+
     assert instructions =~
-             "Solo-Act default: one cohesive GM passage, normally at most two warranted NPC bubbles."
-
-    assert instructions =~ "Player intent/scene needs may expand invited dialogue/ensemble"
-
-    assert instructions =~ "extra speakers need distinct reactions."
+             "An invited ensemble may include each relevant present NPC's distinct reaction in the same beat."
 
     assert instructions =~ "Avoid round-robin, narration echoes, filler, and stock closers."
 

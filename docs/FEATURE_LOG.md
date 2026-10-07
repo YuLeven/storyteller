@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Let invited ensembles finish a scene beat
+
+- Removed the default two-bubble NPC cap from GM instructions. Concision now follows the beat, while an invited ensemble can give each relevant present character a distinct reaction before the handoff.
+- Expanded the sensory scene request-boundary regression to invite three co-present characters and preserve their distinct replies in one turn. Campaign canon and player agency rules are unchanged.
+- **Verification:** isolated WSL `MIX_ENV=test mix test test/storyteller/play_test.exs:1773` passed (**1 selected, 120 excluded**). The fake provider checks the assembled request and accepted event sequence; it does not test live-model prose compliance.
+
 ## 2026-10-07 — Keep active-turn feedback responsive
 
 - Submitting a player action now renders the saved pending turn directly from the inserted record, without rebuilding the campaign projection and recent timeline first. While a GM response is pending, the 1.5-second LiveView poll reads only the active turn; it refreshes the board and story timeline once a completed, failed, or roll-waiting state needs to be shown.

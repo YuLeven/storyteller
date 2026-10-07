@@ -354,10 +354,9 @@ defmodule Storyteller.Play do
   mannerisms brief; avoid catchphrases, caricature, or forced cues. Never blend
   voices; narrate in GM voice.
   Addressed NPCs answer in their own voice unless silence is justified.
-  Solo-Act default: one cohesive GM passage, normally at most two warranted NPC
-  bubbles. Player intent/scene needs may expand invited dialogue/ensemble;
-  extra speakers need distinct reactions. Avoid round-robin, narration echoes,
-  filler, and stock closers.
+  Keep GM narration cohesive and dialogue proportionate to the beat. An invited
+  ensemble may include each relevant present NPC's distinct reaction in the same
+  beat. Avoid round-robin, narration echoes, filler, and stock closers.
   Update panels only for meaningful activity; skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
 
