@@ -1514,10 +1514,10 @@ defmodule StorytellerWeb.SessionLiveTest do
         case Agent.get_and_update(attempts, fn attempt -> {attempt, attempt + 1} end) do
           0 ->
             send(test_pid, {:opening_instructions, request.instructions})
-            {:error, :provider_error}
+            {:error, :provider_unavailable}
 
           attempt when attempt in 1..4 ->
-            {:error, :provider_error}
+            {:error, :provider_unavailable}
 
           _ ->
             {:ok,
@@ -1571,7 +1571,7 @@ defmodule StorytellerWeb.SessionLiveTest do
              fn ->
                has_element?(view, "#story-timeline", "A lantern burns above the sleeping harbor.")
              end,
-             400
+             2_000
            )
 
     opening_turn =
@@ -6159,7 +6159,7 @@ defmodule StorytellerWeb.SessionLiveTest do
 
       case attempt do
         attempt when attempt in 0..4 ->
-          {:error, :provider_error}
+          {:error, :provider_unavailable}
 
         5 ->
           receive do
@@ -6189,7 +6189,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> render_submit()
 
     assert_receive {:idempotent_retry_attempt, 0, _initial_worker}, 1_000
-    assert_receive {:idempotent_retry_attempt, 5, retry_worker}, 2_000
+    assert_receive {:idempotent_retry_attempt, 5, retry_worker}, 4_000
 
     on_exit(fn ->
       if Process.alive?(retry_worker), do: send(retry_worker, :release)
@@ -6214,6 +6214,48 @@ defmodule StorytellerWeb.SessionLiveTest do
     worker_monitor = Process.monitor(retry_worker)
     send(retry_worker, :release)
     assert_receive {:DOWN, ^worker_monitor, :process, ^retry_worker, :normal}, 1_000
+  end
+
+  test "a transient turn past four claims resumes automatically when the session reopens", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+
+    turn =
+      Repo.insert!(
+        Turn.changeset(%Turn{}, %{
+          campaign_id: campaign.id,
+          session_id: session.id,
+          idempotency_key: "opening-scene-#{session.id}",
+          request_hash: String.duplicate("0", 64),
+          player_input: "Establish the opening scene before the player has taken an action.",
+          intent: :opening_scene,
+          status: :failed,
+          resolution_phase: :initial,
+          attempts: 4,
+          failure_code: "network_error",
+          failure_stage: :provider
+        })
+      )
+
+    set_handler(
+      fn request ->
+        FakeProvider.opening_scene_response(provider_context(request))
+      end,
+      handle_opening?: true
+    )
+
+    {:ok, view, _html} = live(conn, session_path(campaign, session))
+
+    assert wait_until(fn ->
+             match?(%Turn{status: :completed}, Repo.get!(Turn, turn.id)) and
+               has_element?(view, "#story-timeline", "The scene takes shape")
+           end)
+
+    assert Repo.get!(Turn, turn.id).attempts == 5
+    refute has_element?(view, "#turn-error button[phx-click='retry-turn']")
+    assert Play.public_current_turn(campaign.id) == nil
   end
 
   test "a same-view resolving turn can reclaim after its lease expires", %{conn: conn} do

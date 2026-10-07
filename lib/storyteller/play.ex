@@ -354,9 +354,10 @@ defmodule Storyteller.Play do
   mannerisms brief; avoid catchphrases, caricature, or forced cues. Never blend
   voices; narrate in GM voice.
   Addressed NPCs answer in their own voice unless silence is justified.
-  Keep GM narration cohesive and dialogue proportionate to the beat. An invited
-  ensemble may include each relevant present NPC's distinct reaction in the same
-  beat. Avoid round-robin, narration echoes, filler, and stock closers.
+  Keep prose cohesive and dialogue proportionate. Invited ensembles may include
+  each present NPC's distinct reaction. Before an NPC states a factual finding
+  in dialogue, set moment/action, not the finding; keep natural lead-ins and
+  direct speech. Avoid round-robin, filler, stock closers.
   Update panels only for meaningful activity; skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
 
@@ -489,6 +490,8 @@ defmodule Storyteller.Play do
     :reauth_required,
     :authorization_configuration,
     :network_error,
+    :provider_unavailable,
+    :resolver_crashed,
     :stream_incomplete,
     :timeout,
     :provider_error,
@@ -522,14 +525,19 @@ defmodule Storyteller.Play do
     :invalid_response,
     :network_error,
     :provider_error,
+    :provider_unavailable,
     :stream_incomplete,
     :timeout
   ]
   @provider_retry_delay_ms 300
   @transient_provider_retry_limit 4
   @transient_auto_recovery_attempt_limit 4
-  @transient_auto_recovery_delay_cap_ms 8_000
-  @transient_auto_recovery_failure_codes ["network_error", "stream_incomplete", "provider_error"]
+  @transient_auto_recovery_delay_cap_ms 300_000
+  @transient_auto_recovery_failure_codes [
+    "network_error",
+    "stream_incomplete",
+    "provider_unavailable"
+  ]
   @proposal_repair_retry_limit 2
   @proposal_repair_reserve_bytes 768
 
@@ -1286,7 +1294,7 @@ defmodule Storyteller.Play do
               |> Turn.changeset(%{
                 status: :failed,
                 resolution_started_at: nil,
-                failure_code: "provider_error",
+                failure_code: "resolver_crashed",
                 failure_category: nil,
                 failure_stage: :provider
               })
@@ -1345,7 +1353,7 @@ defmodule Storyteller.Play do
 
             case resolve_claimed_turn(turn, attempt_token, opts) do
               {:ok, %Turn{status: :failed} = failed_turn} = result ->
-                if transient_auto_recovery?(failed_turn, attempt_token) do
+                if transient_auto_recovery?(failed_turn, attempt_token, opts) do
                   notify_transient_auto_recovery(opts, failed_turn.id, attempt_token + 1)
                   Process.sleep(transient_auto_recovery_delay_ms(attempt_token, opts))
                   resolve_turn(failed_turn.id, opts)
@@ -1394,13 +1402,28 @@ defmodule Storyteller.Play do
 
   defp transient_auto_recovery?(
          %Turn{failure_code: code, failure_stage: :provider},
-         attempt_token
+         attempt_token,
+         opts
        ) do
-    code in @transient_auto_recovery_failure_codes and
-      attempt_token < @transient_auto_recovery_attempt_limit
+    failure_codes =
+      Keyword.get(
+        opts,
+        :transient_auto_recovery_failure_codes,
+        @transient_auto_recovery_failure_codes
+      )
+
+    attempt_limit =
+      Keyword.get(
+        opts,
+        :transient_auto_recovery_attempt_limit,
+        @transient_auto_recovery_attempt_limit
+      )
+
+    code in failure_codes and
+      (attempt_limit == :infinity or attempt_token < attempt_limit)
   end
 
-  defp transient_auto_recovery?(_turn, _attempt_token), do: false
+  defp transient_auto_recovery?(_turn, _attempt_token, _opts), do: false
 
   defp notify_transient_auto_recovery(opts, turn_id, next_attempt) do
     case Keyword.get(opts, :on_automatic_retry) do
@@ -1426,8 +1449,18 @@ defmodule Storyteller.Play do
         Application.get_env(:storyteller, :gm_transient_retry_base_delay_ms, 1_000)
       )
 
-    multiplier = Integer.pow(2, max(attempt_token - 1, 0))
-    min(max(base_delay, 0) * multiplier, @transient_auto_recovery_delay_cap_ms)
+    base_delay = min(max(base_delay, 0), @transient_auto_recovery_delay_cap_ms)
+    exponent = max(attempt_token - 1, 0)
+
+    capped_exponential_delay(base_delay, exponent, @transient_auto_recovery_delay_cap_ms)
+  end
+
+  defp capped_exponential_delay(delay, 0, cap), do: min(delay, cap)
+
+  defp capped_exponential_delay(delay, exponent, cap) when exponent > 0 do
+    if delay >= div(cap, 2),
+      do: cap,
+      else: capped_exponential_delay(delay * 2, exponent - 1, cap)
   end
 
   defp resolve_claimed_turn(turn, attempt_token, opts) do
@@ -1517,7 +1550,7 @@ defmodule Storyteller.Play do
 
     case generate_and_commit_once(provider, request, turn, attempt_token) do
       {:error, reason, stage} = error ->
-        if retries < proposal_repair_retry_limit(stage, reason) and
+        if retries < proposal_repair_retry_limit(stage, reason, attempt_token, opts) and
              retryable_proposal_failure?(stage, reason) and
              ensure_plan_usage_allowed(opts) == :ok and
              resolution_attempt_active?(turn.id, attempt_token) do
@@ -1607,17 +1640,32 @@ defmodule Storyteller.Play do
   defp retryable_proposal_failure?(_reason), do: false
 
   # A long streaming receive timeout may already have cost the player most of
-  # a minute and a half, so give it one silent recovery attempt. The OpenAI
-  # HTTP boundary classifies faster transport timeouts as network errors; those
-  # use the fuller transient-retry budget. Malformed or canonically invalid
-  # answers get fewer repair calls.
-  defp proposal_repair_retry_limit(:provider, :timeout), do: 1
+  # a minute and a half, so give it one silent recovery attempt during the fast
+  # window. The LiveView then uses a single half-open probe per cooldown.
+  defp proposal_repair_retry_limit(:provider, :timeout, attempt_token, opts) do
+    if half_open_recovery_probe?(attempt_token, opts), do: 0, else: 1
+  end
 
-  defp proposal_repair_retry_limit(:provider, reason)
-       when reason in @provider_retryable_errors,
-       do: @transient_provider_retry_limit
+  defp proposal_repair_retry_limit(:provider, reason, attempt_token, opts)
+       when reason in @provider_retryable_errors do
+    if half_open_recovery_probe?(attempt_token, opts),
+      do: 0,
+      else: @transient_provider_retry_limit
+  end
 
-  defp proposal_repair_retry_limit(_stage, _reason), do: @proposal_repair_retry_limit
+  defp proposal_repair_retry_limit(_stage, _reason, _attempt_token, _opts),
+    do: @proposal_repair_retry_limit
+
+  defp half_open_recovery_probe?(attempt_token, opts) do
+    fast_retry_claim_limit =
+      Keyword.get(
+        opts,
+        :transient_fast_retry_claim_limit,
+        @transient_auto_recovery_attempt_limit
+      )
+
+    attempt_token > fast_retry_claim_limit
+  end
 
   defp add_proposal_repair_guidance(request, nil), do: request
 

@@ -1871,7 +1871,7 @@ defmodule Storyteller.PlayTest do
              "A present expert may offer a qualified view."
 
     assert normalized_instructions =~
-             "An invited ensemble may include each relevant present NPC's distinct reaction in the same beat."
+             "Invited ensembles may include each present NPC's distinct reaction."
 
     assert normalized_instructions =~ "Don't dictate their response."
 
@@ -6750,12 +6750,15 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Addressed NPCs answer in their own voice unless silence is justified."
 
-    assert instructions =~ "Keep GM narration cohesive and dialogue proportionate to the beat."
+    assert instructions =~ "Keep prose cohesive and dialogue proportionate."
 
     assert instructions =~
-             "An invited ensemble may include each relevant present NPC's distinct reaction in the same beat."
+             "Invited ensembles may include each present NPC's distinct reaction."
 
-    assert instructions =~ "Avoid round-robin, narration echoes, filler, and stock closers."
+    assert instructions =~
+             "Before an NPC states a factual finding in dialogue, set moment/action, not the finding; keep natural lead-ins and direct speech."
+
+    assert instructions =~ "Avoid round-robin, filler, stock closers."
 
     assert instructions =~ "Narration may be empty if dialogue completes the beat"
 
@@ -10208,6 +10211,36 @@ defmodule Storyteller.PlayTest do
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
     assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
     assert Enum.at(timeline, 0).payload["text"] == "Check the clock."
+  end
+
+  test "transient recovery can continue after the initial four same-turn claims" do
+    {campaign, session} = play_campaign("The Long Recovery Observatory")
+    provider_calls = :atomics.new(1, signed: false)
+    proposal_text = Jason.encode!(ordinary_proposal(%{"dialogue" => [], "activities" => []}))
+
+    provider = fn _request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+      if attempt <= 21, do: {:error, :network_error}, else: {:ok, proposal_text}
+    end
+
+    assert {:ok, %{status: :completed, attempts: 6} = completed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "long-automatic-recovery",
+               "Check the clock.",
+               provider: provider,
+               model: "test-model",
+               transient_retry_base_delay_ms: 0,
+               transient_auto_recovery_attempt_limit: :infinity
+             )
+
+    assert :atomics.get(provider_calls, 1) == 22
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+    assert Enum.at(timeline, 0).payload["text"] == "Check the clock."
+    assert completed.player_input == "Check the clock."
   end
 
   test "an elapsed stream receive timeout keeps its single recovery attempt" do

@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-10-07 — Keep transient turn recovery automatic
+
+- The player no longer hits a fixed four-claim ceiling for safe transient LiveView failures. Network drops, incomplete streams, provider-unavailable responses, and long receive timeouts retry the same saved turn with exponentially increasing waits capped at five minutes. The first four claims retain quick in-claim retries; later cooldowns use a single half-open probe. The submitted action and roll stay attached to that turn; only one accepted proposal can commit.
+- Provider 5xx, service-unavailable, overload, and rate-limit errors now have a distinct retry classification. Usage/authentication, unknown account status, context-size corrections, and invalid proposals remain deliberate intervention paths. Unexpected resolver exits are marked separately and recover the same turn when the session reconnects.
+- Added coverage for recovery beyond four claims, provider 503 classification, and automatic resumption of a failed transient turn after reopening the session. Recovery checks plan availability before each claim and keeps the existing ownership fences.
+- **Verification:** focused WSL regression selection passed (240 tests, 0 failures; 233 excluded across the selected files), covering provider 503 classification, recovery beyond four claims, a single half-open probe, LiveView resume after four claims, duplicate-worker fencing, and the opening-scene retry. Existing retry and connected-play tests use isolated fictional/test fixtures; no live model request or OAuth consent was involved.
+
+## 2026-10-07 — Keep NPC findings in their own dialogue
+
+- Clarified the shared GM contract: narration can establish the moment or visible action before a present NPC's factual line, but should not summarize the same finding immediately beforehand. Natural introductions and direct character dialogue remain encouraged.
+- Extended the fake-provider request-boundary test to assert this anti-echo guidance reaches the assembled request. It proves prompt delivery only; matched human review is still needed to judge generated prose and pacing.
+
 ## 2026-10-07 — Keep transient failures on the saved turn
 
 - A live Quiet Observatory turn completed after about 30 seconds. Around the ten-second mark, the in-progress page briefly showed an account-usage warning saying requests were held even though the saved turn was still resolving. The message now distinguishes new requests from a request already in progress; English, Spanish, and French copy are covered by LiveView tests.

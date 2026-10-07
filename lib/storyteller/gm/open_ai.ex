@@ -665,10 +665,12 @@ defmodule Storyteller.GM.OpenAI do
   defp error_for_status(403, :provider_error), do: :provider_error
   defp error_for_status(404, _reason), do: :model_unavailable
   defp error_for_status(429, reason), do: reason
-  defp error_for_status(status, reason) when status in [400, 503], do: reason
+  defp error_for_status(400, reason), do: reason
+  defp error_for_status(503, :provider_error), do: :provider_unavailable
+  defp error_for_status(503, reason), do: reason
 
   defp error_for_status(status, _reason) when is_integer(status) and status >= 500,
-    do: :provider_error
+    do: :provider_unavailable
 
   defp error_for_status(_status, reason), do: reason
 
@@ -1151,6 +1153,15 @@ defmodule Storyteller.GM.OpenAI do
   defp map_error_code(code)
        when code in ["model_not_found", "model_unavailable", "invalid_model"],
        do: :model_unavailable
+
+  defp map_error_code(code)
+       when code in [
+              "server_error",
+              "service_unavailable",
+              "overloaded_error",
+              "rate_limit_exceeded"
+            ],
+       do: :provider_unavailable
 
   defp map_error_code("context_length_exceeded"), do: :context_length_exceeded
 

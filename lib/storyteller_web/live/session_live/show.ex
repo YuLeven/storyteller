@@ -1566,6 +1566,15 @@ defmodule StorytellerWeb.SessionLive.Show do
         on_automatic_retry: fn retrying_turn_id, next_attempt ->
           send(owner, {:turn_automatic_retry, retrying_turn_id, worker_tag, next_attempt})
         end,
+        transient_auto_recovery_attempt_limit: :infinity,
+        transient_fast_retry_claim_limit: 4,
+        transient_auto_recovery_failure_codes: [
+          "network_error",
+          "stream_incomplete",
+          "provider_unavailable",
+          "resolver_crashed",
+          "timeout"
+        ],
         on_first_output: fn ->
           send(owner, {:turn_first_output, turn_id, worker_tag})
         end
@@ -1688,10 +1697,15 @@ defmodule StorytellerWeb.SessionLive.Show do
   defp automatic_recovery_turn?(%{
          status: :failed,
          failure_stage: :provider,
-         failure_code: failure_code,
-         attempts: attempts
+         failure_code: failure_code
        }) do
-    failure_code in ["network_error", "stream_incomplete", "provider_error"] and attempts < 4
+    failure_code in [
+      "network_error",
+      "stream_incomplete",
+      "provider_unavailable",
+      "resolver_crashed",
+      "timeout"
+    ]
   end
 
   defp automatic_recovery_turn?(_turn), do: false

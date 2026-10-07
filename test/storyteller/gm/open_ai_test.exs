@@ -927,7 +927,7 @@ defmodule Storyteller.GM.OpenAITest do
          event_frame("response.failed", %{
            "type" => "response.failed",
            "response" => %{"error" => %{"code" => "server_error"}}
-         }), :provider_error, true},
+         }), :provider_unavailable, true},
       {first_delta <>
          event_frame("response.incomplete", %{
            "type" => "response.incomplete",
@@ -1050,6 +1050,7 @@ defmodule Storyteller.GM.OpenAITest do
       {429, "subscription_sharing_usage_limit_exceeded", :usage_limit},
       {503, "subscription_sharing_usage_unavailable", :usage_unavailable},
       {503, "subscription_sharing_user_unavailable", :usage_unavailable},
+      {503, "server_error", :provider_unavailable},
       {403, "subscription_sharing_user_not_eligible", :account_ineligible},
       {403, "policy_violation", :provider_error},
       {403, "subscription_sharing_route_not_supported", :unsupported_capability},
