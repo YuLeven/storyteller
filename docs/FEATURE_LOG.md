@@ -1,5 +1,17 @@
 # Feature log
 
+## 2026-10-07 — Keep player moves out of the retry loop
+
+- Product direction: a player must not lose momentum or act as the operator for transient provider failures. A single fast retry followed by a hard failure is not acceptable. Keep the original move and roll in the active turn, make recovery automatic when the fault is transient, and ask for player intervention only when there is a meaningful action to take (for example, resume a paused account or correct oversized local context). Bounded retries still need account and duplicate-event safeguards; presenting a same-turn retry after exhausting recovery remains a known V1 P0 gap, not a solved UX.
+- A matched same-action QA probe on the isolated Quiet Observatory checked a lantern-lit inspection of a stopped clock with its cause unresolved. GPT-6.1-Sol low effort produced a valid response on its first proposal in 24.85s (7.83s to first output). GPT-6-Luna low effort took two automatic correction attempts before producing a valid response in 43.19s (1.51s to first output); a one-retry ceiling would have surfaced a failed turn before its successful third proposal. Both kept the clock at 8:46, reported no audible ticking during the minute, and left the cause unknown. This is one matched action, not a model-quality verdict or a latency distribution.
+- **Verification:** the paired live turn used two cloned campaigns in `storyteller_quiet_observatory_20261007_codex1` only. Both cloned turns completed; their source fictional campaign remains unchanged. No Vineyard or ChatGPT source data was accessed, and no OAuth consent was completed.
+
+## 2026-10-07 — Keep gameplay QA on independent fiction
+
+- Replaced plan steps for Vineyard source-share review, campaign reconstruction, and an approved import with the current preservation boundary: never access, continue, import, or test against the source or a comparison copy.
+- Manual and automated gameplay QA use independently authored fictional campaigns such as the Quiet Observatory. Generic vineyard genre examples and the Finca–Bodega route/presence lesson remain abstract product scenarios.
+- **Verification:** documentation-only review; `git diff --check` passed. No campaign data or model calls were accessed.
+
 ## 2026-10-07 — Let invited ensembles finish a scene beat
 
 - Removed the default two-bubble NPC cap from GM instructions. Concision now follows the beat, while an invited ensemble can give each relevant present character a distinct reaction before the handoff.

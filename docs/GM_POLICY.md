@@ -36,6 +36,6 @@ This campaign-independent policy guides the Storyteller GM. A campaign's setting
 - Keep GM-private inventory and character facts out of public dialogue, narration, character views, and events until the fiction establishes that the player learns them.
 - Preserve the campaign's narration language and tone. A language change in the interface does not rewrite previously played turns.
 
-## Source and maintenance
+## Generalized play preferences and maintenance
 
-The original `Vineyard TTRPG Setup` chat establishes grounded, day-by-day play with the GM controlling the world's passage of time and the player supplying dice rolls. The in-world date and time remain visible through each entry's game-time label; current weather remains visible in the world bar. The GM describes changes and relevant conditions naturally rather than repeating unchanged indicators in every prose entry. Those preferences are generalized here for new campaigns. This document contains no vineyard plot, state, or transcript. Review any future policy revision against that source and the behavioral scenario fixtures.
+These campaign-independent rules preserve grounded, day-by-day play: the GM controls world time and weather, the player controls character decisions and rolls, in-world date/time remains visible, and unchanged conditions need not be repeated in narration. This document contains no campaign plot, state, or transcript. Review future policy revisions against these product goals and behavioral fixtures authored with fictional QA data. Never access, import, or test against an owner's protected campaign source or a comparison copy.
