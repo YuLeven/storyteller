@@ -6669,6 +6669,9 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten; never ask the player to invent it."
 
+    assert instructions =~
+             "New clues need a premise or current action; preserve lasting evidence as public continuity."
+
     assert instructions =~ "Invent no past/off-scene evidence or unsupported causes."
 
     assert instructions =~
@@ -6769,172 +6772,167 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Act describes the player's in-character action or speech"
   end
 
-  test "an earned current-scene clue is narrated and persisted with event provenance" do
-    {campaign, session} = play_campaign("Earned Observatory Clue")
+  test "focused inspection establishes present evidence and a follow-up preserves unknown cause" do
+    {campaign, session} = play_campaign("Focused Observatory Inspection")
     owner = self()
+    place = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
 
-    chart_fact = %{
-      "type" => "create",
-      "entry" => %{
-        "entry_id" => "eastern-star-chart-established",
-        "kind" => "fact",
-        "title" => "The eastern star chart is present",
-        "details" =>
-          "The eastern star chart lies open beneath the dome's view of the first stars.",
-        "visibility" => "public"
-      },
-      "reason" => "The player opens the chart beside the visible stars in the current scene."
-    }
+    Repo.update!(
+      Place.changeset(place, %{
+        facts: %{
+          "scene_objects" =>
+            "An eastern star chart lies open on the reading table beneath the dome's view of the first stars."
+        }
+      })
+    )
 
-    chart_provider = fn _request ->
-      proposal =
-        ordinary_proposal(%{
-          "narration" =>
-            "The eastern star chart lies open beneath the dome's view of the first stars.",
-          "dialogue" => [],
-          "activities" => [],
-          "public_changes" => %{},
-          "private_changes" => %{},
-          "panel_changes" => [],
-          "character_updates" => [],
-          "location_changes" => [],
-          "inventory_changes" => [],
-          "continuity_changes" => [chart_fact],
-          "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
-          "time_advance_minutes" => 0
-        })
-
-      {:ok, Jason.encode!(proposal)}
-    end
-
-    assert {:ok, %{status: :completed}} =
-             Play.submit_turn(
-               campaign.id,
-               session.id,
-               "establish-star-chart",
-               "I open the eastern star chart beneath the dome and compare it with the visible first stars.",
-               intent: :action,
-               provider: chart_provider,
-               model: "test-model"
-             )
-
-    assert {:ok, %{continuity_entries: chart_entries}} = Play.public_projection(campaign.id)
-    assert Enum.any?(chart_entries, &(&1.entry_id == "eastern-star-chart-established"))
+    inspection_action = "I inspect the eastern chart mark in the first starlight."
 
     narration =
-      "In the first starlight, a hairline scratch crosses the eastern star mark, cutting through its older engraved line."
+      "A fine scratch crosses the older engraved line at the eastern star mark. In the raking starlight its edge is clear, but the mark gives no sign of who made it or when."
 
-    clue = %{
+    finding = %{
       "type" => "create",
       "entry" => %{
-        "entry_id" => "later-eastern-scratch",
+        "entry_id" => "eastern-chart-scratch",
         "kind" => "fact",
-        "title" => "A later scratch crosses the eastern star mark",
+        "title" => "A scratch crosses the eastern chart mark",
         "details" =>
-          "A hairline scratch crosses an older engraved line on the eastern chart mark; its timing and source are unknown.",
+          "A fine scratch crosses the older engraved line at the eastern star mark; who made it and when are unknown.",
         "visibility" => "public"
       },
-      "reason" =>
-        "The player and Lyra observe the scratch cutting across the older engraved line in the current scene."
+      "reason" => "The player inspects the established eastern chart mark in present starlight."
     }
 
-    provider = fn request ->
-      send(owner, {:earned_clue_instructions, request.instructions})
+    inspection_provider = fn request ->
+      context = decode_request(request)
+      send(owner, {:inspection_request, request, context})
 
-      proposal =
-        ordinary_proposal(%{
-          "narration" => narration,
-          "dialogue" => [
-            %{
-              "speaker_id" => "npc:lyra",
-              "text" =>
-                "That scratch cuts across the older engraving. Someone revisited this mark, but I can't tell when."
-            }
-          ],
-          "activities" => [],
-          "public_changes" => %{},
-          "private_changes" => %{},
-          "panel_changes" => [],
-          "character_updates" => [],
-          "location_changes" => [],
-          "inventory_changes" => [],
-          "continuity_changes" => [clue],
-          "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
-          "time_advance_minutes" => 60
-        })
-
-      {:ok, Jason.encode!(proposal)}
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => narration,
+           "dialogue" => [],
+           "activities" => [],
+           "public_changes" => %{},
+           "private_changes" => %{},
+           "panel_changes" => [],
+           "character_updates" => [],
+           "location_changes" => [],
+           "inventory_changes" => [],
+           "continuity_changes" => [finding],
+           "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+           "time_advance_minutes" => 0
+         })
+       )}
     end
 
-    assert {:ok, %{status: :completed} = turn} =
-             Play.submit_turn(
-               campaign.id,
-               session.id,
-               "discover-earned-chart-clue",
-               "I compare the eastern chart marks to the first stars, taking time to check the angles.",
+    assert {:ok, %{status: :completed} = inspection_turn} =
+             Play.submit_turn(campaign.id, session.id, "inspect-eastern-chart", inspection_action,
                intent: :action,
-               provider: provider,
+               provider: inspection_provider,
                model: "test-model"
              )
 
-    assert_receive {:earned_clue_instructions, raw_instructions}, 2_000
-    instructions = String.replace(raw_instructions, ~r/\s+/, " ")
+    assert_receive {:inspection_request, request, context}, 2_000
+    instructions = String.replace(request.instructions, ~r/\s+/, " ")
 
-    assert instructions =~ "Ambient texture isn't a clue/cause."
+    chart =
+      Enum.find(context["places"]["public"], &(&1["name"] == "The Glass Observatory"))
 
-    assert instructions =~
-             "New clues need a premise or current action; preserve lasting evidence as public continuity."
+    assert chart["facts"]["scene_objects"] =~ "eastern star chart lies open"
+    refute chart["facts"]["scene_objects"] =~ "scratch"
+    assert context["player_action"] == inspection_action
 
     assert instructions =~
              "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten; never ask the player to invent it."
 
-    assert instructions =~
-             "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
-
-    assert instructions =~ "canon checks."
-
-    assert instructions =~
-             "A present expert may offer a qualified view."
+    assert instructions =~ "Invent no past/off-scene evidence or unsupported causes."
+    assert narration =~ "fine scratch crosses the older engraved line"
+    refute narration =~ ~r/what do you see|describe what you find|what does it look like/i
 
     entry =
       Repo.get_by!(ContinuityEntry,
         campaign_id: campaign.id,
-        entry_id: clue["entry"]["entry_id"]
+        entry_id: finding["entry"]["entry_id"]
       )
 
     assert entry.kind == :fact
     assert entry.visibility == :public
     assert entry.status == :active
-    assert entry.source_event_id
+    assert entry.details =~ "who made it and when are unknown"
     assert entry.source_event_id == entry.introduced_by_event_id
 
     source_event = Repo.get!(Event, entry.source_event_id)
     assert source_event.visibility == :public
-
-    assert source_event.turn_id == turn.id
+    assert source_event.turn_id == inspection_turn.id
 
     assert Enum.any?(source_event.payload["continuity_changes"], fn change ->
              change["entry"]["entry_id"] == entry.entry_id and
                change["entry"]["details"] == entry.details
            end)
 
-    assert {:ok, timeline} = Play.public_timeline(campaign.id)
-    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
-    assert Enum.any?(turn_events, &(&1.payload["text"] == narration))
+    question = "Who made the scratch, and when?"
 
-    assert Enum.any?(turn_events, fn event ->
-             event.event_type == :npc_dialogue and
-               event.payload["text"] =~ "Someone revisited this mark, but I can't tell when."
+    answer =
+      "The scratch crosses the older engraving, but neither its shape nor anything on the chart identifies who made it or when."
+
+    question_provider = fn request ->
+      context = decode_request(request)
+      send(owner, {:cause_question_request, request, context})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => answer,
+           "dialogue" => [],
+           "activities" => [],
+           "public_changes" => %{},
+           "private_changes" => %{},
+           "panel_changes" => [],
+           "character_updates" => [],
+           "location_changes" => [],
+           "inventory_changes" => [],
+           "continuity_changes" => [],
+           "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+           "time_advance_minutes" => 0
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed} = question_turn} =
+             Play.submit_turn(campaign.id, session.id, "ask-chart-scratch-cause", question,
+               intent: :question,
+               provider: question_provider,
+               model: "test-model"
+             )
+
+    assert_receive {:cause_question_request, question_request, question_context}, 2_000
+    question_instructions = String.replace(question_request.instructions, ~r/\s+/, " ")
+    assert question_context["interaction_mode"] == "question"
+    assert question_context["player_action"] == question
+
+    assert Enum.any?(question_context["history"], fn event ->
+             event["event_type"] == "gm_narration" and event["payload"]["text"] == narration
            end)
 
-    refute Enum.any?(turn_events, fn event ->
-             text = event.payload["text"] || ""
-
-             String.contains?(text, "GM clarification") or
-               String.contains?(text, "supplied canon does not specify")
+    assert Enum.any?(question_context["continuity"]["public"], fn fact ->
+             fact["entry_id"] == entry.entry_id and
+               fact["details"] =~ "who made it and when are unknown"
            end)
 
-    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 60
+    assert question_instructions =~ "Invent no past/off-scene evidence or unsupported causes."
+    assert answer =~ "identifies who made it or when"
+    refute answer =~ ~r/was made by|was scratched by|they did it|at midnight/i
+
+    assert Repo.aggregate(
+             from(entry in ContinuityEntry, where: entry.campaign_id == ^campaign.id),
+             :count,
+             :id
+           ) == 1
+
+    assert question_turn.intent == :question
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 0
   end
 
   test "transient present-scene texture does not become durable continuity" do

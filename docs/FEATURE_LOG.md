@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Verify inspection findings across a direct follow-up
+
+- Extended the production-boundary fake-provider regression from a single action to a two-turn inspection and Ask GM sequence. The scene canon establishes an eastern chart but has no mark details; the inspection adds a visible scratch without asking the player to describe it, and the lasting finding records that author and timing are unknown with provenance to the inspecting turn. A direct follow-up asks who made it and when; the response preserves that uncertainty and creates no new continuity entry.
+- The test uses `Play.submit_turn` and the isolated ExUnit database only. It verifies Storyteller assembles the policy, includes the observation in follow-up history, and commits finding provenance; it cannot establish that a live model will follow the same instructions.
+- **Verification:** full WSL `MIX_ENV=test mix test --max-cases 4` passed (**530 tests, 0 failures**); the focused two-turn regression passed (**1 selected, 126 excluded**). `MIX_ENV=test mix format --check-formatted` and `git diff --check` passed. No live model request, OAuth consent, or connected campaign/session access was used.
+
 ## 2026-10-07 — Repair player-voice agency violations precisely
 
 - The saved player action is the sole source of player dialogue and activity. Ordinary GM proposals that try to add either as a player-speaker event now fail validation as a player-agency violation and get a focused correction so the provider can repair the turn without asking the player to repeat their move. Time-passage turns keep their broader agency guard.
