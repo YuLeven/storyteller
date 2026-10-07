@@ -1079,7 +1079,6 @@ defmodule Storyteller.GM.OpenAI do
 
   defp map_error_code(_), do: :provider_error
 
-  defp normalize_error(:network_error), do: :timeout
   defp normalize_error(:timeout), do: :timeout
   defp normalize_error(:context_too_large), do: :context_budget_exceeded
   defp normalize_error(:temporary_auth_error), do: :provider_error

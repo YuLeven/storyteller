@@ -36,7 +36,7 @@ defmodule Storyteller.Auth.HTTP do
 
     case apply(req, :request, [options]) do
       {:ok, response} -> {:ok, response}
-      {:error, _reason} -> {:error, :network_error}
+      {:error, reason} -> {:error, classify_transport_error(reason)}
       _ -> {:error, :invalid_response}
     end
   rescue
@@ -48,8 +48,7 @@ defmodule Storyteller.Auth.HTTP do
   defp safely_call(fun, method, url, options) do
     case fun.(method, url, options) do
       {:ok, response} -> {:ok, response}
-      {:error, reason} when reason in [:network_error, :timeout] -> {:error, reason}
-      {:error, _reason} -> {:error, :network_error}
+      {:error, reason} -> {:error, classify_transport_error(reason)}
       response when is_map(response) -> {:ok, response}
       _ -> {:error, :invalid_response}
     end
@@ -62,8 +61,7 @@ defmodule Storyteller.Auth.HTTP do
   defp safely_call_module(module, method, url, options) do
     case apply(module, :request, [method, url, options]) do
       {:ok, response} -> {:ok, response}
-      {:error, reason} when reason in [:network_error, :timeout] -> {:error, reason}
-      {:error, _reason} -> {:error, :network_error}
+      {:error, reason} -> {:error, classify_transport_error(reason)}
       response when is_map(response) -> {:ok, response}
       _ -> {:error, :invalid_response}
     end
@@ -72,4 +70,8 @@ defmodule Storyteller.Auth.HTTP do
   catch
     _, _ -> {:error, :network_error}
   end
+
+  defp classify_transport_error(:timeout), do: :timeout
+  defp classify_transport_error(%Req.TransportError{reason: :timeout}), do: :timeout
+  defp classify_transport_error(_reason), do: :network_error
 end

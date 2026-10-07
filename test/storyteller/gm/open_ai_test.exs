@@ -97,6 +97,23 @@ defmodule Storyteller.GM.OpenAITest do
     :telemetry.detach(stage_handler_id)
   end
 
+  test "preserves fast transport disconnects separately from receive timeouts", context do
+    http = fn :post, "https://api.openai.com/v1/responses", _options ->
+      {:error, %Req.TransportError{reason: :econnrefused}}
+    end
+
+    assert {:error, :network_error} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return text.",
+                 input: [%{role: "user", content: "Hello"}],
+                 model: "gpt-6-luna"
+               },
+               store: context.store,
+               http: http
+             )
+  end
+
   test "executes one local lookup and replays the full completed output before its result",
        context do
     test_pid = self()

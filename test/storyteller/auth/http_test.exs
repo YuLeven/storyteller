@@ -19,4 +19,21 @@ defmodule Storyteller.Auth.HTTPTest do
                plug: {Req.Test, stub}
              )
   end
+
+  test "only an explicit receive timeout is classified as a long timeout" do
+    for {reason, expected} <- [
+          {:timeout, :timeout},
+          {:econnrefused, :network_error},
+          {:closed, :network_error}
+        ] do
+      stub = make_ref()
+
+      Req.Test.stub(stub, fn conn ->
+        Req.Test.transport_error(conn, reason)
+      end)
+
+      assert {:error, ^expected} =
+               HTTP.request(:post, "https://provider.example/responses", plug: {Req.Test, stub})
+    end
+  end
 end

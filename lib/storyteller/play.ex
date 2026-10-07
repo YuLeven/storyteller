@@ -489,6 +489,7 @@ defmodule Storyteller.Play do
     :account_ineligible,
     :reauth_required,
     :authorization_configuration,
+    :network_error,
     :stream_incomplete,
     :timeout,
     :provider_error,
@@ -518,7 +519,13 @@ defmodule Storyteller.Play do
     "history" => "hi"
   }
   @compact_context_retry_byte_budget 48_000
-  @provider_retryable_errors [:invalid_response, :provider_error, :stream_incomplete, :timeout]
+  @provider_retryable_errors [
+    :invalid_response,
+    :network_error,
+    :provider_error,
+    :stream_incomplete,
+    :timeout
+  ]
   @provider_retry_delay_ms 300
   @transient_provider_retry_limit 4
   @proposal_repair_retry_limit 2
@@ -1547,9 +1554,10 @@ defmodule Storyteller.Play do
   defp retryable_proposal_failure?(_reason), do: false
 
   # A streaming timeout may already have cost the player most of a minute and
-  # a half, so give it one silent recovery attempt. Quick transport failures
-  # get a few more brief attempts to ride out transient provider hiccups; a
-  # malformed or canonically invalid answer gets fewer repair calls.
+  # a half, so give it one silent recovery attempt. Req distinguishes an
+  # expired receive timeout from quick network disconnects; the latter use the
+  # fuller transient-retry budget. Malformed or canonically invalid answers
+  # get fewer repair calls.
   defp proposal_repair_retry_limit(:provider, :timeout), do: 1
 
   defp proposal_repair_retry_limit(:provider, reason)

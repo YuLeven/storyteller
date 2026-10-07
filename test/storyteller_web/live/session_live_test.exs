@@ -6017,7 +6017,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert Play.public_current_turn(campaign.id) == nil
   end
 
-  test "a player action recovers from several quick provider failures without manual retry", %{
+  test "a player action recovers from several quick transport failures without manual retry", %{
     conn: conn
   } do
     campaign = campaign_fixture()
@@ -6030,7 +6030,7 @@ defmodule StorytellerWeb.SessionLiveTest do
       send(test_pid, {:quick_recovery_attempt, attempt})
 
       if attempt < 3 do
-        {:error, :provider_error}
+        {:error, :network_error}
       else
         {:ok,
          %{
