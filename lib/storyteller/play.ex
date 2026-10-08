@@ -524,7 +524,6 @@ defmodule Storyteller.Play do
   @provider_retryable_errors [
     :invalid_response,
     :network_error,
-    :provider_error,
     :provider_unavailable,
     :stream_incomplete,
     :timeout

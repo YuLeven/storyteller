@@ -10194,6 +10194,39 @@ defmodule Storyteller.PlayTest do
     end
   end
 
+  test "generic provider rejection does not make a duplicate repair request and can be retried" do
+    {campaign, session} = play_campaign("The Rejected Request Observatory")
+    before = Play.public_projection(campaign.id)
+    provider_calls = :atomics.new(1, signed: false)
+
+    rejected_provider = fn _request ->
+      :atomics.add(provider_calls, 1, 1)
+      {:error, :provider_error}
+    end
+
+    assert {:ok, failed} =
+             Play.submit_turn(campaign.id, session.id, "rejected-request", "Describe the clock.",
+               provider: rejected_provider,
+               model: "test-model"
+             )
+
+    assert failed.status == :failed
+    assert failed.failure_code == "provider_error"
+    assert failed.player_input == "Describe the clock."
+    assert :atomics.get(provider_calls, 1) == 1
+    assert Play.public_projection(campaign.id) == before
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+
+    assert {:ok, completed} =
+             Play.retry_turn(failed.id, provider: ordinary_provider(), model: "test-model")
+
+    assert completed.status == :completed
+    assert :atomics.get(provider_calls, 1) == 1
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    assert Enum.count(events, &(&1.event_type == :player_action)) == 1
+    assert Enum.at(events, 0).payload["text"] == "Describe the clock."
+  end
+
   test "fast Req transport timeouts retry silently and commit a turn's effects once" do
     {campaign, session} = play_campaign("The Silent Transport Retry Observatory")
     test_pid = self()

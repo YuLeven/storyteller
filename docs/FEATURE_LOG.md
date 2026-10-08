@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Avoid repeating definitive provider failures
+
+- An isolated Luna opening-scene probe was rejected by the ChatGPT-plan Responses route with HTTP 400 and `param=input`. The app then sent another provider request with correction guidance, despite having no model output to correct. Generic `provider_error` failures no longer trigger a hidden duplicate request; known transient classes keep their existing automatic recovery. The player's saved turn remains available for an intentional retry.
+- The sanitized route diagnostic did not include a provider error code or message. Current docs support the input-item form and available fields, but the cause remains undetermined; inspect exact serialized size and request construction locally before considering another live probe. No further live requests were made during this investigation.
+- **Verification:** WSL Play and OpenAI adapter suites passed (**161 tests, 0 failures**) using fake providers; `MIX_ENV=test mix format --check-formatted` and `git diff --check` passed.
+
 ## 2026-10-07 — Ask the GM for valid JSON
 
 - Every Responses request now enables JSON mode for the GM's proposal. This prevents non-JSON syntax errors from consuming correction turns; Storyteller still performs the full schema, agency, visibility, and canon validation, since JSON mode does not guarantee any of those rules.

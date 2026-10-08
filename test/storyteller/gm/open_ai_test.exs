@@ -1109,6 +1109,36 @@ defmodule Storyteller.GM.OpenAITest do
     refute_receive {:models_request, _}
   end
 
+  test "maps a bad input request without a provider error code safely", context do
+    body =
+      Jason.encode!(%{
+        "error" => %{
+          "type" => "invalid_request_error",
+          "param" => "input",
+          "message" => "Private input details must not be logged."
+        }
+      })
+
+    log =
+      capture_log(fn ->
+        assert {:error, :provider_error} =
+                 OpenAI.stream_response(
+                   %{
+                     instructions: "Private GM instructions.",
+                     input: [%{role: "user", content: "Private player action."}],
+                     model: "fixture-model"
+                   },
+                   store: context.store,
+                   http: provider_http_error(self(), 400, async_body(split_stream(body)))
+                 )
+      end)
+
+    assert log =~ "phase=responses status=400 shape=error code=none param=input"
+    refute log =~ "Private input details"
+    refute log =~ "Private GM instructions"
+    refute log =~ "Private player action"
+  end
+
   test "logs safe HTTP diagnostics without logging campaign input", context do
     request_id = "req_fixture_123"
 
