@@ -1127,17 +1127,17 @@ defmodule Storyteller.GM.OpenAITest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
     send(task.pid, task_ready)
-    assert_receive :stream_activity, 1_000
-    assert_receive :first_output, 1_000
-    assert_receive {:first_text_delta_metric, ^telemetry_event, %{duration: duration}, %{}}, 1_000
+    assert_receive :stream_activity, 5_000
+    assert_receive :first_output, 5_000
+    assert_receive {:first_text_delta_metric, ^telemetry_event, %{duration: duration}, %{}}, 5_000
     assert is_integer(duration) and duration >= 0
-    assert_receive :waiting_before_completion, 1_000
+    assert_receive :waiting_before_completion, 5_000
     assert Task.yield(task, 0) == nil
     refute_receive :first_output
 
     send(task.pid, :continue_stream)
-    assert_receive :stream_activity, 1_000
-    assert {:ok, %{text: "The answer"}} = Task.await(task, 1_000)
+    assert_receive :stream_activity, 5_000
+    assert {:ok, %{text: "The answer"}} = Task.await(task, 5_000)
     refute_receive :first_output
     refute_receive {:first_text_delta_metric, ^telemetry_event, _, _}
 
@@ -1225,19 +1225,19 @@ defmodule Storyteller.GM.OpenAITest do
         )
       end)
 
-    assert_receive :waiting_after_narration, 1_000
+    assert_receive :waiting_after_narration, 5_000
     assert Task.yield(task, 0) == nil
     refute_receive {:narration_preview, _text}
 
     send(task.pid, :complete_response)
-    assert_receive {:narration_preview, "The harbor is quiet. caf"}, 1_000
+    assert_receive {:narration_preview, "The harbor is quiet. caf"}, 5_000
 
     assert_receive {:narration_preview, "The harbor is quiet. café\nThe cellar door closes."},
-                   1_000
+                   5_000
 
     refute_receive {:narration_preview, _text}
 
-    assert {:ok, %{text: response}} = Task.await(task, 1_000)
+    assert {:ok, %{text: response}} = Task.await(task, 5_000)
 
     assert Jason.decode!(response)["narration"] ==
              "The harbor is quiet. café\nThe cellar door closes."

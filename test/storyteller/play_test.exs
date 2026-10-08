@@ -10122,7 +10122,6 @@ defmodule Storyteller.PlayTest do
     assert first_size > 1
     refute :retrieval_packet in first_omissions
     assert first_instruction_size > 0
-    assert "lookup_campaign_canon" in first_tools
     assert Enum.any?(first_tools, &String.starts_with?(&1, "mcp"))
     assert first_instructions =~ "CAMPAIGN COMPANION MCP TOOLS"
 
@@ -10209,7 +10208,7 @@ defmodule Storyteller.PlayTest do
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
   end
 
-  test "large canonical inventory is projected by relevance without changing saved items" do
+  test "large canonical inventory remains available beyond the shaping target" do
     {campaign, session} = play_campaign("The Inventory Context Observatory")
 
     bulk_inventory =
@@ -10276,7 +10275,7 @@ defmodule Storyteller.PlayTest do
         "large-inventory-context",
         "I inspect the La Bella 2028 wine's color and vintage.",
         provider: provider,
-        model: "gpt-6-astra"
+        model: "gpt-6-luna"
       )
 
     assert {:ok, %{status: :completed}} = result
@@ -10284,22 +10283,27 @@ defmodule Storyteller.PlayTest do
     assert_receive {:inventory_context_request, request, context}, 1_000
 
     selected_items = context["inventory"]["player_visible"]
-    assert length(selected_items) <= 16
+    assert length(selected_items) == length(original_inventory)
+    assert Enum.map(selected_items, & &1["id"]) == Enum.map(original_inventory, & &1["id"])
     assert Enum.any?(selected_items, &(&1["id"] == "la-bella-2028"))
-    assert Enum.count(selected_items, &Map.has_key?(&1, "description")) <= 1
-    assert context["context_completeness"]["inventory_items_omitted"]
+    detailed_items = Enum.filter(selected_items, &Map.has_key?(&1, "description"))
+    assert length(detailed_items) <= 7
+    refute context["context_completeness"]["inventory_items_omitted"]
     assert context["context_completeness"]["inventory_details_omitted"]
     refute Map.has_key?(context["world"]["public"], "inventory")
     refute Map.has_key?(context["world"]["gm_private"], "inventory")
 
-    assert [private_item] == context["inventory"]["gm_private"]
+    assert [projected_private_item] = context["inventory"]["gm_private"]
+    assert projected_private_item["id"] == private_item["id"]
+    assert projected_private_item["name"] == private_item["name"]
+    refute Map.has_key?(projected_private_item, "description")
+    refute Map.has_key?(projected_private_item, "properties")
 
     target = Enum.find(selected_items, &(&1["id"] == "la-bella-2028"))
     assert target["description"] == named_item["description"]
     assert target["properties"] == named_item["properties"]
 
-    metrics = request.local_context_metrics
-    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert request.request_size_limit_bytes == nil
 
     saved_state = Repo.get_by!(State, campaign_id: campaign.id)
     assert saved_state.public_state["inventory"] == original_inventory

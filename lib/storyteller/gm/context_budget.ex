@@ -18,35 +18,25 @@ defmodule Storyteller.GM.ContextBudget do
   @recent_event_text_chars 1_600
   @relevant_event_text_chars 900
   @memory_summary_chars 1_500
-  @detailed_continuity_count 12
-  @max_continuity_memory_details 8
   @max_continuity_context_rows 64
-  @max_inventory_context_items 16
-  @max_relevant_inventory_items 10
-  @recent_inventory_context_items 6
-  @max_inventory_detail_count 1
-  @max_inventory_description_chars 600
-  @max_inventory_properties_bytes 700
-  @max_world_scope_bytes 8_000
-  @max_world_context_fields 32
+  @broad_inventory_terms MapSet.new(~w(
+    inventory inventories item items gear equipment supplies stock ledger
+    wine wines vino vinos bottle bottles potion potions cash money funds
+    resource resources inventoryario inventario artículos articulos objetos
+    equipo suministros existencias vino vinos botella botellas poción pociones
+    pociones efectivo dinero fondos recurso recursos inventaire articles objets
+    équipement equipement fournitures stock vin vins bouteille bouteilles
+    potion potions espèces especes argent fonds ressource ressources
+  ))
+  @max_world_scope_bytes 64_000
   @max_world_value_bytes 1_200
   @max_panel_context_fields 32
+  @max_panel_context_bytes 48_000
   @max_panel_value_chars 800
-  @max_context_character_rows 48
-  @max_detailed_character_profiles 12
-  @max_character_row_bytes 2_200
   @max_character_fact_bytes 650
   @max_character_voice_bytes 420
   @max_character_activity_chars 220
-  @max_context_place_rows 64
-  @max_detailed_place_rows 5
-  @max_place_row_bytes 12_500
-  @max_place_description_chars 9_000
-  @max_place_facts_bytes 1_200
-  @max_context_objective_rows 48
   @max_open_objective_rows 24
-  @max_objective_detail_count 8
-  @max_objective_detail_chars 600
   @history_budget_fallback_tiers [
     {4, 1_600, 600},
     {4, 1_200, 400},
@@ -465,7 +455,7 @@ defmodule Storyteller.GM.ContextBudget do
     history: :section_history_bytes
   }
 
-  @doc "Returns a compact context and safe size metrics, or a sanitized compilation error."
+  @doc "Returns a relevance-ranked context and safe size metrics, or a sanitized compilation error."
   def compile(context, instructions, model, opts \\ [])
 
   def compile(context, instructions, model, opts)
@@ -473,11 +463,31 @@ defmodule Storyteller.GM.ContextBudget do
     budget = byte_budget(model, opts)
     {context, preferred_history_sequences} = without_context_retrieval_metadata(context)
 
+    compile_compacted_context(
+      context,
+      instructions,
+      model,
+      opts,
+      budget,
+      preferred_history_sequences
+    )
+  rescue
+    _error -> {:error, :context_compilation_failed}
+  end
+
+  def compile(_context, _instructions, _model, _opts),
+    do: {:error, :context_compilation_failed}
+
+  defp compile_compacted_context(
+         context,
+         instructions,
+         model,
+         opts,
+         budget,
+         preferred_history_sequences
+       ) do
     {selected_context, continuity_details_omitted?} =
       retrieve_relevant_continuity_details(context)
-
-    {selected_context, inventory_details_omitted?, inventory_items_omitted?} =
-      project_relevant_inventory(selected_context)
 
     {selected_context, world_fields_omitted?, world_details_compacted?} =
       project_relevant_world_state(selected_context)
@@ -491,8 +501,6 @@ defmodule Storyteller.GM.ContextBudget do
         :continuity_memory_details_omitted,
         if(continuity_details_omitted?, do: true)
       )
-      |> maybe_put(:inventory_details_omitted, if(inventory_details_omitted?, do: true))
-      |> maybe_put(:inventory_items_omitted, if(inventory_items_omitted?, do: true))
       |> maybe_put(:world_state_fields_omitted, if(world_fields_omitted?, do: true))
       |> maybe_put(:world_state_details_compacted, if(world_details_compacted?, do: true))
       |> maybe_put(:panel_fields_omitted, if(panel_fields_omitted?, do: true))
@@ -506,8 +514,6 @@ defmodule Storyteller.GM.ContextBudget do
     retrieval_omissions =
       [
         continuity_memory_details: continuity_details_omitted?,
-        inventory_details: inventory_details_omitted?,
-        inventory_items: inventory_items_omitted?,
         world_state_fields: world_fields_omitted?,
         world_state_details: world_details_compacted?,
         panel_fields: panel_fields_omitted?,
@@ -575,12 +581,7 @@ defmodule Storyteller.GM.ContextBudget do
         end
       end
     end
-  rescue
-    _error -> {:error, :context_compilation_failed}
   end
-
-  def compile(_context, _instructions, _model, _opts),
-    do: {:error, :context_compilation_failed}
 
   @doc """
   Builds a small scene-anchored packet for a request that can retrieve omitted
@@ -1187,9 +1188,10 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_history_for_budget(history, _recent_count, _recent_chars, _older_chars),
     do: {history, false}
 
-  # If progressive history compaction still misses the target, try shortening
-  # redundant reference prose. This result is used only when it fits the soft
-  # target; otherwise compile/1 sends the richer first-pass context.
+  # If progressive history compaction still misses the target, trim irrelevant
+  # reference prose. Preserve the details matched to this turn and the current
+  # scene; the configured byte target is guidance, not a reason to discard
+  # useful context or stop the player's action.
   defp compact_nonessential_details_to_budget(
          context,
          instructions,
@@ -1198,39 +1200,31 @@ defmodule Storyteller.GM.ContextBudget do
          omissions,
          _metrics
        ) do
+    terms = query_terms(context)
+
     specified_compaction =
       context
       |> compact_campaign_details_for_budget()
-      |> compact_continuity_details_for_budget()
-      |> compact_place_details_for_budget()
-      |> compact_character_details_for_budget()
-      |> compact_panel_values_for_budget()
+      |> compact_inventory_details_for_budget(terms)
+      |> compact_world_details_for_budget(terms)
+      |> compact_continuity_details_for_budget(terms)
+      |> compact_place_details_for_budget(terms)
+      |> compact_character_details_for_budget(terms)
+      |> compact_panel_values_for_budget(terms)
 
-    {fallback_context, generalized_compaction?} =
-      if measure(specified_compaction, instructions, model, budget, true, omissions).estimated_request_bytes <=
-           budget do
-        {specified_compaction, false}
-      else
-        compacted = compact_context_text(specified_compaction, 480)
-
-        if measure(compacted, instructions, model, budget, true, omissions).estimated_request_bytes <=
-             budget do
-          {compacted, compacted != specified_compaction}
-        else
-          compacted = compact_context_text(specified_compaction, 160)
-          {compacted, compacted != specified_compaction}
-        end
-      end
+    fallback_context = specified_compaction
 
     changed = %{
       campaign_details_compacted: value(context, :campaign) != value(fallback_context, :campaign),
+      inventory_details_omitted:
+        value(context, :inventory) != value(fallback_context, :inventory),
       continuity_memory_details_omitted:
         value(context, :continuity) != value(fallback_context, :continuity),
+      world_state_details_compacted: value(context, :world) != value(fallback_context, :world),
       place_details_compacted: value(context, :places) != value(fallback_context, :places),
       character_details_compacted:
         value(context, :characters) != value(fallback_context, :characters),
-      panel_values_compacted: value(context, :panels) != value(fallback_context, :panels),
-      context_details_compacted: generalized_compaction?
+      panel_values_compacted: value(context, :panels) != value(fallback_context, :panels)
     }
 
     new_omissions =
@@ -1250,69 +1244,30 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp omission_for_completeness(:campaign_details_compacted), do: :campaign_details
 
+  defp omission_for_completeness(:inventory_details_omitted), do: :inventory_details
+
   defp omission_for_completeness(:continuity_memory_details_omitted),
     do: :continuity_memory_details
 
+  defp omission_for_completeness(:world_state_details_compacted), do: :world_state_details
   defp omission_for_completeness(:place_details_compacted), do: :place_details
   defp omission_for_completeness(:character_details_compacted), do: :character_details
   defp omission_for_completeness(:panel_values_compacted), do: :panel_values
-  defp omission_for_completeness(:context_details_compacted), do: :context_details
-
-  @identity_context_fields ~w(
-    id key name display_name title status type visibility role speaker_id character_id place_id
-    current_place_id campaign_id owner_id holder_id location_id date current_date time current_time
-    player_action player_input interaction_mode quantity amount count unit
-  )
-
-  defp compact_context_text(value, max_chars) when is_map(value) do
-    Map.new(value, fn {key, nested} -> {key, compact_context_text(nested, max_chars, key)} end)
-  end
-
-  defp compact_context_text(value, max_chars) when is_list(value),
-    do: Enum.map(value, &compact_context_text(&1, max_chars, nil))
-
-  defp compact_context_text(value, _max_chars), do: value
-
-  defp compact_context_text(value, max_chars, _key) when is_map(value) do
-    Map.new(value, fn {nested_key, nested} ->
-      {nested_key, compact_context_text(nested, max_chars, nested_key)}
-    end)
-  end
-
-  defp compact_context_text(value, max_chars, key) when is_list(value),
-    do: Enum.map(value, &compact_context_text(&1, max_chars, key))
-
-  defp compact_context_text(value, max_chars, key) when is_binary(value) do
-    normalized_key = if is_atom(key), do: Atom.to_string(key), else: to_string(key || "")
-
-    cond do
-      normalized_key in ["player_action", "player_input"] ->
-        value
-
-      normalized_key in ["id", "key"] or String.ends_with?(normalized_key, "_id") ->
-        compact_text(value, min(max_chars, 120))
-
-      normalized_key in @identity_context_fields ->
-        compact_text(value, min(max_chars, 160))
-
-      String.length(value) <= max_chars ->
-        value
-
-      true ->
-        compact_text(value, max_chars)
-    end
-  end
-
-  defp compact_context_text(value, _max_chars, _key), do: value
 
   defp compact_campaign_details_for_budget(context) do
     campaign = value(context, :campaign)
 
     if is_map(campaign) do
       projected =
-        Enum.reduce([:premise, :setting, :tone], campaign, fn key, acc ->
+        Enum.reduce([:title, :premise, :setting, :tone], campaign, fn key, acc ->
           field = value(acc, key)
-          max_chars = if key == :premise, do: 2_400, else: 280
+
+          max_chars =
+            case key do
+              :title -> 160
+              :premise -> 2_400
+              _ -> 280
+            end
 
           if is_binary(field) and String.length(field) > max_chars do
             put_context_value(acc, Atom.to_string(key), compact_text(field, max_chars))
@@ -1327,7 +1282,54 @@ defmodule Storyteller.GM.ContextBudget do
     end
   end
 
-  defp compact_continuity_details_for_budget(context) do
+  defp compact_world_details_for_budget(context, terms) do
+    world = value(context, :world)
+
+    if is_map(world) do
+      compacted =
+        Map.new(world, fn {visibility, scope} ->
+          {visibility, compact_world_scope_for_budget(scope, terms)}
+        end)
+
+      put_context_value(context, "world", compacted)
+    else
+      context
+    end
+  end
+
+  defp compact_world_scope_for_budget(scope, terms) when is_map(scope) do
+    Map.new(scope, fn {key, field} ->
+      key_name = to_string(key)
+      canonical_anchor? = key_name in ~w(date current_date time current_time weather location)
+      field_relevant? = relevance_score(safe_json(%{key => field}), terms) > 0
+
+      compacted =
+        if canonical_anchor? or field_relevant? do
+          field
+        else
+          compact_world_field(field, terms)
+        end
+
+      {key, compacted}
+    end)
+  end
+
+  defp compact_world_scope_for_budget(scope, _terms), do: scope
+
+  defp compact_world_field(field, _terms) when is_binary(field) do
+    if String.length(field) > @max_world_value_bytes,
+      do: compact_text(field, @max_world_value_bytes),
+      else: field
+  end
+
+  defp compact_world_field(field, terms) when is_map(field) or is_list(field) do
+    {compacted, _changed?} = compact_json_value(field, terms, @max_world_value_bytes)
+    compacted
+  end
+
+  defp compact_world_field(field, _terms), do: field
+
+  defp compact_continuity_details_for_budget(context, terms) do
     continuity = value(context, :continuity)
 
     if is_map(continuity) do
@@ -1335,7 +1337,7 @@ defmodule Storyteller.GM.ContextBudget do
         Map.new(continuity, fn {visibility, entries} ->
           {visibility,
            if(is_list(entries),
-             do: Enum.map(entries, &compact_continuity_entry_for_budget/1),
+             do: Enum.map(entries, &compact_continuity_entry_for_budget(&1, terms)),
              else: entries
            )}
         end)
@@ -1346,26 +1348,44 @@ defmodule Storyteller.GM.ContextBudget do
     end
   end
 
-  defp compact_continuity_entry_for_budget(entry) when is_map(entry) do
+  defp compact_continuity_entry_for_budget(entry, terms) when is_map(entry) do
     details = value(entry, :details)
+    relevant? = memory_relevant?(entry, terms) or relevance_score(entry_text(entry), terms) > 0
 
-    if is_binary(details) and String.length(details) > 280 do
+    if not relevant? and is_binary(details) and String.length(details) > 280 do
       put_context_value(entry, "details", compact_text(details, 280))
     else
       entry
     end
   end
 
-  defp compact_continuity_entry_for_budget(entry), do: entry
+  defp compact_continuity_entry_for_budget(entry, _terms), do: entry
 
-  defp compact_place_details_for_budget(context) do
+  defp compact_place_details_for_budget(context, _terms) do
     places = value(context, :places)
+    current_place_id = player_place_id(context)
+    adjacent_place_ids = MapSet.new(connected_place_ids(context, current_place_id))
+    action = value(context, :player_action) || ""
+    action_terms = raw_meaningful_terms(action)
 
     if is_map(places) do
       projected =
         Map.new(places, fn {visibility, rows} ->
           {visibility,
-           if(is_list(rows), do: Enum.map(rows, &compact_place_for_budget/1), else: rows)}
+           if(
+             is_list(rows),
+             do:
+               Enum.map(rows, fn place ->
+                 preserve_details? =
+                   value(place, :place_id) == current_place_id or
+                     MapSet.member?(adjacent_place_ids, value(place, :place_id)) or
+                     name_explicitly_mentioned?(value(place, :name), action) or
+                     relevance_score(safe_json(place), action_terms) >= 2
+
+                 compact_place_for_budget(place, preserve_details?)
+               end),
+             else: rows
+           )}
         end)
 
       put_context_value(context, "places", projected)
@@ -1374,33 +1394,48 @@ defmodule Storyteller.GM.ContextBudget do
     end
   end
 
-  defp compact_place_for_budget(place) when is_map(place) do
+  defp compact_place_for_budget(place, preserve_details?) when is_map(place) do
     description = value(place, :description)
     facts = value(place, :facts)
 
     place =
-      if is_binary(description) and String.length(description) > 900 do
+      if not preserve_details? and is_binary(description) and String.length(description) > 900 do
         put_context_value(place, "description", compact_text(description, 900))
       else
         place
       end
 
-    {facts, _compacted?} = compact_json_value(facts, MapSet.new(), 700)
+    {facts, _compacted?} =
+      if preserve_details?, do: {facts, false}, else: compact_json_value(facts, MapSet.new(), 700)
+
     if is_nil(facts), do: place, else: put_context_value(place, "facts", facts)
   end
 
-  defp compact_place_for_budget(place), do: place
+  defp compact_place_for_budget(place, _preserve_details?), do: place
 
-  defp compact_character_details_for_budget(context) do
+  defp compact_character_details_for_budget(context, _terms) do
     characters = value(context, :characters)
 
     if is_list(characters) do
+      current_place_id = player_place_id(context)
+      recent_speakers = recent_history_speaker_ids(value(context, :history))
+      action = value(context, :player_action) || ""
+      action_terms = raw_meaningful_terms(action)
+
       projected =
         Enum.map(characters, fn character ->
+          preserve_profile? =
+            value(character, :speaker_id) == "player" or
+              value(character, :current_place_id) == current_place_id or
+              MapSet.member?(recent_speakers, value(character, :speaker_id)) or
+              name_explicitly_mentioned?(value(character, :name), action) or
+              character_facts_relevant?(character, action_terms)
+
           character
-          |> compact_character_field_for_budget(:visible_facts, 320)
-          |> compact_character_field_for_budget(:gm_private_facts, 320)
-          |> compact_character_field_for_budget(:voice_guidance, 240)
+          |> compact_character_field_for_budget(:visible_facts, 320, action_terms)
+          |> compact_character_field_for_budget(:gm_private_facts, 320, action_terms)
+          |> maybe_compact_character_voice(preserve_profile?, action_terms)
+          |> compact_character_activity_for_budget(action_terms)
         end)
 
       put_context_value(context, "characters", projected)
@@ -1409,9 +1444,14 @@ defmodule Storyteller.GM.ContextBudget do
     end
   end
 
-  defp compact_character_field_for_budget(character, key, max_bytes) when is_map(character) do
+  defp compact_character_field_for_budget(character, key, max_bytes, terms)
+       when is_map(character) do
     details = value(character, key)
-    {details, _compacted?} = compact_json_value(details, MapSet.new(), max_bytes)
+
+    {details, _compacted?} =
+      if relevance_score(safe_json(details), terms) > 0,
+        do: {details, false},
+        else: compact_json_value(details, terms, max_bytes)
 
     if is_map(details) do
       put_context_value(character, Atom.to_string(key), details)
@@ -1420,30 +1460,52 @@ defmodule Storyteller.GM.ContextBudget do
     end
   end
 
-  defp compact_character_field_for_budget(character, _key, _max_bytes), do: character
+  defp compact_character_field_for_budget(character, _key, _max_bytes, _terms), do: character
 
-  defp compact_panel_values_for_budget(context) do
+  defp maybe_compact_character_voice(character, true, _terms), do: character
+
+  defp maybe_compact_character_voice(character, false, terms),
+    do: compact_character_field_for_budget(character, :voice_guidance, 240, terms)
+
+  defp compact_character_activity_for_budget(character, terms) do
+    activity = value(character, :visible_activity)
+
+    if is_binary(activity) and String.length(activity) > @max_character_activity_chars and
+         relevance_score(activity, terms) == 0 do
+      put_context_value(
+        character,
+        "visible_activity",
+        compact_text(activity, @max_character_activity_chars)
+      )
+    else
+      character
+    end
+  end
+
+  defp compact_panel_values_for_budget(context, terms) do
     panels = value(context, :panels)
 
     if is_list(panels) do
-      panels = Enum.map(panels, &compact_panel_for_budget/1)
+      panels = Enum.map(panels, &compact_panel_for_budget(&1, terms))
       put_context_value(context, "panels", panels)
     else
       context
     end
   end
 
-  defp compact_panel_for_budget(panel) when is_map(panel) do
+  defp compact_panel_for_budget(panel, terms) when is_map(panel) do
     panel_value = value(panel, :value)
+    panel_text = safe_json(Map.drop(panel, [:value, "value"]))
+    relevant? = relevance_score(panel_text, terms) > 0
 
-    if is_binary(panel_value) and String.length(panel_value) > 280 do
+    if not relevant? and is_binary(panel_value) and String.length(panel_value) > 280 do
       put_context_value(panel, "value", compact_text(panel_value, 280))
     else
       panel
     end
   end
 
-  defp compact_panel_for_budget(panel), do: panel
+  defp compact_panel_for_budget(panel, _terms), do: panel
 
   # Durable continuity entries remain complete in storage and on the campaign
   # board. Send detail only for a bounded, relevant set from each visibility
@@ -1462,7 +1524,6 @@ defmodule Storyteller.GM.ContextBudget do
           detailed_entry_ids =
             entries
             |> Enum.filter(&memory_relevant?(&1, terms))
-            |> Enum.take(-@max_continuity_memory_details)
             |> MapSet.new(&value(&1, :entry_id))
 
           {selected_entries, omitted_here?} =
@@ -1500,36 +1561,46 @@ defmodule Storyteller.GM.ContextBudget do
     end
   end
 
-  # Keep every item identity and quantity for small inventories. For larger
-  # ledgers, send the items that best match the current turn plus a small recent
-  # slice. Send bounded descriptions/properties only for the strongest matches.
+  # Under real size pressure, retain every inventory row and compact only
+  # verbose details unrelated to the current action. A specific item mention
+  # lets us shorten sibling notes; a broad inventory question keeps the full
+  # ledger detail even when it means sending a request above the soft target.
   # The complete inventory remains canonical in the database and is still used
   # when validating any proposed item operation.
-  defp project_relevant_inventory(context) do
+  defp compact_inventory_details_for_budget(context, terms) do
     inventory = value(context, :inventory)
 
     if is_map(inventory) do
-      terms = query_terms(context)
+      all_items = inventory |> Map.values() |> List.flatten()
+      explicitly_named_item? = Enum.any?(all_items, &inventory_item_named_in_action?(&1, terms))
+      broad_inventory_request? = not MapSet.disjoint?(MapSet.new(terms), @broad_inventory_terms)
 
-      {selected, {details_omitted?, items_omitted?}} =
-        Enum.map_reduce(inventory, {false, false}, fn {visibility, items},
-                                                      {any_details_omitted?, any_items_omitted?} ->
+      compacted =
+        Map.new(inventory, fn {visibility, items} ->
           if is_list(items) do
-            {rows, details_omitted_here?, items_omitted_here?} =
-              project_inventory_items(items, terms)
+            rows =
+              Enum.map(items, fn item ->
+                keep_detail? =
+                  (explicitly_named_item? and inventory_item_named_in_action?(item, terms)) or
+                    relevance_score(inventory_detail_text(item), terms) > 0 or
+                    (broad_inventory_request? and not explicitly_named_item?)
 
-            {{visibility, rows},
-             {any_details_omitted? or details_omitted_here?,
-              any_items_omitted? or items_omitted_here?}}
+                if keep_detail? do
+                  item
+                else
+                  compact_inventory_item(item)
+                end
+              end)
+
+            {visibility, rows}
           else
-            {{visibility, items}, {any_details_omitted?, any_items_omitted?}}
+            {visibility, items}
           end
         end)
-        |> then(fn {groups, omissions} -> {Map.new(groups), omissions} end)
 
-      {put_context_value(context, "inventory", selected), details_omitted?, items_omitted?}
+      put_context_value(context, "inventory", compacted)
     else
-      {context, false, false}
+      context
     end
   end
 
@@ -1565,7 +1636,7 @@ defmodule Storyteller.GM.ContextBudget do
   defp project_world_scope(scope, terms, visibility) when is_map(scope) do
     source_bytes = byte_size(Jason.encode!(scope))
 
-    if source_bytes <= @max_world_scope_bytes and map_size(scope) <= @max_world_context_fields do
+    if source_bytes <= @max_world_scope_bytes do
       {scope, false, false}
     else
       public_core_keys = MapSet.new(["date", "time", "weather", "location"])
@@ -1601,16 +1672,17 @@ defmodule Storyteller.GM.ContextBudget do
       candidates = core_fields ++ relevant_fields ++ fallback_fields
 
       {selected, details_compacted?} =
-        Enum.reduce(candidates, {%{}, false}, fn {{key, field_value}, _score, core?},
+        Enum.reduce(candidates, {%{}, false}, fn {{key, field_value}, score, core?},
                                                  {acc, any_compacted?} ->
           {field_value, compacted?} =
-            compact_json_value(field_value, terms, @max_world_value_bytes)
+            if core? or score > 0,
+              do: {field_value, false},
+              else: compact_json_value(field_value, terms, @max_world_value_bytes)
 
           candidate = Map.put(acc, key, field_value)
           candidate_bytes = byte_size(Jason.encode!(candidate))
-          within_count? = map_size(candidate) <= @max_world_context_fields
 
-          if candidate_bytes <= @max_world_scope_bytes and (within_count? or core?) do
+          if candidate_bytes <= @max_world_scope_bytes do
             {candidate, any_compacted? or compacted?}
           else
             {acc, any_compacted? or compacted?}
@@ -1703,9 +1775,7 @@ defmodule Storyteller.GM.ContextBudget do
   defp project_relevant_panels(context) do
     panels = value(context, :panels)
 
-    if is_list(panels) and
-         (length(panels) > @max_panel_context_fields or
-            byte_size(Jason.encode!(panels)) > @max_world_scope_bytes) do
+    if is_list(panels) and byte_size(Jason.encode!(panels)) > @max_panel_context_bytes do
       terms = query_terms(context)
 
       ranked =
@@ -1730,7 +1800,6 @@ defmodule Storyteller.GM.ContextBudget do
         ranked
         |> Enum.filter(&(elem(&1, 2) > 0))
         |> Enum.sort_by(fn {_panel, index, score} -> {-score, index} end)
-        |> Enum.take(@max_panel_context_fields - 8)
 
       baseline = Enum.take(ranked, 8)
       selected_indexes = MapSet.new(Enum.map(baseline ++ relevant, &elem(&1, 1)))
@@ -1739,16 +1808,23 @@ defmodule Storyteller.GM.ContextBudget do
         if length(panels) > @max_panel_context_fields do
           ranked
           |> Enum.filter(&MapSet.member?(selected_indexes, elem(&1, 1)))
-          |> Enum.map(&elem(&1, 0))
         else
-          Enum.map(ranked, &elem(&1, 0))
+          ranked
         end
 
       {selected, values_compacted?} =
-        Enum.map_reduce(selected, false, fn panel, any_compacted? ->
-          {value, compacted?} = compact_panel_value(panel)
-          {put_context_value(panel, "value", value), any_compacted? or compacted?}
+        Enum.map_reduce(selected, false, fn {panel, _index, score}, any_compacted? ->
+          {panel_value, compacted?} =
+            if score > 0 do
+              {value(panel, :value), false}
+            else
+              compact_panel_value(panel)
+            end
+
+          {put_context_value(panel, "value", panel_value), any_compacted? or compacted?}
         end)
+
+      selected = Enum.map(selected, &elem(&1, 0))
 
       fields_omitted? = length(selected) < length(panels)
 
@@ -1775,92 +1851,25 @@ defmodule Storyteller.GM.ContextBudget do
   defp to_string_safe(value) when is_atom(value), do: Atom.to_string(value)
   defp to_string_safe(value), do: safe_json(value)
 
-  defp project_inventory_items(items, terms) do
-    scored_items =
-      Enum.map(items, fn item ->
-        relevance_score = relevance_score(inventory_detail_text(item), terms)
-        {item, relevance_score}
-      end)
-
-    selected_indexes = selected_inventory_indexes(scored_items)
-
-    detailed_indexes =
-      if length(items) <= @max_inventory_detail_count do
-        selected_indexes
-      else
-        scored_items
-        |> Enum.with_index()
-        |> Enum.filter(fn {{_item, score}, index} ->
-          score > 0 and MapSet.member?(selected_indexes, index)
-        end)
-        |> Enum.sort_by(fn {{_item, score}, index} -> {-score, -index} end)
-        |> Enum.take(@max_inventory_detail_count)
-        |> Enum.map(&elem(&1, 1))
-        |> MapSet.new()
-      end
-
-    {rows, {details_omitted?, items_omitted?}} =
-      items
-      |> Enum.with_index()
-      |> Enum.reduce({[], false, false}, fn {item, index},
-                                            {acc, any_details_omitted?, any_items_omitted?} ->
-        cond do
-          not MapSet.member?(selected_indexes, index) ->
-            {acc, any_details_omitted?, true}
-
-          MapSet.member?(detailed_indexes, index) ->
-            {compacted_item, details_omitted_here?} = compact_selected_inventory_item(item)
-
-            {acc ++ [compacted_item], any_details_omitted? or details_omitted_here?,
-             any_items_omitted?}
-
-          true ->
-            compacted_item = compact_inventory_item(item)
-
-            {acc ++ [compacted_item], any_details_omitted? or compacted_item != item,
-             any_items_omitted?}
-        end
-      end)
-      |> then(fn {rows, details_omitted?, items_omitted?} ->
-        {rows, {details_omitted?, items_omitted?}}
-      end)
-
-    {rows, details_omitted?, items_omitted?}
-  end
-
-  defp selected_inventory_indexes([]), do: MapSet.new()
-
-  defp selected_inventory_indexes(scored_items)
-       when length(scored_items) <= @max_inventory_context_items do
-    0..(length(scored_items) - 1) |> MapSet.new()
-  end
-
-  defp selected_inventory_indexes(scored_items) do
-    relevant_indexes =
-      scored_items
-      |> Enum.with_index()
-      |> Enum.filter(fn {{_item, score}, _index} -> score > 0 end)
-      |> Enum.sort_by(fn {{_item, score}, index} -> {-score, -index} end)
-      |> Enum.take(@max_relevant_inventory_items)
-      |> Enum.map(&elem(&1, 1))
-
-    recent_start = max(length(scored_items) - @recent_inventory_context_items, 0)
-    recent_indexes = Enum.to_list(recent_start..(length(scored_items) - 1))
-
-    MapSet.new(relevant_indexes ++ recent_indexes)
-  end
-
   defp inventory_detail_text(item) when is_map(item) do
     properties = value(item, :properties)
 
     property_text =
-      if is_map(properties) or is_list(properties), do: Jason.encode!(properties), else: ""
+      case properties do
+        properties when is_map(properties) ->
+          Enum.map_join(properties, " ", fn {_key, property_value} ->
+            to_string_safe(property_value)
+          end)
+
+        properties when is_list(properties) ->
+          Enum.map_join(properties, " ", &to_string_safe/1)
+
+        _ ->
+          ""
+      end
 
     [
-      value(item, :name),
       value(item, :description),
-      value(item, :category),
-      value(item, :unit),
       property_text
     ]
     |> Enum.filter(&is_binary/1)
@@ -1869,35 +1878,24 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp inventory_detail_text(_item), do: ""
 
+  defp inventory_item_named_in_action?(item, terms) when is_map(item) do
+    name_terms =
+      case value(item, :name) do
+        name when is_binary(name) -> raw_meaningful_terms(name)
+        _ -> MapSet.new()
+      end
+
+    distinctive_name_terms = MapSet.difference(name_terms, @broad_inventory_terms)
+
+    not MapSet.disjoint?(distinctive_name_terms, MapSet.new(terms))
+  end
+
+  defp inventory_item_named_in_action?(_item, _terms), do: false
+
   defp compact_inventory_item(item) when is_map(item),
     do: Map.drop(item, [:description, "description", :properties, "properties"])
 
   defp compact_inventory_item(item), do: item
-
-  defp compact_selected_inventory_item(item) when is_map(item) do
-    description = value(item, :description)
-    properties = value(item, :properties)
-
-    compacted_description = compact_text(description, @max_inventory_description_chars)
-
-    {compacted_item, description_omitted?} =
-      if compacted_description != description do
-        {put_context_value(item, "description", compacted_description), true}
-      else
-        {item, false}
-      end
-
-    properties_json =
-      if is_map(properties) or is_list(properties), do: Jason.encode!(properties), else: ""
-
-    if byte_size(properties_json) > @max_inventory_properties_bytes do
-      {Map.drop(compacted_item, [:properties, "properties"]), true}
-    else
-      {compacted_item, description_omitted?}
-    end
-  end
-
-  defp compact_selected_inventory_item(item), do: {item, false}
 
   defp memory_relevant?(entry, query_terms) do
     note_text = entry_text(entry)
@@ -2159,20 +2157,24 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_characters(characters, terms, player_place_id, context)
        when is_list(characters) do
     recent_speakers = recent_history_speaker_ids(value(context, :history))
+    action = value(context, :player_action) || ""
+    action_terms = raw_meaningful_terms(action)
 
     ranked =
       characters
       |> Enum.with_index()
       |> Enum.map(fn {character, index} ->
         {character, index,
-         character_relevance_score(character, terms, player_place_id, recent_speakers)}
+         character_relevance_score(
+           character,
+           action,
+           action_terms,
+           player_place_id,
+           recent_speakers
+         )}
       end)
 
-    retained_indexes =
-      ranked
-      |> Enum.sort_by(fn {_character, index, score} -> {-score, index} end)
-      |> Enum.take(@max_context_character_rows)
-      |> MapSet.new(fn {_character, index, _score} -> index end)
+    retained_indexes = MapSet.new(ranked, fn {_character, index, _score} -> index end)
 
     detailed_indexes =
       ranked
@@ -2180,7 +2182,6 @@ defmodule Storyteller.GM.ContextBudget do
         score > 0 or value(character, :speaker_id) == "player"
       end)
       |> Enum.sort_by(fn {_character, index, score} -> {-score, index} end)
-      |> Enum.take(@max_detailed_character_profiles)
       |> MapSet.new(fn {_character, index, _score} -> index end)
 
     {compacted, {remote_profiles_omitted?, details_compacted?, rows_omitted?}} =
@@ -2192,8 +2193,7 @@ defmodule Storyteller.GM.ContextBudget do
                 (is_binary(player_place_id) and
                    value(character, :current_place_id) == player_place_id)
 
-            if MapSet.member?(detailed_indexes, index) and
-                 byte_size(Jason.encode!(character)) <= @max_character_row_bytes do
+            if MapSet.member?(detailed_indexes, index) do
               {rows ++ [character], {remote_omitted?, details_omitted?, rows_omitted?}}
             else
               {compact, compacted?} =
@@ -2219,17 +2219,23 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_characters(characters, _terms, _player_place_id, _context),
     do: {characters, false, false, false}
 
-  defp character_relevance_score(character, terms, player_place_id, recent_speakers) do
+  defp character_relevance_score(
+         character,
+         action,
+         action_terms,
+         player_place_id,
+         recent_speakers
+       ) do
     speaker_id = value(character, :speaker_id)
     place_id = value(character, :current_place_id)
-    mentioned? = name_mentioned?(value(character, :name), terms)
+    mentioned? = name_explicitly_mentioned?(value(character, :name), action)
     scene_character? = is_binary(player_place_id) and place_id == player_place_id
     recent_speaker? = is_binary(speaker_id) and MapSet.member?(recent_speakers, speaker_id)
 
     facts_score =
       [value(character, :visible_facts), value(character, :gm_private_facts)]
       |> Enum.filter(&is_map/1)
-      |> Enum.map(&relevance_score(safe_json(&1), terms))
+      |> Enum.map(&relevance_score(safe_json(&1), action_terms))
       |> Enum.max(fn -> 0 end)
 
     cond do
@@ -2354,8 +2360,19 @@ defmodule Storyteller.GM.ContextBudget do
     |> Enum.any?(fn facts -> relevance_score(Jason.encode!(facts), terms) > 0 end)
   end
 
-  defp compact_places(places, terms, player_place_id, context) when is_map(places) do
+  defp name_explicitly_mentioned?(name, action) when is_binary(name) and is_binary(action) do
+    name = name |> String.normalize(:nfc) |> String.downcase() |> String.trim()
+    action = action |> String.normalize(:nfc) |> String.downcase()
+
+    name != "" and String.contains?(action, name)
+  end
+
+  defp name_explicitly_mentioned?(_name, _action), do: false
+
+  defp compact_places(places, _terms, player_place_id, context) when is_map(places) do
     edges = Map.get(context, "travel_connections", context[:travel_connections]) || %{}
+    action = value(context, :player_action) || ""
+    action_terms = raw_meaningful_terms(action)
 
     adjacent_ids =
       edges
@@ -2381,8 +2398,8 @@ defmodule Storyteller.GM.ContextBudget do
         speaker_id = value(character, :speaker_id)
 
         speaker_id == "player" or value(character, :current_place_id) == player_place_id or
-          name_mentioned?(value(character, :name), terms) or
-          character_facts_relevant?(character, terms)
+          name_explicitly_mentioned?(value(character, :name), action) or
+          character_facts_relevant?(character, action_terms)
       end)
       |> Enum.map(&value(&1, :current_place_id))
       |> Enum.filter(&is_binary/1)
@@ -2395,7 +2412,8 @@ defmodule Storyteller.GM.ContextBudget do
             {visibility, place,
              place_relevance_score(
                place,
-               terms,
+               action,
+               action_terms,
                player_place_id,
                adjacent_ids,
                relevant_character_place_ids
@@ -2407,12 +2425,9 @@ defmodule Storyteller.GM.ContextBudget do
       end)
 
     retained_place_ids =
-      ranked_places
-      |> Enum.sort_by(fn {_visibility, place, score} ->
-        {-score, value(place, :place_id) || value(place, :name) || ""}
+      MapSet.new(ranked_places, fn {_visibility, place, _score} ->
+        value(place, :place_id)
       end)
-      |> Enum.take(@max_context_place_rows)
-      |> MapSet.new(fn {_visibility, place, _score} -> value(place, :place_id) end)
 
     detailed_place_ids =
       ranked_places
@@ -2420,7 +2435,6 @@ defmodule Storyteller.GM.ContextBudget do
       |> Enum.sort_by(fn {_visibility, place, score} ->
         {-score, value(place, :place_id) || value(place, :name) || ""}
       end)
-      |> Enum.take(@max_detailed_place_rows)
       |> MapSet.new(fn {_visibility, place, _score} -> value(place, :place_id) end)
 
     {result, {details_omitted?, details_compacted?, rows_omitted?}} =
@@ -2441,11 +2455,7 @@ defmodule Storyteller.GM.ContextBudget do
                   {rows, {true, details_compacted?, true}}
 
                 MapSet.member?(detailed_place_ids, place_id) ->
-                  {place, compacted?} = compact_place_details(place, terms)
-
-                  {rows ++ [place],
-                   {details_omitted? or compacted?, details_compacted? or compacted?,
-                    rows_omitted?}}
+                  {rows ++ [place], {details_omitted?, details_compacted?, rows_omitted?}}
 
                 true ->
                   {rows ++ [compact_place_identity(place)],
@@ -2468,47 +2478,30 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_places(places, _terms, _player_place_id, _context),
     do: {places, false, false, false}
 
-  defp place_relevance_score(place, terms, player_place_id, adjacent_ids, character_place_ids) do
+  defp place_relevance_score(
+         place,
+         action,
+         action_terms,
+         player_place_id,
+         adjacent_ids,
+         character_place_ids
+       ) do
     place_id = value(place, :place_id)
-    fact_score = relevance_score(safe_json(place), terms)
+    action_fact_terms = MapSet.intersection(meaningful_terms(safe_json(place)), action_terms)
+    fact_score = MapSet.size(action_fact_terms)
+    place_name = value(place, :name)
+
+    explicitly_named? =
+      is_binary(place_name) and is_binary(action) and
+        String.contains?(String.downcase(action), String.downcase(place_name))
 
     cond do
       place_id == player_place_id -> 10_000
-      name_mentioned?(value(place, :name), terms) -> 9_000
+      explicitly_named? -> 9_000
       MapSet.member?(character_place_ids, place_id) -> 8_000
       MapSet.member?(adjacent_ids, place_id) -> 7_000
-      fact_score > 0 -> 3_000 + fact_score
+      fact_score >= 2 -> 3_000 + fact_score
       true -> 0
-    end
-  end
-
-  defp compact_place_details(place, terms) do
-    if byte_size(Jason.encode!(place)) <= @max_place_row_bytes do
-      {place, false}
-    else
-      description = value(place, :description)
-
-      {description, description_compacted?} =
-        if is_binary(description) and String.length(description) > @max_place_description_chars do
-          {compact_text(description, @max_place_description_chars), true}
-        else
-          {description, false}
-        end
-
-      facts = value(place, :facts)
-      {facts, facts_compacted?} = compact_json_value(facts, terms, @max_place_facts_bytes)
-
-      compact =
-        if is_binary(description),
-          do: put_context_value(place, "description", description),
-          else: place
-
-      compact =
-        if is_map(facts),
-          do: put_context_value(compact, "facts", facts),
-          else: compact
-
-      {compact, description_compacted? or facts_compacted? or compact != place}
     end
   end
 
@@ -2524,23 +2517,30 @@ defmodule Storyteller.GM.ContextBudget do
                                                      {any_details_omitted?, any_rows_omitted?} ->
         entries = if is_list(entries), do: entries, else: []
 
-        retained_indexes =
+        recent_start = max(length(entries) - @max_continuity_context_rows, 0)
+
+        recent_indexes =
+          if entries == [], do: [], else: Enum.to_list(recent_start..(length(entries) - 1))
+
+        relevant_or_active_indexes =
           entries
           |> Enum.with_index()
-          |> Enum.sort_by(fn {entry, index} ->
-            {if(memory_relevant?(entry, terms), do: 0, else: 1),
-             if(value(entry, :status) in ["active", :active], do: 0, else: 1), -index}
+          |> Enum.filter(fn {entry, _index} ->
+            memory_relevant?(entry, terms) or
+              relevance_score(entry_text(entry), terms) > 0
           end)
-          |> Enum.take(@max_continuity_context_rows)
-          |> MapSet.new(&elem(&1, 1))
+          |> Enum.map(&elem(&1, 1))
+
+        retained_indexes = MapSet.new(relevant_or_active_indexes ++ recent_indexes)
 
         detailed_ids =
           entries
           |> Enum.with_index()
-          |> Enum.filter(fn {_entry, index} -> MapSet.member?(retained_indexes, index) end)
-          |> Enum.map(&elem(&1, 0))
-          |> Enum.take(-@detailed_continuity_count)
-          |> MapSet.new(&value(&1, :entry_id))
+          |> Enum.filter(fn {entry, index} ->
+            MapSet.member?(retained_indexes, index) and
+              (memory_relevant?(entry, terms) or relevance_score(entry_text(entry), terms) > 0)
+          end)
+          |> MapSet.new(fn {entry, _index} -> value(entry, :entry_id) end)
 
         {rows, {details_omitted_here?, rows_omitted_here?}} =
           entries
@@ -2554,10 +2554,13 @@ defmodule Storyteller.GM.ContextBudget do
               active? = value(entry, :status) in ["active", :active]
               mentioned? = relevance_score(entry_text(entry), terms) > 0
 
-              # The complete ledger remains canonical. Preserve relevant and
-              # recent active entries; send only bounded identities for older,
-              # closed facts because the local lookup can retrieve them later.
-              if active? or MapSet.member?(detailed_ids, value(entry, :entry_id)) or mentioned? do
+              recent? = MapSet.member?(retained_indexes, index) and index >= recent_start
+
+              # Active records stay queryable locally. In the prompt, preserve
+              # all matched memories and recent active commitments; do not let
+              # an unrelated active ledger grow without bound.
+              if MapSet.member?(detailed_ids, value(entry, :entry_id)) or mentioned? or
+                   (active? and recent?) do
                 {rows ++ [entry], {any_details_omitted?, any_rows_omitted?}}
               else
                 compact = Map.drop(entry, [:details, "details", :title, "title"])
@@ -2596,7 +2599,6 @@ defmodule Storyteller.GM.ContextBudget do
           ranked
           |> Enum.filter(&(elem(&1, 2) > 0))
           |> Enum.sort_by(fn {_objective, index, score} -> {-score, -index} end)
-          |> Enum.take(16)
 
         recent_open =
           ranked
@@ -2613,10 +2615,9 @@ defmodule Storyteller.GM.ContextBudget do
           |> Enum.take(8)
 
         retained_indexes =
-          (relevant ++ recent_open ++ recent_closed ++ Enum.reverse(ranked))
-          |> Enum.uniq_by(fn {_objective, index, _score} -> index end)
-          |> Enum.take(@max_context_objective_rows)
-          |> MapSet.new(fn {_objective, index, _score} -> index end)
+          MapSet.new(relevant ++ recent_open ++ recent_closed, fn {_objective, index, _score} ->
+            index
+          end)
 
         detailed_indexes =
           ranked
@@ -2626,11 +2627,6 @@ defmodule Storyteller.GM.ContextBudget do
           |> Enum.reject(fn {objective, _index, score} ->
             objective_closed?(objective) and score == 0
           end)
-          |> Enum.sort_by(fn {objective, index, score} ->
-            {if(score > 0, do: 0, else: 1), if(objective_closed?(objective), do: 1, else: 0),
-             -score, -index}
-          end)
-          |> Enum.take(@max_objective_detail_count)
           |> MapSet.new(fn {_objective, index, _score} -> index end)
 
         {selected, {rows_omitted_here?, details_omitted_here?, closed_details_omitted_here?}} =
@@ -2645,16 +2641,8 @@ defmodule Storyteller.GM.ContextBudget do
             details = value(objective, :details)
 
             if MapSet.member?(detailed_indexes, index) and is_binary(details) do
-              {details, compacted?} =
-                if String.length(details) > @max_objective_detail_chars do
-                  {compact_text(details, @max_objective_detail_chars), true}
-                else
-                  {details, false}
-                end
-
               {put_context_value(objective, "details", details),
-               {row_omitted?, detail_omitted? or compacted?,
-                closed_detail_omitted? or (closed? and compacted?)}}
+               {row_omitted?, detail_omitted?, closed_detail_omitted?}}
             else
               if is_binary(details) do
                 {Map.drop(objective, [:details, "details"]),
@@ -2956,8 +2944,8 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp relevance_score(text, terms) when is_binary(text) do
-    text = text |> String.normalize(:nfc) |> String.downcase()
-    Enum.count(terms, &String.contains?(text, &1))
+    text_terms = raw_meaningful_terms(text)
+    Enum.count(terms, &MapSet.member?(text_terms, &1))
   end
 
   defp relevance_score(_text, _terms), do: 0

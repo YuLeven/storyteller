@@ -34,7 +34,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     context = Map.put(context, :history, history)
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna",
                context_input_byte_budget: 20_000
              )
 
@@ -73,22 +73,21 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert compiled.player_action == context.player_action
   end
 
-  test "falls back to compacting long reference prose before rejecting a playable turn" do
+  test "compacts irrelevant reference prose while preserving explicitly named places" do
     premise = String.duplicate("A vineyard mystery with careful seasonal rituals. ", 200)
 
     places =
       Enum.map(1..7, fn index ->
         %{
           place_id: "estate-#{index}",
-          name: "Estate #{index}",
+          name: if(index == 1, do: "Estate 1", else: "House #{index}"),
           visibility: :public,
           description:
             String.duplicate("A detailed but nonessential architectural description. ", 180)
         }
       end)
 
-    action =
-      "Visit " <> Enum.map_join(1..7, ", ", &"Estate #{&1}") <> " and compare their old notes."
+    action = "Visit Estate 1 and compare its old notes."
 
     context =
       base_context()
@@ -109,25 +108,23 @@ defmodule Storyteller.GM.ContextBudgetTest do
     budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
     assert metrics.estimated_request_bytes <= budget
     assert metrics.compacted?
     assert :campaign_details in metrics.omissions
-    assert :place_details in metrics.omissions
-    assert :context_details in metrics.omissions
+    assert :remote_place_details in metrics.omissions
+    refute :context_details in metrics.omissions
     assert compacted.context_completeness.campaign_details_compacted
-    assert compacted.context_completeness.place_details_compacted
-    assert compacted.context_completeness.context_details_compacted
     assert compacted.player_action == action
     assert compacted.world.public.date == "1567-04-12"
     assert String.length(compacted.campaign.title) <= 160
     assert compacted.places.public |> Enum.map(& &1.place_id) == Enum.map(places, & &1.place_id)
 
-    assert Enum.all?(compacted.places.public, fn place ->
-             not is_binary(Map.get(place, :description)) or
-               String.length(place.description) <= 900
-           end)
+    assert Enum.find(compacted.places.public, &(&1.place_id == "estate-1")).description ==
+             hd(places).description
+
+    assert Enum.all?(Enum.drop(compacted.places.public, 1), &(not Map.has_key?(&1, :description)))
 
     assert context.campaign.premise == premise
     assert String.length(context.campaign.title) > 100_000
@@ -396,7 +393,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
         |> Map.put(:continuity, %{public: [%{memory | details: details}], gm_private: []})
 
       assert {:ok, %{context: compiled}} =
-               ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+               ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
       assert Enum.find(compiled.continuity.public, &(&1.entry_id == "map-room-tasting")).details ==
                details
@@ -432,7 +429,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
-  test "keeps a bounded recent slice of a long continuity ledger" do
+  test "keeps the complete continuity ledger when the full request is below target" do
     entries =
       Enum.map(1..140, fn index ->
         %{
@@ -447,20 +444,112 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     context =
       base_context()
-      |> Map.put(:player_action, "Let time pass in the observatory.")
+      |> Map.put(:player_action, "Let time pass.")
       |> put_in([:continuity, :public], entries)
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
     assert length(compacted.continuity.public) <= 64
     assert Enum.any?(compacted.continuity.public, &(&1.entry_id == "observatory-note-140"))
     assert compacted.context_completeness.continuity_details_omitted
     assert :continuity_details in metrics.omissions
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
     assert length(context.continuity.public) == 140
   end
 
-  test "fits the maximum inventory by prioritizing item context without changing the source ledger" do
+  test "keeps every action-relevant item, present character, place, and memory despite old count caps" do
+    player_action =
+      "Tell me about the keeper lens oil promises and all supplies at the connected workrooms."
+
+    inventory =
+      Enum.map(1..24, fn index ->
+        %{
+          id: "lens-oil-#{index}",
+          name: "Lens oil supply #{index}",
+          quantity: index,
+          description: "Lens oil reserved by keeper #{index} for the observatory workroom.",
+          properties: %{source: "Keeper #{index}"}
+        }
+      end)
+
+    characters =
+      [hd(base_context().characters)] ++
+        Enum.map(1..18, fn index ->
+          %{
+            speaker_id: "keeper-#{index}",
+            name: "Keeper #{index}",
+            role: :gm,
+            current_place_id: "finca",
+            visible_facts: %{voice: "Keeper #{index} speaks in a measured, low register."},
+            gm_private_facts: %{},
+            voice_guidance: %{cadence: "Keeper #{index} pauses before the important word."}
+          }
+        end)
+
+    new_places =
+      Enum.map(1..7, fn index ->
+        %{
+          place_id: "workroom-#{index}",
+          name: "Lens workroom #{index}",
+          visibility: :public,
+          description: "The lens oil cabinet for keeper #{index} is in this workroom."
+        }
+      end)
+
+    connections =
+      Enum.map(new_places, fn place ->
+        %{place_a_id: "finca", place_b_id: place.place_id, travel_minutes: 5}
+      end)
+
+    memories =
+      Enum.map(1..12, fn index ->
+        %{
+          entry_id: "keeper-lens-promise-#{index}",
+          kind: "commitment",
+          title: "Keeper #{index} lens oil promise",
+          details: "Keeper #{index} promised to reserve lens oil for the observatory workroom.",
+          status: "active",
+          visibility: "public"
+        }
+      end)
+
+    context =
+      base_context()
+      |> Map.put(:player_action, player_action)
+      |> Map.put(:inventory, %{player_visible: inventory, gm_private: []})
+      |> Map.put(:characters, characters)
+      |> put_in([:places, :public], base_context().places.public ++ new_places)
+      |> put_in(
+        [:travel_connections, :public],
+        base_context().travel_connections.public ++ connections
+      )
+      |> put_in([:continuity, :public], memories)
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
+
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert length(compiled.inventory.player_visible) == length(inventory)
+    assert compiled.inventory.player_visible == inventory
+
+    detailed_keepers =
+      compiled.characters
+      |> Enum.filter(&String.starts_with?(&1.speaker_id, "keeper-"))
+      |> Map.new(&{&1.speaker_id, &1})
+
+    assert map_size(detailed_keepers) == 18
+    assert detailed_keepers["keeper-18"].voice_guidance.cadence =~ "important word"
+
+    detailed_places = Map.new(compiled.places.public, &{&1.place_id, &1})
+    assert Enum.all?(new_places, &(detailed_places[&1.place_id].description == &1.description))
+
+    assert compiled.continuity.public == memories
+    refute get_in(compiled, [:context_completeness, :inventory_details_omitted])
+    refute get_in(compiled, [:context_completeness, :continuity_memory_details_omitted])
+  end
+
+  test "keeps the full inventory ledger while shaping unrelated item detail" do
     bulk_inventory =
       Enum.map(1..198, fn sequence ->
         %{
@@ -508,33 +597,51 @@ defmodule Storyteller.GM.ContextBudgetTest do
       |> put_in([:inventory, :gm_private], [private_item])
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, production_gm_policy(), "gpt-6-astra",
+             ContextBudget.compile(context, production_gm_policy(), "gpt-6-luna",
                context_input_byte_budget: 24_000
              )
 
     assert metrics.compacted?
-    assert metrics.estimated_request_bytes <= 24_000
+    assert metrics.estimated_request_bytes > 24_000
     assert :inventory_details in metrics.omissions
-    assert compiled.context_completeness.inventory_details_omitted
-    assert compiled.context_completeness.inventory_items_omitted
+    refute :inventory_items in metrics.omissions
+
+    assert Map.get(
+             Map.get(compiled, :context_completeness, %{}),
+             :inventory_details_omitted,
+             false
+           )
+
+    refute Map.get(compiled.context_completeness, :inventory_items_omitted, false)
 
     public_items = compiled.inventory.player_visible
-    assert length(public_items) <= 16
+    assert length(public_items) == 199
     assert length(context.inventory.player_visible) == 199
     assert Enum.any?(public_items, &(&1["id"] == "la-bella-2028"))
     assert Enum.all?(public_items, &Map.has_key?(&1, "quantity"))
-    refute Enum.any?(public_items, &(&1["id"] == "reserve-30"))
+    assert Enum.any?(public_items, &(&1["id"] == "reserve-30"))
+    assert Enum.count(public_items, &Map.has_key?(&1, "description")) <= 7
 
     preserved_named_item = Enum.find(public_items, &(&1["id"] == "la-bella-2028"))
     assert preserved_named_item["description"] == named_item["description"]
     assert preserved_named_item["properties"] == named_item["properties"]
-    assert Enum.count(public_items, &Map.has_key?(&1, "description")) <= 1
 
     assert [compacted_private_item] = compiled.inventory.gm_private
     assert compacted_private_item["visibility"] == "gm_private"
     assert compacted_private_item["name"] == "Cellar key"
-    assert compacted_private_item["description"] == private_item["description"]
-    assert compacted_private_item["properties"] == private_item["properties"]
+    refute Map.has_key?(compacted_private_item, "description")
+    refute Map.has_key?(compacted_private_item, "properties")
+
+    broad_context = %{context | player_action: "List every wine bottle and what remains."}
+
+    assert {:ok, %{context: broad_compiled, metrics: broad_metrics}} =
+             ContextBudget.compile(broad_context, production_gm_policy(), "gpt-6-luna",
+               context_input_byte_budget: 24_000
+             )
+
+    assert broad_metrics.estimated_request_bytes > broad_metrics.budget_bytes
+    assert broad_compiled.inventory.player_visible == bulk_inventory ++ [named_item]
+    refute Map.get(broad_compiled.context_completeness, :inventory_details_omitted, false)
   end
 
   test "projects oversized world maps while keeping canonical anchors and an action-matched fact" do
@@ -571,28 +678,33 @@ defmodule Storyteller.GM.ContextBudgetTest do
       |> put_in([:world, :gm_private], private_world)
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
     assert request_bytes(context, "Short GM policy") > metrics.budget_bytes
     assert metrics.estimated_request_bytes <= metrics.budget_bytes
     assert metrics.compacted?
     assert :world_state_fields in metrics.omissions
-    assert :world_state_details in metrics.omissions
+    refute :world_state_details in metrics.omissions
     assert compiled.world.public["date"] == "1567-04-12"
     assert compiled.world.public["time"] == "before dawn"
     assert compiled.world.public["weather"] == "Cool mist over the river"
     assert compiled.world.public["location"] == "Bodega"
     assert compiled.world.public["reserved_wine_notes"] =~ "autumn tasting"
 
-    assert String.length(compiled.world.public["reserved_wine_notes"]) <
-             String.length(relevant_world_fact)
+    assert compiled.world.public["reserved_wine_notes"] == relevant_world_fact
 
     assert map_size(compiled.world.public) <= 32
     assert map_size(compiled.world.gm_private) <= 32
     assert byte_size(Jason.encode!(compiled.world.public)) <= 8_000
-    assert byte_size(Jason.encode!(compiled.world.gm_private)) <= 8_000
+    assert compiled.world.gm_private == private_world
     assert compiled.context_completeness.world_state_fields_omitted
-    assert compiled.context_completeness.world_state_details_compacted
+
+    refute Map.get(
+             Map.get(compiled, :context_completeness, %{}),
+             :world_state_details_compacted,
+             false
+           )
+
     assert context.world.public == public_world
     assert context.world.gm_private == private_world
   end
@@ -627,25 +739,23 @@ defmodule Storyteller.GM.ContextBudgetTest do
       |> Map.put(:panels, List.replace_at(panels, 70, relevant_panel))
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
     assert metrics.estimated_request_bytes <= metrics.budget_bytes
-    assert :panel_fields in metrics.omissions
-    assert :panel_values in metrics.omissions
-    assert length(compiled.panels) <= 32
-    assert byte_size(Jason.encode!(compiled.panels)) <= 8_000
+    refute :panel_fields in metrics.omissions
+    refute :panel_values in metrics.omissions
+    assert length(compiled.panels) == 100
     assert Enum.any?(compiled.panels, &(&1.key == "resource_1"))
     assert [selected] = Enum.filter(compiled.panels, &(&1.key == "reserve_wine"))
     assert selected.value =~ "autumn tasting"
-    assert String.length(selected.value) <= 800
-    assert compiled.context_completeness.panel_fields_omitted
-    assert compiled.context_completeness.panel_values_compacted
+    assert selected.value == relevant_panel.value
+    refute get_in(compiled, [:context_completeness, :panel_fields_omitted])
+    refute get_in(compiled, [:context_completeness, :panel_values_compacted])
     assert length(context.panels) == 100
     assert hd(context.panels).value == 1
-    assert String.length(relevant_panel.value) > String.length(selected.value)
   end
 
-  test "bounds growing character, location, and objective canon without losing named scene facts" do
+  test "preserves relevant character, location, and objective canon above the soft target" do
     action =
       "I ask Mira Copper at the Copper Archive about the ledger and whether the Finca staff stayed put."
 
@@ -775,23 +885,26 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert request_bytes(context, "Short GM policy") > 128_000
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
-    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert metrics.estimated_request_bytes > metrics.budget_bytes
     assert metrics.compacted?
     assert compiled.context_completeness.character_details_compacted
-    assert compiled.context_completeness.characters_omitted
-    assert compiled.context_completeness.places_omitted
+    refute Map.get(compiled.context_completeness, :characters_omitted, false)
+    refute Map.get(compiled.context_completeness, :places_omitted, false)
     assert compiled.context_completeness.remote_place_details_omitted
-    assert compiled.context_completeness.place_details_compacted
+    refute Map.get(compiled.context_completeness, :place_details_compacted, false)
     assert compiled.context_completeness.objectives_omitted
-    assert compiled.context_completeness.objective_details_omitted
+    refute compiled.context_completeness.objective_details_omitted
 
-    assert length(compiled.characters) <= 48
+    assert length(compiled.characters) == length(context.characters)
     mira = Enum.find(compiled.characters, &(&1.speaker_id == "mira_copper"))
     assert mira.current_place_id == "archive"
     assert mira.voice_guidance.accent == "French"
     assert mira.gm_private_facts["ledger_promise"] =~ "original harvest ledger"
+
+    remote_witness = Enum.find(compiled.characters, &(&1.speaker_id == "remote_1"))
+    refute Map.has_key?(remote_witness, :voice_guidance)
 
     archive_context = Enum.find(compiled.places.public, &(&1.place_id == "archive"))
     assert archive_context.description =~ "harvest ledger"
@@ -802,7 +915,9 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
     gorge_context = Enum.find(compiled.places.public, &(&1.place_id == "gorge"))
     assert is_nil(gorge_context) or not Map.has_key?(gorge_context, :description)
-    assert length(compiled.places.public) <= 64
+    remote_place = Enum.find(compiled.places.public, &(&1.place_id == "remote_place_1"))
+    refute Map.has_key?(remote_place, :description)
+    assert length(compiled.places.public) == length(context.places.public)
 
     assert Enum.any?(compiled.objectives.public, &(&1.objective_id == "archive-ledger"))
 
@@ -819,7 +934,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert hd(context.objectives.public) == relevant_objective
   end
 
-  test "fits accepted maximum canon counts with near-cap descriptions and preserves current scene anchors" do
+  test "keeps action-relevant canon when the prompt remains above its soft byte target" do
     action =
       "At the Copper Archive, I ask Mira Copper about the original harvest ledger and her promise."
 
@@ -876,8 +991,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
           place_id: "remote_#{index}",
           name: "Remote Place #{index}",
           visibility: :public,
-          description: near_cap_prose,
-          facts: %{"regional_history" => "An unrelated district archive."}
+          description: "A distant district beyond the northern ridge.",
+          facts: %{"regional_history" => "A quiet, unrelated stretch of countryside."}
         }
       end)
 
@@ -1011,18 +1126,20 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert request_bytes(context, policy) > 128_000
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, policy, "gpt-6-astra")
+             ContextBudget.compile(context, policy, "gpt-6-luna",
+               context_input_byte_budget: 20_000
+             )
 
-    assert metrics.budget_bytes == 128_000
-    assert metrics.estimated_request_bytes <= 128_000
+    assert metrics.budget_bytes == 20_000
+    assert metrics.estimated_request_bytes > metrics.budget_bytes
     assert metrics.compacted?
     refute :place_details in metrics.omissions
     assert :character_details in metrics.omissions
     assert compiled.context_completeness.character_details_compacted
     assert length(compiled.characters) == 48
     assert length(compiled.places.public) == 64
-    assert length(compiled.objectives.public) == 48
-    assert length(compiled.objectives.gm_private) == 48
+    assert length(compiled.objectives.public) == 25
+    assert length(compiled.objectives.gm_private) == 25
 
     compiled_mira = Enum.find(compiled.characters, &(&1.speaker_id == "mira_copper"))
     assert Map.get(compiled_mira, :current_place_id) == "archive"
@@ -1039,12 +1156,14 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert visible_facts["ledger"]["finding"] =~
              "Mira's ledger is blue-threaded"
 
-    assert String.ends_with?(visible_facts["ledger"]["finding"], "…")
+    assert visible_facts["ledger"]["finding"] == mira.visible_facts["ledger"]["finding"]
 
     assert private_facts["ledger_promise"]["commitment"] =~
              "Mira promised the original ledger"
 
-    assert String.ends_with?(private_facts["ledger_promise"]["commitment"], "…")
+    assert private_facts["ledger_promise"]["commitment"] ==
+             mira.gm_private_facts["ledger_promise"]["commitment"]
+
     assert Map.get(voice_guidance, :accent) == "French"
 
     compiled_archive = Enum.find(compiled.places.public, &(&1.place_id == "archive"))
@@ -1052,6 +1171,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert compiled_archive.description == archive.description
     assert String.length(compiled_archive.description) > 10_000
     assert compiled_archive.facts["ledger"] =~ "locked case"
+    assert compiled_archive.facts["ledger"] == archive.facts["ledger"]
 
     assert Enum.find(compiled.places.public, &(&1.place_id == "finca")).description =~
              "forty minutes"
@@ -1122,7 +1242,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
         |> Map.put(:history, history)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+               ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
       assert metrics.compacted?
       assert metrics.estimated_request_bytes <= 128_000
@@ -1133,7 +1253,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
-  test "keeps a long campaign request near the short-campaign baseline" do
+  test "keeps long-history recall and current canon when the story grows" do
     instructions = production_gm_policy()
     budget = Application.fetch_env!(:storyteller, :gm_context_byte_budgets)["default"]
 
@@ -1162,7 +1282,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert short_context.player_action == long_context.player_action
 
     assert {:ok, %{context: short_compiled, metrics: short_metrics}} =
-             ContextBudget.compile(short_context, instructions, "gpt-6-astra",
+             ContextBudget.compile(short_context, instructions, "gpt-6-luna",
                context_input_byte_budget: budget
              )
 
@@ -1171,14 +1291,18 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert short_metrics.estimated_request_bytes <= budget
     assert short_compiled.world == short_context.world
     assert short_compiled.player_action == short_context.player_action
+    refute short_compiled.characters == short_context.characters
 
     short_characters = Map.new(short_compiled.characters, &{&1.speaker_id, &1})
     assert short_characters["tomas"].current_place_id == "bodega"
     assert short_characters["tomas"].active_duty.name == "Oversee the cellar pressing"
     refute Map.has_key?(short_characters["tomas"], :visible_facts)
 
+    assert short_characters["marisol"].gm_private_facts ==
+             Enum.find(short_context.characters, &(&1.speaker_id == "marisol")).gm_private_facts
+
     assert {:ok, %{context: long_compiled, metrics: long_metrics}} =
-             ContextBudget.compile(long_context, instructions, "gpt-6-astra",
+             ContextBudget.compile(long_context, instructions, "gpt-6-luna",
                context_input_byte_budget: budget
              )
 
@@ -1187,11 +1311,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert long_compiled.context_completeness.history_compacted
 
     full_history_request_bytes = request_bytes(long_context, instructions)
-    bounded_history_request_bytes = long_metrics.estimated_request_bytes
-    short_request_bytes = short_metrics.estimated_request_bytes
-
-    assert full_history_request_bytes >= bounded_history_request_bytes * 5
-    assert bounded_history_request_bytes <= short_request_bytes + 2_000
+    assert full_history_request_bytes > long_metrics.estimated_request_bytes
 
     recent_sequences =
       long_context.history
@@ -1275,7 +1395,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert request_bytes(context, instructions) > budget
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, instructions, "gpt-6-astra",
+             ContextBudget.compile(context, instructions, "gpt-6-luna",
                context_input_byte_budget: budget
              )
 
@@ -1390,7 +1510,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert request_bytes(no_history_context, instructions) < budget
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, instructions, "gpt-6-astra",
+             ContextBudget.compile(context, instructions, "gpt-6-luna",
                context_input_byte_budget: budget
              )
 
@@ -1479,7 +1599,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       |> Map.put(:history, history)
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna",
                context_input_byte_budget: 24_000
              )
 
@@ -1548,7 +1668,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     context = context |> Map.put(:characters, characters) |> Map.put(:history, history)
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra",
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna",
                context_input_byte_budget: 20_000
              )
 
@@ -1619,7 +1739,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     policy = production_gm_policy()
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, policy, "gpt-6-astra",
+             ContextBudget.compile(context, policy, "gpt-6-luna",
                context_input_byte_budget: 24_000
              )
 
@@ -1707,12 +1827,11 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert byte_size(Jason.encode!(context)) + byte_size("Short GM policy") + 512 < default_budget
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
     assert metrics.estimated_request_bytes <= default_budget
     assert metrics.compacted?
     assert :continuity_memory_details in metrics.omissions
-    assert :remote_character_profiles in metrics.omissions
 
     [relevant | unrelated] = compiled.continuity.public
     assert relevant.details == hd(player_memories).details
@@ -1720,12 +1839,6 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert Enum.all?(unrelated, fn entry ->
              Enum.all?([:title, :details], &(not Map.has_key?(entry, &1)))
            end)
-
-    assert Enum.map(compiled.continuity.public, & &1.entry_id) ==
-             Enum.map(player_memories, & &1.entry_id)
-
-    assert compiled.context_completeness.continuity_memory_details_omitted
-    refute Map.get(compiled.context_completeness, :history_compacted, false)
 
     assert metrics.context_json_bytes < byte_size(Jason.encode!(context))
   end
@@ -1768,7 +1881,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
@@ -1782,7 +1895,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
         |> Enum.filter(&Map.has_key?(&1, :details))
         |> Enum.map(& &1.entry_id)
 
-      assert detailed_ids == Enum.map(3..10, &"typed-commitment-#{&1}")
+      assert detailed_ids == Enum.map(1..10, &"typed-commitment-#{&1}")
 
       assert Enum.map(compiled.continuity.public, & &1.entry_id) ==
                Enum.map([non_commitment_decoy | commitments], & &1.entry_id)
@@ -1846,20 +1959,19 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
       assert metrics.estimated_request_bytes <= 24_000
       assert metrics.section_bytes.section_continuity_bytes < byte_size(Jason.encode!(continuity))
-      assert metrics.context_json_bytes < byte_size(Jason.encode!(request_context))
 
       detailed_ids =
         compiled.continuity.public
         |> Enum.filter(&Map.has_key?(&1, :details))
         |> Enum.map(& &1.entry_id)
 
-      assert detailed_ids == Enum.map(3..10, &"observatory-plan-#{&1}")
+      assert detailed_ids == Enum.map(1..10, &"observatory-plan-#{&1}")
 
       for entry_id <- [completed_commitment.entry_id, ordinary_fact.entry_id] do
         entry = Enum.find(compiled.continuity.public, &(&1.entry_id == entry_id))
@@ -1899,7 +2011,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
@@ -1978,7 +2090,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
@@ -2042,7 +2154,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
@@ -2062,7 +2174,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
@@ -2103,7 +2215,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
                ContextBudget.compile(
                  %{context | player_action: action},
                  "Short GM policy",
-                 "gpt-6-astra"
+                 "gpt-6-luna"
                )
 
       assert metrics.estimated_request_bytes <= 128_000
@@ -2185,7 +2297,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
@@ -2222,7 +2334,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       request_context = Map.put(context, :player_action, action)
 
       assert {:ok, %{context: compiled, metrics: metrics}} =
-               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-astra",
+               ContextBudget.compile(request_context, "Short GM policy", "gpt-6-luna",
                  context_input_byte_budget: 24_000
                )
 
@@ -2242,7 +2354,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     toll_context = Map.put(context, :player_action, "I paid the bridge toll.")
 
     assert {:ok, %{context: toll_compiled}} =
-             ContextBudget.compile(toll_context, "Short GM policy", "gpt-6-astra",
+             ContextBudget.compile(toll_context, "Short GM policy", "gpt-6-luna",
                context_input_byte_budget: 24_000
              )
 
@@ -2254,7 +2366,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     refute toll_details["wheat-harvest-plan"]
   end
 
-  test "bounds broad seasonal event retrieval to the newest eight matching notes" do
+  test "preserves all seasonal memory detail when the complete request fits" do
     player_memories =
       Enum.map(1..10, fn number ->
         %{
@@ -2274,7 +2386,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       |> Map.put(:continuity, %{public: player_memories, gm_private: []})
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, "Short GM policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna")
 
     assert metrics.estimated_request_bytes <= 128_000
 
@@ -2283,8 +2395,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
       |> Enum.filter(&Map.has_key?(&1, :details))
       |> Enum.map(& &1.entry_id)
 
-    assert detailed_entry_ids == Enum.map(3..10, &"autumn-event-#{&1}")
-    assert compiled.context_completeness.continuity_memory_details_omitted
+    assert detailed_entry_ids == Enum.map(1..10, &"autumn-event-#{&1}")
+    refute get_in(compiled, [:context_completeness, :continuity_memory_details_omitted])
   end
 
   test "filters unrelated public and private continuity details by relevance" do
@@ -2320,7 +2432,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       })
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, "Policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Policy", "gpt-6-luna")
 
     assert metrics.compacted?
 
@@ -2382,17 +2494,19 @@ defmodule Storyteller.GM.ContextBudgetTest do
       end)
 
     assert {:ok, %{context: compacted, metrics: metrics}} =
-             ContextBudget.compile(context, "Policy", "gpt-6-astra",
+             ContextBudget.compile(context, "Policy", "gpt-6-luna",
                context_input_byte_budget: 5_000
              )
 
-    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert metrics.estimated_request_bytes > metrics.budget_bytes
     assert :continuity_memory_details in metrics.omissions
     assert compacted.player_action == context.player_action
     active = Enum.find(compacted.continuity.public, &(&1.entry_id == "active-large"))
     assert active.status == "active"
     assert active.title == "Marisol's Bodega agreement"
-    assert String.length(active.details) <= 280
+    assert active.details == hd(context.continuity.public).details
+    closed = Enum.find(compacted.continuity.public, &(&1.entry_id == "closed-large"))
+    refute Map.has_key?(closed, :details)
     assert length(context.continuity.public) == 2
   end
 
@@ -2516,7 +2630,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert source_bytes < budget
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, instructions, "gpt-6-astra")
+             ContextBudget.compile(context, instructions, "gpt-6-luna")
 
     assert metrics.compacted?
     assert metrics.estimated_request_bytes < source_bytes
@@ -2615,7 +2729,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       end)
 
     assert {:ok, %{context: ^context, metrics: metrics}} =
-             ContextBudget.compile(context, "Policy", "gpt-6-astra")
+             ContextBudget.compile(context, "Policy", "gpt-6-luna")
 
     refute metrics.compacted?
     assert metrics.omissions == []
@@ -2628,8 +2742,8 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert Enum.sort(Map.keys(configured_budgets)) ==
              Enum.sort([
                "default",
-               "gpt-6-luna",
                "gpt-6-astra",
+               "gpt-6-luna",
                "gpt-5.6-sol",
                "gpt-5.6-terra",
                "gpt-5.6-luna",
@@ -2655,14 +2769,14 @@ defmodule Storyteller.GM.ContextBudgetTest do
       end)
 
     assert {:ok, %{metrics: empty_instructions_metrics}} =
-             ContextBudget.compile(context, "", "gpt-6-astra")
+             ContextBudget.compile(context, "", "gpt-6-luna")
 
     instruction_bytes = 31_825 - empty_instructions_metrics.estimated_request_bytes
     assert instruction_bytes >= 8_000
     instructions = String.duplicate("i", instruction_bytes)
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, instructions, "gpt-6-astra")
+             ContextBudget.compile(context, instructions, "gpt-6-luna")
 
     assert metrics.budget_bytes == 128_000
     assert metrics.instructions_bytes == instruction_bytes
@@ -2673,11 +2787,11 @@ defmodule Storyteller.GM.ContextBudgetTest do
              current_place_description
 
     assert {:ok, %{context: compacted, metrics: compacted_metrics}} =
-             ContextBudget.compile(context, instructions, "gpt-6-astra",
+             ContextBudget.compile(context, instructions, "gpt-6-luna",
                context_input_byte_budget: 24_000
              )
 
-    assert compacted_metrics.estimated_request_bytes <= 24_000
+    assert compacted_metrics.estimated_request_bytes > 24_000
     assert :campaign_details in compacted_metrics.omissions
     assert compacted.context_completeness.campaign_details_compacted
     assert compacted.player_action == context.player_action
@@ -2692,7 +2806,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
       end)
 
     assert {:ok, %{context: compiled, metrics: metrics}} =
-             ContextBudget.compile(context, "Policy", "gpt-6-astra", context_input_byte_budget: 1)
+             ContextBudget.compile(context, "Policy", "gpt-6-luna", context_input_byte_budget: 1)
 
     assert metrics.estimated_request_bytes > metrics.budget_bytes
     assert Map.has_key?(compiled.world.public, :massive_state)
@@ -2701,7 +2815,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
 
   test "emits safe provider counts and section sizes as numeric telemetry" do
     context = base_context()
-    assert {:ok, %{metrics: metrics}} = ContextBudget.compile(context, "Policy", "gpt-6-astra")
+    assert {:ok, %{metrics: metrics}} = ContextBudget.compile(context, "Policy", "gpt-6-luna")
 
     ref = make_ref()
     parent = self()
@@ -2961,7 +3075,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     end
   end
 
-  defp request_bytes(context, instructions, model \\ "gpt-6-astra") do
+  defp request_bytes(context, instructions, model \\ "gpt-6-luna") do
     RequestEnvelope.encoded_size(
       model,
       instructions,
