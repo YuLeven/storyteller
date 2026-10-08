@@ -409,16 +409,16 @@ defmodule Storyteller.Play do
   and remote_messages with the existing path_id. Messages never move characters
   or advance time; keep private place details and presence private.
 
-  TRAVEL: Public travel_connections and minutes are binding; the graph is
-  incomplete, not a barrier. Ordinary trips between established public places
-  proceed: propose a plausible public route, move the player in this response,
-  and narrate the journey. A named NPC's known place is the destination; don't
-  demand a contact path, refuse, or move them to the player. If their place is
-  unknown, search from a supported public place; don't infer absence from silence.
-  Never shorten known distances or bypass
-  a barrier, duty, danger, or closure. The app validates routes and computes
-  duration. Include travel once in time_advance_minutes, at least the longest
-  character route.
+  TRAVEL: Known public routes and minutes are binding. Missing map edges are
+  unknown, not barriers: complete ordinary trips between established public
+  places, narrate the journey, and set a plausible total time_advance_minutes.
+  The app accepts that move without adding a route or claiming an exact distance.
+  Add a route only when the scene establishes one. A named NPC's known place is
+  the destination; don't demand a contact path, refuse, or move them to the
+  player. If their place is unknown, search from a supported public place; don't
+  infer absence from silence. Never shorten known distances or bypass a barrier,
+  duty, danger, or closure. The app computes known route times; include them once
+  in the total, at least the longest character route.
 
   ACTIVE DUTIES: Untimed duties need owner release; finite duties block release
   before their persisted minute; afterward movement is allowed. Check pre-turn
@@ -1734,10 +1734,11 @@ defmodule Storyteller.Play do
             "For a new public destination, add location_changes create_place " <>
             "{type,place:{place_id,name,visibility},reason}, " <>
             "then move the player and each co-present companion they explicitly asked to bring with " <>
-            "move_character {type,speaker_id,place_id,reason}. If no route connects the public origin " <>
-            "and destination, add travel_changes create_connection {type,place_a_id,place_b_id," <>
-            "travel_minutes,visibility,reason}. Keep established distances, duties, and barriers; " <>
-            "include the computed trip time once. Keep each public speaker in the final shared scene."
+            "move_character {type,speaker_id,place_id,reason}. For a newly created public destination, " <>
+            "add travel_changes create_connection {type,place_a_id,place_b_id,travel_minutes,visibility,reason}. " <>
+            "For an established public destination, a missing edge is allowed; its time stays an estimate " <>
+            "in time_advance_minutes, not a saved route. Keep established distances, duties, and barriers; " <>
+            "include computed route time once. Keep each public speaker in the final shared scene."
 
         _ ->
           "Review that rule and correct the proposal."
@@ -3625,6 +3626,7 @@ defmodule Storyteller.Play do
                player_place_id,
                first_placement_ids,
                current_elapsed_world_minutes(turn.campaign_id),
+               established_public_place_ids(turn.campaign_id),
                turn.intent
              ),
              :location_presence
@@ -4490,6 +4492,7 @@ defmodule Storyteller.Play do
          player_place_id,
          first_placement_ids,
          elapsed_world_minutes,
+         established_public_place_ids,
          intent
        ) do
     connections =
@@ -4503,7 +4506,8 @@ defmodule Storyteller.Play do
              graph,
              player_place_id,
              first_placement_ids,
-             elapsed_world_minutes
+             elapsed_world_minutes,
+             established_public_place_ids
            ) do
       {:ok, routed, locations}
     else
@@ -4511,6 +4515,15 @@ defmodule Storyteller.Play do
         log_opening_location_rejection(intent, :movement_routes, :movement_not_reachable)
         {:error, :invalid_response}
     end
+  end
+
+  defp established_public_place_ids(campaign_id) do
+    Repo.all(
+      from place in Place,
+        where: place.campaign_id == ^campaign_id and place.visibility == :public,
+        select: place.place_id
+    )
+    |> MapSet.new()
   end
 
   defp first_placement_ids(intent, characters, creations) do
@@ -6185,14 +6198,15 @@ defmodule Storyteller.Play do
     if travel_intent?(player_action) do
       """
 
-      TRAVEL NOW: For a named off-scene NPC, use their recorded place; missing
-      route/contact alone is no blocker. Add a missing public route with
-      travel_changes create_connection {type,place_a_id,place_b_id,travel_minutes,
-      visibility,reason}; create a public place if needed. Then move the player
-      and requested co-present companions with location_changes move_character.
-      Keep others where canon places them. Preserve known times and real
-      restrictions; include route time once in total turn time. Never claim
-      arrival without the matching route and movement operations.
+      TRAVEL NOW: For a named off-scene NPC, use their recorded public place;
+      missing route/contact alone is no blocker. Move the player and requested
+      co-present companions with location_changes move_character. Keep others
+      where canon places them. Known routes supply exact time; for an unrecorded
+      ordinary trip, narrate a plausible journey and use your proposed total
+      time_advance_minutes as the estimate. Do not add a route solely to satisfy
+      validation or claim a precise distance. Preserve known times and real
+      restrictions. Never claim arrival without the matching place/movement
+      operations.
       """
     else
       ""

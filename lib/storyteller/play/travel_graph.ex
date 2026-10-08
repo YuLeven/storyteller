@@ -43,18 +43,29 @@ defmodule Storyteller.Play.TravelGraph do
   def validate_changes(_changes, _places, _existing_connections),
     do: {:error, :invalid_connection_changes}
 
-  @doc "Adds route durations and requires trusted authorization for first placement from an unknown origin."
+  @doc "Adds known route durations, permits configured public player moves on unknown routes, and requires authorization for first placement."
   def validate_movements(
         changes,
         characters,
         connections,
         player_place_id,
         first_placement_ids \\ MapSet.new(),
-        elapsed_world_minutes \\ 0
+        elapsed_world_minutes \\ 0,
+        unrecorded_public_place_ids \\ MapSet.new()
       ) do
     with {:ok, graph} <- normalize_connections(connections),
          {:ok, locations, active_duties} <-
            normalize_character_locations(characters, elapsed_world_minutes) do
+      player_routes =
+        planned_player_routes(
+          changes,
+          locations,
+          graph,
+          player_place_id,
+          first_placement_ids,
+          unrecorded_public_place_ids
+        )
+
       Enum.reduce_while(changes, {:ok, [], locations, active_duties}, fn
         %{"type" => "move_character", "speaker_id" => speaker_id, "place_id" => place_id} = move,
         {:ok, accepted, current_locations, duties} ->
@@ -67,17 +78,27 @@ defmodule Storyteller.Play.TravelGraph do
                 {:error, :active_duty}
 
               _ ->
-                movement_duration(
+                movement_duration_for_proposal(
+                  speaker_id,
                   current_place_id,
                   place_id,
-                  speaker_id,
                   current_scene_id,
                   graph,
-                  first_placement_ids
+                  first_placement_ids,
+                  unrecorded_public_place_ids,
+                  player_routes
                 )
             end
 
           case result do
+            # No integer duration means that the public map has no known route.
+            # Keep the movement accepted but omit a fabricated route duration;
+            # the GM's proposed turn duration remains the only elapsed-time
+            # input for this unrecorded trip.
+            {:ok, :unrecorded} ->
+              {:cont,
+               {:ok, accepted ++ [move], Map.put(current_locations, speaker_id, place_id), duties}}
+
             {:ok, minutes} ->
               normalized = Map.put(move, "travel_minutes", minutes)
 
@@ -226,6 +247,106 @@ defmodule Storyteller.Play.TravelGraph do
          _first_placement_ids
        ),
        do: shortest_minutes_in_graph(current_id, place_id, graph)
+
+  defp allow_unrecorded_public_player_travel(
+         {:error, :unconnected_move},
+         "player",
+         origin_id,
+         destination_id,
+         %MapSet{} = public_place_ids
+       ) do
+    if MapSet.member?(public_place_ids, origin_id) and
+         MapSet.member?(public_place_ids, destination_id),
+       do: {:ok, :unrecorded},
+       else: {:error, :unconnected_move}
+  end
+
+  defp allow_unrecorded_public_player_travel(
+         result,
+         _speaker_id,
+         _origin_id,
+         _destination_id,
+         _ids
+       ),
+       do: result
+
+  defp movement_duration_for_proposal(
+         speaker_id,
+         current_place_id,
+         destination_id,
+         current_scene_id,
+         graph,
+         first_placement_ids,
+         unrecorded_public_place_ids,
+         player_routes
+       ) do
+    case Map.fetch(player_routes, {current_place_id, destination_id}) do
+      {:ok, duration} when speaker_id != "player" and is_binary(current_place_id) ->
+        # A companion may follow only the exact leg the player is taking and
+        # only from the place where they were already co-present. Reuse the
+        # player's public-route result, never a shorter GM-private edge.
+        {:ok, duration}
+
+      _ ->
+        movement_duration(
+          current_place_id,
+          destination_id,
+          speaker_id,
+          current_scene_id,
+          graph,
+          first_placement_ids
+        )
+        |> allow_unrecorded_public_player_travel(
+          speaker_id,
+          current_place_id,
+          destination_id,
+          unrecorded_public_place_ids
+        )
+    end
+  end
+
+  defp planned_player_routes(
+         changes,
+         initial_locations,
+         graph,
+         player_place_id,
+         first_placement_ids,
+         unrecorded_public_place_ids
+       ) do
+    initial_place_id = Map.get(initial_locations, "player", player_place_id)
+
+    Enum.reduce(changes, {%{}, initial_place_id}, fn
+      %{"type" => "move_character", "speaker_id" => "player", "place_id" => destination_id},
+      {routes, origin_id} ->
+        route_result =
+          movement_duration(
+            origin_id,
+            destination_id,
+            "player",
+            origin_id,
+            graph,
+            first_placement_ids
+          )
+          |> allow_unrecorded_public_player_travel(
+            "player",
+            origin_id,
+            destination_id,
+            unrecorded_public_place_ids
+          )
+
+        routes =
+          case route_result do
+            {:ok, duration} -> Map.put(routes, {origin_id, destination_id}, duration)
+            _ -> routes
+          end
+
+        {routes, destination_id}
+
+      _change, acc ->
+        acc
+    end)
+    |> elem(0)
+  end
 
   defp normalize_change(change, places, graph, touched) when is_map(change) do
     case get(change, :type) do

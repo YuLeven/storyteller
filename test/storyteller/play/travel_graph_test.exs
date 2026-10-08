@@ -67,12 +67,112 @@ defmodule Storyteller.Play.TravelGraphTest do
       }
     ]
 
-    assert {:error, :unconnected_move} =
+    assert {:ok, [move], locations} =
              TravelGraph.validate_movements(
                [%{"type" => "move_character", "speaker_id" => "player", "place_id" => "bodega"}],
                [%{speaker_id: "player", current_place_id: "finca"}],
                private_route,
-               "finca"
+               "finca",
+               MapSet.new(),
+               0,
+               MapSet.new(["finca", "bodega"])
+             )
+
+    refute Map.has_key?(move, "travel_minutes")
+    assert locations["player"] == "bodega"
+  end
+
+  test "accepts a player move between established public places without inventing route time" do
+    changes = [%{"type" => "move_character", "speaker_id" => "player", "place_id" => "bodega"}]
+    characters = [%{speaker_id: "player", current_place_id: "finca"}]
+
+    assert {:ok, [move], locations} =
+             TravelGraph.validate_movements(
+               changes,
+               characters,
+               [],
+               "finca",
+               MapSet.new(),
+               0,
+               MapSet.new(["finca", "bodega"])
+             )
+
+    refute Map.has_key?(move, "travel_minutes")
+    assert locations["player"] == "bodega"
+
+    assert {:error, :unconnected_move} =
+             TravelGraph.validate_movements(
+               [
+                 %{"type" => "move_character", "speaker_id" => "player", "place_id" => "bodega"},
+                 %{
+                   "type" => "move_character",
+                   "speaker_id" => "npc:keeper",
+                   "place_id" => "bodega"
+                 }
+               ],
+               [
+                 %{speaker_id: "player", current_place_id: "finca"},
+                 %{speaker_id: "npc:keeper", current_place_id: "crossroads"}
+               ],
+               [],
+               "finca",
+               MapSet.new(),
+               0,
+               MapSet.new(["finca", "bodega"])
+             )
+  end
+
+  test "a co-present companion can follow the same unrecorded public player leg" do
+    changes = [
+      %{"type" => "move_character", "speaker_id" => "npc:companion", "place_id" => "bodega"},
+      %{"type" => "move_character", "speaker_id" => "player", "place_id" => "bodega"}
+    ]
+
+    assert {:ok, [companion_move, player_move], locations} =
+             TravelGraph.validate_movements(
+               changes,
+               [
+                 %{speaker_id: "player", current_place_id: "finca"},
+                 %{speaker_id: "npc:companion", current_place_id: "finca"}
+               ],
+               [],
+               "finca",
+               MapSet.new(),
+               0,
+               MapSet.new(["finca", "bodega"])
+             )
+
+    refute Map.has_key?(companion_move, "travel_minutes")
+    refute Map.has_key?(player_move, "travel_minutes")
+    assert locations["player"] == "bodega"
+    assert locations["npc:companion"] == "bodega"
+  end
+
+  test "an active duty still blocks departure over an unrecorded route" do
+    assert {:error, :active_duty} =
+             TravelGraph.validate_movements(
+               [
+                 %{
+                   "type" => "move_character",
+                   "speaker_id" => "npc:keeper",
+                   "place_id" => "bodega"
+                 }
+               ],
+               [
+                 %{speaker_id: "player", current_place_id: "finca"},
+                 %{
+                   speaker_id: "npc:keeper",
+                   current_place_id: "finca",
+                   duty_name: "Watch the tasting room",
+                   duty_place_id: "finca",
+                   duty_release_at_world_minute: nil
+                 }
+               ],
+               [],
+               "finca",
+               MapSet.new(),
+               0,
+               MapSet.new(["finca", "bodega"])
              )
   end
 

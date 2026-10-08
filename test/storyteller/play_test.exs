@@ -4296,6 +4296,18 @@ defmodule Storyteller.PlayTest do
     lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
     Repo.update!(Character.changeset(lyra, %{current_place_id: destination.place_id}))
 
+    private_route =
+      Repo.insert!(
+        PlaceConnection.changeset(%PlaceConnection{}, %{
+          campaign_id: campaign.id,
+          place_a_id: origin.place_id,
+          place_b_id: destination.place_id,
+          travel_minutes: 5,
+          scene_relevance: "A sealed service passage known only to the archivist.",
+          visibility: :gm_private
+        })
+      )
+
     state = Repo.get_by!(State, campaign_id: campaign.id)
 
     bottle = %{
@@ -4315,7 +4327,7 @@ defmodule Storyteller.PlayTest do
     proposal =
       ordinary_proposal(%{
         "narration" =>
-          "A short path curves around the dome. Lyra accepts the bottle and turns it toward the observatory light.",
+          "After a short walk, you reach the East Dome. Lyra accepts the bottle and turns it toward the observatory light.",
         "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The label caught the moonlight."}],
         "activities" => [],
         "location_changes" => [
@@ -4324,17 +4336,6 @@ defmodule Storyteller.PlayTest do
             "speaker_id" => "player",
             "place_id" => destination.place_id,
             "reason" => "The player walks to Lyra's established public location."
-          }
-        ],
-        "travel_changes" => [
-          %{
-            "type" => "create_connection",
-            "place_a_id" => origin.place_id,
-            "place_b_id" => destination.place_id,
-            "travel_minutes" => 12,
-            "scene_relevance" => "A clear public path circles the observatory dome.",
-            "visibility" => "public",
-            "reason" => "The player follows the ordinary path to Lyra at the east dome."
           }
         ],
         "inventory_changes" => [
@@ -4364,19 +4365,83 @@ defmodule Storyteller.PlayTest do
     assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra").current_place_id ==
              destination.place_id
 
-    connection =
-      Repo.get_by!(PlaceConnection,
-        campaign_id: campaign.id,
-        place_a_id: Enum.min([origin.place_id, destination.place_id]),
-        place_b_id: Enum.max([origin.place_id, destination.place_id])
+    assert Repo.get!(PlaceConnection, private_route.id).travel_minutes == 5
+
+    refute Repo.get_by(PlaceConnection,
+             campaign_id: campaign.id,
+             place_a_id: Enum.min([origin.place_id, destination.place_id]),
+             place_b_id: Enum.max([origin.place_id, destination.place_id]),
+             visibility: :public
+           )
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 12
+
+    movement_event =
+      Repo.all(
+        from event in Event,
+          where:
+            event.campaign_id == ^campaign.id and event.event_type == :state_change and
+              event.visibility == :public,
+          order_by: [desc: event.sequence]
+      )
+      |> then(fn latest_events ->
+        Enum.find(latest_events, &Map.has_key?(&1.payload, "location_changes"))
+      end)
+
+    movement =
+      Enum.find(movement_event.payload["location_changes"], &(&1["speaker_id"] == "player"))
+
+    refute Map.has_key?(movement, "travel_minutes")
+
+    public_events =
+      Repo.all(
+        from event in Event,
+          where: event.campaign_id == ^campaign.id and event.visibility == :public
       )
 
-    assert connection.travel_minutes == 12
-    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 12
+    refute Enum.any?(public_events, fn event ->
+             Jason.encode!(event.payload) =~ "sealed service passage"
+           end)
+
+    refute Enum.any?(public_events, fn event ->
+             Jason.encode!(event.payload) =~ "5 minutes"
+           end)
 
     assert {:ok, %{inventory: [transferred]}} = Play.public_projection(campaign.id)
     assert transferred["id"] == "moonlit-sample"
     assert transferred["owner_id"] == "npc:lyra"
+
+    zero_time_move =
+      ordinary_proposal(%{
+        "narration" => "You make your way back to the Glass Observatory.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => origin.place_id,
+            "reason" => "The player returns to the observatory."
+          }
+        ],
+        "time_advance_minutes" => 0
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "return-over-unrecorded-route",
+               "I go back to the Glass Observatory.",
+               provider: fn _request -> {:ok, Jason.encode!(zero_time_move)} end,
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             origin.place_id
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 12
   end
 
   test "movement repair gives the GM the missing route and invited-companion operations" do
@@ -4471,7 +4536,10 @@ defmodule Storyteller.PlayTest do
     normalized_first_instructions = String.replace(first_instructions, ~r/\s+/, " ")
     refute first_instructions =~ "Internal correction:"
     assert normalized_first_instructions =~ "TRAVEL NOW: For a named off-scene NPC"
-    assert normalized_first_instructions =~ "travel_changes create_connection"
+
+    assert normalized_first_instructions =~
+             "use your proposed total time_advance_minutes as the estimate"
+
     assert normalized_first_instructions =~ "requested co-present companions"
     assert normalized_first_instructions =~ "A named NPC's known place is the destination"
 
@@ -7046,7 +7114,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "A missing route edge is incomplete map data, not an obstacle"
 
-    assert instructions =~ "move the player in this response, and narrate the journey"
+    assert instructions =~ "ordinary trips proceed under TRAVEL"
 
     assert instructions =~ "When one item is transferred or used, narrate that item's outcome"
 
@@ -7082,7 +7150,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "For multiple matching public memories, name candidates or ask which one; do not guess."
 
-    assert instructions =~ "Ordinary trips between established public places proceed"
+    assert instructions =~ "ordinary trips proceed under TRAVEL"
 
     assert instructions =~
              "Public NPC speech/activity requires presence in the player's final place"
