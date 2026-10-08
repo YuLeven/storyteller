@@ -4580,6 +4580,8 @@ defmodule StorytellerWeb.SessionLiveTest do
         :begin_output ->
           callback = Map.fetch!(request, :on_first_output)
           callback.()
+          Map.fetch!(request, :on_stream_start).()
+          Map.fetch!(request, :on_narration_preview).("The GM's partial narration")
           send(test_pid, :first_output_reported)
       after
         5_000 -> flunk("the fake provider was not released to begin output")
@@ -4625,6 +4627,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert has_element?(view, "#turn-status", "Your action is saved.")
     assert has_element?(view, "#story-pending-action", "I light the harbor lanterns.")
     refute has_element?(view, "#story-timeline", "The lanterns glow along the harbor wall.")
+    assert has_element?(view, "#story-provisional-preview", "The GM's partial narration")
 
     send(provider_pid, :finish_response)
 
@@ -4632,12 +4635,62 @@ defmodule StorytellerWeb.SessionLiveTest do
              has_element?(view, "#story-timeline", "The lanterns glow along the harbor wall.")
            end)
 
+    refute has_element?(view, "#story-provisional-preview")
     refute has_element?(view, "#story-pending-action")
 
     {:ok, timeline} = Play.public_timeline(campaign.id)
     [player_action] = Enum.filter(timeline, &(&1.event_type == :player_action))
     turn_events = Enum.filter(timeline, &(&1.turn_id == player_action.turn_id))
     assert Enum.map(turn_events, & &1.event_type) == [:player_action, :gm_narration]
+  end
+
+  test "discards provisional narration on failure and leaves the submitted action saved", %{
+    conn: conn
+  } do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    action = "I check whether the observatory lamp is still lit."
+
+    set_handler(fn request ->
+      send(test_pid, {:preview_failure_provider, self(), request})
+
+      receive do
+        :show_partial ->
+          request.on_stream_start.()
+          request.on_narration_preview.("The lamp flickers")
+          send(test_pid, :partial_sent)
+      after
+        5_000 -> flunk("the fake provider was not released to send its partial output")
+      end
+
+      receive do
+        :fail_request -> {:error, :provider_error}
+      after
+        5_000 -> flunk("the fake provider was not released to fail")
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    view |> form("#turn-composer", turn: %{input: action}) |> render_submit()
+
+    assert_receive {:preview_failure_provider, provider_pid, _request}, 1_000
+    send(provider_pid, :show_partial)
+    assert_receive :partial_sent, 1_000
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-provisional-preview", "The lamp flickers")
+           end)
+
+    send(provider_pid, :fail_request)
+
+    assert wait_until(fn ->
+             has_element?(view, "#turn-error", "needs attention") and
+               not has_element?(view, "#story-provisional-preview")
+           end)
+
+    assert has_element?(view, "#story-pending-action", action)
+    assert Play.public_current_turn(campaign.id).player_input == action
   end
 
   @tag :long_wait_notice

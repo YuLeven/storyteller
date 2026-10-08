@@ -992,6 +992,122 @@ defmodule Storyteller.GM.OpenAITest do
     refute Jason.encode!(request_body) =~ "on_stream_activity"
   end
 
+  test "streams only the top-level narration field as a provisional preview", context do
+    test_pid = self()
+
+    narration_start =
+      event_frame("response.output_text.delta", %{
+        "type" => "response.output_text.delta",
+        "delta" => "{\"other\":\"embedded {\\\"narration\\\":\\\"DO NOT SHOW\\\"}\""
+      })
+
+    narration_prefix =
+      event_frame("response.output_text.delta", %{
+        "type" => "response.output_text.delta",
+        "delta" => ",\"narration\":\"The harbor is quiet. caf\\u00"
+      })
+
+    narration_suffix =
+      event_frame("response.output_text.delta", %{
+        "type" => "response.output_text.delta",
+        "delta" =>
+          "e9\\nThe cellar door closes.\",\"dialogue\":[{\"speaker_id\":\"keeper\",\"text\":\"Private?\"}],\"changes\":{\"weather\":\"storm\"}}"
+      })
+
+    completed =
+      event_frame("response.completed", %{
+        "type" => "response.completed",
+        "response" => %{"status" => "completed", "output" => []}
+      })
+
+    body =
+      Stream.resource(
+        fn -> :narration end,
+        fn
+          :narration ->
+            {[narration_start], :wait}
+
+          :wait ->
+            send(test_pid, :waiting_after_narration)
+
+            receive do
+              :complete_response -> {[narration_prefix, narration_suffix, completed], :done}
+            after
+              5_000 -> raise "test did not release the fake response stream"
+            end
+
+          :done ->
+            {:halt, :done}
+        end,
+        fn _state -> :ok end
+      )
+
+    http = fn :post, "https://api.openai.com/v1/responses", _options ->
+      %{status: 200, body: body}
+    end
+
+    task =
+      Task.async(fn ->
+        OpenAI.stream_response(
+          %{
+            instructions: "Return structured text.",
+            input: [%{role: "user", content: "Describe the harbor."}],
+            model: "fixture-model",
+            on_narration_preview: fn text -> send(test_pid, {:narration_preview, text}) end
+          },
+          store: context.store,
+          http: http
+        )
+      end)
+
+    assert_receive :waiting_after_narration, 1_000
+    assert Task.yield(task, 0) == nil
+    refute_receive {:narration_preview, _text}
+
+    send(task.pid, :complete_response)
+    assert_receive {:narration_preview, "The harbor is quiet. caf"}, 1_000
+
+    assert_receive {:narration_preview, "The harbor is quiet. café\nThe cellar door closes."},
+                   1_000
+
+    refute_receive {:narration_preview, _text}
+
+    assert {:ok, %{text: response}} = Task.await(task, 1_000)
+
+    assert Jason.decode!(response)["narration"] ==
+             "The harbor is quiet. café\nThe cellar door closes."
+
+    refute_receive {:narration_preview, _text}
+  end
+
+  test "clears provisional text when the provider stream fails", context do
+    test_pid = self()
+
+    partial =
+      event_frame("response.output_text.delta", %{
+        "type" => "response.output_text.delta",
+        "delta" => "{\"narration\":\"The observatory door opens\\q"
+      })
+
+    http = provider_http(self(), partial)
+
+    assert {:error, :stream_incomplete} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return structured text.",
+                 input: [%{role: "user", content: "Open the door."}],
+                 model: "fixture-model",
+                 on_narration_preview: fn text -> send(test_pid, {:preview, text}) end,
+                 on_stream_error: fn -> send(test_pid, :preview_discarded) end
+               },
+               store: context.store,
+               http: http
+             )
+
+    assert_receive {:preview, "The observatory door opens"}, 1_000
+    assert_receive :preview_discarded, 1_000
+  end
+
   test "signals first output once for failed and incomplete streams but not empty streams",
        context do
     parent = self()

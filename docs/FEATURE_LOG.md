@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-07 — Show safe provisional narration while the GM streams
+
+- The session now displays a bounded preview from only the top-level `narration` string as streamed structured output arrives. It is labeled “Game master · live draft” and “May change”; raw output outside the safely decoded narration string, dialogue, state changes, and other payload fields are never shown in the preview. The preview is transient UI only and never enters the canonical timeline or campaign state.
+- A new generation clears stale preview text. Provider errors discard the draft while leaving the saved player action visible. After successful validation/commit, LiveView removes the draft and shows the persisted narration once in the normal timeline. This improves perceived wait; it does not reduce model inference time or establish a latency benchmark.
+- Player-action timeline timestamps now use the same projected elapsed world clock used to assemble GM context, so a legacy/stale display label does not stamp the submitted move with old in-world time.
+- **Verification:** targeted stream-parser, provider-failure, LiveView reconciliation, and elapsed-clock regressions passed (**5 selected tests, 0 failures**). The full WSL suite passed (**538 tests, 0 failures**) with reduced parallelism; `MIX_ENV=dev mix compile --warnings-as-errors`, `MIX_ENV=test mix format --check-formatted`, and `git diff --check` passed. One owner-authorized live check on GPT-6 Luna at low reasoning, in the dedicated fictional Quiet Observatory QA database, showed the provisional draft while the turn was still in progress and then replaced it with the persisted narration and NPC reply after commit. This verifies the path once; it is not a latency or story-quality benchmark. No Vineyard data was accessed.
+
 ## 2026-10-07 — Recover campaign lookup calls from streamed Responses items
 
 - The first live Quiet Observatory Luna retry exposed two gaps in the same turn. The API rejected a request carrying `text.format`; after removing that field, a tool-enabled stream could complete with an empty `response.completed.response.output` even though the model had emitted its function call in `response.output_item.done`. The adapter previously discarded that streamed item and reported an empty GM response.

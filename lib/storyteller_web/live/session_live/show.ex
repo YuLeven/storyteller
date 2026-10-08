@@ -57,6 +57,8 @@ defmodule StorytellerWeb.SessionLive.Show do
             timeline_loaded_earlier?: false,
             game_error: nil,
             turn_announcement: "",
+            turn_preview: nil,
+            turn_preview_turn_id: nil,
             worker_turn_id: nil,
             worker_pid: nil,
             worker_monitor_ref: nil,
@@ -706,6 +708,34 @@ defmodule StorytellerWeb.SessionLive.Show do
     end
   end
 
+  def handle_info({:turn_preview_reset, turn_id, worker_tag}, socket) do
+    if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag do
+      {:noreply, assign(socket, turn_preview: nil, turn_preview_turn_id: turn_id)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:turn_narration_preview, turn_id, worker_tag, text}, socket) do
+    current_turn = socket.assigns.current_turn
+
+    if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag and
+         same_turn?(current_turn, to_string(turn_id)) and current_turn.status in @turn_in_progress and
+         is_binary(text) and text != "" do
+      {:noreply, assign(socket, turn_preview: text, turn_preview_turn_id: turn_id)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:turn_preview_discard, turn_id, worker_tag}, socket) do
+    if socket.assigns.worker_turn_id == turn_id and socket.assigns.worker_tag == worker_tag do
+      {:noreply, assign(socket, turn_preview: nil, turn_preview_turn_id: nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:turn_long_wait_notice, turn_id, worker_tag}, socket) do
     current_turn = socket.assigns.current_turn
 
@@ -1329,6 +1359,10 @@ defmodule StorytellerWeb.SessionLive.Show do
       current_turn_roll = player_roll_result(timeline, current_turn)
       usage_status = current_plan_usage_status()
 
+      keep_preview? =
+        not is_nil(current_turn) and current_turn.status in @turn_in_progress and
+          socket.assigns.turn_preview_turn_id == current_turn.id
+
       socket =
         assign(socket,
           projection: projection,
@@ -1337,6 +1371,8 @@ defmodule StorytellerWeb.SessionLive.Show do
           player_character: Enum.find(projection.characters, &(&1.speaker_id == "player")),
           characters_by_id: Map.new(projection.characters, &{&1.speaker_id, &1}),
           timeline: timeline,
+          turn_preview: if(keep_preview?, do: socket.assigns.turn_preview, else: nil),
+          turn_preview_turn_id: if(keep_preview?, do: current_turn.id, else: nil),
           current_situation: latest_public_narration(timeline),
           plan_usage_status: usage_status,
           plan_usage_paused?: usage_status == :paused,
@@ -1577,6 +1613,15 @@ defmodule StorytellerWeb.SessionLive.Show do
         ],
         on_first_output: fn ->
           send(owner, {:turn_first_output, turn_id, worker_tag})
+        end,
+        on_stream_start: fn ->
+          send(owner, {:turn_preview_reset, turn_id, worker_tag})
+        end,
+        on_stream_error: fn ->
+          send(owner, {:turn_preview_discard, turn_id, worker_tag})
+        end,
+        on_narration_preview: fn text ->
+          send(owner, {:turn_narration_preview, turn_id, worker_tag, text})
         end
       ]
 
@@ -1611,6 +1656,8 @@ defmodule StorytellerWeb.SessionLive.Show do
               worker_tag: worker_tag,
               worker_attempt: nil,
               turn_first_output_id: nil,
+              turn_preview: nil,
+              turn_preview_turn_id: nil,
               auto_recovery_turn_id:
                 if(Keyword.get(opts, :automatic_retry?, false),
                   do: turn_id,
@@ -1672,6 +1719,8 @@ defmodule StorytellerWeb.SessionLive.Show do
       worker_tag: nil,
       worker_attempt: nil,
       turn_first_output_id: nil,
+      turn_preview: nil,
+      turn_preview_turn_id: nil,
       auto_recovery_turn_id: nil,
       turn_long_wait_turn_id: nil,
       turn_long_wait_worker_tag: nil,

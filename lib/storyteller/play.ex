@@ -2223,7 +2223,11 @@ defmodule Storyteller.Play do
          speaker_visibility,
          resolved_public_state
        ) do
-    canonical_public_state = canonical_public_world(state.public_state, turn.campaign_id)
+    # A prior turn may have advanced the canonical elapsed clock without
+    # persisting a parseable display label (for example, while recovering a
+    # campaign created before automatic clock projection). Stamp the player's
+    # action with the same projected time used to build the current GM context.
+    canonical_public_state = elapsed_public_world(state, turn.campaign_id)
 
     action_state = %{state | public_state: canonical_public_state}
     resolution_state = %{state | public_state: resolved_public_state}
@@ -5811,6 +5815,23 @@ defmodule Storyteller.Play do
         case Keyword.get(opts, :on_stream_activity) do
           callback when is_function(callback, 0) ->
             Map.put(request, :on_stream_activity, callback)
+
+          _ ->
+            request
+        end
+
+      request =
+        Enum.reduce([:on_stream_start, :on_stream_error], request, fn callback_name, current ->
+          case Keyword.get(opts, callback_name) do
+            callback when is_function(callback, 0) -> Map.put(current, callback_name, callback)
+            _ -> current
+          end
+        end)
+
+      request =
+        case Keyword.get(opts, :on_narration_preview) do
+          callback when is_function(callback, 1) ->
+            Map.put(request, :on_narration_preview, callback)
 
           _ ->
             request

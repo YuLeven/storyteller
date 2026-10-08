@@ -770,6 +770,28 @@
               />
             </ol>
             <ol
+              :if={
+                is_binary(@turn_preview) and
+                  @turn_preview_turn_id == (@current_turn && @current_turn.id)
+              }
+              id="story-provisional-preview"
+              aria-label={gettext("Provisional game master narration")}
+              aria-live="off"
+              class="story-timeline space-y-4 px-4 pb-5 sm:px-7"
+            >
+              <li class="min-w-0" data-preview-turn-id={@turn_preview_turn_id}>
+                <article class="story-entry story-entry-gm opacity-90">
+                  <div class="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                      {gettext("Game master · live draft")}
+                    </h3>
+                    <p class="text-[11px] text-stone-400">{gettext("May change")}</p>
+                  </div>
+                  <p class="whitespace-pre-wrap leading-7 text-stone-800">{@turn_preview}</p>
+                </article>
+              </li>
+            </ol>
+            <ol
               :if={pending_action_preview?(@current_turn, @timeline)}
               id="story-pending-action"
               aria-label={pending_input_label(@current_turn.intent)}

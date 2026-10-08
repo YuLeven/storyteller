@@ -9994,6 +9994,48 @@ defmodule Storyteller.PlayTest do
     assert final_narration.game_time == %{"date" => "13 October 2026", "time" => "12:10 a.m."}
   end
 
+  test "player action timestamp uses elapsed time when the persisted world label is stale" do
+    {campaign, session} = play_campaign("The Lagging Observatory Clock")
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    initial_date = "12 October 2026"
+    initial_time = "9:10 p.m."
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          Map.merge(state.public_state, %{"date" => initial_date, "time" => initial_time}),
+        elapsed_world_minutes: 60,
+        elapsed_world_anchor: %{"date" => initial_date, "time" => initial_time},
+        elapsed_world_anchor_minutes: 0
+      })
+    )
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "one-minute-observation-after-stale-clock",
+               "I observe the clock for one minute.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" => "For a minute, the clock remains silent.",
+                   "time_advance_minutes" => 1
+                 }),
+               model: "test-model"
+             )
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    player_action = Enum.find(timeline, &(&1.event_type == :player_action))
+    gm_narration = Enum.find(timeline, &(&1.event_type == :gm_narration))
+
+    assert player_action.game_time == %{"date" => initial_date, "time" => "10:10 p.m."}
+    assert gm_narration.game_time == %{"date" => initial_date, "time" => "10:11 p.m."}
+
+    updated_state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert updated_state.elapsed_world_minutes == 61
+    assert updated_state.public_state["time"] == "10:11 p.m."
+  end
+
   test "pending turns reconnect with the same record and can be resumed without duplicating input" do
     {campaign, session} = play_campaign("The Glass Observatory")
 
