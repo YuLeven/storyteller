@@ -21,6 +21,9 @@ defmodule Storyteller.GM.OpenAI do
   @max_output_text_bytes 100_000
   @max_narration_preview_chars 3_000
   @max_preview_source_bytes 20_000
+  # Scan and forward streamed drafts in meaningful increments, rather than
+  # reparsing the whole JSON prefix and re-rendering on every tiny token delta.
+  @narration_preview_min_source_growth_bytes 32
   @campaign_lookup_tool_name "lookup_campaign_canon"
   @max_tool_argument_bytes 6_000
   @max_tool_output_bytes 6_000
@@ -822,7 +825,7 @@ defmodule Storyteller.GM.OpenAI do
          on_stream_activity,
          started_at
        ) do
-    initial = {:ok, "", {:waiting, [], 0, false, [], ""}}
+    initial = {:ok, "", {:waiting, [], 0, false, [], initial_preview_state()}}
 
     result =
       Enum.reduce_while(chunks, initial, fn
@@ -956,10 +959,10 @@ defmodule Storyteller.GM.OpenAI do
 
     case data do
       nil ->
-        {:waiting, [], 0, false, [], ""}
+        {:waiting, [], 0, false, [], initial_preview_state()}
 
       "[DONE]" ->
-        {:waiting, [], 0, false, [], ""}
+        {:waiting, [], 0, false, [], initial_preview_state()}
 
       encoded ->
         case Jason.decode(encoded) do
@@ -971,7 +974,7 @@ defmodule Storyteller.GM.OpenAI do
               0,
               false,
               [],
-              "",
+              initial_preview_state(),
               on_first_output,
               on_narration_preview,
               started_at
@@ -1028,13 +1031,14 @@ defmodule Storyteller.GM.OpenAI do
 
         case output_text(response) do
           {:ok, text} ->
-            {:completed, text, usage, response}
+            complete_stream_response(text, usage, response, preview_sent, on_narration_preview)
 
           _ when size > 0 ->
-            {:completed, deltas |> Enum.reverse() |> IO.iodata_to_binary(), usage, response}
+            text = deltas |> Enum.reverse() |> IO.iodata_to_binary()
+            complete_stream_response(text, usage, response, preview_sent, on_narration_preview)
 
           _ ->
-            {:completed, "", usage, response}
+            complete_stream_response("", usage, response, preview_sent, on_narration_preview)
         end
 
       "response.output_text.delta" ->
@@ -1090,6 +1094,11 @@ defmodule Storyteller.GM.OpenAI do
     end
   end
 
+  defp complete_stream_response(text, usage, response, preview_state, on_narration_preview) do
+    emit_completed_narration_preview(text, preview_state, on_narration_preview)
+    {:completed, text, usage, response}
+  end
+
   defp response_with_streamed_output(response, streamed_output) when is_map(response) do
     case field(response, :output) do
       output when is_list(output) and output != [] -> response
@@ -1110,22 +1119,52 @@ defmodule Storyteller.GM.OpenAI do
 
   defp maybe_emit_narration_preview(_deltas, _size, sent, nil), do: sent
 
-  defp maybe_emit_narration_preview(deltas, size, sent, callback) do
-    with true <- size > 0,
-         output <-
-           deltas
-           |> Enum.reverse()
-           |> IO.iodata_to_binary()
-           |> binary_part(0, min(size, @max_preview_source_bytes)),
-         {:ok, narration} <- partial_top_level_string(output, "narration"),
+  defp maybe_emit_narration_preview(
+         deltas,
+         size,
+         %{text: sent, source_size: scanned} = state,
+         callback
+       ) do
+    cond do
+      size - scanned < @narration_preview_min_source_growth_bytes ->
+        state
+
+      scanned >= @max_preview_source_bytes ->
+        state
+
+      true ->
+        scanned_state = %{state | source_size: size}
+
+        with true <- size > 0,
+             output <-
+               deltas
+               |> Enum.reverse()
+               |> IO.iodata_to_binary()
+               |> binary_part(0, min(size, @max_preview_source_bytes)),
+             {:ok, narration} <- partial_top_level_string(output, "narration"),
+             narration <- String.slice(narration, 0, @max_narration_preview_chars),
+             true <- byte_size(narration) > byte_size(sent) do
+          safely_call(fn -> callback.(narration) end)
+          %{text: narration, source_size: size}
+        else
+          _ -> scanned_state
+        end
+    end
+  end
+
+  defp emit_completed_narration_preview(_text, _state, nil), do: :ok
+
+  defp emit_completed_narration_preview(text, %{text: sent}, callback) do
+    with {:ok, narration} <- partial_top_level_string(text, "narration"),
          narration <- String.slice(narration, 0, @max_narration_preview_chars),
          true <- byte_size(narration) > byte_size(sent) do
       safely_call(fn -> callback.(narration) end)
-      narration
     else
-      _ -> sent
+      _ -> :ok
     end
   end
+
+  defp initial_preview_state, do: %{text: "", source_size: 0}
 
   # Extract only the top-level JSON narration string. A partial or malformed
   # field never falls back to raw response text, so dialogue and proposal data

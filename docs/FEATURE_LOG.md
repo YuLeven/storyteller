@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-08 — Smooth streamed narration previews
+
+- Streaming the GM's JSON proposal used to reparse its growing prefix and send a LiveView update for every provider text delta. Providers may split even a few words into many tiny events, adding avoidable local work and message traffic while the player waits.
+- The adapter now scans and forwards provisional narration after meaningful source growth, while the separate first-output status remains immediate. A completed stream flushes any newer final narration; previews remain restricted to the top-level narration field and keep their existing size bounds. Failure and turn-completion cleanup remain unchanged.
+- A deterministic fake-stream regression splits a long narration into hundreds of tiny deltas and verifies bounded preview updates and a complete final draft. Existing tests continue to check that dialogue/private proposal fields never enter the preview and that failures clear it.
+- **Verification:** focused OpenAI adapter tests passed (**38 tests, 0 failures**); targeted LiveView preview and failure-cleanup checks passed (**2 selected, 0 failures**); the complete isolated WSL suite passed (**561 tests, 0 failures**, `--max-cases 16`). Development compilation with warnings as errors, formatting, and `git diff --check` passed. No live model request, OAuth consent, campaign data, or non-test database was used.
+
 ## 2026-10-08 — Let ordinary actions proceed on incomplete maps
 
 - Product feedback identified a frustrating refusal pattern: the GM treated an unrecorded walking route or unknown NPC availability as an obstacle, then narrated irrelevant exact stock totals. The game should follow clear player intent unless canon establishes a real barrier.

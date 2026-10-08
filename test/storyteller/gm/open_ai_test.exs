@@ -1245,6 +1245,48 @@ defmodule Storyteller.GM.OpenAITest do
     refute_receive {:narration_preview, _text}
   end
 
+  test "coalesces tiny narration deltas and flushes the final preview", context do
+    test_pid = self()
+    narration = String.duplicate("The stars turn above the quiet dome. ", 12)
+    response_text = Jason.encode!(%{"narration" => narration, "dialogue" => []})
+
+    delta_events =
+      response_text
+      |> String.codepoints()
+      |> Enum.chunk_every(2)
+      |> Enum.map(fn codepoints ->
+        event_frame("response.output_text.delta", %{
+          "type" => "response.output_text.delta",
+          "delta" => Enum.join(codepoints)
+        })
+      end)
+
+    completed =
+      event_frame("response.completed", %{
+        "type" => "response.completed",
+        "response" => %{"status" => "completed", "output" => []}
+      })
+
+    assert {:ok, %{text: ^response_text}} =
+             OpenAI.stream_response(
+               %{
+                 instructions: "Return structured text.",
+                 input: [%{role: "user", content: "Describe the dome."}],
+                 model: "fixture-model",
+                 on_narration_preview: fn text -> send(test_pid, {:narration_preview, text}) end
+               },
+               store: context.store,
+               http: provider_http(test_pid, Enum.join(delta_events ++ [completed]))
+             )
+
+    previews = collect_narration_previews([])
+
+    assert length(String.codepoints(response_text)) > 100
+    assert previews != []
+    assert List.last(previews) == narration
+    assert length(previews) < 20
+  end
+
   test "clears provisional text when the provider stream fails", context do
     test_pid = self()
 
@@ -1723,6 +1765,14 @@ defmodule Storyteller.GM.OpenAITest do
         true ->
           {:error, :unexpected_request}
       end
+    end
+  end
+
+  defp collect_narration_previews(previews) do
+    receive do
+      {:narration_preview, text} -> collect_narration_previews([text | previews])
+    after
+      0 -> Enum.reverse(previews)
     end
   end
 
