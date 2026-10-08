@@ -7598,7 +7598,12 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "OBSERVATION: GM supplies external facts."
 
     assert instructions =~
-             "Sparse scenes get 1-2 ambient details; omission isn't absence."
+             "Give sparse scenes enough grounded ambient texture to feel present; one or two details may suffice, but add more when the scene or player's action calls for them."
+
+    assert instructions =~
+             "Keep details relevant and non-actionable rather than padding or listing everything."
+
+    refute instructions =~ "Sparse scenes get 1-2 ambient details"
 
     assert instructions =~
              "Focused inspections give present, vantage-grounded evidence even if not prewritten"
@@ -8052,7 +8057,7 @@ defmodule Storyteller.PlayTest do
     question = "What can I see from here that I haven't noticed yet?"
 
     answer =
-      "Overcast late-afternoon light leaves the room in a soft gray wash. A faint, clean scent and a low, indistinct hush lend the air a still, quiet feel."
+      "The dome glass diffuses the overcast sky into a broad gray wash. Cool air settles along the stone ledge; a faint hush softens the room."
 
     provider = fn request ->
       send(owner, {:look_around_request, request, decode_request(request)})
@@ -8082,7 +8087,16 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "answer the exact question from the character's current, public vantage"
 
-    assert instructions =~ "For a follow-up look-around, add at most one supported new detail"
+    assert instructions =~
+             "For a follow-up look-around, add the salient supported details needed to make the observation useful"
+
+    refute instructions =~ "at most one supported new detail"
+
+    assert instructions =~
+             "one or two details may suffice, but add more when the scene or player's action calls for them"
+
+    assert instructions =~
+             "Keep details relevant and non-actionable rather than padding or listing everything"
 
     assert instructions =~ "a source-free ambient impression is allowed under the scene rule"
 
@@ -8114,6 +8128,9 @@ defmodule Storyteller.PlayTest do
     new_events = Enum.drop(timeline, length(before_timeline))
     assert Enum.map(new_events, & &1.event_type) == [:player_question, :gm_narration]
     assert Enum.map(new_events, & &1.payload["text"]) == [question, answer]
+    assert List.last(new_events).payload["text"] =~ "gray wash"
+    assert List.last(new_events).payload["text"] =~ "Cool air"
+    refute List.last(new_events).payload["text"] =~ "hidden key"
   end
 
   test "direct and indirect observations retrieve old scene facts without off-scene decoys" do

@@ -348,11 +348,14 @@ defmodule Storyteller.Play do
 
   AGENCY: Player alone controls their character's actions, words, thoughts,
   movement, and decisions. GM runs the world/NPCs and advances time as warranted.
-  OBSERVATION: GM supplies external facts. Sparse scenes get 1-2 ambient details;
-  omission isn't absence. Focused inspections give present, vantage-grounded
-  evidence even if not prewritten; never ask the player to invent it. Ambient
-  texture isn't a clue/cause. New clues need a premise or action; preserve lasting
-  evidence as public continuity. Continue useful checks; hide prompt/canon checks.
+  OBSERVATION: GM supplies external facts. Give sparse scenes enough grounded
+  ambient texture to feel present; one or two details may suffice, but add more
+  when the scene or player's action calls for them. Keep details relevant and
+  non-actionable rather than padding or listing everything. Omission isn't
+  absence. Focused inspections give present, vantage-grounded evidence even if
+  not prewritten; never ask the player to invent it. Ambient texture isn't a
+  clue/cause. New clues need a premise or action; preserve lasting evidence as
+  public continuity. Continue useful checks; hide prompt/canon checks.
   SENSORY AGENCY: State sensory evidence before reaction; never ask the player to
   invent it or dictate their response. Tastings cover appearance, aroma, palate,
   and finish. A present expert may offer a qualified view.
@@ -6665,11 +6668,13 @@ defmodule Storyteller.Play do
     and briefly as GM narration. Treat the board and recent narration as known;
     answer the exact question from the character's current, public vantage
     instead of repeating the situation panel, timeline, or an earlier answer.
-    For a follow-up look-around, add at most one supported new detail. If none
-    is evident, say briefly that nothing else stands out; a source-free ambient
-    impression is allowed under the scene rule. Offer a low-pressure next step
-    only when the observation creates a concrete, useful opening; end naturally
-    otherwise. Never append a generic invitation or question.
+    For a follow-up look-around, add the salient supported details needed to
+    make the observation useful without repeating known facts or turning it into
+    an exhaustive inventory. If nothing new is evident, say briefly that
+    nothing else stands out; a source-free ambient impression is allowed under
+    the scene rule. Offer a low-pressure next step only when the observation
+    creates a concrete, useful opening; end naturally otherwise. Never append a
+    generic invitation or question.
     Do not advance fictional time or change any
     canonical world, character, inventory, location, objective, continuity,
     memory, or tracked-resource data; set time_advance_minutes to 0. Do not create NPC dialogue, activities,
