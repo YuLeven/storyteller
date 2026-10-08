@@ -88,7 +88,24 @@ defmodule Storyteller.Play do
   @max_history_events 40
   @max_relevant_older_events 40
   @max_history_search_terms 8
-  @travel_intent_pattern ~r/\b(?:go|head|walk|travel|drive|ride|take|follow|visit|meet|join|escort|bring|accompany|leave|return|reach|come|ir|voy|vamos|caminar|camino|viajar|visitar|llevar|acompanar|venir|mover|marcha|aller|marche|visiter|emmener|accompagner|rejoindre|partir|entrer|sortir|rendre)\b/iu
+  @travel_intent_words ~w(
+    go going goes went head headed heading heads walk walked walking walks travel traveled
+    travelling travels drive drives driving drove ride rides riding rode follow followed following
+    follows visit visited visiting visits meet meets meeting met join joined joining joins escort
+    escorted escorting escorts bring brings bringing brought accompany accompanies accompanied
+    accompanying leave leaves leaving left return returned returning returns reach reached reaching
+    reaches come comes coming came cross crossed crossing crosses enter entered entering enters
+    ir voy vas va vamos van caminar camino caminas camina caminan caminaron viajar viajo viajas
+    viaja viajan viaje visitar visito visitas visita visitan llevar llevo llevas lleva llevan venir
+    vengo vienes viene vienen mover muevo mueves mueve mueven marcha marcho marchas marchan aller
+    vais allons allez vont marche marcher visite emmener accompagne rejoins rejoignons rejoindre
+    partir pars partons entre entrer sortir sors sortons rendre rends rendons
+  )
+  @travel_intent_prefixes ~w(
+    head walk travel driv rid follow visit meet join escort bring accompan leave return reach cross
+    enter camina camin viaj visit llev acompa ven mov march aller marcher visit emmen accompagn
+    rejoign partir entr sort rend
+  )
   @max_history_entity_terms 24
   @max_history_scene_speakers 32
   @max_history_connected_places 24
@@ -335,7 +352,8 @@ defmodule Storyteller.Play do
   requested scale. Finish bounded tasks delegated to capable present NPCs with
   supported results; ask only for blockers, never invent success or player acts.
   Resolve unclear intent; avoid micro-actions, forced dialogue, and menus.
-  No recap/panel facts. elapsed_world_clock is exact minutes; don't parse labels.
+  No recap, panel facts, or unchanged balances unless asked, changed, or
+  decision-relevant. elapsed_world_clock is exact minutes; don't parse labels.
   Keep place/conditions consistent; narrate changes only. Use public date/time/
   weather keys. Answer from public canon/vantage; don't invent people, owned
   items, hazards, or services. Missing canon stays unknown; ask only when a
@@ -394,10 +412,10 @@ defmodule Storyteller.Play do
   TRAVEL: Public travel_connections and minutes are binding; the graph is
   incomplete, not a barrier. Ordinary trips between established public places
   proceed: propose a plausible public route, move the player in this response,
-  and narrate the journey. If the destination is a known NPC's recorded place,
-  go there; don't ask again, refuse, or move them to the player. If their place
-  is unknown, use a public routine supported by canon or make concrete search
-  progress, not an unsupported absence. Never shorten known distances or bypass
+  and narrate the journey. A named NPC's known place is the destination; don't
+  demand a contact path, refuse, or move them to the player. If their place is
+  unknown, search from a supported public place; don't infer absence from silence.
+  Never shorten known distances or bypass
   a barrier, duty, danger, or closure. The app validates routes and computes
   duration. Include travel once in time_advance_minutes, at least the longest
   character route.
@@ -1711,8 +1729,10 @@ defmodule Storyteller.Play do
             "If no amount is established, do not claim the value changed."
 
         :location_presence ->
-          "Correct the state operations; don't cancel an ordinary trip. For a new public " <>
-            "destination, add location_changes create_place {type,place:{place_id,name,visibility},reason}, " <>
+          "Correct the state operations; don't cancel ordinary travel because map data is incomplete. " <>
+            "For a named off-scene NPC, use their canonical recorded place; no contact path is needed. " <>
+            "For a new public destination, add location_changes create_place " <>
+            "{type,place:{place_id,name,visibility},reason}, " <>
             "then move the player and each co-present companion they explicitly asked to bring with " <>
             "move_character {type,speaker_id,place_id,reason}. If no route connects the public origin " <>
             "and destination, add travel_changes create_connection {type,place_a_id,place_b_id," <>
@@ -6077,6 +6097,20 @@ defmodule Storyteller.Play do
     ContextBudget.emit_metrics(Map.get(request, :local_context_metrics), usage)
   end
 
+  defp travel_intent?(player_action) do
+    tokens =
+      player_action
+      |> String.normalize(:nfd)
+      |> String.replace(~r/\p{Mn}/u, "")
+      |> String.downcase()
+      |> String.split(~r/[^\p{L}]+/u, trim: true)
+
+    Enum.any?(tokens, fn token ->
+      token in @travel_intent_words or
+        Enum.any?(@travel_intent_prefixes, &String.starts_with?(token, &1))
+    end)
+  end
+
   defp interaction_mode_guidance(:question, _player_action) do
     """
 
@@ -6148,22 +6182,17 @@ defmodule Storyteller.Play do
   end
 
   defp interaction_mode_guidance(:action, player_action) when is_binary(player_action) do
-    if Regex.match?(@travel_intent_pattern, player_action) do
+    if travel_intent?(player_action) do
       """
 
-      MOVEMENT OPERATIONS: Resolve the requested ordinary trip now. For a new public
-      destination, first add location_changes create_place
-      {type:"create_place",place:{place_id,name,visibility:"public"},reason}.
-      Add a missing public edge with travel_changes create_connection
-      {type:"create_connection",place_a_id,place_b_id,travel_minutes,visibility:"public",reason}.
-      Then use location_changes move_character
-      {type:"move_character",speaker_id,place_id,reason} for the player and every
-      co-present companion the player explicitly asks to bring. Keep other NPCs
-      where canon places them. Reuse established routes and times; for a new edge,
-      choose a plausible duration consistent with the established setting. The app
-      computes the move duration. Include it once in time_advance_minutes. Do not
-      narrate arrival without the matching place/route/movement operations. Only
-      stop for a barrier, danger, duty, or closure already established in canon.
+      TRAVEL NOW: For a named off-scene NPC, use their recorded place; missing
+      route/contact alone is no blocker. Add a missing public route with
+      travel_changes create_connection {type,place_a_id,place_b_id,travel_minutes,
+      visibility,reason}; create a public place if needed. Then move the player
+      and requested co-present companions with location_changes move_character.
+      Keep others where canon places them. Preserve known times and real
+      restrictions; include route time once in total turn time. Never claim
+      arrival without the matching route and movement operations.
       """
     else
       ""

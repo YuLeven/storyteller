@@ -1402,6 +1402,8 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "Preserve NPC knowledge, motives, work, and voice"
     assert instructions =~ "OBSERVATION: GM supplies external facts."
+    assert instructions =~ "No recap, panel facts, or unchanged balances"
+    assert instructions =~ "decision-relevant. elapsed_world_clock"
 
     assert instructions =~
              "Tastings cover appearance,"
@@ -1422,6 +1424,7 @@ defmodule Storyteller.PlayTest do
              "keep quirks brief"
 
     assert instructions =~ "Never blend voices; narrate in GM voice."
+    refute instructions =~ "TRAVEL NOW:"
 
     assert characters["npc:marcel"]["name"] == "Marcel"
 
@@ -4437,7 +4440,14 @@ defmodule Storyteller.PlayTest do
 
     provider = fn request ->
       attempt = Agent.get_and_update(attempts, &{&1 + 1, &1 + 1})
-      send(parent, {:movement_repair_request, attempt, request.instructions})
+
+      send(parent, {
+        :movement_repair_request,
+        attempt,
+        request.instructions,
+        request.local_context_metrics.estimated_request_bytes,
+        request.request_size_limit_bytes
+      })
 
       proposal = if attempt == 1, do: initially_unrouted, else: valid_after_repair
       {:ok, Jason.encode!(proposal)}
@@ -4448,17 +4458,27 @@ defmodule Storyteller.PlayTest do
                campaign.id,
                session.id,
                "walk-to-record-room-with-lyra",
-               "I ask Lyra to come with me to the observatory's record room, where we can check the older notes.",
+               "Acompáñame, Lyra, a la sala de registros del observatorio para revisar las notas antiguas.",
                provider: provider,
                model: "test-model"
              )
 
-    assert_receive {:movement_repair_request, 1, first_instructions}
-    assert_receive {:movement_repair_request, 2, corrected_instructions}
+    assert_receive {:movement_repair_request, 1, first_instructions, first_size, first_limit}
+
+    assert_receive {:movement_repair_request, 2, corrected_instructions, corrected_size,
+                    corrected_limit}
+
+    normalized_first_instructions = String.replace(first_instructions, ~r/\s+/, " ")
     refute first_instructions =~ "Internal correction:"
-    assert first_instructions =~ "MOVEMENT OPERATIONS: Resolve the requested ordinary trip now."
-    assert first_instructions =~ "travel_changes create_connection"
-    assert first_instructions =~ "co-present companion the player explicitly asks to bring"
+    assert normalized_first_instructions =~ "TRAVEL NOW: For a named off-scene NPC"
+    assert normalized_first_instructions =~ "travel_changes create_connection"
+    assert normalized_first_instructions =~ "requested co-present companions"
+    assert normalized_first_instructions =~ "A named NPC's known place is the destination"
+
+    assert normalized_first_instructions =~ "missing route/contact alone is no blocker"
+
+    assert first_size <= first_limit
+    assert corrected_size <= corrected_limit
 
     assert corrected_instructions =~
              "Internal correction: the prior GM proposal did not satisfy place, character-presence, or movement consistency."
@@ -4466,6 +4486,7 @@ defmodule Storyteller.PlayTest do
     assert corrected_instructions =~ "add travel_changes create_connection"
     assert corrected_instructions =~ "move_character"
     assert corrected_instructions =~ "each co-present companion they explicitly asked to bring"
+    assert corrected_instructions =~ "no contact path is needed"
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
 
@@ -6948,7 +6969,11 @@ defmodule Storyteller.PlayTest do
     instructions_agent = Agent.start_link(fn -> nil end) |> elem(1)
 
     provider = fn request ->
-      Agent.update(instructions_agent, fn _ -> request.instructions end)
+      Agent.update(instructions_agent, fn _ ->
+        {request.instructions, request.local_context_metrics.estimated_request_bytes,
+         request.request_size_limit_bytes}
+      end)
+
       {:ok, Jason.encode!(ordinary_proposal(%{"narration" => "Nothing new catches your eye."}))}
     end
 
@@ -6962,10 +6987,12 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    raw_instructions = Agent.get(instructions_agent, & &1)
+    {raw_instructions, estimated_request_bytes, request_size_limit_bytes} =
+      Agent.get(instructions_agent, & &1)
+
     instructions = String.replace(raw_instructions, ~r/\s+/, " ")
 
-    assert byte_size(raw_instructions) < 11_000
+    assert estimated_request_bytes <= request_size_limit_bytes
 
     assert instructions =~
              "Player alone controls their character's actions, words, thoughts, movement"
@@ -10131,7 +10158,8 @@ defmodule Storyteller.PlayTest do
       send(
         test_pid,
         {:time_passage_request, context["interaction_mode"], context["player_action"],
-         request.instructions}
+         request.instructions, request.local_context_metrics.estimated_request_bytes,
+         request.request_size_limit_bytes}
       )
 
       {:ok,
@@ -10159,8 +10187,10 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions}
-    assert byte_size(instructions) < 12_000
+    assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions,
+                    estimated_request_bytes, request_size_limit_bytes}
+
+    assert estimated_request_bytes <= request_size_limit_bytes
 
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
     assert normalized_instructions =~ "full stated duration, including multiple days"
