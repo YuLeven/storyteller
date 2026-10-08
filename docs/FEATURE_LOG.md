@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-07 — Default the GM to Luna and protect model allowance
+
+- New installs and existing unset model preferences now default to `gpt-6-luna`. Automatic remains available as an explicit setting and continues to follow the account catalog order.
+- Repository agent guidance requires fake providers for development and automated tests, forbids routine live calls/catalog lookups/OAuth, and reserves live QA for owner-requested Luna runs. Sol/Astra comparisons require a separate explicit request.
+- OpenAI lists GPT-6 Luna API rates below Sol and Astra; those API dollar rates do not describe ChatGPT plan usage allowances. The default follows the owner's cost/allowance direction without promising a specific reduction in plan usage.
+- **Verification:** full isolated WSL suite passed (**531 tests, 0 failures**), including settings, connected-account selector, and turn-submission checks. `MIX_ENV=test mix format --check-formatted` and `git diff --check` passed. All model behavior used test fixtures/fake providers; no live model call, catalog request, OAuth consent, or campaign QA data was used.
+
 ## 2026-10-07 — Verify inspection findings across a direct follow-up
 
 - Extended the production-boundary fake-provider regression from a single action to a two-turn inspection and Ask GM sequence. The scene canon establishes an eastern chart but has no mark details; the inspection adds a visible scratch without asking the player to describe it, and the lasting finding records that author and timing are unknown with provenance to the inspecting turn. A direct follow-up asks who made it and when; the response preserves that uncertainty and creates no new continuity entry.

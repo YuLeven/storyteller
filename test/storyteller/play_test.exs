@@ -170,6 +170,23 @@ defmodule Storyteller.PlayTest do
     assert_received {:resolved_model, "fixture-model"}
   end
 
+  test "Luna is the default model passed into turn resolution" do
+    {campaign, session} = play_campaign("The Default Model Observatory")
+    assert Settings.preferred_gm_model() == "gpt-6-luna"
+
+    test_pid = self()
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(campaign.id, session.id, "default-model-turn", "Look around.",
+               provider: fn request ->
+                 send(test_pid, {:resolved_model, Map.get(request, :model)})
+                 {:ok, Jason.encode!(ordinary_proposal())}
+               end
+             )
+
+    assert_received {:resolved_model, "gpt-6-luna"}
+  end
+
   test "opening scene needs a public player place and presence for its speaking characters" do
     {campaign, session} = play_campaign("The Unplaced Observatory", starting_location: nil)
     assert {:ok, opening_turn} = Play.ensure_opening_scene(campaign.id, session.id)

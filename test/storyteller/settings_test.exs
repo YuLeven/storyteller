@@ -3,8 +3,8 @@ defmodule Storyteller.SettingsTest do
 
   alias Storyteller.Settings
 
-  test "GM model preference stays automatic until a local choice is saved" do
-    assert is_nil(Settings.preferred_gm_model())
+  test "GM model defaults to Luna and Automatic remains an explicit local choice" do
+    assert Settings.preferred_gm_model() == "gpt-6-luna"
 
     assert {:ok, _preference} = Settings.set_preferred_gm_model("fixture-model")
     assert Settings.preferred_gm_model() == "fixture-model"

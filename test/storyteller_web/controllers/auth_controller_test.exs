@@ -32,33 +32,31 @@ defmodule StorytellerWeb.AuthControllerTest do
     end
   end
 
-  test "automatic model summary is localized and follows the account list order", %{conn: conn} do
+  test "default Luna model is shown in the connected account's model selector", %{conn: conn} do
     put_test_credentials()
 
     on_exit(fn ->
       _ = TokenStore.sign_out(fn _credentials -> :ok end)
     end)
 
-    for {locale, expected, reasoning_note} <- [
+    for {locale, reasoning_note} <- [
           {
             "en",
-            "Automatic (first model in account list: Fixture Model (fixture-model))",
             "Storyteller requests low reasoning effort for supported models to help turns resolve faster."
           },
           {
             "es",
-            "Automático (primer modelo de la lista de la cuenta: Fixture Model (fixture-model))",
             "Storyteller solicita un nivel bajo de razonamiento en los modelos compatibles para resolver los turnos más rápido."
           },
           {
             "fr",
-            "Automatique (premier modèle de la liste du compte : Fixture Model (fixture-model))",
             "Storyteller demande un niveau de raisonnement faible pour les modèles compatibles afin d’accélérer les tours."
           }
         ] do
       assert {:ok, _preference} = Settings.set_ui_locale(locale)
       html = conn |> recycle() |> get("/auth/connect") |> html_response(200)
-      assert model_summary_text(html) == expected
+      assert model_summary_text(html) == "GPT-6 Luna (gpt-6-luna)"
+      assert html =~ "value=\"gpt-6-luna\" selected"
       assert html =~ reasoning_note
     end
   end
@@ -79,8 +77,7 @@ defmodule StorytellerWeb.AuthControllerTest do
     assert html =~ "action=\"/auth/authorize\""
     assert html =~ "Game master model"
 
-    assert model_summary_text(html) ==
-             "Automatic (first model in account list: Fixture Model (fixture-model))"
+    assert model_summary_text(html) == "GPT-6 Luna (gpt-6-luna)"
 
     assert html =~
              "Choose which available account model resolves new turns. Automatic uses the first model returned by the account catalog."
@@ -88,7 +85,7 @@ defmodule StorytellerWeb.AuthControllerTest do
     assert html =~
              "Storyteller requests low reasoning effort for supported models to help turns resolve faster."
 
-    assert html =~ "value=\"automatic\" selected"
+    assert html =~ "value=\"gpt-6-luna\" selected"
   end
 
   test "preferred model can be saved from the connected catalog and reset to automatic", %{
