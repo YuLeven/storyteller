@@ -1609,7 +1609,8 @@ defmodule StorytellerWeb.SessionLive.Show do
           "stream_incomplete",
           "provider_unavailable",
           "resolver_crashed",
-          "timeout"
+          "timeout",
+          "usage_unavailable"
         ],
         on_first_output: fn ->
           send(owner, {:turn_first_output, turn_id, worker_tag})
@@ -1753,7 +1754,8 @@ defmodule StorytellerWeb.SessionLive.Show do
       "stream_incomplete",
       "provider_unavailable",
       "resolver_crashed",
-      "timeout"
+      "timeout",
+      "usage_unavailable"
     ]
   end
 

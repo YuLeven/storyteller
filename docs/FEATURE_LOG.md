@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-08 — Recover the same action when the provider cannot confirm usage
+
+- The Quiet Observatory QA session's saved movement/action could not be resolved because the ChatGPT-plan provider returned `usage_unavailable`. A single intentional Luna retry returned the same status; the saved action and campaign canon remained intact. The persisted default GM model for this isolated campaign is `gpt-6-luna`.
+- Treat provider `usage_unavailable` as transient in Play and LiveView recovery. The existing same-turn recovery loop retries it in the background, retains the visible pending action, and resumes it after reconnect; an explicit usage limit, pause, credential issue, or local context correction remains a different state that must not be automatically resent.
+- Added behavioral coverage for recovery after a temporary provider usage-status failure, verifying the story commits once with one player action and one GM reply. The live account remained unavailable during the single manual Luna retry, so no live recovery success or story-quality result is claimed from this attempt.
+- **Checks:** both new focused regressions passed; the complete `Play` and session `SessionLive` suites passed (**245 tests, 0 failures**) in WSL against `storyteller_test` with fake providers. `mix format --check-formatted`, warnings-as-errors development compilation, and `git diff --check` passed. No live model call was made for verification after the recovery change.
+
 ## 2026-10-08 — Keep narrated travel moving while preserving meaningful rolls
 
 - A routine walk to a uniquely identified NPC can no longer stall on a roll the GM itself calls routine after already narrating the arrival. Storyteller records the player's public-location move and drops only that redundant travel check. If the accepted response instead asks for a separate uncertainty (such as persuading the NPC), the move and canonical route time commit while the player still rolls for that uncertainty. A clearly risky movement test remains unresolved before crossing; no other state edits can piggyback on movement while that roll is pending.

@@ -12774,6 +12774,47 @@ defmodule Storyteller.PlayTest do
     assert Enum.at(timeline, 0).payload["text"] == "Check the clock."
   end
 
+  test "uncertain provider usage automatically retries the saved turn without duplicating it" do
+    {campaign, session} = play_campaign("The Usage Status Recovery Observatory")
+    provider_calls = :atomics.new(1, signed: false)
+
+    proposal_text =
+      Jason.encode!(
+        ordinary_proposal(%{
+          "narration" => "Inés opens the oldest observing log.",
+          "dialogue" => [],
+          "activities" => [],
+          "character_updates" => []
+        })
+      )
+
+    provider = fn _request ->
+      case :atomics.add_get(provider_calls, 1, 1) do
+        1 -> {:error, :usage_unavailable}
+        _ -> {:ok, proposal_text}
+      end
+    end
+
+    assert {:ok, %{status: :completed, attempts: 2} = completed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "uncertain-usage-recovery",
+               "I ask Inés to check the oldest observing log.",
+               provider: provider,
+               model: "test-model",
+               transient_retry_base_delay_ms: 0
+             )
+
+    assert :atomics.get(provider_calls, 1) == 2
+    assert completed.failure_code == nil
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+    assert Enum.at(timeline, 0).payload["text"] == "I ask Inés to check the oldest observing log."
+  end
+
   test "transient recovery can continue after the initial four same-turn claims" do
     {campaign, session} = play_campaign("The Long Recovery Observatory")
     provider_calls = :atomics.new(1, signed: false)

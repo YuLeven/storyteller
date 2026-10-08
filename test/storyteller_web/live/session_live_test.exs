@@ -1724,6 +1724,79 @@ defmodule StorytellerWeb.SessionLiveTest do
            ] == action
   end
 
+  test "unconfirmed provider usage keeps a saved action retrying automatically", %{conn: conn} do
+    campaign = campaign_fixture()
+    [session] = campaign.sessions
+    test_pid = self()
+    provider_calls = :atomics.new(1, signed: false)
+    recovered_text = "Inés finds the oldest logbook on the archive shelf."
+
+    set_handler(fn _request ->
+      case :atomics.add_get(provider_calls, 1, 1) do
+        1 ->
+          send(test_pid, :usage_unavailable_provider_response)
+          {:error, :usage_unavailable}
+
+        attempt ->
+          send(test_pid, {:usage_unavailable_retry, self(), attempt})
+
+          receive do
+            :return_recovered_proposal ->
+              {:ok,
+               %{
+                 narration: recovered_text,
+                 dialogue: [],
+                 activities: [],
+                 public_changes: %{},
+                 private_changes: %{},
+                 character_updates: [],
+                 memory_update: %{public_summary: "", gm_private_summary: ""},
+                 roll_request: nil
+               }}
+          end
+      end
+    end)
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+    action = "I ask Inés to check the oldest observatory logbook."
+
+    view
+    |> form("#turn-composer", turn: %{input: action})
+    |> render_submit()
+
+    assert_receive :usage_unavailable_provider_response, 2_000
+    assert wait_until(fn -> has_element?(view, "#turn-auto-recovery") end)
+    assert has_element?(view, "#story-pending-action", action)
+    refute has_element?(view, "#turn-error")
+
+    assert_receive {:usage_unavailable_retry, provider_pid, 2}, 5_000
+    turn = Play.public_current_turn(campaign.id)
+    assert turn.player_input == action
+    assert turn.status == :resolving
+    assert turn.attempts == 2
+
+    send(provider_pid, :return_recovered_proposal)
+
+    assert wait_until(fn ->
+             has_element?(view, "#story-timeline", recovered_text) and
+               Play.public_current_turn(campaign.id) == nil
+           end)
+
+    assert :atomics.get(provider_calls, 1) == 2
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    assert Enum.count(
+             timeline,
+             &(&1.event_type == :player_action and &1.payload["text"] == action)
+           ) == 1
+
+    assert Enum.count(
+             timeline,
+             &(&1.event_type == :gm_narration and &1.payload["text"] == recovered_text)
+           ) == 1
+  end
+
   test "an unusable GM reply is corrected internally before a turn error appears",
        %{
          conn: conn

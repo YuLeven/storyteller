@@ -689,7 +689,11 @@ defmodule Storyteller.Play do
   @transient_auto_recovery_failure_codes [
     "network_error",
     "stream_incomplete",
-    "provider_unavailable"
+    "provider_unavailable",
+    # This response means account usage could not be confirmed, not that the
+    # plan has reported a limit. The saved turn can recover as the provider's
+    # account-status service comes back.
+    "usage_unavailable"
   ]
   @proposal_repair_retry_limit 2
   # Safely rejected proposals get up to four category-guided correction
