@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-08 — Let the GM establish tasting facts first
+
+- Ran one focused live play check in a new fictional campaign, `Quiet Observatory QA — Lantern Room Tasting`, in the isolated `storyteller_quiet_observatory_20261007_codex1` database. The connected model was GPT-6 Luna at low reasoning effort. No other campaign data was used.
+- The opening grounded the lantern room in rain and ridge wind, described the infusion's mint aroma and pear scent, and introduced the present caretaker with a brief characterful line. After the player poured a cup and sipped, the GM supplied observable color, aroma, sweetness, cooling mint, and pear finish before ending with the caretaker's small gesture. It did not ask the player to invent a taste or dictate the botanist's judgment.
+- The turn used one player action and returned one cohesive GM response. Staged telemetry measured about 7.2 seconds for the opening and 5.7 seconds for the tasting turn, including streaming, validation, and commit. This is one deliberately narrow sample; it does not certify overall latency, adaptive pacing, or campaign-wide story quality.
+
 ## 2026-10-08 — Repair safely rejected GM proposals on the saved turn
 
 - A strict validator could reject a response even when the saved player action and current canon gave the GM enough information to correct it. Requiring the player to click Retry for each safely repairable schema/canon mistake made ordinary play feel brittle.
