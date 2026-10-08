@@ -2,9 +2,9 @@
 
 ## Protect the owner's model allowance
 
-- Development and automated tests must use deterministic fake providers. Never make live model calls, perform OAuth consent, or fetch a live model catalog as part of a routine code change, test run, or benchmark.
-- If the owner explicitly asks for a live gameplay exploration, use `gpt-6-luna` at low reasoning effort. Do not use Sol, Astra, or another more expensive model unless the owner explicitly requests that specific comparison.
-- Do not start redundant or broad live runs. Record live usage only when the owner has asked for the exploration, and never treat a fake-provider test as evidence of live model behavior.
+- Development and automated tests should use deterministic fake providers by default. The owner has authorized focused live gameplay tests through the actual ChatGPT-plan API using `gpt-6-luna` at low reasoning effort when real provider behavior or story quality needs verification.
+- Do not use Sol, Astra, or another more expensive model unless the owner explicitly requests that specific comparison. This authorization is not permission for model comparisons.
+- Keep live runs small and purposeful; avoid redundant requests. Record live usage and never treat a fake-provider test as evidence of live model behavior.
 
 ## Campaign and data boundaries
 
