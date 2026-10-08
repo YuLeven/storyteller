@@ -2057,9 +2057,14 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "at the next genuine player decision"
 
-    assert instructions =~ "Ask only for blockers; never invent success or player acts."
+    assert instructions =~
+             "Ask only when a real barrier or unresolved consequential choice needs the player."
 
-    assert instructions =~ "never invent success or player acts."
+    assert instructions =~
+             "Resolve routine unobstructed movement, conversation, and handling naturally"
+
+    assert instructions =~
+             "Never invent the player's follow-through, words, choices, or acts."
 
     assert {:ok, events} = Play.public_timeline(campaign.id)
     turn_events = Enum.filter(events, &(&1.turn_id == turn.id))
@@ -7707,7 +7712,8 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Stay line-by-line during an active intimate exchange, an established high-stakes instant, or a consequential choice"
 
-    assert instructions =~ "never invent success or player acts."
+    assert instructions =~
+             "Never invent the player's follow-through, words, choices, or acts."
 
     assert instructions =~
              "Addressed NPCs answer unless silence is justified."
@@ -7987,7 +7993,9 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "never invent drama or skip ahead through it."
 
-    assert instructions =~ "never invent success or player acts."
+    assert instructions =~
+             "Never invent the player's follow-through, words, choices, or acts."
+
     assert instructions =~ "OBJECTIVES: objective_changes=[] unless a lasting commitment changes."
 
     assert instructions =~
@@ -10575,20 +10583,382 @@ defmodule Storyteller.PlayTest do
            ) == 1
   end
 
-  test "an ordinary action completes without asking for a D20" do
+  test "ordinary movement and conversation resolve without an invented blocker or D20" do
     {campaign, session} = play_campaign("The Glass Observatory")
+    test_pid = self()
+
+    provider = fn request ->
+      send(test_pid, {:ordinary_action_instructions, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => "The few steps across the open floor bring you beside Lyra.",
+           "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "I saw it move once."}],
+           "activities" => [],
+           "character_updates" => [],
+           "panel_changes" => [],
+           "public_changes" => %{},
+           "private_changes" => %{},
+           "time_advance_minutes" => 0
+         })
+       )}
+    end
 
     assert {:ok, turn} =
-             Play.submit_turn(campaign.id, session.id, "ordinary", "Polish the lens.",
-               provider: ordinary_provider(),
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "ordinary",
+               "I cross the open room to Lyra and ask whether she saw the star move.",
+               provider: provider,
                model: "test-model"
              )
 
     assert turn.status == :completed
     assert Repo.aggregate(Roll, :count) == 0
 
+    assert_receive {:ordinary_action_instructions, instructions}
+    instructions = String.replace(instructions, ~r/\s+/, " ")
+
+    assert instructions =~
+             "Resolve routine unobstructed movement, conversation, and handling naturally"
+
+    assert instructions =~ "missing map edges or routine details alone are not barriers"
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(events, &(&1.turn_id == turn.id))
+
+    assert Enum.map(turn_events, & &1.event_type) == [
+             :player_action,
+             :gm_narration,
+             :npc_dialogue
+           ]
+
+    assert Enum.find(turn_events, &(&1.event_type == :gm_narration)).payload["text"] =~
+             "few steps across the open floor"
+
+    assert Enum.find(turn_events, &(&1.event_type == :npc_dialogue)).payload["text"] ==
+             "I saw it move once."
+
     assert {:error, :roll_not_authorized} =
              Play.click_player_d20(turn.id, roll_source: fn -> flunk("no roll was requested") end)
+  end
+
+  test "a narrated entry without canonical movement is repaired before the turn is committed" do
+    {campaign, session} = play_campaign("The Lower Dome Observatory")
+
+    Repo.update!(
+      Storyteller.Campaigns.Campaign.changeset(campaign, %{player_character_name: "Ada"})
+    )
+
+    player_character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    Repo.update!(Character.changeset(player_character, %{name: "Ada"}))
+
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+    mara = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(mara, %{name: "Mara"}))
+
+    ines =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:ines",
+          name: "Ines",
+          role: :gm,
+          current_place_id: origin.place_id
+        })
+      )
+
+    omitted_movement =
+      ordinary_proposal(%{
+        "narration" =>
+          "Mara unlocks the swollen door. Ada follows her inside, keeping it steady as the bell sounds in the Lower Dome.",
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "Mind the sill."}],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [],
+        "travel_changes" => [],
+        "time_advance_minutes" => 1
+      })
+
+    recorded_movement =
+      ordinary_proposal(%{
+        "narration" =>
+          "Mara steps inside. Ada follows her into the Lower Dome while keeping the door steady.",
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "Mind the sill."}],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "lower-dome",
+              "name" => "The Lower Dome",
+              "visibility" => "public"
+            },
+            "reason" => "The player and Mara enter the observatory's lower dome."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => "lower-dome",
+            "reason" => "The player's saved action follows Mara inside."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => "lower-dome",
+            "reason" => "Mara leads the player through the door."
+          }
+        ],
+        "travel_changes" => [
+          %{
+            "type" => "create_connection",
+            "place_a_id" => origin.place_id,
+            "place_b_id" => "lower-dome",
+            "travel_minutes" => 1,
+            "visibility" => "public",
+            "reason" => "A doorway connects the platform and the lower dome."
+          }
+        ],
+        "time_advance_minutes" => 1
+      })
+
+    parent = self()
+    attempts = start_supervised!({Agent, fn -> 0 end})
+
+    provider = fn request ->
+      attempt = Agent.get_and_update(attempts, fn count -> {count + 1, count + 1} end)
+      send(parent, {:scene_transition_provider_attempt, attempt, request.instructions})
+
+      proposal = if attempt == 1, do: omitted_movement, else: recorded_movement
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    action = "I ask Mara to unlock the lower dome and follow her inside, keeping the door steady."
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(campaign.id, session.id, "enter-lower-dome", action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:scene_transition_provider_attempt, 1, first_instructions}
+    refute first_instructions =~ "Internal correction:"
+
+    assert_receive {:scene_transition_provider_attempt, 2, corrected_instructions}
+
+    assert corrected_instructions =~
+             "Internal correction: the prior GM proposal did not satisfy place, character-presence, or movement consistency."
+
+    assert corrected_instructions =~ "record the player's move before accepting the scene"
+    assert Agent.get(attempts, & &1) == 2
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    mara_projection = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
+    ines_projection = Enum.find(projection.characters, &(&1.speaker_id == "npc:ines"))
+
+    assert player.current_place.name == "The Lower Dome"
+    assert mara_projection.current_place_id == "lower-dome"
+    assert ines_projection.current_place_id == origin.place_id
+    assert Repo.get!(Character, ines.id).current_place_id == origin.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    assert Enum.count(turn_events, &(&1.event_type == :player_action)) == 1
+
+    refute Enum.any?(turn_events, fn event ->
+             event.event_type == :gm_narration and
+               event.payload["text"] =~ "bell sounds in the Lower Dome"
+           end)
+
+    assert Enum.any?(turn_events, fn event ->
+             event.event_type == :gm_narration and
+               event.payload["text"] =~ "Ada follows her into the Lower Dome"
+           end)
+
+    location_event = Enum.find(turn_events, &(&1.event_type == :state_change))
+
+    assert Enum.any?(location_event.payload["location_changes"], fn change ->
+             change["type"] == "move_character" and change["speaker_id"] == "player" and
+               change["place_id"] == "lower-dome"
+           end)
+  end
+
+  test "a named GM character crossing places is tracked without moving the player" do
+    {campaign, session} = play_campaign("The Observatory Bell Room")
+
+    Repo.update!(
+      Storyteller.Campaigns.Campaign.changeset(campaign, %{player_character_name: "Ada"})
+    )
+
+    player_character = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    Repo.update!(Character.changeset(player_character, %{name: "Ada"}))
+
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+    mara = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(mara, %{name: "Mara"}))
+
+    omitted_movement =
+      ordinary_proposal(%{
+        "narration" =>
+          "Mara steps inside the Lower Dome to check the ringing bell. Ada stays by the telescope.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [],
+        "travel_changes" => [],
+        "time_advance_minutes" => 1
+      })
+
+    recorded_movement =
+      ordinary_proposal(%{
+        "narration" =>
+          "Mara steps inside the Lower Dome to check the ringing bell. Ada stays by the telescope.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "location_changes" => [
+          %{
+            "type" => "create_place",
+            "place" => %{
+              "place_id" => "lower-dome",
+              "name" => "The Lower Dome",
+              "visibility" => "public"
+            },
+            "reason" => "The lower dome is established as Mara enters it."
+          },
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => "lower-dome",
+            "reason" => "Mara enters the lower dome to check the bell."
+          }
+        ],
+        "travel_changes" => [
+          %{
+            "type" => "create_connection",
+            "place_a_id" => origin.place_id,
+            "place_b_id" => "lower-dome",
+            "travel_minutes" => 1,
+            "visibility" => "public",
+            "reason" => "A doorway connects the platform and the lower dome."
+          }
+        ],
+        "time_advance_minutes" => 1
+      })
+
+    caller = self()
+    attempts = start_supervised!({Agent, fn -> 0 end})
+
+    provider = fn request ->
+      attempt = Agent.get_and_update(attempts, fn count -> {count + 1, count + 1} end)
+      send(caller, {:npc_transition_provider_attempt, attempt, request.instructions})
+
+      proposal = if attempt == 1, do: omitted_movement, else: recorded_movement
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "mara-checks-the-bell",
+               "I ask Mara if she can go inside and check the bell. I stay by the telescope.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:npc_transition_provider_attempt, 1, _first_instructions}
+    assert_receive {:npc_transition_provider_attempt, 2, corrected_instructions}
+
+    assert corrected_instructions =~
+             "Internal correction: the prior GM proposal did not satisfy place, character-presence, or movement consistency."
+
+    assert Agent.get(attempts, & &1) == 2
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    player = Enum.find(projection.characters, &(&1.speaker_id == "player"))
+    mara_projection = Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra"))
+
+    assert player.current_place_id == origin.place_id
+    assert mara_projection.current_place_id == "lower-dome"
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    assert Enum.count(turn_events, &(&1.event_type == :player_action)) == 1
+
+    assert Enum.any?(turn_events, fn event ->
+             event.event_type == :state_change and
+               Enum.any?(event.payload["location_changes"], fn change ->
+                 change["type"] == "move_character" and
+                   change["speaker_id"] == "npc:lyra" and change["place_id"] == "lower-dome"
+               end)
+           end)
+  end
+
+  test "sends complete voice guidance for an addressed NPC to the provider under the soft target" do
+    {campaign, session} = play_campaign("The Complete Voice Observatory")
+
+    voice_guidance = %{
+      "quirks" =>
+        "Answers with a dry joke when nervous. " <>
+          String.trim_trailing(
+            String.duplicate("She lets the thought sit in the room before speaking. ", 2)
+          ),
+      "accent_dialect" =>
+        "French from Lyon; suggest it through natural cadence, never spelling. " <>
+          String.trim_trailing(
+            String.duplicate("Her regional vowels stay subtle in every language. ", 2)
+          ),
+      "cadence" =>
+        "Short phrases, then a pause before a confession. " <>
+          String.trim_trailing(
+            String.duplicate("The pause length changes with the stakes of the moment. ", 2)
+          ),
+      "vocabulary" =>
+        "Uses kitchen and cellar terms. " <>
+          String.trim_trailing(
+            String.duplicate("She speaks from the work she knows, not abstract theory. ", 2)
+          ),
+      "mannerisms" =>
+        "Taps the spoon against her apron when thinking. " <>
+          String.trim_trailing(
+            String.duplicate("It is an occasional gesture, never a tic in every line. ", 2)
+          )
+    }
+
+    assert byte_size(Jason.encode!(voice_guidance)) > 420
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{voice_guidance: voice_guidance}))
+
+    captured_request = start_supervised!({Agent, fn -> nil end})
+
+    provider = fn request ->
+      Agent.update(captured_request, fn _ -> request end)
+      {:ok, Jason.encode!(ordinary_proposal())}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "complete-addressed-voice",
+               "I ask Lyra what she makes of the chart.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    request = Agent.get(captured_request, & &1)
+    context = decode_request(request)
+    provider_lyra = Enum.find(context["characters"], &(&1["speaker_id"] == "npc:lyra"))
+
+    assert provider_lyra["voice_guidance"] == voice_guidance
+
+    assert request.local_context_metrics.estimated_request_bytes <=
+             request.local_context_metrics.budget_bytes
   end
 
   test "repairs GM-invented player words as an agency violation before committing" do

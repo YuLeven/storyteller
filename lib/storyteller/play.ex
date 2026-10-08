@@ -95,6 +95,7 @@ defmodule Storyteller.Play do
     escorted escorting escorts bring brings bringing brought accompany accompanies accompanied
     accompanying leave leaves leaving left return returned returning returns reach reached reaching
     reaches come comes coming came cross crossed crossing crosses enter entered entering enters
+    step steps stepped stepping
     ir voy vas va vamos van caminar camino caminas camina caminan caminaron viajar viajo viajas
     viaja viajan viaje visitar visito visitas visita visitan llevar llevo llevas lleva llevan venir
     vengo vienes viene vienen mover muevo mueves mueve mueven marcha marcho marchas marchan aller
@@ -116,6 +117,24 @@ defmodule Storyteller.Play do
     llegas llegaste llegais entras entraste alcanzas alcanzaste arrivez atteins atteignez entres entrez
   ))
   @player_arrival_pronouns MapSet.new(~w(you your tu te vous))
+  @first_person_action_pronouns MapSet.new(~w(i me my we us our yo nosotros nosotras je mon nous))
+  @second_person_scene_pronouns MapSet.new(~w(you your yours tu te toi votre vos vous))
+  @third_person_subject_pronouns MapSet.new(~w(he she they ella ellas elle elles il ils))
+  @scene_action_conjunctions MapSet.new(~w(and then y luego et puis))
+  @non_committal_scene_motion_terms MapSet.new(~w(to will would can could should may might))
+  @scene_transition_cues [
+    ["inside"],
+    ["indoors"],
+    ["into"],
+    ["through"],
+    ["downstairs"],
+    ["upstairs"],
+    ["dentro"],
+    ["adentro"],
+    ["al", "interior"],
+    ["a", "l", "interieur"],
+    ["dans", "la", "salle"]
+  ]
   @max_history_entity_terms 24
   @max_history_scene_speakers 32
   @max_history_connected_places 24
@@ -369,8 +388,11 @@ defmodule Storyteller.Play do
   to capable present NPCs with supported results. If the player explicitly
   commits a bounded supporting action during that task, carry that stated
   follow-through through the result this turn; do not ask them to repeat it
-  unless a real interruption or consequential choice arises. Ask only for
-  blockers; never invent success or player acts.
+  unless a real interruption or consequential choice arises. Ask only when a
+  real barrier or unresolved consequential choice needs the player. Resolve
+  routine unobstructed movement, conversation, and handling naturally; missing
+  map edges or routine details alone are not barriers. Never invent the player's
+  follow-through, words, choices, or acts.
   Resolve unclear intent; avoid micro-actions, forced dialogue, and menus.
   No recap, panel facts, or unchanged balances unless asked, changed, or
   decision-relevant. elapsed_world_clock is exact minutes; don't parse labels.
@@ -2011,6 +2033,11 @@ defmodule Storyteller.Play do
         :location_presence ->
           "Correct the state operations; don't cancel ordinary travel because map data is incomplete. " <>
             "For a named off-scene NPC, use their canonical recorded place; no contact path is needed. " <>
+            "If the saved action asks the player to cross into a place and your narration confirms " <>
+            "that crossing, create or reuse the public place and record the player's move before " <>
+            "accepting the scene. Record every named GM character the accepted scene explicitly has " <>
+            "crossing a place boundary. A question, invitation, future intention, or mere name mention " <>
+            "does not itself move anyone. " <>
             "For a new public destination, add location_changes create_place " <>
             "{type,place:{place_id,name,visibility},reason}, " <>
             "then move the player and each co-present companion they explicitly asked to bring with " <>
@@ -3890,6 +3917,17 @@ defmodule Storyteller.Play do
              validate_lines(field(proposal, :activities, []), characters),
              :activity
            ),
+         :ok <-
+           tagged_proposal_validation(
+             validate_explicit_scene_transition(
+               location_changes_input,
+               turn,
+               narration,
+               dialogue ++ activities,
+               characters
+             ),
+             :location_presence
+           ),
          {:ok, public_changes} <-
            tagged_proposal_validation(
              world_changes_field(proposal, :public_changes),
@@ -4812,6 +4850,408 @@ defmodule Storyteller.Play do
          _narration
        ),
        do: location_changes
+
+  # Keep narrated scene transitions aligned with the canonical player board.
+  # Only request correction when the saved action and GM narration both
+  # describe crossing a clear spatial boundary and no player move is proposed.
+  # The model still chooses the grounded public place, and normal validators
+  # remain authoritative for movement, routes, privacy, and duties.
+  defp validate_explicit_scene_transition(
+         location_changes,
+         %Turn{intent: :action} = turn,
+         narration,
+         visible_lines,
+         characters
+       )
+       when is_list(location_changes) and is_binary(turn.player_input) and is_binary(narration) and
+              is_list(visible_lines) and is_list(characters) do
+    player_move? =
+      Enum.any?(location_changes, fn
+        %{"type" => "move_character", "speaker_id" => "player"} -> true
+        _ -> false
+      end)
+
+    visible_text = [narration | Enum.map(visible_lines, & &1.text)]
+
+    missing_gm_character_move? =
+      Enum.any?(characters, fn character ->
+        character.role == :gm and
+          not proposed_character_move?(location_changes, character.speaker_id) and
+          Enum.any?(
+            visible_text,
+            &narrates_character_scene_transition?(&1, character, characters)
+          )
+      end)
+
+    missing_player_move? =
+      not player_move? and scene_transition_cue_present?(turn.player_input) and
+        begin_player_scene_transition_check(turn, visible_text, characters)
+
+    if missing_player_move? or missing_gm_character_move?,
+      do: {:error, :invalid_response},
+      else: :ok
+  end
+
+  defp validate_explicit_scene_transition(
+         _location_changes,
+         _turn,
+         _narration,
+         _visible_lines,
+         _characters
+       ),
+       do: :ok
+
+  defp player_requested_scene_transition?(text, player_name, characters) do
+    tokens = normalized_location_tokens(text)
+    player_name_sequences = player_name_token_sequences(player_name, characters)
+
+    Enum.with_index(tokens)
+    |> Enum.any?(fn {_token, index} ->
+      Enum.any?(@scene_transition_cues, fn cue ->
+        if Enum.slice(tokens, index, length(cue)) == cue and
+             player_movement_precedes_destination?(tokens, index) do
+          case last_scene_movement_index(tokens, index) do
+            nil ->
+              false
+
+            movement_index ->
+              player_action_actor?(tokens, movement_index, player_name_sequences, characters)
+          end
+        else
+          false
+        end
+      end)
+    end)
+  end
+
+  defp scene_transition_cue_present?(text) do
+    tokens = normalized_location_tokens(text)
+
+    Enum.any?(tokens, fn token ->
+      Enum.any?(@scene_transition_cues, &(&1 == [token]))
+    end) or
+      Enum.any?(@scene_transition_cues, fn cue ->
+        length(cue) > 1 and contains_token_sequence?(tokens, cue)
+      end)
+  end
+
+  defp begin_player_scene_transition_check(turn, visible_text, characters) do
+    player_name = Repo.get!(Campaign, turn.campaign_id).player_character_name
+
+    player_requested_scene_transition?(turn.player_input, player_name, characters) and
+      Enum.any?(visible_text, &narrates_player_scene_transition?(&1, player_name, characters))
+  end
+
+  defp narrates_player_scene_transition?(text, player_name, characters) when is_binary(text) do
+    player_name_sequences = player_name_token_sequences(player_name, characters)
+    non_player_names = character_name_tokens(characters, :gm)
+
+    text
+    |> String.split(~r/(?<=[.!?])\s+|[\r\n]+/u, trim: true)
+    |> Enum.any?(fn sentence ->
+      tokens = normalized_location_tokens(sentence)
+
+      Enum.with_index(tokens)
+      |> Enum.any?(fn {_token, index} ->
+        Enum.any?(@scene_transition_cues, fn cue ->
+          if Enum.slice(tokens, index, length(cue)) == cue and
+               player_movement_precedes_destination?(tokens, index) do
+            case last_scene_movement_index(tokens, index) do
+              nil ->
+                false
+
+              movement_index ->
+                if scene_motion_not_committed?(tokens, movement_index) do
+                  false
+                else
+                  scene_subject_before_movement?(
+                    tokens,
+                    movement_index,
+                    player_name_sequences,
+                    non_player_names
+                  )
+                end
+            end
+          else
+            false
+          end
+        end)
+      end)
+    end)
+  end
+
+  defp narrates_player_scene_transition?(_text, _player_name, _characters), do: false
+
+  defp narrates_character_scene_transition?(text, character, characters) when is_binary(text) do
+    name_sequences = character_name_tokens([character], :gm)
+    other_characters = Enum.reject(characters, &(&1.speaker_id == character.speaker_id))
+
+    other_name_sequences =
+      character_name_tokens(other_characters, :gm) ++
+        character_name_tokens(other_characters, :player)
+
+    text
+    |> String.split(~r/(?<=[.!?])\s+|[\r\n]+/u, trim: true)
+    |> Enum.any?(fn sentence ->
+      tokens = normalized_location_tokens(sentence)
+
+      Enum.with_index(tokens)
+      |> Enum.any?(fn {_token, index} ->
+        Enum.any?(@scene_transition_cues, fn cue ->
+          if Enum.slice(tokens, index, length(cue)) == cue and
+               player_movement_precedes_destination?(tokens, index) do
+            case last_scene_movement_index(tokens, index) do
+              nil ->
+                false
+
+              movement_index ->
+                not scene_motion_not_committed?(tokens, movement_index) and
+                  named_character_is_moving?(
+                    tokens,
+                    movement_index,
+                    name_sequences,
+                    other_name_sequences
+                  )
+            end
+          else
+            false
+          end
+        end)
+      end)
+    end)
+  end
+
+  defp narrates_character_scene_transition?(_text, _character, _characters), do: false
+
+  defp named_character_is_moving?(tokens, movement_index, name_sequences, other_name_sequences) do
+    Enum.any?(name_sequences, fn name_tokens ->
+      case last_token_sequence_index(Enum.take(tokens, movement_index), [name_tokens]) do
+        nil ->
+          false
+
+        name_index ->
+          name_end = name_index + length(name_tokens)
+          gap = Enum.slice(tokens, name_end, movement_index - name_end)
+
+          movement_index - name_end <= 7 and
+            (not contains_any_token_sequence?(gap, other_name_sequences) or
+               coordinated_scene_subjects?(gap, other_name_sequences))
+      end
+    end)
+  end
+
+  defp coordinated_scene_subjects?(tokens, name_sequences) do
+    Enum.with_index(tokens)
+    |> Enum.any?(fn {_token, name_index} ->
+      Enum.any?(name_sequences, fn name_tokens ->
+        name_tokens != [] and Enum.slice(tokens, name_index, length(name_tokens)) == name_tokens and
+          Enum.all?(
+            Enum.take(tokens, name_index),
+            &MapSet.member?(@scene_action_conjunctions, &1)
+          )
+      end)
+    end)
+  end
+
+  defp proposed_character_move?(location_changes, speaker_id) do
+    Enum.any?(location_changes, fn
+      %{"type" => "move_character", "speaker_id" => ^speaker_id} -> true
+      _ -> false
+    end)
+  end
+
+  defp last_scene_movement_index(tokens, cue_index) do
+    tokens
+    |> Enum.take(cue_index)
+    |> Enum.with_index()
+    |> Enum.filter(fn {token, _index} -> travel_intent_token?(token) end)
+    |> List.last()
+    |> case do
+      {_token, index} -> index
+      nil -> nil
+    end
+  end
+
+  defp travel_intent_token?(token) do
+    token in @travel_intent_words or
+      Enum.any?(@travel_intent_prefixes, &String.starts_with?(token, &1))
+  end
+
+  defp scene_motion_not_committed?(tokens, movement_index) do
+    tokens
+    |> Enum.slice(max(movement_index - 3, 0), min(movement_index, 3))
+    |> Enum.any?(&MapSet.member?(@non_committal_scene_motion_terms, &1))
+  end
+
+  defp player_action_actor?(tokens, movement_index, player_name_sequences, characters) do
+    before_movement = Enum.take(tokens, movement_index)
+    clause = tokens_after_last_conjunction(before_movement)
+    non_player_names = character_name_tokens(characters, :gm)
+
+    cond do
+      List.last(before_movement) == "to" ->
+        false
+
+      has_player_action_subject?(clause, player_name_sequences) ->
+        not name_follows_player_subject?(clause, player_name_sequences, non_player_names) and
+          not non_player_subject_follows_player_subject?(clause)
+
+      clause == [] and
+          (has_player_action_subject?(before_movement, player_name_sequences) or
+             (movement_index <= 1 and imperative_movement?(tokens))) ->
+        not non_player_subject_follows_player_subject?(before_movement)
+
+      movement_index <= 1 and imperative_movement?(tokens) ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp scene_subject_before_movement?(
+         tokens,
+         movement_index,
+         player_name_sequences,
+         non_player_names
+       ) do
+    before_movement = Enum.take(tokens, movement_index)
+
+    player_subject? =
+      Enum.any?(before_movement, &MapSet.member?(@second_person_scene_pronouns, &1)) or
+        contains_any_token_sequence?(before_movement, player_name_sequences)
+
+    player_subject? and
+      not name_follows_player_subject?(before_movement, player_name_sequences, non_player_names) and
+      not non_player_subject_follows_player_subject?(before_movement)
+  end
+
+  defp tokens_after_last_conjunction(tokens) do
+    case tokens
+         |> Enum.with_index()
+         |> Enum.filter(fn {token, _index} ->
+           MapSet.member?(@scene_action_conjunctions, token)
+         end)
+         |> List.last() do
+      {_token, index} -> Enum.drop(tokens, index + 1)
+      nil -> tokens
+    end
+  end
+
+  defp has_player_action_subject?(tokens, player_name_sequences) do
+    Enum.any?(tokens, &MapSet.member?(@first_person_action_pronouns, &1)) or
+      contains_any_token_sequence?(tokens, player_name_sequences)
+  end
+
+  defp name_follows_player_subject?(tokens, player_name_sequences, non_player_names) do
+    player_index =
+      last_name_or_pronoun_index(tokens, player_name_sequences, @first_person_action_pronouns)
+
+    player_index != nil and
+      Enum.any?(non_player_names, fn name_tokens ->
+        following_tokens = Enum.drop(tokens, player_index + 1)
+
+        name_tokens != [] and contains_token_sequence?(following_tokens, name_tokens) and
+          not coordinated_movement_subjects?(tokens, player_index, name_tokens)
+      end)
+  end
+
+  defp coordinated_movement_subjects?(tokens, player_index, non_player_name_tokens) do
+    after_player = Enum.drop(tokens, player_index + 1)
+
+    Enum.with_index(after_player)
+    |> Enum.any?(fn {_token, npc_index} ->
+      non_player_name_tokens != [] and
+        Enum.slice(after_player, npc_index, length(non_player_name_tokens)) ==
+          non_player_name_tokens and
+        Enum.any?(
+          Enum.take(after_player, npc_index),
+          &MapSet.member?(@scene_action_conjunctions, &1)
+        )
+    end)
+  end
+
+  defp non_player_subject_follows_player_subject?(tokens) do
+    Enum.any?(tokens, &MapSet.member?(@third_person_subject_pronouns, &1))
+  end
+
+  defp last_name_or_pronoun_index(tokens, name_sequences, pronouns) do
+    pronoun_index =
+      tokens
+      |> Enum.with_index()
+      |> Enum.filter(fn {token, _index} -> MapSet.member?(pronouns, token) end)
+      |> List.last()
+      |> case do
+        {_token, index} -> index
+        nil -> nil
+      end
+
+    name_index = last_token_sequence_index(tokens, name_sequences)
+
+    [pronoun_index, name_index]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.max(fn -> nil end)
+  end
+
+  defp character_name_tokens(characters, role) do
+    name_tokens =
+      characters
+      |> Enum.filter(&(&1.role == role))
+      |> Enum.map(&normalized_location_tokens(&1.name))
+
+    token_counts = name_tokens |> List.flatten() |> Enum.frequencies()
+
+    Enum.flat_map(name_tokens, fn tokens ->
+      distinctive_tokens =
+        tokens
+        |> Enum.uniq()
+        |> Enum.filter(fn token ->
+          String.length(token) >= 2 and not MapSet.member?(@presence_non_name_tokens, token) and
+            Map.get(token_counts, token) == 1
+        end)
+        |> Enum.map(&[&1])
+
+      if tokens == [], do: [], else: [tokens | distinctive_tokens]
+    end)
+  end
+
+  defp player_name_token_sequences(player_name, characters) do
+    tokens = normalized_location_tokens(player_name || "")
+    gm_name_tokens = character_name_tokens(characters, :gm)
+
+    distinctive_tokens =
+      tokens
+      |> Enum.uniq()
+      |> Enum.filter(fn token ->
+        String.length(token) >= 2 and not MapSet.member?(@presence_non_name_tokens, token) and
+          not Enum.any?(gm_name_tokens, &(&1 == [token]))
+      end)
+      |> Enum.map(&[&1])
+
+    if tokens == [], do: [], else: [tokens | distinctive_tokens]
+  end
+
+  defp contains_any_token_sequence?(_tokens, []), do: false
+
+  defp contains_any_token_sequence?(tokens, sequences),
+    do: Enum.any?(sequences, &contains_token_sequence?(tokens, &1))
+
+  defp last_token_sequence_index(_tokens, []), do: nil
+
+  defp last_token_sequence_index(tokens, sequences) do
+    tokens
+    |> Enum.with_index()
+    |> Enum.filter(fn {_token, index} ->
+      Enum.any?(sequences, &(Enum.slice(tokens, index, length(&1)) == &1))
+    end)
+    |> List.last()
+    |> case do
+      {_token, index} -> index
+      nil -> nil
+    end
+  end
+
+  defp imperative_movement?(tokens), do: travel_intent_token?(List.first(tokens) || "")
 
   defp longest_named_destinations(destinations) do
     case destinations do

@@ -1682,20 +1682,43 @@ defmodule Storyteller.GM.ContextBudgetTest do
     context = base_context()
 
     marisol_voice = %{
-      "quirks" => "Answers with a dry joke when nervous.",
-      "accent_dialect" => "French accent, with Lyonnais vowels.",
-      "cadence" => "Short phrases, then a pause before a confession.",
-      "vocabulary" => "Uses kitchen and cellar terms.",
-      "mannerisms" => "Taps the spoon against her apron when thinking."
+      "quirks" =>
+        "Answers with a dry joke when nervous. " <>
+          String.duplicate("She lets the thought sit in the room before speaking. ", 2),
+      "accent_dialect" =>
+        "French accent, with Lyonnais vowels. " <>
+          String.duplicate("She keeps the regional lilt natural and unforced. ", 2),
+      "cadence" =>
+        "Short phrases, then a pause before a confession. " <>
+          String.duplicate("Her pauses change with the seriousness of the subject. ", 2),
+      "vocabulary" =>
+        "Uses kitchen and cellar terms. " <>
+          String.duplicate("She reaches for practical words from work and cooking. ", 2),
+      "mannerisms" =>
+        "Taps the spoon against her apron when thinking. " <>
+          String.duplicate("The gesture is quiet, occasional, and easy to miss. ", 2)
     }
 
     keeper_voice = %{
-      "quirks" => "Repeats the last word as a quiet question.",
-      "accent_dialect" => "Soft coastal Spanish lilt.",
-      "cadence" => "Slow, careful sentences.",
-      "vocabulary" => "Favors weather and gardening metaphors.",
-      "mannerisms" => "Looks toward the vines before answering."
+      "quirks" =>
+        "Repeats the last word as a quiet question. " <>
+          String.duplicate("She uses the habit only when she is genuinely uncertain. ", 2),
+      "accent_dialect" =>
+        "Soft coastal Spanish lilt. " <>
+          String.duplicate("Keep the vowels natural without phonetic spelling. ", 2),
+      "cadence" =>
+        "Slow, careful sentences. " <>
+          String.duplicate("She pauses to choose precise words rather than to sound formal. ", 2),
+      "vocabulary" =>
+        "Favors weather and gardening metaphors. " <>
+          String.duplicate("Her imagery comes from the work she knows best. ", 2),
+      "mannerisms" =>
+        "Looks toward the vines before answering. " <>
+          String.duplicate("She does it when considering a difficult choice. ", 2)
     }
+
+    assert byte_size(Jason.encode!(marisol_voice)) > 420
+    assert byte_size(Jason.encode!(keeper_voice)) > 420
 
     remote_voice = %{"cadence" => "Speaks in clipped, formal sentences."}
 

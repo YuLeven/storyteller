@@ -2194,6 +2194,9 @@ defmodule Storyteller.GM.ContextBudget do
                    value(character, :current_place_id) == player_place_id)
 
             if MapSet.member?(detailed_indexes, index) do
+              # Keep the complete profile, including voice guidance, for the
+              # player and anyone relevant to this action. Only peripheral
+              # remote profiles take the compact path below.
               {rows ++ [character], {remote_omitted?, details_omitted?, rows_omitted?}}
             else
               {compact, compacted?} =
