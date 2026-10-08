@@ -331,7 +331,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     refute "npc:observer-40" in speaker_ids
   end
 
-  test "an explicitly allowed minimal packet can exceed the compaction target" do
+  test "a minimal scene packet remains available above the compaction target" do
     context =
       base_context()
       |> Map.put(:player_action, "I ask what the observatory staff noticed.")
@@ -341,8 +341,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
                context,
                "Short GM policy",
                "test-model",
-               context_input_byte_budget: 1,
-               allow_over_budget?: true
+               context_input_byte_budget: 1
              )
 
     assert metrics.estimated_request_bytes > metrics.budget_bytes
@@ -1281,7 +1280,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
              Enum.find(context.characters, &(&1.speaker_id == "marisol")).gm_private_facts
   end
 
-  test "omits oversized historical narration before rejecting a retry, preserving scene facts and NPC voices" do
+  test "keeps selected historical narration above target while preserving scene facts and NPC voices" do
     marisol_voice = %{
       "accent_dialect" => "French accent with Lyonnais vowels.",
       "cadence" => "Short phrases, then a pause before a confession."
@@ -1374,12 +1373,16 @@ defmodule Storyteller.GM.ContextBudgetTest do
              )
 
     assert metrics.compacted?
-    assert metrics.estimated_request_bytes <= budget
+    assert metrics.estimated_request_bytes > budget
     assert metrics.budget_bytes == budget
-    assert compacted.history == []
+    assert compacted.history != []
+    assert length(compacted.history) <= 20
     assert compacted.context_completeness.history_compacted
-    assert compacted.context_completeness.history_omitted
+    refute Map.get(compacted.context_completeness, :history_omitted, false)
     assert :history in metrics.omissions
+    assert Enum.any?(compacted.history, &(&1["sequence"] == 60))
+    assert Enum.any?(compacted.history, &(&1["speaker_id"] == "marisol"))
+    assert Enum.any?(compacted.history, &(&1["speaker_id"] == "iria"))
 
     assert compacted.campaign == context.campaign
     assert compacted.player_action == context.player_action
@@ -2657,18 +2660,20 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert compacted.player_action == context.player_action
   end
 
-  test "rejects required canonical state that cannot fit instead of truncating it" do
+  test "keeps useful canon when the best context remains above the local compaction target" do
     context =
-      update_in(base_context(), [:world, :public], fn world ->
+      base_context()
+      |> put_in([:player_action], "Describe the massive state and keep its canon intact.")
+      |> update_in([:world, :public], fn world ->
         Map.put(world, :massive_state, String.duplicate("canon ", 2_000))
       end)
 
-    assert {:error, {:context_budget_exceeded, diagnostics}} =
-             ContextBudget.compile(context, "Policy", "gpt-6-astra",
-               context_input_byte_budget: 2_000
-             )
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Policy", "gpt-6-astra", context_input_byte_budget: 1)
 
-    assert diagnostics.largest_sections |> hd() |> Map.fetch!(:bytes) > 0
+    assert metrics.estimated_request_bytes > metrics.budget_bytes
+    assert Map.has_key?(compiled.world.public, :massive_state)
+    assert compiled.player_action == context.player_action
   end
 
   test "emits safe provider counts and section sizes as numeric telemetry" do
@@ -2712,15 +2717,15 @@ defmodule Storyteller.GM.ContextBudgetTest do
         nil
       )
 
-    assert {:error, {:context_budget_exceeded, diagnostics}} =
+    assert {:ok, %{metrics: metrics}} =
              ContextBudget.compile(base_context(), "Hidden instruction test", "test-model",
                context_input_byte_budget: 1
              )
 
-    assert diagnostics.budget_bytes == 1
-    assert diagnostics.instructions_bytes == byte_size("Hidden instruction test")
-    assert diagnostics.section_bytes |> Map.values() |> Enum.all?(&is_integer/1)
-    refute Map.values(diagnostics) |> inspect() =~ "Hidden instruction test"
+    assert metrics.budget_bytes == 1
+    assert metrics.instructions_bytes == byte_size("Hidden instruction test")
+    assert metrics.estimated_request_bytes > metrics.budget_bytes
+    assert metrics.section_bytes |> Map.values() |> Enum.all?(&is_integer/1)
 
     assert_receive {:rejected_context_metrics, measurements, %{}}
     assert measurements.budget_bytes == 1
@@ -2769,20 +2774,18 @@ defmodule Storyteller.GM.ContextBudgetTest do
              ContextBudget.compile([], "Policy", "test-model")
   end
 
-  test "includes GM instructions among the numeric categories that can dominate a request" do
+  test "measures long GM instructions without rejecting the request on the local target" do
     instructions = String.duplicate("policy ", 2_000)
 
-    assert {:error, {:context_budget_exceeded, diagnostics}} =
+    assert {:ok, %{metrics: metrics}} =
              ContextBudget.compile(base_context(), instructions, "test-model",
                context_input_byte_budget: 1
              )
 
-    assert hd(diagnostics.largest_sections) == %{
-             category: "gm_instructions",
-             bytes: byte_size(instructions)
-           }
+    assert metrics.instructions_bytes == byte_size(instructions)
+    assert metrics.estimated_request_bytes > metrics.budget_bytes
 
-    refute inspect(diagnostics) =~ instructions
+    refute inspect(metrics) =~ instructions
   end
 
   defp base_context do

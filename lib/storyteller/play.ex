@@ -363,6 +363,13 @@ defmodule Storyteller.Play do
   items, hazards, or services. Missing canon stays unknown; ask only when a
   choice requires it. A missing route edge is incomplete map data, not an
   obstacle; ordinary trips proceed under TRAVEL. People need accepted presence.
+  SEEKING A PERSON: When the player explicitly seeks a named NPC, treat that as
+  an active goal, not proof the person is absent. If their public location is
+  unknown, do not stop only because the ledger has no location, route, or contact
+  path. Use a grounded routine or lead to make plausible search progress and
+  leave a useful next step; do not invent a canonical absence or obstruction.
+  An actual established barrier still matters. Do not place the NPC in the
+  scene, give them dialogue, or claim a handoff without accepted presence.
   For a present NPC with first_story_appearance=true, introduce their public
   name and a relevant visible fact naturally; false means don't reintroduce.
   Hide stats/private cues; don't force entrances/actions. Preserve NPC knowledge,
@@ -5980,14 +5987,10 @@ defmodule Storyteller.Play do
           }
         ],
         local_context_metrics: metrics,
-        request_size_limit_bytes:
-          if(
-            not retrieval_packet? and
-              metrics.estimated_request_bytes <=
-                ContextBudget.request_size_limit_bytes(model, opts),
-            do: ContextBudget.request_size_limit_bytes(model, opts),
-            else: nil
-          )
+        # Request-size values guide compaction only. Leave the exact-body
+        # provider preflight unset for gameplay so the provider, not a local
+        # byte ceiling, decides whether its actual model window can accept it.
+        request_size_limit_bytes: nil
       }
 
       request =
@@ -6067,7 +6070,7 @@ defmodule Storyteller.Play do
 
   defp compact_context_retry_options(opts, model) do
     if Keyword.get(opts, :compact_context_retry?, false) do
-      configured_limit = ContextBudget.request_size_limit_bytes(model, opts)
+      configured_limit = ContextBudget.compaction_target_bytes(model, opts)
 
       Keyword.put(
         opts,
@@ -6120,7 +6123,7 @@ defmodule Storyteller.Play do
            request_context,
            lookup_instructions,
            model,
-           Keyword.put(reserve_opts, :allow_over_budget?, true)
+           reserve_opts
          ) do
       {:ok, %{context: context, metrics: metrics}} ->
         {:ok, {context, metrics, true, lookup_instructions, true}}
@@ -6280,8 +6283,10 @@ defmodule Storyteller.Play do
       ordinary trip, narrate a plausible journey and use your proposed total
       time_advance_minutes as the estimate. Do not add a route solely to satisfy
       validation or claim a precise distance. Preserve known times and real
-      restrictions. Never claim arrival without the matching place/movement
-      operations.
+      restrictions. When the named NPC has no recorded place, do not say they
+      are unavailable merely because tracking is incomplete: use their grounded
+      routine or make concrete search progress toward a likely place. Never claim
+      arrival or a handoff without matching place/movement operations.
       """
     else
       ""

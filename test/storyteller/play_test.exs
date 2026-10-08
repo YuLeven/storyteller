@@ -1518,12 +1518,12 @@ defmodule Storyteller.PlayTest do
              )
 
     assert_receive {:lookup_request, request}, 2_000
-    assert request.request_size_limit_bytes == 64_000
+    assert is_nil(request.request_size_limit_bytes)
     assert is_function(request.campaign_lookup_executor, 1)
     assert :remote_place_details in request.local_context_metrics.omissions
 
     assert request.local_context_metrics.estimated_request_bytes <=
-             request.request_size_limit_bytes - 24_000
+             request.local_context_metrics.budget_bytes - 24_000
 
     assert Enum.any?(request.input, fn item ->
              item["type"] == "additional_tools" and
@@ -1554,7 +1554,8 @@ defmodule Storyteller.PlayTest do
     provider = fn request ->
       send(
         owner,
-        {:ordinary_turn_request_size, request.local_context_metrics.estimated_request_bytes}
+        {:ordinary_turn_request_size, request.local_context_metrics.estimated_request_bytes,
+         request.request_size_limit_bytes}
       )
 
       {:ok, Jason.encode!(ordinary_proposal())}
@@ -1574,16 +1575,16 @@ defmodule Storyteller.PlayTest do
 
     request_sizes =
       for _turn_index <- 1..10 do
-        assert_receive {:ordinary_turn_request_size, size}, 2_000
+        assert_receive {:ordinary_turn_request_size, size, nil}, 2_000
         size
       end
 
     assert length(request_sizes) == 10
-    assert Enum.all?(request_sizes, &(&1 <= 64_000))
+    assert Enum.all?(request_sizes, &(&1 > 0))
     assert Repo.aggregate(Turn, :count, :id) == 10
   end
 
-  test "ordinary GM requests stay bounded across ten sessions and one hundred twenty turns" do
+  test "ordinary GM requests progress across ten sessions without local body ceilings" do
     {campaign, first_session} = play_campaign("The Long-Running Observatory")
     owner = self()
 
@@ -1615,7 +1616,8 @@ defmodule Storyteller.PlayTest do
                      send(
                        owner,
                        {:long_campaign_request_size,
-                        request.local_context_metrics.estimated_request_bytes}
+                        request.local_context_metrics.estimated_request_bytes,
+                        request.request_size_limit_bytes}
                      )
 
                      {:ok, Jason.encode!(ordinary_proposal(%{"narration" => long_narration}))}
@@ -1631,14 +1633,15 @@ defmodule Storyteller.PlayTest do
 
     request_sizes =
       for _turn_index <- 1..120 do
-        assert_receive {:long_campaign_request_size, size}, 2_000
+        assert_receive {:long_campaign_request_size, size, nil}, 2_000
         size
       end
 
-    assert Enum.all?(request_sizes, &(&1 <= 64_000))
+    assert length(request_sizes) == 120
+    assert Enum.all?(request_sizes, &(&1 > 0))
   end
 
-  test "falls back to a retrieval scene packet when oversized canon cannot fit the lookup reserve" do
+  test "sends relevant canon above the local target with lookup available instead of collapsing the scene" do
     {campaign, session} = play_campaign("The Retrieval Packet Observatory")
     player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
 
@@ -1717,12 +1720,11 @@ defmodule Storyteller.PlayTest do
                intent: :question,
                provider: provider,
                model: "test-model",
-               context_input_byte_budget: 44_000
+               context_input_byte_budget: 1
              )
 
     assert_receive {:retrieval_packet_request, request, packet}, 2_000
-    assert packet["context_completeness"]["retrieval_packet"]
-    assert packet["context_completeness"]["omitted_canon_is_unknown"]
+    refute packet["context_completeness"]["retrieval_packet"]
     assert packet["player_action"] == action
     assert packet["interaction_mode"] == "question"
     assert packet["world"]["public"]["date"] == "1567-04-12"
@@ -1733,14 +1735,11 @@ defmodule Storyteller.PlayTest do
     assert Enum.find(packet["characters"], &(&1["speaker_id"] == "player"))["current_place_id"] ==
              current_place.place_id
 
-    assert Enum.find(packet["characters"], &(&1["speaker_id"] == "npc:lyra"))["presence"] ==
-             "present"
-
-    refute Enum.any?(packet["characters"], &(&1["speaker_id"] == "npc:nera"))
-    refute Enum.any?(packet["places"]["public"], &(&1["place_id"] == target_place.place_id))
+    assert Enum.any?(packet["characters"], &(&1["speaker_id"] == "npc:lyra"))
+    assert Enum.any?(packet["places"]["public"], &(&1["place_id"] == current_place.place_id))
 
     assert packet_bytes = context_request_bytes(request)
-    assert packet_bytes > 0
+    assert packet_bytes > 1
     assert is_nil(request.request_size_limit_bytes)
     assert is_function(request.campaign_lookup_executor, 1)
 
@@ -1753,9 +1752,6 @@ defmodule Storyteller.PlayTest do
              item["type"] == "additional_tools" and
                Enum.any?(item["tools"], &(&1["name"] == "lookup_campaign_canon"))
            end)
-
-    encoded_packet = Jason.encode!(packet)
-    refute encoded_packet =~ "Nera moved the chart"
 
     lookup =
       request.campaign_lookup_executor.(%{
@@ -4076,6 +4072,74 @@ defmodule Storyteller.PlayTest do
     refute Enum.any?(events, &(&1.turn_id == failed.id))
   end
 
+  test "a missing NPC location lets a search make grounded travel progress" do
+    {campaign, session} = play_campaign("The Northern Chart Room")
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: nil}))
+
+    chart_room =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "northern-chart-room",
+          name: "The Northern Chart Room",
+          visibility: :public,
+          description: "A quiet chart room above the observatory."
+        })
+      )
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" =>
+          "You make the easy walk to the northern chart room. A fresh pencil mark crosses today's chart, and the upper gallery is a useful next place to search.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "private_changes" => %{},
+        "time_advance_minutes" => 20,
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => chart_room.place_id,
+            "reason" => "The player follows the familiar gallery to search for Lyra."
+          }
+        ]
+      })
+
+    caller = self()
+
+    provider = fn request ->
+      send(caller, {:npc_search_instructions, request.instructions})
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    action = "I head to the chart room to look for Lyra and give her the bottle."
+
+    assert {:ok, %{status: :completed, player_input: ^action} = turn} =
+             Play.submit_turn(campaign.id, session.id, "search-for-lyra", action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:npc_search_instructions, instructions}
+    normalized = String.replace(instructions, ~r/\s+/, " ")
+    assert normalized =~ "SEEKING A PERSON: When the player explicitly seeks a named NPC"
+
+    assert normalized =~
+             "do not stop only because the ledger has no location, route, or contact path"
+
+    assert Repo.get_by!(Character, id: player.id).current_place_id == chart_room.place_id
+    assert Repo.get_by!(Character, id: lyra.id).current_place_id == nil
+    assert Repo.get_by(PlaceConnection, campaign_id: campaign.id) == nil
+    assert turn.player_input == action
+
+    assert {:ok, events} = Play.public_timeline(campaign.id)
+    assert Enum.any?(events, &(&1.turn_id == turn.id and &1.event_type == :player_action))
+    refute Enum.any?(events, &(&1.turn_id == turn.id and &1.event_type == :dialogue))
+  end
+
   test "elapsed time sums each character's sequential route legs and takes the max across concurrent trips" do
     {campaign, session} = play_campaign("The Orchard Road", starting_location: nil)
     finca = establish_starting_place!(campaign, "Finca")
@@ -4551,8 +4615,13 @@ defmodule Storyteller.PlayTest do
 
     assert normalized_first_instructions =~ "missing route/contact alone is no blocker"
 
-    assert first_size <= first_limit
-    assert corrected_size <= corrected_limit
+    assert normalized_first_instructions =~
+             "When the named NPC has no recorded place, do not say they are unavailable merely because tracking is incomplete"
+
+    assert first_size > 0
+    assert corrected_size > 0
+    assert is_nil(first_limit)
+    assert is_nil(corrected_limit)
 
     assert corrected_instructions =~
              "Internal correction: the prior GM proposal did not satisfy place, character-presence, or movement consistency."
@@ -7045,7 +7114,7 @@ defmodule Storyteller.PlayTest do
     provider = fn request ->
       Agent.update(instructions_agent, fn _ ->
         {request.instructions, request.local_context_metrics.estimated_request_bytes,
-         request.request_size_limit_bytes}
+         request.local_context_metrics.budget_bytes}
       end)
 
       {:ok, Jason.encode!(ordinary_proposal(%{"narration" => "Nothing new catches your eye."}))}
@@ -7061,12 +7130,12 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    {raw_instructions, estimated_request_bytes, request_size_limit_bytes} =
+    {raw_instructions, estimated_request_bytes, compaction_target_bytes} =
       Agent.get(instructions_agent, & &1)
 
     instructions = String.replace(raw_instructions, ~r/\s+/, " ")
 
-    assert estimated_request_bytes <= request_size_limit_bytes
+    assert estimated_request_bytes <= compaction_target_bytes
 
     assert instructions =~
              "Player alone controls their character's actions, words, thoughts, movement"
@@ -9631,7 +9700,7 @@ defmodule Storyteller.PlayTest do
     assert metrics.estimated_request_bytes <= 64_000
   end
 
-  test "a local byte target never prevents sending a useful scene request" do
+  test "a local byte target never prevents sending the full useful request" do
     {campaign, session} = play_campaign("The Quiet Cellar")
     caller = self()
 
@@ -9640,7 +9709,7 @@ defmodule Storyteller.PlayTest do
         caller,
         {:provider_called, request.request_size_limit_bytes,
          request.local_context_metrics.estimated_request_bytes,
-         request.local_context_metrics.omissions}
+         request.local_context_metrics.omissions, decode_request(request)}
       )
 
       {:ok, Jason.encode!(ordinary_proposal())}
@@ -9653,8 +9722,11 @@ defmodule Storyteller.PlayTest do
                context_input_byte_budget: 1
              )
 
-    assert_receive {:provider_called, nil, request_bytes, [:retrieval_packet | _]}
+    assert_receive {:provider_called, nil, request_bytes, omissions, context}
     assert request_bytes > 1
+    refute :retrieval_packet in omissions
+    assert context["campaign"]["title"] == "The Quiet Cellar"
+    assert Enum.any?(context["places"]["public"], &(&1["name"] == "The Glass Observatory"))
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
   end
@@ -9693,12 +9765,12 @@ defmodule Storyteller.PlayTest do
              Play.submit_turn(campaign.id, session.id, "provider-context-window", action,
                provider: provider,
                model: "test-model",
-               context_input_byte_budget: 50_000
+               context_input_byte_budget: 1
              )
 
-    assert_receive {:context_window_retry_request, 1, 50_000, first_size, first_omissions}
-    assert first_size <= 50_000
-    refute :place_details in first_omissions
+    assert_receive {:context_window_retry_request, 1, nil, first_size, first_omissions}
+    assert first_size > 1
+    refute :retrieval_packet in first_omissions
     assert_receive {:context_window_retry_request, 2, nil, compact_size, compact_omissions}
     assert compact_size < first_size
     assert :retrieval_packet in compact_omissions
@@ -10225,7 +10297,7 @@ defmodule Storyteller.PlayTest do
         test_pid,
         {:time_passage_request, context["interaction_mode"], context["player_action"],
          request.instructions, request.local_context_metrics.estimated_request_bytes,
-         request.request_size_limit_bytes}
+         request.local_context_metrics.budget_bytes}
       )
 
       {:ok,
@@ -10254,9 +10326,9 @@ defmodule Storyteller.PlayTest do
              )
 
     assert_receive {:time_passage_request, "time_passage", ^requested_duration, instructions,
-                    estimated_request_bytes, request_size_limit_bytes}
+                    estimated_request_bytes, compaction_target_bytes}
 
-    assert estimated_request_bytes <= request_size_limit_bytes
+    assert estimated_request_bytes <= compaction_target_bytes
 
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
     assert normalized_instructions =~ "full stated duration, including multiple days"

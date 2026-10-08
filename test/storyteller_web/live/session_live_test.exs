@@ -4877,7 +4877,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     end
   end
 
-  test "a local request-size target does not block a useful scene packet", %{conn: conn} do
+  test "a local compaction target sends the useful request without a size failure", %{conn: conn} do
     campaign = campaign_fixture()
     [session] = campaign.sessions
     action = "I check the observatory ledger before deciding what to do next."
@@ -4926,7 +4926,7 @@ defmodule StorytellerWeb.SessionLiveTest do
           {:scene_packet_request, context["player_action"], request.request_size_limit_bytes,
            request.local_context_metrics.estimated_request_bytes,
            context["context_completeness"]["retrieval_packet"] == true,
-           Jason.encode!(context) =~ private_sentinel}
+           Jason.encode!(context) =~ private_sentinel, context["campaign"]["title"]}
         )
 
         FakeProvider.opening_scene_response(context)
@@ -4945,9 +4945,14 @@ defmodule StorytellerWeb.SessionLiveTest do
                Repo.get!(Turn, submitted_turn.id).status == :completed
              end)
 
-      assert_receive {:scene_packet_request, ^action, nil, request_bytes, true, false}, 1_000
+      assert_receive {:scene_packet_request, ^action, nil, request_bytes, false, true,
+                      campaign_title},
+                     1_000
+
       assert request_bytes > 1
+      assert campaign_title == campaign.title
       refute has_element?(view, "#turn-error")
+      refute render(view) =~ private_sentinel
 
       assert Enum.count(Play.public_timeline(campaign.id) |> elem(1), fn event ->
                event.event_type == :player_action and event.payload["text"] == action
@@ -4997,7 +5002,7 @@ defmodule StorytellerWeb.SessionLiveTest do
              Repo.get!(Turn, submitted_turn.id).status == :completed
            end)
 
-    assert_receive {:provider_context_retry_request, 1, 64_000, false}, 1_000
+    assert_receive {:provider_context_retry_request, 1, nil, false}, 1_000
     assert_receive {:provider_context_retry_request, 2, nil, true}, 1_000
     refute has_element?(view, "#turn-error")
 
@@ -5044,7 +5049,7 @@ defmodule StorytellerWeb.SessionLiveTest do
              Repo.get!(Turn, submitted_turn.id).status == :completed
            end)
 
-    assert_receive {:followup_context_retry_request, 1, 64_000, _first_size}, 1_000
+    assert_receive {:followup_context_retry_request, 1, nil, _first_size}, 1_000
     assert_receive {:followup_context_retry_request, 2, nil, compact_size}, 1_000
     assert compact_size < 64_000
     refute has_element?(view, "#turn-error")
@@ -5096,7 +5101,7 @@ defmodule StorytellerWeb.SessionLiveTest do
            end)
 
     failed_turn = Play.public_current_turn(campaign.id)
-    assert_receive {:minimal_context_retry_request, 1, 64_000, _initial_size, false}, 1_000
+    assert_receive {:minimal_context_retry_request, 1, nil, _initial_size, false}, 1_000
     assert_receive {:minimal_context_retry_request, 2, nil, _compact_size, true}, 1_000
     assert has_element?(view, "#retry-with-compact-context", "Retry with a compact scene brief")
 
@@ -5104,7 +5109,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     |> element("#retry-with-compact-context")
     |> render_click()
 
-    assert_receive {:minimal_context_retry_request, 3, 48_000, manual_retry_size, false}, 1_000
+    assert_receive {:minimal_context_retry_request, 3, nil, manual_retry_size, false}, 1_000
     assert manual_retry_size < 24_000
 
     assert wait_until(fn ->

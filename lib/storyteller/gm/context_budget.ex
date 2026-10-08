@@ -1,8 +1,10 @@
 defmodule Storyteller.GM.ContextBudget do
   @moduledoc """
-  Builds a deterministic, relevance-ranked GM context within a local
-  serialized-byte limit. This is an application safety bound, not the model's
-  context window, an account usage limit, or a token count. Successful
+  Builds a deterministic, relevance-ranked GM context using a local serialized-
+  byte target to guide compaction. The target is not a request veto or the
+  model's context window, an account usage limit, or a token count. The provider
+  decides whether the resulting request fits its actual context window; a
+  provider rejection triggers the scene-focused recovery path. Successful
   Responses usage is recorded separately when the provider reports it.
   """
 
@@ -538,7 +540,7 @@ defmodule Storyteller.GM.ContextBudget do
     if metrics.estimated_request_bytes <= budget do
       {:ok, %{context: first_pass.context, metrics: report_budget(metrics, model, opts)}}
     else
-      {context, _compacted_omissions, metrics} =
+      {context, compacted_omissions, metrics} =
         compact_history_to_budget(
           first_pass.context,
           instructions,
@@ -551,28 +553,32 @@ defmodule Storyteller.GM.ContextBudget do
       if metrics.estimated_request_bytes <= budget do
         {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
       else
-        {context, _omissions, metrics} =
-          omit_history_to_budget(context, instructions, model, budget, omissions, metrics)
+        {detail_context, _detail_omissions, detail_metrics} =
+          compact_nonessential_details_to_budget(
+            context,
+            instructions,
+            model,
+            budget,
+            compacted_omissions,
+            metrics
+          )
 
-        if metrics.estimated_request_bytes <= budget do
-          {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
+        if detail_metrics.estimated_request_bytes <= budget do
+          {:ok, %{context: detail_context, metrics: report_budget(detail_metrics, model, opts)}}
         else
-          {context, _compacted_omissions, metrics} =
-            compact_nonessential_details_to_budget(
-              context,
-              instructions,
-              model,
-              budget,
-              omissions,
-              metrics
-            )
+          # The configured size is a compaction target, not a local model
+          # limit. Relevance projection and progressive compaction are useful
+          # when they produce a request within target. If they cannot, send the
+          # best relevant packet and let the provider report its actual context
+          # limit. Never reject a turn or erase all history/canon to satisfy an
+          # application-defined byte count.
+          emit_metrics(detail_metrics)
 
-          if metrics.estimated_request_bytes <= budget do
-            {:ok, %{context: context, metrics: report_budget(metrics, model, opts)}}
-          else
-            emit_metrics(metrics)
-            {:error, {:context_budget_exceeded, budget_diagnostics(metrics)}}
-          end
+          {:ok,
+           %{
+             context: detail_context,
+             metrics: report_budget(detail_metrics, model, opts)
+           }}
         end
       end
     end
@@ -610,18 +616,13 @@ defmodule Storyteller.GM.ContextBudget do
 
     over_budget? = metrics.estimated_request_bytes > budget
 
-    if not over_budget? or Keyword.get(opts, :allow_over_budget?, false) do
-      {:ok,
-       %{
-         context: packet,
-         metrics: report_budget(metrics, model, opts),
-         retrieval_packet?: true,
-         over_budget?: over_budget?
-       }}
-    else
-      emit_metrics(metrics)
-      {:error, {:context_budget_exceeded, budget_diagnostics(metrics)}}
-    end
+    {:ok,
+     %{
+       context: packet,
+       metrics: report_budget(metrics, model, opts),
+       retrieval_packet?: true,
+       over_budget?: over_budget?
+     }}
   rescue
     _error -> {:error, :context_compilation_failed}
   end
@@ -977,7 +978,7 @@ defmodule Storyteller.GM.ContextBudget do
   def emit_metrics(_metrics, _provider_usage), do: :ok
 
   @doc "Returns the local serialized-request compaction target, not a provider context limit."
-  def request_size_limit_bytes(model, opts \\ []) do
+  def compaction_target_bytes(model, opts \\ []) do
     configured = Application.get_env(:storyteller, :gm_context_byte_budgets, %{})
 
     limit =
@@ -989,13 +990,13 @@ defmodule Storyteller.GM.ContextBudget do
 
   defp byte_budget(model, opts) do
     budget =
-      request_size_limit_bytes(model, opts) - max(Keyword.get(opts, :reserve_request_bytes, 0), 0)
+      compaction_target_bytes(model, opts) - max(Keyword.get(opts, :reserve_request_bytes, 0), 0)
 
     if is_integer(budget) and budget > 0, do: budget, else: 0
   end
 
   defp report_budget(metrics, model, opts),
-    do: Map.put(metrics, :budget_bytes, request_size_limit_bytes(model, opts))
+    do: Map.put(metrics, :budget_bytes, compaction_target_bytes(model, opts))
 
   defp measure(context, instructions, model, budget, compacted?, omissions) do
     context_json = Jason.encode!(context)
@@ -1029,29 +1030,6 @@ defmodule Storyteller.GM.ContextBudget do
   end
 
   defp metric_key(section), do: Map.fetch!(@section_metric_keys, section)
-
-  defp budget_diagnostics(metrics) do
-    section_sizes =
-      Map.new(@measured_sections, fn section ->
-        {Atom.to_string(section), Map.fetch!(metrics.section_bytes, metric_key(section))}
-      end)
-      |> Map.put("gm_instructions", metrics.instructions_bytes)
-
-    largest_sections =
-      section_sizes
-      |> Enum.sort_by(fn {section, bytes} -> {-bytes, section} end)
-      |> Enum.take(3)
-      |> Enum.map(fn {section, bytes} -> %{category: section, bytes: bytes} end)
-
-    %{
-      budget_bytes: metrics.budget_bytes,
-      estimated_request_bytes: metrics.estimated_request_bytes,
-      instructions_bytes: metrics.instructions_bytes,
-      context_json_bytes: metrics.context_json_bytes,
-      section_bytes: section_sizes,
-      largest_sections: largest_sections
-    }
-  end
 
   defp compact_context(context, preferred_history_sequences) do
     terms = query_terms(context)
@@ -1242,35 +1220,9 @@ defmodule Storyteller.GM.ContextBudget do
   defp compact_history_for_budget(history, _recent_count, _recent_chars, _older_chars),
     do: {history, false}
 
-  # History is useful recall, but it is not the source of truth for current
-  # scene state. If even the shortest retained excerpts prevent a request,
-  # omit the transcript from this request and rely on the canonical state,
-  # continuity, and selected character profiles that remain in context. The
-  # event ledger itself is untouched, and the omission is explicit to the GM.
-  defp omit_history_to_budget(context, instructions, model, budget, omissions, metrics) do
-    history = value(context, :history)
-
-    if is_list(history) and history != [] do
-      updated_context =
-        context
-        |> put_context_value("history", [])
-        |> context_with_completeness(%{history_compacted: true, history_omitted: true})
-
-      updated_omissions = Enum.uniq(omissions ++ [:history])
-
-      updated_metrics =
-        measure(updated_context, instructions, model, budget, true, updated_omissions)
-
-      {updated_context, updated_omissions, updated_metrics}
-    else
-      {context, omissions, metrics}
-    end
-  end
-
-  # Only reach this pass after relevance selection and transcript compaction
-  # have failed to meet the application byte guard. Long-form reference detail
-  # remains canonical and retrievable; keep the scene's identities/state while
-  # reducing descriptive prose enough to make a request possible.
+  # If progressive history compaction still misses the target, try shortening
+  # redundant reference prose. This result is used only when it fits the soft
+  # target; otherwise compile/1 sends the richer first-pass context.
   defp compact_nonessential_details_to_budget(
          context,
          instructions,
