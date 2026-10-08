@@ -6629,16 +6629,109 @@ defmodule Storyteller.PlayTest do
       {:ok, Jason.encode!(ordinary_proposal())}
     end
 
-    complete_turn(campaign, session, "review-accounts", "Review the account balance.", provider)
+    complete_turn(
+      campaign,
+      session,
+      "review-accounts",
+      "Inspect the current cash balance.",
+      provider
+    )
 
     instructions = Agent.get(instructions_agent, & &1) |> String.replace(~r/\s+/, " ")
     assert instructions =~ "A read-only ledger review changes nothing"
+
+    assert instructions =~
+             "Narrated count/balance changes must match a panel operation and its resulting value"
+
+    assert instructions =~
+             "Quantity/money require signed nonzero deltas; text/status/date use set"
 
     assert {:ok, %{panels: [panel]}} = Play.public_projection(campaign.id)
     assert [%{key: "cash", value: "100"}] = panel.fields
 
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     refute Enum.any?(timeline, &Map.has_key?(&1.payload, "panel_changes"))
+  end
+
+  test "an omitted requested resource update is corrected before the player needs to retry" do
+    {campaign, session} = play_campaign("The Recoverable Plate Catalog")
+
+    insert_panel_field!(campaign.id, %{
+      key: "plates_catalogued",
+      panel: "Archive",
+      label: "Plates catalogued",
+      value_type: :quantity,
+      unit: "plates",
+      visibility: :public,
+      value: %{"value" => 0}
+    })
+
+    test_pid = self()
+    attempt_agent = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    provider = fn request ->
+      attempt = Agent.get_and_update(attempt_agent, fn count -> {count + 1, count + 1} end)
+      send(test_pid, {:panel_proposal_attempt, attempt, request.instructions})
+
+      proposal =
+        if attempt == 1 do
+          ordinary_proposal(%{
+            "narration" => "The catalog now holds four plates.",
+            "panel_changes" => [],
+            "time_advance_minutes" => 1_440
+          })
+        else
+          ordinary_proposal(%{
+            "narration" => "The day's careful work adds four plates to the catalog.",
+            "panel_changes" => [
+              %{
+                "type" => "delta",
+                "key" => "plates_catalogued",
+                "delta" => 4,
+                "reason" => "The day's catalog work adds four plates."
+              }
+            ],
+            "time_advance_minutes" => 1_440
+          })
+        end
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "catalog-one-day",
+               "Let a day pass while Ines and I catalogue plates; record concrete progress.",
+               intent: :time_passage,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:panel_proposal_attempt, 1, first_instructions}
+    assert_receive {:panel_proposal_attempt, 2, corrected_instructions}
+    refute first_instructions =~ "Internal correction:"
+
+    assert corrected_instructions =~
+             "Internal correction: the prior GM proposal did not satisfy the tracked-panel rules."
+
+    assert corrected_instructions =~ "Quantity: integer delta; money: decimal-string delta"
+    assert corrected_instructions =~ "never set either"
+
+    assert corrected_instructions =~
+             "If the player explicitly requested an update, include it"
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert [%{key: "plates_catalogued", value: 4}] =
+             Enum.flat_map(projection.panels, & &1.fields)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    panel_event = Enum.find(timeline, &Map.has_key?(&1.payload, "panel_changes"))
+
+    assert [%{"key" => "plates_catalogued", "before" => 0, "after" => 4}] =
+             panel_event.payload["panel_changes"]
   end
 
   test "observation requests report only new or specifically inspected details" do

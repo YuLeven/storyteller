@@ -444,13 +444,12 @@ defmodule Storyteller.Play do
   and visibility. Never duplicate quantity. Update patches only flexible item
   properties (e.g. charges/condition), preserving unrelated keys; nested maps
   merge. Never update ID, name,
-  quantity, unit, category, description, owner, or visibility. Use configured
-  panels for fungible balances. Numeric quantity/money changes use nonzero signed
-  deltas against current canon; app rejects negative results. Text/status/date
-  use typed set. Change only defined fields, preserving type/unit. Every change
-  needs a concise, grounded reason. A read-only ledger review changes nothing;
-  leave panel_changes empty absent a supported transaction/event. The app records
-  visibility-scoped before/operation/after, field, unit, and reason receipts.
+  quantity, unit, category, description, owner, or visibility. Panels track
+  fungible balances. Quantity/money require signed nonzero deltas; text/status/date
+  use set. Use only defined fields with one grounded reason; preserve units and
+  nonnegative results. A read-only ledger review changes nothing. Narrated
+  count/balance changes must match a panel operation and its resulting value;
+  never claim untracked progress.
 
   ACT, ASK, TIME: Act describes the player's in-character action or speech.
   Ask is a direct out-of-character question to the GM; answer briefly without
@@ -566,6 +565,21 @@ defmodule Storyteller.Play do
     :private_fact_boundary,
     :proposal_rules
   ]
+
+  @panel_tracking_cues ~w(
+    track tracked tracking record records recorded log logs logged update updates updated
+    keep keeps kept add adds added increase increases increased decrease decreases decreased
+    registra registrar registren anota anotar anoten actualiza actualizar actualicen
+    mantener mantiene mantén añade anadir añadir aumenta aumentar reduce reducir disminuye
+    enregistre enregistrer enregistrez consigne consigner noter note notez garde garder
+    ajouter ajoute ajoutez augmenter augmente reduire réduire baisse baisser
+  )
+
+  @generic_panel_terms ~w(
+    a an the this that my your our their current total count balance amount value
+    resource resources panel board tracker tracked inventory level levels
+    de del la las el los un una en le les des du mon ma mes votre nos
+  )
 
   @doc """
   Initializes a campaign's canonical state and stable player speaker.
@@ -1688,9 +1702,20 @@ defmodule Storyteller.Play do
          {:invalid_response, category},
          _previous_guidance
        ) do
+    direction =
+      if category == :panel_change do
+        "Use the exact configured key/type, one operation per field, and only allowed keys with " <>
+          "a grounded reason. Quantity: integer delta; money: decimal-string delta; never set " <>
+          "either. If the player explicitly requested an update, include it and keep narration " <>
+          "consistent with the result; choose a plausible bounded amount from the described work. " <>
+          "If no amount is established, do not claim the value changed."
+      else
+        "Review that rule and correct the proposal."
+      end
+
     proposal_repair_instruction(
       proposal_repair_check(category),
-      "Review that rule and correct the proposal."
+      direction
     )
   end
 
@@ -3517,6 +3542,11 @@ defmodule Storyteller.Play do
              validate_panel_changes(field(proposal, :panel_changes, []), turn.campaign_id),
              :panel_change
            ),
+         :ok <-
+           tagged_proposal_validation(
+             validate_requested_panel_changes(panel_changes, turn),
+             :panel_change
+           ),
          {:ok, character_updates} <-
            tagged_proposal_validation(
              validate_character_updates(field(proposal, :character_updates, []), characters),
@@ -4185,6 +4215,49 @@ defmodule Storyteller.Play do
   end
 
   defp validate_panel_changes(_changes, _campaign_id), do: {:error, :invalid_response}
+
+  defp validate_requested_panel_changes(panel_changes, turn) do
+    proposed_keys = MapSet.new(panel_changes, & &1.key)
+
+    required_keys =
+      turn.campaign_id
+      |> Panels.list_fields()
+      |> Enum.filter(&(&1.visibility == :public))
+      |> Enum.filter(&explicit_panel_tracking_request?(turn.player_input, &1))
+      |> Enum.map(& &1.key)
+
+    if Enum.all?(required_keys, &MapSet.member?(proposed_keys, &1)),
+      do: :ok,
+      else: {:error, :invalid_response}
+  end
+
+  # Enforce only an explicit player request that names a visible panel subject
+  # and asks to track or record it. Ordinary actions mentioning a resource do
+  # not force a change to that resource.
+  defp explicit_panel_tracking_request?(player_input, %PanelField{} = field)
+       when is_binary(player_input) do
+    input_tokens = panel_request_tokens(player_input)
+
+    meaningful_field_tokens =
+      panel_request_tokens(field.label <> " " <> field.key)
+      |> Enum.reject(&(&1 in @generic_panel_terms))
+
+    requested_tracking? = Enum.any?(input_tokens, &(&1 in @panel_tracking_cues))
+
+    requested_field? =
+      Enum.any?(meaningful_field_tokens, fn token -> token in input_tokens end)
+
+    requested_tracking? and requested_field?
+  end
+
+  defp explicit_panel_tracking_request?(_player_input, _field), do: false
+
+  defp panel_request_tokens(text) when is_binary(text) do
+    text
+    |> String.normalize(:nfc)
+    |> String.downcase()
+    |> String.split(~r/[^\p{L}\p{N}]+/u, trim: true)
+  end
 
   defp normalize_panel_change(change, definitions) when is_map(change) do
     keys = Enum.map(Map.keys(change), &key_name/1)
