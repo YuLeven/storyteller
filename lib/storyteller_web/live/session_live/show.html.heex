@@ -807,7 +807,18 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wide text-stone-600">
                       {pending_input_label(@current_turn.intent)}
                     </h3>
-                    <p class="text-[11px] text-stone-400">{gettext("Turn saved")}</p>
+                    <div class="flex items-center gap-2">
+                      <span
+                        :if={@current_turn.status in [:pending, :resolving]}
+                        aria-hidden="true"
+                        class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-600"
+                      ></span>
+                      <p id="pending-action-status" class="text-[11px] text-stone-500">
+                        {if @current_turn.status in [:pending, :resolving],
+                          do: gettext("The game master is responding"),
+                          else: gettext("Turn saved")}
+                      </p>
+                    </div>
                   </div>
                   <p class="whitespace-pre-wrap leading-7 text-stone-800">
                     {@current_turn.player_input}

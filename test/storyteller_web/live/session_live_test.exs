@@ -1740,6 +1740,14 @@ defmodule StorytellerWeb.SessionLiveTest do
       if attempt == 0 do
         {:ok, "not-json"}
       else
+        send(test_pid, {:internal_correction_waiting, self()})
+
+        receive do
+          :continue_internal_correction -> :ok
+        after
+          5_000 -> flunk("internal correction was not released")
+        end
+
         {:ok,
          %{
            narration: "The keeper points toward the bodega road.",
@@ -1768,7 +1776,15 @@ defmodule StorytellerWeb.SessionLiveTest do
 
     assert_receive {:failed_action_provider_attempt, 0, _initial_instructions}, 1_000
     assert_receive {:failed_action_provider_attempt, 1, repair_instructions}, 1_000
+    assert_receive {:internal_correction_waiting, correction_provider}, 1_000
     assert repair_instructions =~ "Internal correction"
+
+    assert has_element?(view, "#story-pending-action", action)
+    assert has_element?(view, "#pending-action-status", "The game master is responding")
+    assert has_element?(view, "#turn-announcement", "The game master is responding")
+    refute has_element?(view, "#turn-error")
+
+    send(correction_provider, :continue_internal_correction)
 
     assert wait_until(fn ->
              has_element?(view, "#story-timeline", "The keeper points toward the bodega road.")
