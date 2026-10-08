@@ -541,8 +541,6 @@ defmodule Storyteller.Play.StoryMemoryCorrectionsTest do
     request.input
     |> Enum.find(&Map.has_key?(&1, :content))
     |> Map.fetch!(:content)
-    |> hd()
-    |> Map.fetch!(:text)
     |> Jason.decode!()
   end
 end

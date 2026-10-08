@@ -700,11 +700,11 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   defp consume_chunks(chunks, on_first_output, on_stream_activity, started_at) do
-    initial = {:ok, "", {:waiting, [], 0, false}}
+    initial = {:ok, "", {:waiting, [], 0, false, []}}
 
     result =
       Enum.reduce_while(chunks, initial, fn
-        chunk, {:ok, buffer, {:waiting, _deltas, _size, _first_output?} = status}
+        chunk, {:ok, buffer, {:waiting, _deltas, _size, _first_output?, _output_items} = status}
         when is_binary(chunk) ->
           safely_call(on_stream_activity)
           {frames, rest} = split_frames(buffer <> chunk)
@@ -719,7 +719,7 @@ defmodule Storyteller.GM.OpenAI do
       end)
 
     case result do
-      {:ok, buffer, {:waiting, _deltas, _size, _first_output?} = status} ->
+      {:ok, buffer, {:waiting, _deltas, _size, _first_output?, _output_items} = status} ->
         final_status =
           if String.trim(buffer) == "" do
             status
@@ -757,7 +757,7 @@ defmodule Storyteller.GM.OpenAI do
   defp process_frames(frames, buffer, status, on_first_output, started_at) do
     Enum.reduce_while(frames, {:ok, buffer, status}, fn frame, {:ok, rest, current} ->
       case process_frame(frame, current, on_first_output, started_at) do
-        {:waiting, _deltas, _size, _first_output?} = waiting ->
+        {:waiting, _deltas, _size, _first_output?, _output_items} = waiting ->
           {:cont, {:ok, rest, waiting}}
 
         terminal ->
@@ -774,15 +774,20 @@ defmodule Storyteller.GM.OpenAI do
   defp process_frame(_frame, {:incomplete, _} = incomplete, _callback, _started_at),
     do: incomplete
 
-  defp process_frame(frame, {:waiting, deltas, size, first_output?}, on_first_output, started_at) do
+  defp process_frame(
+         frame,
+         {:waiting, deltas, size, first_output?, output_items},
+         on_first_output,
+         started_at
+       ) do
     {event, data} = parse_frame(frame)
 
     case data do
       nil ->
-        {:waiting, deltas, size, first_output?}
+        {:waiting, deltas, size, first_output?, output_items}
 
       "[DONE]" ->
-        {:waiting, deltas, size, first_output?}
+        {:waiting, deltas, size, first_output?, output_items}
 
       encoded ->
         case Jason.decode(encoded) do
@@ -793,6 +798,7 @@ defmodule Storyteller.GM.OpenAI do
               deltas,
               size,
               first_output?,
+              output_items,
               on_first_output,
               started_at
             )
@@ -808,10 +814,10 @@ defmodule Storyteller.GM.OpenAI do
 
     case data do
       nil ->
-        {:waiting, [], 0, false}
+        {:waiting, [], 0, false, []}
 
       "[DONE]" ->
-        {:waiting, [], 0, false}
+        {:waiting, [], 0, false, []}
 
       encoded ->
         case Jason.decode(encoded) do
@@ -822,6 +828,7 @@ defmodule Storyteller.GM.OpenAI do
               [],
               0,
               false,
+              [],
               on_first_output,
               started_at
             )
@@ -858,10 +865,19 @@ defmodule Storyteller.GM.OpenAI do
     {event, data}
   end
 
-  defp process_event(event, payload, deltas, size, first_output?, on_first_output, started_at) do
+  defp process_event(
+         event,
+         payload,
+         deltas,
+         size,
+         first_output?,
+         output_items,
+         on_first_output,
+         started_at
+       ) do
     case payload["type"] || event do
       "response.completed" ->
-        response = payload["response"]
+        response = response_with_streamed_output(payload["response"], output_items)
         usage = response_usage(response)
 
         case output_text(response) do
@@ -888,10 +904,19 @@ defmodule Storyteller.GM.OpenAI do
 
         case append_output_delta(deltas, size, delta) do
           {:waiting, next_deltas, next_size} ->
-            {:waiting, next_deltas, next_size, first_output?}
+            {:waiting, next_deltas, next_size, first_output?, output_items}
 
           terminal ->
             terminal
+        end
+
+      "response.output_item.done" ->
+        case payload["item"] do
+          %{"type" => type} = item when type in ["message", "reasoning", "function_call"] ->
+            {:waiting, deltas, size, first_output?, [item | output_items]}
+
+          _ ->
+            {:waiting, deltas, size, first_output?, output_items}
         end
 
       "response.failed" ->
@@ -907,9 +932,19 @@ defmodule Storyteller.GM.OpenAI do
         {:failed, response_error_details(payload["error"] || payload)}
 
       _ ->
-        {:waiting, deltas, size, first_output?}
+        {:waiting, deltas, size, first_output?, output_items}
     end
   end
+
+  defp response_with_streamed_output(response, streamed_output) when is_map(response) do
+    case field(response, :output) do
+      output when is_list(output) and output != [] -> response
+      _ when streamed_output != [] -> Map.put(response, "output", Enum.reverse(streamed_output))
+      _ -> response
+    end
+  end
+
+  defp response_with_streamed_output(response, _streamed_output), do: response
 
   defp notify_first_output(on_first_output, started_at) do
     duration = System.monotonic_time() - started_at

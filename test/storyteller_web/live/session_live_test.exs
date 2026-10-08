@@ -12,8 +12,6 @@ defmodule StorytellerWeb.SessionLiveTest.FakeProvider do
           request.input
           |> Enum.find(&Map.has_key?(&1, :content))
           |> Map.fetch!(:content)
-          |> hd()
-          |> Map.fetch!(:text)
           |> Jason.decode!()
 
         if context["interaction_mode"] == "opening_scene",
@@ -6605,8 +6603,6 @@ defmodule StorytellerWeb.SessionLiveTest do
     request.input
     |> Enum.find(&Map.has_key?(&1, :content))
     |> Map.fetch!(:content)
-    |> hd()
-    |> Map.fetch!(:text)
     |> Jason.decode!()
   end
 

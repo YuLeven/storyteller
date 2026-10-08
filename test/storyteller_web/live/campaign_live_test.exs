@@ -1540,8 +1540,6 @@ defmodule StorytellerWeb.CampaignLiveTest do
       request.input
       |> Enum.find(&Map.has_key?(&1, :content))
       |> Map.fetch!(:content)
-      |> hd()
-      |> Map.fetch!(:text)
       |> Jason.decode!()
 
     current_location = get_in(context, ["world", "public", "location"])
@@ -1581,8 +1579,6 @@ defmodule StorytellerWeb.CampaignLiveTest do
     request.input
     |> Enum.find(&Map.has_key?(&1, :content))
     |> Map.fetch!(:content)
-    |> hd()
-    |> Map.fetch!(:text)
     |> Jason.decode!()
   end
 end

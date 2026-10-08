@@ -54,7 +54,7 @@ defmodule Storyteller.GM.OpenAITest do
     assert body["model"] == "fixture-model"
     assert body["instructions"] == request.instructions
     assert body["input"] == request.input
-    assert body["text"] == %{"format" => %{"type" => "json_object"}}
+    refute Map.has_key?(body, "text")
     assert body["store"] == false
     assert body["stream"] == true
 
@@ -63,8 +63,7 @@ defmodule Storyteller.GM.OpenAITest do
              "instructions",
              "model",
              "store",
-             "stream",
-             "text"
+             "stream"
            ]
 
     refute Map.has_key?(body, "previous_response_id")
@@ -230,7 +229,7 @@ defmodule Storyteller.GM.OpenAITest do
     assert_receive {:responses_request, 1, first_options}
     first_body = Keyword.fetch!(first_options, :json)
     assert first_body["input"] == request.input
-    assert first_body["text"] == %{"format" => %{"type" => "json_object"}}
+    refute Map.has_key?(first_body, "text")
     refute Map.has_key?(first_body, "tools")
     assert first_body["store"] == false and first_body["stream"] == true
 
@@ -251,8 +250,93 @@ defmodule Storyteller.GM.OpenAITest do
 
     refute Map.has_key?(second_body, "tools")
     refute Map.has_key?(second_body, "previous_response_id")
-    assert second_body["text"] == %{"format" => %{"type" => "json_object"}}
+    refute Map.has_key?(second_body, "text")
     assert second_body["store"] == false and second_body["stream"] == true
+    refute_receive {:responses_request, _, _}
+  end
+
+  test "executes a streamed local lookup when response.completed omits its output array",
+       context do
+    test_pid = self()
+    request = lookup_request()
+
+    reasoning = %{
+      "type" => "reasoning",
+      "id" => "rs_streamed",
+      "summary" => [%{"type" => "summary_text", "text" => "Checking the campaign."}]
+    }
+
+    call = %{
+      "type" => "function_call",
+      "id" => "fc_streamed",
+      "status" => "completed",
+      "call_id" => "call_streamed",
+      "name" => "lookup_campaign_canon",
+      "arguments" => "{\"query\":\"Mara\",\"category\":\"character\"}"
+    }
+
+    first =
+      event_frame("response.output_item.done", %{
+        "type" => "response.output_item.done",
+        "output_index" => 0,
+        "item" => reasoning
+      }) <>
+        event_frame("response.output_item.done", %{
+          "type" => "response.output_item.done",
+          "output_index" => 1,
+          "item" => call
+        }) <>
+        event_frame("response.completed", %{
+          "type" => "response.completed",
+          "response" => %{
+            "status" => "completed",
+            "output" => [],
+            "usage" => %{"input_tokens" => 11, "output_tokens" => 4}
+          }
+        })
+
+    second = completion_event("Mara remains at the observatory.", %{"input_tokens" => 17})
+    calls = :atomics.new(1, signed: false)
+
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      call_number = :atomics.add_get(calls, 1, 1)
+      send(test_pid, {:responses_request, call_number, options})
+
+      %{
+        status: 200,
+        body: if(call_number == 1, do: split_stream(first), else: split_stream(second))
+      }
+    end
+
+    executor = fn arguments ->
+      send(test_pid, {:lookup_arguments, arguments})
+      %{"records" => [%{"id" => "mara", "visibility" => "public"}]}
+    end
+
+    assert {:ok, %{text: "Mara remains at the observatory.", usage: %{input_tokens: 28}}} =
+             OpenAI.stream_response(Map.put(request, :campaign_lookup_executor, executor),
+               store: context.store,
+               http: http
+             )
+
+    assert_receive {:lookup_arguments, %{"query" => "Mara", "category" => "character"}}
+    assert_receive {:responses_request, 1, _first_options}
+    assert_receive {:responses_request, 2, second_options}
+
+    expected_tool_output =
+      Jason.encode!(%{"records" => [%{"id" => "mara", "visibility" => "public"}]})
+
+    assert Keyword.fetch!(second_options, :json)["input"] ==
+             request.input ++
+               [reasoning, call] ++
+               [
+                 %{
+                   "type" => "function_call_output",
+                   "call_id" => "call_streamed",
+                   "output" => expected_tool_output
+                 }
+               ]
+
     refute_receive {:responses_request, _, _}
   end
 
@@ -901,8 +985,7 @@ defmodule Storyteller.GM.OpenAITest do
              "instructions",
              "model",
              "store",
-             "stream",
-             "text"
+             "stream"
            ]
 
     refute Jason.encode!(request_body) =~ "on_first_output"

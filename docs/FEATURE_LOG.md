@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-07 — Recover campaign lookup calls from streamed Responses items
+
+- The first live Quiet Observatory Luna retry exposed two gaps in the same turn. The API rejected a request carrying `text.format`; after removing that field, a tool-enabled stream could complete with an empty `response.completed.response.output` even though the model had emitted its function call in `response.output_item.done`. The adapter previously discarded that streamed item and reported an empty GM response.
+- The adapter now retains completed streamed `message`, `reasoning`, and `function_call` items and uses them when the terminal output array is absent or empty. This preserves the full output for the existing local lookup validation and continuation path. The request continues to use the documented Responses fields without JSON mode; proposal shape is enforced by local validation and repair guidance.
+- A regression test reproduces the empty terminal-output shape, verifies the local lookup runs once, replays the function call and reasoning into the continuation, and confirms the turn finishes with the follow-up narration.
+- **Live QA:** the saved fictional Quiet Observatory action completed through the UI on `gpt-6-luna` at low reasoning. The GM answered the player's question with a coastal survey method and a distinct astronomy comparison from Mira, and the turn committed normally. Provider stage took about 17 seconds; first text arrived after about 4 seconds. This is one verified turn, not a latency or quality benchmark.
+- **Verification:** WSL OpenAI adapter suite passed (**33 tests, 0 failures**); `mix format --check-formatted` and `MIX_ENV=dev mix compile --warnings-as-errors` passed. The full suite ran 534 tests and surfaced one separate failure: `campaign editor rejects stale voice edits from another tab and preserves them for review` redirects on its initial LiveView load, and that failure reproduces when run alone. Its campaign-editor behavior is outside this provider change and remains a follow-up. The live call used the owner's existing ChatGPT-plan OAuth session, Luna only, and the isolated Quiet Observatory QA campaign; no Vineyard data was accessed.
+
 ## 2026-10-07 — Recheck the ChatGPT-plan request contract for the input rejection
 
 - Rechecked the current official SIWC preview and recovery documentation against the saved Quiet Observatory request. Storyteller uses the documented public `POST /v1/responses` route, `store: false`, `stream: true`, array input, and simple `{role: "user", content: "..."}` text item. The failed 14,398-byte request contained that single ordinary user item and no `additional_tools` lookup item.
