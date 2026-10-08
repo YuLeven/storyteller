@@ -10,14 +10,16 @@ import Config
 config :storyteller,
   ecto_repos: [Storyteller.Repo],
   generators: [timestamp_type: :utc_datetime],
-  # Compaction targets for request assembly; these are not provider limits.
+  # Soft compaction targets for relevance-ranked requests; never local limits.
+  # The generous default avoids stripping useful campaign detail to optimize cost.
   gm_context_byte_budgets: %{
-    "default" => 64_000,
-    "gpt-6-astra" => 64_000,
-    "gpt-5.6-sol" => 64_000,
-    "gpt-5.6-terra" => 64_000,
-    "gpt-5.6-luna" => 64_000,
-    "gpt-5.5" => 64_000
+    "default" => 128_000,
+    "gpt-6-luna" => 128_000,
+    "gpt-6-astra" => 128_000,
+    "gpt-5.6-sol" => 128_000,
+    "gpt-5.6-terra" => 128_000,
+    "gpt-5.6-luna" => 128_000,
+    "gpt-5.5" => 128_000
   }
 
 auth_store_dir =

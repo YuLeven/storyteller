@@ -7848,7 +7848,7 @@ defmodule Storyteller.PlayTest do
       assert instructions =~
                "SENSORY AGENCY: State sensory evidence before reaction; never ask the player to invent it"
 
-      assert request.local_context_metrics.budget_bytes == 64_000
+      assert request.local_context_metrics.budget_bytes == 128_000
 
       assert request.local_context_metrics.estimated_request_bytes <=
                request.local_context_metrics.budget_bytes
@@ -8528,7 +8528,7 @@ defmodule Storyteller.PlayTest do
     metrics = request.local_context_metrics
     assert metrics.compacted?
     assert metrics.estimated_request_bytes <= metrics.budget_bytes
-    assert metrics.budget_bytes == 64_000
+    assert metrics.budget_bytes == 128_000
   end
 
   test "Spanish wine question sends matching public memory but omits unrelated note" do
@@ -8725,8 +8725,8 @@ defmodule Storyteller.PlayTest do
         refute Map.has_key?(entries[decoy_id], "details")
       end
 
-      assert request.local_context_metrics.estimated_request_bytes <= 64_000
-      assert request.local_context_metrics.budget_bytes == 64_000
+      assert request.local_context_metrics.estimated_request_bytes <= 128_000
+      assert request.local_context_metrics.budget_bytes == 128_000
       assert context["context_completeness"]["continuity_memory_details_omitted"]
     end)
   end
@@ -8830,7 +8830,7 @@ defmodule Storyteller.PlayTest do
         refute Map.has_key?(public_entries[decoy_id], "details")
       end
 
-      assert request.local_context_metrics.budget_bytes == 64_000
+      assert request.local_context_metrics.budget_bytes == 128_000
 
       assert request.local_context_metrics.estimated_request_bytes <=
                request.local_context_metrics.budget_bytes
@@ -9035,7 +9035,7 @@ defmodule Storyteller.PlayTest do
         assert MapSet.subset?(latest_sequences, sent_sequences)
       end
 
-      assert request.local_context_metrics.budget_bytes == 64_000
+      assert request.local_context_metrics.budget_bytes == 128_000
 
       assert request.local_context_metrics.estimated_request_bytes <=
                request.local_context_metrics.budget_bytes
@@ -9176,8 +9176,8 @@ defmodule Storyteller.PlayTest do
     assert length(captured) == length(questions)
 
     for {{question, expected_entry_id}, {context, metrics}} <- Enum.zip(questions, captured) do
-      assert metrics.estimated_request_bytes <= 64_000
-      assert metrics.budget_bytes == 64_000
+      assert metrics.estimated_request_bytes <= 128_000
+      assert metrics.budget_bytes == 128_000
 
       entries = Map.new(context["continuity"]["public"], &{&1["entry_id"], &1})
       assert entries[expected_entry_id]["details"] == expected_details[expected_entry_id]
@@ -9381,8 +9381,8 @@ defmodule Storyteller.PlayTest do
 
     assert context["context_completeness"]["continuity_memory_details_omitted"]
     metrics = request.local_context_metrics
-    assert metrics.budget_bytes == 64_000
-    assert metrics.estimated_request_bytes <= 64_000
+    assert metrics.budget_bytes == 128_000
+    assert metrics.estimated_request_bytes <= 128_000
 
     assert metrics.estimated_request_bytes == context_request_bytes(request)
   end
@@ -9521,8 +9521,8 @@ defmodule Storyteller.PlayTest do
 
       assert context["context_completeness"]["continuity_memory_details_omitted"]
       metrics = request.local_context_metrics
-      assert metrics.budget_bytes == 64_000
-      assert metrics.estimated_request_bytes <= 64_000
+      assert metrics.budget_bytes == 128_000
+      assert metrics.estimated_request_bytes <= 128_000
 
       assert metrics.estimated_request_bytes == context_request_bytes(request)
     end
@@ -9625,7 +9625,7 @@ defmodule Storyteller.PlayTest do
 
       assert context["context_completeness"]["continuity_memory_details_omitted"]
       metrics = request.local_context_metrics
-      assert metrics.budget_bytes == 64_000
+      assert metrics.budget_bytes == 128_000
       assert metrics.estimated_request_bytes <= metrics.budget_bytes
 
       assert metrics.estimated_request_bytes == context_request_bytes(request)
@@ -9691,13 +9691,13 @@ defmodule Storyteller.PlayTest do
       |> Map.fetch!(:content)
 
     assert context["interaction_mode"] == "question"
-    assert metrics.budget_bytes == 64_000
+    assert metrics.budget_bytes == 128_000
     assert metrics.instructions_bytes == byte_size(request.instructions)
     assert metrics.context_json_bytes == byte_size(encoded_context)
 
     assert metrics.estimated_request_bytes == context_request_bytes(request)
 
-    assert metrics.estimated_request_bytes <= 64_000
+    assert metrics.estimated_request_bytes <= 128_000
   end
 
   test "a local byte target never prevents sending the full useful request" do
@@ -9731,10 +9731,12 @@ defmodule Storyteller.PlayTest do
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
   end
 
-  test "provider context-window rejection automatically retries with a scene packet" do
+  test "provider context-window rejection retries with a smaller scene and optional payload" do
     {campaign, session} = play_campaign("The Compact Observatory")
     caller = self()
     calls = :atomics.new(1, signed: false)
+    first_instruction_bytes = :atomics.new(1, signed: false)
+    first_tool_bytes = :atomics.new(1, signed: false)
     place = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
     description = String.duplicate("A fine line of brass marks the chart rim. ", 100)
 
@@ -9744,22 +9746,124 @@ defmodule Storyteller.PlayTest do
       })
     )
 
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(
+      Character.changeset(lyra, %{
+        voice_guidance: %{"accent_dialect" => "quiet Rioplatense Spanish, clipped consonants"}
+      })
+    )
+
+    optional_tool = %{
+      "name" => "read_companion_notes",
+      "description" => String.duplicate("Optional companion reference detail. ", 70),
+      "inputSchema" => %{
+        "type" => "object",
+        "properties" => %{"query" => %{"type" => "string"}},
+        "required" => ["query"]
+      }
+    }
+
+    plug = fn conn, _opts ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      request = Jason.decode!(body)
+      conn = Plug.Conn.put_resp_header(conn, "mcp-session-id", "recovery-test")
+
+      case request["method"] do
+        "initialize" ->
+          result = %{
+            "jsonrpc" => "2.0",
+            "id" => request["id"],
+            "result" => %{
+              "protocolVersion" => "2025-03-26",
+              "capabilities" => %{"tools" => %{}},
+              "serverInfo" => %{"name" => "Recovery fixture", "version" => "1.0"}
+            }
+          }
+
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(200, Jason.encode!(result))
+
+        "notifications/initialized" ->
+          Plug.Conn.resp(conn, 202, "")
+
+        "tools/list" ->
+          result = %{
+            "jsonrpc" => "2.0",
+            "id" => request["id"],
+            "result" => %{"tools" => [optional_tool]}
+          }
+
+          conn
+          |> Plug.Conn.put_resp_content_type("text/event-stream")
+          |> Plug.Conn.resp(200, "event: message\ndata: #{Jason.encode!(result)}\n\n")
+      end
+    end
+
+    {:ok, server} = Bandit.start_link(plug: plug, ip: {127, 0, 0, 1}, port: 0, startup_log: false)
+    Process.unlink(server)
+    on_exit(fn -> Supervisor.stop(server) end)
+    assert {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, campaign} =
+             Repo.update(
+               Storyteller.Campaigns.Campaign.changeset(campaign, %{
+                 integrations: %{
+                   "companion" => %{
+                     "name" => "Observatory notes",
+                     "mcp_endpoint_url" => "http://127.0.0.1:#{port}/mcp",
+                     "instructions" => String.duplicate("Optional project guidance. ", 250)
+                   }
+                 }
+               })
+             )
+
     provider = fn request ->
       call = :atomics.add_get(calls, 1, 1)
+      tool_context = Enum.find(request.input, &(Map.get(&1, "type") == "additional_tools"))
+      tool_names = Enum.map(tool_context["tools"], & &1["name"])
+      instruction_bytes = byte_size(request.instructions)
+      tool_bytes = byte_size(Jason.encode!(tool_context))
+      context = decode_request(request)
 
       send(
         caller,
         {:context_window_retry_request, call, request.request_size_limit_bytes,
          request.local_context_metrics.estimated_request_bytes,
-         request.local_context_metrics.omissions}
+         request.local_context_metrics.omissions, instruction_bytes, tool_bytes, tool_names,
+         request.instructions, context}
       )
 
-      if call == 1,
-        do: {:error, :context_length_exceeded},
-        else: {:ok, Jason.encode!(ordinary_proposal())}
+      case call do
+        1 ->
+          :atomics.put(first_instruction_bytes, 1, instruction_bytes)
+          :atomics.put(first_tool_bytes, 1, tool_bytes)
+          {:error, :context_length_exceeded}
+
+        2 ->
+          smaller_optional_payload? =
+            instruction_bytes < :atomics.get(first_instruction_bytes, 1) and
+              tool_bytes < :atomics.get(first_tool_bytes, 1)
+
+          safety_and_lookup_preserved? =
+            Enum.any?(tool_names, &(&1 == "lookup_campaign_canon")) and
+              not Enum.any?(tool_names, &String.starts_with?(&1, "mcp")) and
+              String.contains?(request.instructions, "player alone controls") and
+              String.contains?(request.instructions, "GM-private") and
+              String.contains?(request.instructions, "TRAVEL NOW") and
+              String.contains?(request.instructions, "player-owned D20") and
+              String.contains?(request.instructions, "a new person when the scene warrants one") and
+              String.contains?(request.instructions, "voice guidance and mannerisms") and
+              String.contains?(request.instructions, "Follow the campaign premise")
+
+          if smaller_optional_payload? and safety_and_lookup_preserved?,
+            do: {:ok, Jason.encode!(ordinary_proposal())},
+            else: {:error, :context_length_exceeded}
+      end
     end
 
-    action = "I compare the latest chart reading with the marked star positions."
+    action = "I travel to the observatory and ask Lyra what she found."
 
     assert {:ok, %{status: :completed, player_input: ^action} = completed} =
              Play.submit_turn(campaign.id, session.id, "provider-context-window", action,
@@ -9768,12 +9872,42 @@ defmodule Storyteller.PlayTest do
                context_input_byte_budget: 1
              )
 
-    assert_receive {:context_window_retry_request, 1, nil, first_size, first_omissions}
+    assert_receive {:context_window_retry_request, 1, nil, first_size, first_omissions,
+                    first_instruction_size, first_tool_size, first_tools, first_instructions,
+                    _first_context}
+
     assert first_size > 1
     refute :retrieval_packet in first_omissions
-    assert_receive {:context_window_retry_request, 2, nil, compact_size, compact_omissions}
+    assert first_instruction_size > 0
+    assert "lookup_campaign_canon" in first_tools
+    assert Enum.any?(first_tools, &String.starts_with?(&1, "mcp"))
+    assert first_instructions =~ "CAMPAIGN COMPANION MCP TOOLS"
+
+    assert_receive {:context_window_retry_request, 2, nil, compact_size, compact_omissions,
+                    compact_instruction_size, compact_tool_size, compact_tools,
+                    compact_instructions, compact_context}
+
     assert compact_size < first_size
+    assert compact_instruction_size < first_instruction_size
+    assert compact_tool_size < first_tool_size
     assert :retrieval_packet in compact_omissions
+    assert "lookup_campaign_canon" in compact_tools
+    refute Enum.any?(compact_tools, &String.starts_with?(&1, "mcp"))
+    assert compact_instructions =~ "player alone controls"
+    assert compact_instructions =~ "GM-private"
+    assert compact_instructions =~ "TRAVEL NOW"
+    assert compact_instructions =~ "player-owned D20"
+    assert compact_instructions =~ "a new person when the scene warrants one"
+    assert compact_instructions =~ "voice guidance and mannerisms"
+    assert compact_instructions =~ "Follow the campaign premise"
+    assert compact_context["campaign"]["premise"] == campaign.premise
+
+    assert Enum.find(compact_context["characters"], &(&1["speaker_id"] == "npc:lyra"))[
+             "voice_guidance"
+           ][
+             "accent_dialect"
+           ] == "quiet Rioplatense Spanish, clipped consonants"
+
     assert completed.player_input == action
     assert Repo.get!(Place, place.id).description == description
     assert {:ok, timeline} = Play.public_timeline(campaign.id)

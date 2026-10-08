@@ -10,7 +10,7 @@ defmodule Storyteller.GM.ContextBudget do
 
   alias Storyteller.GM.RequestEnvelope
 
-  @default_budget 64_000
+  @default_budget 128_000
   @recent_history_count 12
   @relevant_history_count 8
   @max_history_scene_speakers 32
