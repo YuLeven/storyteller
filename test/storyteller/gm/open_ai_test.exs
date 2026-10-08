@@ -1264,7 +1264,15 @@ defmodule Storyteller.GM.OpenAITest do
     completed =
       event_frame("response.completed", %{
         "type" => "response.completed",
-        "response" => %{"status" => "completed", "output" => []}
+        "response" => %{
+          "status" => "completed",
+          "output" => [
+            %{
+              "type" => "message",
+              "content" => [%{"type" => "output_text", "text" => response_text}]
+            }
+          ]
+        }
       })
 
     assert {:ok, %{text: ^response_text}} =
