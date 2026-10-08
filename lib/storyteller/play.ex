@@ -5777,7 +5777,7 @@ defmodule Storyteller.Play do
         input: [
           %{
             role: "user",
-            content: [%{type: "input_text", text: Jason.encode!(compiled_context)}]
+            content: Jason.encode!(compiled_context)
           }
         ],
         local_context_metrics: metrics,

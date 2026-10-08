@@ -1021,7 +1021,7 @@ defmodule Storyteller.GM.ContextBudget do
   defp user_context_input(context_json) do
     %{
       role: "user",
-      content: [%{type: "input_text", text: context_json}]
+      content: context_json
     }
   end
 

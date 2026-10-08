@@ -36,7 +36,7 @@ defmodule Storyteller.GM.OpenAITest do
 
     request = %{
       instructions: "Return one JSON object.",
-      input: [%{role: "user", content: [%{type: "input_text", text: "Resolve this action."}]}],
+      input: [%{role: "user", content: "Resolve this action."}],
       local_context_metrics: %{context_json_bytes: 1234, private_marker: "local-only"}
     }
 

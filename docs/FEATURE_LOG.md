@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-07 — Simplify the ChatGPT-plan user input item
+
+- Rebuilt the saved Quiet Observatory request locally with a deterministic fake provider: the exact serialized request was 14,398 bytes against a 64,000-byte local guard, and contained one ordinary user message. The failure was not caused by Storyteller's byte preflight.
+- Normal GM context now uses the Responses guide's simple `{role: "user", content: "..."}` text form instead of a typed `input_text` block. Request-budget estimation and behavioral fixtures use the same representation. A single Luna-low retry of the same isolated QA opening still returned HTTP 400 with `param=input`; the diagnostic had no error code, message, or request ID. This rules out the local byte guard as cause but does not identify the route rejection.
+- The recovery policy is not limited to one total retry: transient failures continue automatic same-turn cooldown recovery. Repeating an identical rejected 400 did not help, so no further live requests were made. The original action remains saved, and the UI still offers a manual retry; removing that burden safely requires identifying the invalid field or adding a concrete compatible fallback.
+- **Verification:** focused WSL Play, OpenAI adapter, and context-budget suites passed (**201 tests, 0 failures**) with deterministic fake providers; `MIX_ENV=test mix format --check-formatted` and `git diff --check` passed. Live QA used only `gpt-6-luna` at low effort against the fictional Quiet Observatory campaign.
+
 ## 2026-10-07 — Avoid repeating definitive provider failures
 
 - An isolated Luna opening-scene probe was rejected by the ChatGPT-plan Responses route with HTTP 400 and `param=input`. The app then sent another provider request with correction guidance, despite having no model output to correct. Generic `provider_error` failures no longer trigger a hidden duplicate request; known transient classes keep their existing automatic recovery. The player's saved turn remains available for an intentional retry.

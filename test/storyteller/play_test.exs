@@ -9195,8 +9195,6 @@ defmodule Storyteller.PlayTest do
       request.input
       |> Enum.find(&Map.has_key?(&1, :content))
       |> Map.fetch!(:content)
-      |> hd()
-      |> Map.fetch!(:text)
 
     assert context["interaction_mode"] == "question"
     assert metrics.budget_bytes == 64_000
@@ -11256,8 +11254,7 @@ defmodule Storyteller.PlayTest do
 
   defp decode_request(request) do
     context_item = Enum.find(request.input, &Map.has_key?(&1, :content))
-    text = context_item |> Map.fetch!(:content) |> hd() |> Map.fetch!(:text)
-    Jason.decode!(text)
+    context_item |> Map.fetch!(:content) |> Jason.decode!()
   end
 
   defp context_request_bytes(request) do

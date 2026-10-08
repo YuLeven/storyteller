@@ -2919,7 +2919,7 @@ defmodule Storyteller.GM.ContextBudgetTest do
     RequestEnvelope.encoded_size(
       model,
       instructions,
-      [%{role: "user", content: [%{type: "input_text", text: Jason.encode!(context)}]}]
+      [%{role: "user", content: Jason.encode!(context)}]
     )
   end
 end
