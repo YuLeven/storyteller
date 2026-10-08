@@ -4514,6 +4514,249 @@ defmodule Storyteller.PlayTest do
     assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 12
   end
 
+  test "reconciles an omitted player move when narration confirms arrival at the named public place" do
+    {campaign, session} = play_campaign("The Observatory Charts")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "east-dome",
+          name: "East Dome",
+          visibility: :public,
+          facts: %{"purpose" => "A public chart room"}
+        })
+      )
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: destination.place_id}))
+
+    calls = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" => "You reach the East Dome. Lyra turns the chart toward the lantern.",
+        "location_changes" => [],
+        "travel_changes" => [],
+        "time_advance_minutes" => 15
+      })
+
+    provider = fn _request ->
+      Agent.update(calls, &(&1 + 1))
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "walk-east-dome-without-move-operation",
+               "I walk to the East Dome to check the chart.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert Agent.get(calls, & &1) == 1
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             destination.place_id
+
+    refute Repo.get_by(PlaceConnection,
+             campaign_id: campaign.id,
+             place_a_id: Enum.min([origin.place_id, destination.place_id]),
+             place_b_id: Enum.max([origin.place_id, destination.place_id]),
+             visibility: :public
+           )
+
+    assert Repo.aggregate(
+             from(event in Event,
+               where:
+                 event.campaign_id == ^campaign.id and event.turn_id == ^turn.id and
+                   event.event_type == :player_action
+             ),
+             :count,
+             :id
+           ) == 1
+  end
+
+  test "arrival reconciliation also recognizes a single-word established place" do
+    arrivals = [
+      {"english", "I head to the Bodega to check on the casks.",
+       "You arrive at Bodega as the cool cellar air settles around you."},
+      {"spanish", "Voy a la Bodega a revisar las barricas.",
+       "Llegas a la Bodega y el aire fresco de la bodega te envuelve."},
+      {"french", "Je vais à la Bodega vérifier les fûts.",
+       "Vous arrivez à la Bodega tandis que l'air frais vous enveloppe."}
+    ]
+
+    Enum.each(arrivals, fn {language, action, narration} ->
+      {campaign, session} = play_campaign("The Observatory Charts")
+
+      bodega =
+        Repo.insert!(
+          Place.changeset(%Place{}, %{
+            campaign_id: campaign.id,
+            place_id: "bodega",
+            name: "Bodega",
+            visibility: :public,
+            facts: %{"purpose" => "A public wine cellar"}
+          })
+        )
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 "arrive-at-single-word-place-" <> language,
+                 action,
+                 provider:
+                   ordinary_provider(%{
+                     "narration" => narration,
+                     "dialogue" => [],
+                     "activities" => [],
+                     "location_changes" => [],
+                     "travel_changes" => [],
+                     "character_updates" => [],
+                     "time_advance_minutes" => 15
+                   }),
+                 model: "test-model"
+               )
+
+      assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+               bodega.place_id
+    end)
+  end
+
+  test "arrival reconciliation does not bypass an active companion duty" do
+    {campaign, session} = play_campaign("The Observatory Charts")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "east-dome",
+          name: "East Dome",
+          visibility: :public,
+          facts: %{"purpose" => "A public chart room"}
+        })
+      )
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(
+      Character.changeset(lyra, %{
+        duty_name: "Keep watch on the telescope",
+        duty_place_id: origin.place_id
+      })
+    )
+
+    calls = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" => "You and Lyra reach the East Dome together.",
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "npc:lyra",
+            "place_id" => destination.place_id,
+            "reason" => "Lyra accompanies the player to the charts."
+          }
+        ],
+        "travel_changes" => [],
+        "time_advance_minutes" => 15
+      })
+
+    provider = fn _request ->
+      Agent.update(calls, &(&1 + 1))
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :failed, failure_code: "invalid_response"}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "duty-keeps-lyra-at-observatory",
+               "I walk to the East Dome with Lyra to check the chart.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert Agent.get(calls, & &1) == 3
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             origin.place_id
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    assert lyra.current_place_id == origin.place_id
+    assert lyra.duty_name == "Keep watch on the telescope"
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+  end
+
+  test "arrival reconciliation needs a confirmed arrival and an established destination" do
+    {campaign, session} = play_campaign("The Observatory Charts")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "east-dome",
+          name: "East Dome",
+          visibility: :public,
+          facts: %{"purpose" => "A public chart room"}
+        })
+      )
+
+    attempts = [
+      {"visible-east-dome", "I walk to the East Dome.",
+       "The East Dome is visible through a break in the clouds."},
+      {"unknown-crystal-atrium", "I walk to the Crystal Atrium.",
+       "An old chart marks the Crystal Atrium beyond the eastern ridge."},
+      {"decline-east-dome", "I do not walk to the East Dome; I wait here.",
+       "The East Dome remains quiet in the distance."}
+    ]
+
+    Enum.each(attempts, fn {key, action, narration} ->
+      assert {:ok, %{status: :completed} = turn} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 key,
+                 action,
+                 provider: fn _request ->
+                   {:ok,
+                    Jason.encode!(
+                      ordinary_proposal(%{
+                        "narration" => narration,
+                        "location_changes" => [],
+                        "travel_changes" => []
+                      })
+                    )}
+                 end,
+                 model: "test-model"
+               )
+
+      assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+               origin.place_id
+
+      assert Repo.aggregate(
+               from(event in Event,
+                 where:
+                   event.campaign_id == ^campaign.id and event.turn_id == ^turn.id and
+                     event.event_type == :player_action
+               ),
+               :count,
+               :id
+             ) == 1
+    end)
+
+    assert Repo.get!(Place, destination.id).place_id == "east-dome"
+    refute Repo.get_by(Place, campaign_id: campaign.id, place_id: "crystal-atrium")
+  end
+
   test "movement repair gives the GM the missing route and invited-companion operations" do
     {campaign, session} = play_campaign("The Observatory Records Room")
     origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
