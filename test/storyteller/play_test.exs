@@ -10237,11 +10237,12 @@ defmodule Storyteller.PlayTest do
       OpenAI.stream_response(request, store: store, http: http)
     end
 
-    assert {:ok, %{status: :completed, attempts: 1} = completed_turn} =
+    assert {:ok, %{status: :completed, attempts: 3} = completed_turn} =
              Play.submit_turn(campaign.id, session.id, turn_key, "I watch the eastern sky.",
                provider: provider,
                token_store: store,
-               model: "gpt-6-luna"
+               model: "gpt-6-luna",
+               transient_retry_base_delay_ms: 0
              )
 
     for expected_attempt <- 1..5 do
@@ -10265,7 +10266,7 @@ defmodule Storyteller.PlayTest do
     assert Repo.aggregate(Roll, :count) == 0
   end
 
-  test "exhausted fast transport retries automatically reclaim the same saved turn" do
+  test "one quick transient retry is followed by automatic same-turn recovery" do
     {campaign, session} = play_campaign("The Automatic Transport Recovery Observatory")
     test_pid = self()
     provider_calls = :atomics.new(1, signed: false)
@@ -10274,7 +10275,10 @@ defmodule Storyteller.PlayTest do
     provider = fn _request ->
       attempt = :atomics.add_get(provider_calls, 1, 1)
 
-      if attempt <= 5 do
+      turn = Play.get_turn(campaign.id, "automatic-recovery")
+      send(test_pid, {:transport_recovery_attempt, attempt, turn.attempts})
+
+      if attempt <= 4 do
         {:error, :network_error}
       else
         {:ok, proposal_text}
@@ -10285,7 +10289,7 @@ defmodule Storyteller.PlayTest do
       send(test_pid, {:automatic_retry_scheduled, turn_id, next_attempt})
     end
 
-    assert {:ok, %{status: :completed, attempts: 2} = completed} =
+    assert {:ok, %{status: :completed, attempts: 3} = completed} =
              Play.submit_turn(campaign.id, session.id, "automatic-recovery", "Check the clock.",
                provider: provider,
                model: "test-model",
@@ -10295,7 +10299,14 @@ defmodule Storyteller.PlayTest do
 
     assert_receive {:automatic_retry_scheduled, turn_id, 2}, 1_000
     assert turn_id == completed.id
-    assert :atomics.get(provider_calls, 1) == 6
+    assert_receive {:automatic_retry_scheduled, ^turn_id, 3}, 1_000
+
+    assert Enum.map(1..5, fn expected_call ->
+             assert_receive {:transport_recovery_attempt, ^expected_call, claim}, 1_000
+             claim
+           end) == [1, 1, 2, 2, 3]
+
+    assert :atomics.get(provider_calls, 1) == 5
 
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
@@ -10310,7 +10321,7 @@ defmodule Storyteller.PlayTest do
 
     provider = fn _request ->
       attempt = :atomics.add_get(provider_calls, 1, 1)
-      if attempt <= 21, do: {:error, :network_error}, else: {:ok, proposal_text}
+      if attempt <= 9, do: {:error, :network_error}, else: {:ok, proposal_text}
     end
 
     assert {:ok, %{status: :completed, attempts: 6} = completed} =
@@ -10325,7 +10336,7 @@ defmodule Storyteller.PlayTest do
                transient_auto_recovery_attempt_limit: :infinity
              )
 
-    assert :atomics.get(provider_calls, 1) == 22
+    assert :atomics.get(provider_calls, 1) == 10
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
     assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1

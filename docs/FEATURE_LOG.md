@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Reduce transient retry bursts without asking players to retry
+
+- A provider claim now gets at most one quick retry for provider-stage failures. Safe transient failures then keep resolving the same saved turn through the existing exponential cooldown; after four claims, each cooldown permits one half-open probe. The turn keeps its original action and commits its result once. This avoids five rapid requests against a continued network outage or rate limit while preserving automatic recovery.
+- Fake-provider regressions verify a provider-unavailable outage makes at most two calls per early claim, crosses multiple cooldown cycles, and completes without a manual retry. Existing long-outage coverage now verifies recovery beyond four claims with one probe per cooldown. LiveView tests verify the action remains visible during this automatic recovery. Account/authorization, usage-limit, and context-size errors remain explicit intervention paths.
+- **Verification:** focused WSL recovery selection passed (**212 discovered, 6 selected, 0 failures**); account-usage, authentication, and context-size intervention selection passed (**84 discovered, 3 selected, 0 failures**). `MIX_ENV=test mix format --check-formatted` passed. Checks used the isolated `storyteller_test` database and deterministic fake providers; no live model request, OAuth consent, or campaign data was used.
+
 ## 2026-10-07 — Default the GM to Luna and protect model allowance
 
 - New installs and existing unset model preferences now default to `gpt-6-luna`. Automatic remains available as an explicit setting and continues to follow the account catalog order.

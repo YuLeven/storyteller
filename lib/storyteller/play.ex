@@ -530,7 +530,11 @@ defmodule Storyteller.Play do
     :timeout
   ]
   @provider_retry_delay_ms 300
-  @transient_provider_retry_limit 4
+  # Keep transient recovery responsive without bursting repeated requests when
+  # the provider is rate-limited or returning incomplete streams. One quick
+  # retry is followed by the same-turn cooldown loop below; later claims use
+  # one half-open probe each.
+  @transient_provider_retry_limit 1
   @transient_auto_recovery_attempt_limit 4
   @transient_auto_recovery_delay_cap_ms 300_000
   @transient_auto_recovery_failure_codes [

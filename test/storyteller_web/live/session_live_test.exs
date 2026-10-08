@@ -1700,7 +1700,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     turn = Play.public_current_turn(campaign.id)
     assert turn.player_input == action
     assert turn.status == :resolving
-    assert turn.attempts == 2
+    assert turn.attempts == 3
 
     assert wait_until(fn ->
              has_element?(view, "#turn-auto-recovery", "retrying this same turn automatically")
@@ -6198,7 +6198,7 @@ defmodule StorytellerWeb.SessionLiveTest do
     public_turn = Play.public_current_turn(campaign.id)
     resolving_turn = Repo.get!(Turn, public_turn.id)
     failed_turn = resolving_turn
-    assert failed_turn.attempts == 2
+    assert failed_turn.attempts == 3
     assert Agent.get(attempts, & &1) == 6
     assert resolving_turn.status == :resolving
     assert has_element?(view, "#turn-auto-recovery")
