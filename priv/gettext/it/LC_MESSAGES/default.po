@@ -3476,15 +3476,15 @@ msgstr "Questo è il limite locale di dimensione di Storyteller, non una rispost
 msgid "This is taking a little longer. This turn is saved; the complete, checked GM response will appear here when it is ready."
 msgstr "L'operazione richiede più tempo del previsto. Questo turno è salvato; la risposta completa e verificata del GM apparirà qui quando sarà pronta."
 
-#: lib/storyteller_web/live/session_live/show.html.heex:604
+#: lib/storyteller_web/live/session_live/show.html.heex:629
 #, elixir-autogen, elixir-format
-msgid "Retry with a compact scene brief"
-msgstr "Riprova con un riepilogo compatto della scena"
+msgid "Retry with focused campaign context"
+msgstr "Riprova con il contesto rilevante della campagna"
 
-#: lib/storyteller_web/live/session_live/show.html.heex:598
+#: lib/storyteller_web/live/session_live/show.html.heex:623
 #, elixir-autogen, elixir-format
-msgid "Retrying with a compact scene brief…"
-msgstr "Nuovo tentativo con un riepilogo compatto della scena…"
+msgid "Retrying with focused campaign context…"
+msgstr "Nuovo tentativo con il contesto rilevante della campagna…"
 
 #: lib/storyteller_web/live/session_live/show.ex:2784
 #, elixir-autogen, elixir-format

@@ -595,7 +595,6 @@ defmodule Storyteller.Play do
     "panels" => "pa",
     "history" => "hi"
   }
-  @compact_context_retry_byte_budget 48_000
   @provider_retryable_errors [
     :invalid_response,
     :network_error,
@@ -5990,11 +5989,15 @@ defmodule Storyteller.Play do
   defp provider_request(context, opts, intent) do
     context_recovery_retry? = Keyword.get(opts, :retrieval_packet_retry?, false)
 
-    # MCP companions enrich ordinary turns but are optional on the one scene
-    # recovery attempt. Dropping them avoids repeating discovery and leaves room
-    # for the core scene packet and built-in canon lookup.
+    # Optional MCP companions are omitted on either recovery profile so the
+    # request can spend its space on relevant campaign context. The regular
+    # focused retry keeps the full GM policy; only a provider-rejected scene
+    # packet uses the concise recovery policy.
+    focused_context_retry? = Keyword.get(opts, :compact_context_retry?, false)
+    omit_optional_integrations? = context_recovery_retry? or focused_context_retry?
+
     integrations =
-      if context_recovery_retry?, do: [], else: Map.get(context, :mcp_integrations, [])
+      if omit_optional_integrations?, do: [], else: Map.get(context, :mcp_integrations, [])
 
     mcp_registry = MCP.prepare(integrations)
     companion_instructions = MCP.instructions(integrations, mcp_registry)
@@ -6014,7 +6017,7 @@ defmodule Storyteller.Play do
       end
 
     opts =
-      if context_recovery_retry? do
+      if omit_optional_integrations? do
         opts
         |> Keyword.put(:reserve_request_bytes, @proposal_repair_reserve_bytes)
         |> Keyword.put(:mcp_request_reserve_bytes, 0)
@@ -6030,7 +6033,7 @@ defmodule Storyteller.Play do
           end
         )
       end
-      |> compact_context_retry_options(model)
+      |> Keyword.delete(:compact_context_retry?)
 
     request_context =
       context
@@ -6126,20 +6129,6 @@ defmodule Storyteller.Play do
         model when is_binary(model) and model != "" -> {:ok, Map.put(request, :model, model)}
         _ -> {:ok, request}
       end
-    end
-  end
-
-  defp compact_context_retry_options(opts, model) do
-    if Keyword.get(opts, :compact_context_retry?, false) do
-      configured_limit = ContextBudget.compaction_target_bytes(model, opts)
-
-      Keyword.put(
-        opts,
-        :context_input_byte_budget,
-        min(configured_limit, @compact_context_retry_byte_budget)
-      )
-    else
-      opts
     end
   end
 

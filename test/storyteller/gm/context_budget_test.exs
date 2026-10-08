@@ -51,6 +51,28 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "finca"
   end
 
+  test "a recovery context can keep relevant campaign detail above the old 48 KB target" do
+    distinctive_fact = "The brass key is hidden beneath the observatory's east stair."
+
+    premise =
+      distinctive_fact <> " " <> String.duplicate("Established observatory history. ", 2_000)
+
+    context =
+      base_context()
+      |> put_in([:campaign, :premise], premise)
+      |> Map.put(:player_action, "Find the brass key beneath the observatory's east stair.")
+
+    assert {:ok, %{context: compiled, metrics: metrics}} =
+             ContextBudget.compile(context, "Short GM policy", "gpt-6-luna",
+               compact_context_retry?: true
+             )
+
+    assert metrics.estimated_request_bytes > 48_000
+    assert metrics.estimated_request_bytes <= metrics.budget_bytes
+    assert compiled.campaign.premise == premise
+    assert compiled.player_action == context.player_action
+  end
+
   test "falls back to compacting long reference prose before rejecting a playable turn" do
     premise = String.duplicate("A vineyard mystery with careful seasonal rituals. ", 200)
 

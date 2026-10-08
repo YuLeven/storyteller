@@ -5103,14 +5103,19 @@ defmodule StorytellerWeb.SessionLiveTest do
     failed_turn = Play.public_current_turn(campaign.id)
     assert_receive {:minimal_context_retry_request, 1, nil, _initial_size, false}, 1_000
     assert_receive {:minimal_context_retry_request, 2, nil, _compact_size, true}, 1_000
-    assert has_element?(view, "#retry-with-compact-context", "Retry with a compact scene brief")
+
+    assert has_element?(
+             view,
+             "#retry-with-relevant-context",
+             "Retry with focused campaign context"
+           )
 
     view
-    |> element("#retry-with-compact-context")
+    |> element("#retry-with-relevant-context")
     |> render_click()
 
     assert_receive {:minimal_context_retry_request, 3, nil, manual_retry_size, false}, 1_000
-    assert manual_retry_size < 24_000
+    assert manual_retry_size > 0
 
     assert wait_until(fn ->
              match?(%{status: :completed, player_input: ^action}, Repo.get(Turn, failed_turn.id))

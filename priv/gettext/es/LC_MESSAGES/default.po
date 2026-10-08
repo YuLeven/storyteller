@@ -3479,20 +3479,20 @@ msgstr "Este es el límite local de tamaño de Storyteller, no un aviso de lími
 msgid "This is taking a little longer. This turn is saved; the complete, checked GM response will appear here when it is ready."
 msgstr "Esto está tardando un poco más. El turno está guardado; aquí aparecerá la respuesta completa y validada del DJ cuando esté lista."
 
-#: lib/storyteller_web/live/session_live/show.html.heex:592
+#: lib/storyteller_web/live/session_live/show.html.heex:629
 #, elixir-autogen, elixir-format
-msgid "Retry with a compact scene brief"
-msgstr "Reintentar con un resumen compacto de la escena"
+msgid "Retry with focused campaign context"
+msgstr "Reintentar con el contexto relevante de la campaña"
 
 #: lib/storyteller_web/live/session_live/show.html.heex:601
 #, elixir-autogen, elixir-format
 msgid "Retry with a minimal scene brief"
 msgstr "Reintentar con un resumen mínimo de la escena"
 
-#: lib/storyteller_web/live/session_live/show.html.heex:591
+#: lib/storyteller_web/live/session_live/show.html.heex:623
 #, elixir-autogen, elixir-format
-msgid "Retrying with a compact scene brief…"
-msgstr "Reintentando con un resumen compacto de la escena…"
+msgid "Retrying with focused campaign context…"
+msgstr "Reintentando con el contexto relevante de la campaña…"
 
 #: lib/storyteller_web/live/session_live/show.ex:2739
 #, elixir-autogen, elixir-format

@@ -518,13 +518,6 @@ defmodule Storyteller.GM.ContextBudget do
 
     first_pass = compact_context(selected_context, preferred_history_sequences)
 
-    first_pass =
-      if Keyword.get(opts, :compact_context_retry?, false) do
-        compact_for_provider_context_retry(first_pass, instructions, model, budget)
-      else
-        first_pass
-      end
-
     omissions = Enum.uniq(retrieval_omissions ++ first_pass.omissions)
 
     metrics =
@@ -1115,32 +1108,6 @@ defmodule Storyteller.GM.ContextBudget do
 
       %{context: context_with_completeness(compacted, completeness), omissions: omissions}
     end
-  end
-
-  defp compact_for_provider_context_retry(
-         %{context: context, omissions: omissions},
-         instructions,
-         model,
-         budget
-       ) do
-    {history, history_compacted?} =
-      compact_history_for_budget(value(context, :history), 4, 600, 160)
-
-    context =
-      if history_compacted? do
-        context
-        |> put_context_value("history", history)
-        |> context_with_completeness(%{history_compacted: true})
-      else
-        context
-      end
-
-    omissions = if history_compacted?, do: Enum.uniq(omissions ++ [:history]), else: omissions
-
-    {context, omissions, _metrics} =
-      compact_nonessential_details_to_budget(context, instructions, model, budget, omissions, %{})
-
-    %{context: context, omissions: omissions}
   end
 
   defp context_with_completeness(context, completeness),

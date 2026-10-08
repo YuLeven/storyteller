@@ -615,18 +615,18 @@
               type="button"
               phx-click="retry-turn"
               phx-value-turn_id={@current_turn.id}
-              id="retry-with-compact-context"
+              id="retry-with-relevant-context"
               disabled={@worker_turn_id == @current_turn.id || @plan_usage_blocked?}
               class="rounded-lg bg-amber-800 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-wait disabled:opacity-60"
             >{cond do
               @worker_turn_id == @current_turn.id ->
-                gettext("Retrying with a compact scene brief…")
+                gettext("Retrying with focused campaign context…")
 
               minimal_context_retry?(@current_turn) ->
                 gettext("Retry with a minimal scene brief")
 
               true ->
-                gettext("Retry with a compact scene brief")
+                gettext("Retry with focused campaign context")
             end}</button>
             <.link
               :if={reconnect_needed?(@current_turn.failure_code)}
