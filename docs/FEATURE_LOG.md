@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Recheck the ChatGPT-plan request contract for the input rejection
+
+- Rechecked the current official SIWC preview and recovery documentation against the saved Quiet Observatory request. Storyteller uses the documented public `POST /v1/responses` route, `store: false`, `stream: true`, array input, and simple `{role: "user", content: "..."}` text item. The failed 14,398-byte request contained that single ordinary user item and no `additional_tools` lookup item.
+- The docs say an HTTP 400 `subscription_sharing_unsupported_capability` requires inspecting both its code and `error.param`; this response exposed only `param=input`, without an error code, message, or request ID. `reasoning.effort` and `text.format` are not on the current unsupported-field list, but the SIWC guide does not explicitly demonstrate either field. There is not enough evidence to remove a field automatically or label this a known context-limit error.
+- No live request or code change was made. Keep the saved action and manual same-turn recovery available while the cause is unresolved; do not make another identical probe. Official references: [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations), [SIWC errors and recovery](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery), and [SIWC models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
+
 ## 2026-10-07 — Improve safe diagnosis of rejected GM requests
 
 - Non-200 Responses diagnostics now include only allowlisted provider error types, a coarse message category, and numeric body/input/instruction byte counts plus input item count/kinds. Raw provider messages, prompts, campaign context, and input text remain out of logs.
