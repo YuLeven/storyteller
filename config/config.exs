@@ -10,6 +10,7 @@ import Config
 config :storyteller,
   ecto_repos: [Storyteller.Repo],
   generators: [timestamp_type: :utc_datetime],
+  # Compaction targets for request assembly; these are not provider limits.
   gm_context_byte_budgets: %{
     "default" => 64_000,
     "gpt-6-astra" => 64_000,

@@ -1740,7 +1740,8 @@ defmodule Storyteller.PlayTest do
     refute Enum.any?(packet["places"]["public"], &(&1["place_id"] == target_place.place_id))
 
     assert packet_bytes = context_request_bytes(request)
-    assert packet_bytes <= request.request_size_limit_bytes - 24_000
+    assert packet_bytes > 0
+    assert is_nil(request.request_size_limit_bytes)
     assert is_function(request.campaign_lookup_executor, 1)
 
     assert request.instructions =~
@@ -1882,7 +1883,12 @@ defmodule Storyteller.PlayTest do
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
 
     assert normalized_instructions =~
-             "finish beats with consequences and co-present reactions, not after one incidental act/line unless a player choice is due."
+             "For routine action turns, carry the scene through the immediate consequence and any useful response from present NPCs"
+
+    assert normalized_instructions =~ "Reactions must advance the beat, not fill a roster"
+
+    assert normalized_instructions =~
+             "Stay line-by-line during an active intimate exchange, an established high-stakes instant, or a consequential choice"
 
     assert normalized_instructions =~
              "Tastings cover appearance, aroma, palate, and finish. A present expert may offer a qualified view."
@@ -2050,7 +2056,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "Continue useful checks; hide prompt/canon checks."
 
-    assert instructions =~ "unless a player choice is due."
+    assert instructions =~ "at the next genuine player decision"
 
     assert instructions =~ "ask only for blockers, never invent success or player acts."
 
@@ -7167,7 +7173,12 @@ defmodule Storyteller.PlayTest do
              "Montage work/waits to the requested scale."
 
     assert instructions =~
-             "finish beats with consequences and co-present reactions, not after one incidental act/line unless a player choice is due."
+             "For routine action turns, carry the scene through the immediate consequence and any useful response from present NPCs"
+
+    assert instructions =~ "Reactions must advance the beat, not fill a roster"
+
+    assert instructions =~
+             "Stay line-by-line during an active intimate exchange, an established high-stakes instant, or a consequential choice"
 
     assert instructions =~ "never invent success or player acts."
 
@@ -7440,9 +7451,15 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "ADAPTIVE PACE: Match intent."
 
     assert instructions =~
-             "finish beats with consequences and co-present reactions, not after one incidental act/line unless a player choice is due."
+             "For routine action turns, carry the scene through the immediate consequence and any useful response from present NPCs"
 
-    assert instructions =~ "unless a player choice is due."
+    assert instructions =~ "Reactions must advance the beat, not fill a roster"
+
+    assert instructions =~
+             "Stay line-by-line during an active intimate exchange, an established high-stakes instant, or a consequential choice"
+
+    assert instructions =~ "never invent drama or skip ahead through it."
+
     assert instructions =~ "never invent success or player acts."
     assert instructions =~ "OBJECTIVES: objective_changes=[] unless a lasting commitment changes."
 
@@ -9614,40 +9631,35 @@ defmodule Storyteller.PlayTest do
     assert metrics.estimated_request_bytes <= 64_000
   end
 
-  test "a context-size pause keeps the submitted action available for retry" do
+  test "a local byte target never prevents sending a useful scene request" do
     {campaign, session} = play_campaign("The Quiet Cellar")
     caller = self()
 
-    provider = fn _request ->
-      send(caller, :provider_called)
+    provider = fn request ->
+      send(
+        caller,
+        {:provider_called, request.request_size_limit_bytes,
+         request.local_context_metrics.estimated_request_bytes,
+         request.local_context_metrics.omissions}
+      )
+
       {:ok, Jason.encode!(ordinary_proposal())}
     end
 
-    assert {:ok, %{status: :failed, failure_code: "context_budget_exceeded"} = failed} =
+    assert {:ok, %{status: :completed, player_input: "Check the wine casks."}} =
              Play.submit_turn(campaign.id, session.id, "context-retry", "Check the wine casks.",
                provider: provider,
                model: "test-model",
                context_input_byte_budget: 1
              )
 
-    assert failed.player_input == "Check the wine casks."
-    refute_receive :provider_called
-    assert {:ok, []} = Play.public_timeline(campaign.id)
-
-    assert {:ok, %{status: :completed} = retried} =
-             Play.retry_turn(failed.id,
-               provider: provider,
-               model: "test-model",
-               context_input_byte_budget: 24_000
-             )
-
-    assert retried.player_input == failed.player_input
-    assert_receive :provider_called
+    assert_receive {:provider_called, nil, request_bytes, [:retrieval_packet | _]}
+    assert request_bytes > 1
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
   end
 
-  test "provider context-window rejection can retry the same action under a smaller request cap" do
+  test "provider context-window rejection automatically retries with a scene packet" do
     {campaign, session} = play_campaign("The Compact Observatory")
     caller = self()
     calls = :atomics.new(1, signed: false)
@@ -9677,9 +9689,7 @@ defmodule Storyteller.PlayTest do
 
     action = "I compare the latest chart reading with the marked star positions."
 
-    assert {:ok,
-            %{status: :failed, failure_code: "context_length_exceeded", player_input: ^action} =
-              failed} =
+    assert {:ok, %{status: :completed, player_input: ^action} = completed} =
              Play.submit_turn(campaign.id, session.id, "provider-context-window", action,
                provider: provider,
                model: "test-model",
@@ -9689,22 +9699,10 @@ defmodule Storyteller.PlayTest do
     assert_receive {:context_window_retry_request, 1, 50_000, first_size, first_omissions}
     assert first_size <= 50_000
     refute :place_details in first_omissions
-    assert {:ok, []} = Play.public_timeline(campaign.id)
-
-    assert {:ok, %{status: :completed, player_input: ^action} = retried} =
-             Play.retry_turn(failed.id,
-               provider: provider,
-               model: "test-model",
-               context_input_byte_budget: 50_000,
-               compact_context_retry?: true
-             )
-
-    assert_receive {:context_window_retry_request, 2, 48_000, compact_size, compact_omissions}
-    assert compact_size <= 48_000
+    assert_receive {:context_window_retry_request, 2, nil, compact_size, compact_omissions}
     assert compact_size < first_size
-    assert :place_details in compact_omissions
-    assert retried.id == failed.id
-    assert retried.player_input == action
+    assert :retrieval_packet in compact_omissions
+    assert completed.player_input == action
     assert Repo.get!(Place, place.id).description == description
     assert {:ok, timeline} = Play.public_timeline(campaign.id)
     assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1

@@ -608,12 +608,15 @@ defmodule Storyteller.GM.ContextBudget do
         retrieval_packet_omissions(context)
       )
 
-    if metrics.estimated_request_bytes <= budget do
+    over_budget? = metrics.estimated_request_bytes > budget
+
+    if not over_budget? or Keyword.get(opts, :allow_over_budget?, false) do
       {:ok,
        %{
          context: packet,
          metrics: report_budget(metrics, model, opts),
-         retrieval_packet?: true
+         retrieval_packet?: true,
+         over_budget?: over_budget?
        }}
     else
       emit_metrics(metrics)
@@ -973,7 +976,7 @@ defmodule Storyteller.GM.ContextBudget do
 
   def emit_metrics(_metrics, _provider_usage), do: :ok
 
-  @doc "Returns the configured serialized-request guard for a model without applying a reserve."
+  @doc "Returns the local serialized-request compaction target, not a provider context limit."
   def request_size_limit_bytes(model, opts \\ []) do
     configured = Application.get_env(:storyteller, :gm_context_byte_budgets, %{})
 

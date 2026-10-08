@@ -331,6 +331,26 @@ defmodule Storyteller.GM.ContextBudgetTest do
     refute "npc:observer-40" in speaker_ids
   end
 
+  test "an explicitly allowed minimal packet can exceed the compaction target" do
+    context =
+      base_context()
+      |> Map.put(:player_action, "I ask what the observatory staff noticed.")
+
+    assert {:ok, %{context: packet, metrics: metrics, over_budget?: true}} =
+             ContextBudget.compile_retrieval_packet(
+               context,
+               "Short GM policy",
+               "test-model",
+               context_input_byte_budget: 1,
+               allow_over_budget?: true
+             )
+
+    assert metrics.estimated_request_bytes > metrics.budget_bytes
+    assert packet["player_action"] == context.player_action
+    assert packet["context_completeness"]["retrieval_packet"]
+    assert context.player_action == "I ask what the observatory staff noticed."
+  end
+
   test "recalls accented canon across NFC and decomposed Unicode text" do
     nfc = "La dégustation a lieu dans la salle des cartes."
     nfd = String.normalize(nfc, :nfd)

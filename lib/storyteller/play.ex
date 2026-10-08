@@ -346,11 +346,15 @@ defmodule Storyteller.Play do
   SENSORY AGENCY: State sensory evidence before reaction; never ask the player to
   invent it or dictate their response. Tastings cover appearance, aroma, palate,
   and finish. A present expert may offer a qualified view.
-  ADAPTIVE PACE: Match intent. Keep questions, dialogue, tension, and choices
-  close; finish beats with consequences and co-present reactions, not after one
-  incidental act/line unless a player choice is due. Montage work/waits to the
-  requested scale. Finish bounded tasks delegated to capable present NPCs with
-  supported results; ask only for blockers, never invent success or player acts.
+  ADAPTIVE PACE: Match intent. For routine action turns, carry the scene through
+  the immediate consequence and any useful response from present NPCs before
+  handing back at the next genuine player decision. Reactions must advance the
+  beat, not fill a roster; don't end after one incidental act or line. Stay
+  line-by-line during an active intimate exchange, an established high-stakes
+  instant, or a consequential choice; never invent drama or skip ahead through
+  it. Montage work/waits to the requested scale. Finish bounded tasks delegated
+  to capable present NPCs with supported results; ask only for blockers, never
+  invent success or player acts.
   Resolve unclear intent; avoid micro-actions, forced dialogue, and menus.
   No recap, panel facts, or unchanged balances unless asked, changed, or
   decision-relevant. elapsed_world_clock is exact minutes; don't parse labels.
@@ -1583,6 +1587,39 @@ defmodule Storyteller.Play do
     request = add_proposal_repair_guidance(base_request, repair_guidance)
 
     case generate_and_commit_once(provider, request, turn, attempt_token) do
+      {:error, reason, :provider} = error
+      when reason in [
+             :context_budget_exceeded,
+             :context_followup_too_large,
+             :context_length_exceeded
+           ] ->
+        if ensure_plan_usage_allowed(opts) == :ok and
+             resolution_attempt_active?(turn.id, attempt_token) do
+          case build_compact_context_retry(request) do
+            {:ok, compact_request} ->
+              Logger.warning(
+                "GM request exceeded a local or provider context limit; retrying the saved action with a scene-focused packet"
+              )
+
+              Process.sleep(@provider_retry_delay_ms)
+
+              generate_and_commit_proposal(
+                provider,
+                compact_request,
+                turn,
+                attempt_token,
+                opts,
+                retries,
+                repair_guidance
+              )
+
+            :unavailable ->
+              error
+          end
+        else
+          error
+        end
+
       {:error, reason, stage} = error ->
         if retries < proposal_repair_retry_limit(stage, reason, attempt_token, opts) and
              retryable_proposal_failure?(stage, reason) and
@@ -1613,6 +1650,28 @@ defmodule Storyteller.Play do
       result ->
         result
     end
+  end
+
+  defp build_compact_context_retry(request) do
+    if Map.get(request, :context_recovery_used?, false) do
+      :unavailable
+    else
+      case Map.get(request, :context_recovery_builder) do
+        builder when is_function(builder, 0) ->
+          case builder.() do
+            {:ok, compact_request} when is_map(compact_request) ->
+              {:ok, Map.put(compact_request, :context_recovery_used?, true)}
+
+            _ ->
+              :unavailable
+          end
+
+        _ ->
+          :unavailable
+      end
+    end
+  rescue
+    _error -> :unavailable
   end
 
   defp generate_and_commit_once(provider, request, turn, attempt_token) do
@@ -5910,7 +5969,7 @@ defmodule Storyteller.Play do
       |> Map.delete(:mcp_integrations)
       |> Map.put(:interaction_mode, Atom.to_string(intent))
 
-    with {:ok, {compiled_context, metrics, lookup_enabled?, instructions}} <-
+    with {:ok, {compiled_context, metrics, lookup_enabled?, instructions, retrieval_packet?}} <-
            compile_provider_context(request_context, instructions, model, opts) do
       request = %{
         instructions: instructions,
@@ -5921,8 +5980,24 @@ defmodule Storyteller.Play do
           }
         ],
         local_context_metrics: metrics,
-        request_size_limit_bytes: ContextBudget.request_size_limit_bytes(model, opts)
+        request_size_limit_bytes:
+          if(
+            not retrieval_packet? and
+              metrics.estimated_request_bytes <=
+                ContextBudget.request_size_limit_bytes(model, opts),
+            do: ContextBudget.request_size_limit_bytes(model, opts),
+            else: nil
+          )
       }
+
+      request =
+        if retrieval_packet? do
+          Map.put(request, :context_recovery_used?, true)
+        else
+          Map.put(request, :context_recovery_builder, fn ->
+            provider_request(context, Keyword.put(opts, :retrieval_packet_retry?, true), intent)
+          end)
+        end
 
       tool_specs =
         if(lookup_enabled?, do: [CampaignLookup.tool_spec()], else: []) ++ mcp_registry.tools
@@ -6013,7 +6088,7 @@ defmodule Storyteller.Play do
           if campaign_lookup_recommended?(initial_metrics) do
             compile_lookup_context(request_context, instructions, model, opts)
           else
-            {:ok, {initial_context, initial_metrics, false, instructions}}
+            {:ok, {initial_context, initial_metrics, false, instructions, false}}
           end
 
         {:error, _reason} ->
@@ -6029,7 +6104,7 @@ defmodule Storyteller.Play do
 
     case ContextBudget.compile(request_context, lookup_instructions, model, reserve_opts) do
       {:ok, %{context: context, metrics: metrics}} ->
-        {:ok, {context, metrics, true, lookup_instructions}}
+        {:ok, {context, metrics, true, lookup_instructions, false}}
 
       {:error, _reason} ->
         compile_retrieval_packet(request_context, instructions, model, opts)
@@ -6045,10 +6120,10 @@ defmodule Storyteller.Play do
            request_context,
            lookup_instructions,
            model,
-           reserve_opts
+           Keyword.put(reserve_opts, :allow_over_budget?, true)
          ) do
       {:ok, %{context: context, metrics: metrics}} ->
-        {:ok, {context, metrics, true, lookup_instructions}}
+        {:ok, {context, metrics, true, lookup_instructions, true}}
 
       {:error, reason} ->
         {:error, reason}
