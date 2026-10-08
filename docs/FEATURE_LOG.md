@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-08 — Resolve a routine evening at montage scale
+
+- In the isolated fictional Quiet Observatory QA campaign, Mara chose to review her own field notes, sleep, and continue in the morning. The GM compressed the evening and night into a coherent scene beat, kept the lantern room and Ilie present, and advanced the in-world date/time to 25 October 1891, Morning.
+- The narration described the wind easing and rain thinning to drizzle; the weather panel changed to the same public condition. Ilie's brief line returned control without an obligatory question. Reload preserved the new time, weather, location, presence, and story. This is one positive routine-work sample, not proof for high-stakes or ensemble pacing.
+- Staged telemetry showed roughly 4.0 seconds to first output and 9.1 seconds for the full stream (overlapping measures); validation and commit were brief. GPT-6 Luna at low reasoning effort was used for this isolated scene.
+
 ## 2026-10-08 — Keep a short character exchange alive without filler
 
 - Continued the newly created fictional Quiet Observatory QA campaign in the isolated QA database using GPT-6 Luna at low reasoning. After the tasting beat, Mara asked Ilie whether autumn weather often kept the observatory indoors. Ilie answered in one concise, dry metaphor; a brief GM line refreshed the rain and steam without changing the weather or adding a forced question.
