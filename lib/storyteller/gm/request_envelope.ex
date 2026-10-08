@@ -12,6 +12,7 @@ defmodule Storyteller.GM.RequestEnvelope do
       "model" => model,
       "instructions" => instructions,
       "input" => input,
+      "text" => %{"format" => %{"type" => "json_object"}},
       "store" => false,
       "stream" => true
     }

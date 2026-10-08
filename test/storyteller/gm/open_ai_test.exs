@@ -54,9 +54,19 @@ defmodule Storyteller.GM.OpenAITest do
     assert body["model"] == "fixture-model"
     assert body["instructions"] == request.instructions
     assert body["input"] == request.input
+    assert body["text"] == %{"format" => %{"type" => "json_object"}}
     assert body["store"] == false
     assert body["stream"] == true
-    assert Map.keys(body) |> Enum.sort() == ["input", "instructions", "model", "store", "stream"]
+
+    assert Map.keys(body) |> Enum.sort() == [
+             "input",
+             "instructions",
+             "model",
+             "store",
+             "stream",
+             "text"
+           ]
+
     refute Map.has_key?(body, "previous_response_id")
     refute Jason.encode!(body) =~ "local_context_metrics"
     refute Jason.encode!(body) =~ "local-only"
@@ -220,6 +230,7 @@ defmodule Storyteller.GM.OpenAITest do
     assert_receive {:responses_request, 1, first_options}
     first_body = Keyword.fetch!(first_options, :json)
     assert first_body["input"] == request.input
+    assert first_body["text"] == %{"format" => %{"type" => "json_object"}}
     refute Map.has_key?(first_body, "tools")
     assert first_body["store"] == false and first_body["stream"] == true
 
@@ -240,6 +251,7 @@ defmodule Storyteller.GM.OpenAITest do
 
     refute Map.has_key?(second_body, "tools")
     refute Map.has_key?(second_body, "previous_response_id")
+    assert second_body["text"] == %{"format" => %{"type" => "json_object"}}
     assert second_body["store"] == false and second_body["stream"] == true
     refute_receive {:responses_request, _, _}
   end
@@ -889,7 +901,8 @@ defmodule Storyteller.GM.OpenAITest do
              "instructions",
              "model",
              "store",
-             "stream"
+             "stream",
+             "text"
            ]
 
     refute Jason.encode!(request_body) =~ "on_first_output"

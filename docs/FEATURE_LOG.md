@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Ask the GM for valid JSON
+
+- Every Responses request now enables JSON mode for the GM's proposal. This prevents non-JSON syntax errors from consuming correction turns; Storyteller still performs the full schema, agency, visibility, and canon validation, since JSON mode does not guarantee any of those rules.
+- The request-envelope estimate includes the format field. Fake-HTTP tests verify it is present on both the initial request and the bounded canon-lookup continuation. The SIWC preview's unsupported-field list does not include `text.format`, but this exact field has not yet been exercised on the connected ChatGPT-plan route; treat route acceptance as a live QA check, not as proven by these tests.
+- **Verification:** focused WSL OpenAI adapter and request-budget checks passed with fake HTTP/provider responses; no live model request, OAuth consent, or campaign data was used.
+
 ## 2026-10-07 — Reduce transient retry bursts without asking players to retry
 
 - A provider claim now gets at most one quick retry for provider-stage failures. Safe transient failures then keep resolving the same saved turn through the existing exponential cooldown; after four claims, each cooldown permits one half-open probe. The turn keeps its original action and commits its result once. This avoids five rapid requests against a continued network outage or rate limit while preserving automatic recovery.
