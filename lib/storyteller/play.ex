@@ -135,6 +135,32 @@ defmodule Storyteller.Play do
     ["a", "l", "interieur"],
     ["dans", "la", "salle"]
   ]
+  @scene_transition_denials [
+    ["not", "enter"],
+    ["not", "go", "inside"],
+    ["not", "get", "inside"],
+    ["not", "get", "through"],
+    ["not", "cross"],
+    ["not", "pass"],
+    ["unable", "to", "enter"],
+    ["unable", "to", "cross"],
+    ["remain", "outside"],
+    ["stays", "outside"],
+    ["stay", "outside"],
+    ["stops", "you"],
+    ["blocks", "you"],
+    ["keeps", "you", "out"],
+    ["holds", "you", "back"],
+    ["turns", "you", "back"],
+    ["ne", "pouvez", "pas", "entrer"],
+    ["ne", "peux", "pas", "entrer"],
+    ["ne", "pouvez", "pas", "passer"],
+    ["no", "puedes", "entrar"],
+    ["no", "puede", "entrar"],
+    ["no", "puedes", "pasar"],
+    ["no", "puede", "pasar"],
+    ["no", "puedes", "cruzar"]
+  ]
   @max_history_entity_terms 24
   @max_history_scene_speakers 32
   @max_history_connected_places 24
@@ -461,6 +487,10 @@ defmodule Storyteller.Play do
   TRAVEL: Known public routes and minutes are binding. Missing map edges are
   unknown, not barriers: complete ordinary trips between established public
   places, narrate the journey, and set a plausible total time_advance_minutes.
+  When the player clearly commits to crossing or entering, include their move in
+  location_changes even if narration jumps straight to observations there. If an
+  established obstacle or unresolved roll stops them, describe it and keep them
+  at their current location.
   The app accepts that move without adding a route or claiming an exact distance.
   Add a route only when the scene establishes one. A named NPC's known place is
   the destination; don't demand a contact path, refuse, or move them to the
@@ -583,7 +613,11 @@ defmodule Storyteller.Play do
   sought NPC's location is unknown, make grounded search progress; do not claim
   absence, arrival, or a handoff without evidence. Missing route data is not a
   barrier to an ordinary trip between known public places. Honor known travel
-  times and established restrictions. Never move or speak for the player.
+  times and established restrictions. When the player clearly commits to
+  crossing or entering, include their move in location_changes even if narration
+  jumps straight to observations there. If an established obstacle or unresolved
+  roll stops them, describe it and keep them at their current location. Never
+  move or speak for the player beyond their stated action.
 
   Return exactly one JSON object using the normal proposal fields: narration,
   dialogue, activities, remote_messages, public_changes, private_changes,
@@ -2033,9 +2067,11 @@ defmodule Storyteller.Play do
         :location_presence ->
           "Correct the state operations; don't cancel ordinary travel because map data is incomplete. " <>
             "For a named off-scene NPC, use their canonical recorded place; no contact path is needed. " <>
-            "If the saved action asks the player to cross into a place and your narration confirms " <>
-            "that crossing, create or reuse the public place and record the player's move before " <>
-            "accepting the scene. Record every named GM character the accepted scene explicitly has " <>
+            "When the player clearly commits to crossing into a place, that action is their choice: " <>
+            "if you resolve it without a real established barrier or unresolved roll, record the move " <>
+            "even when the narration goes straight to what they see there instead of repeating the entry. " <>
+            "If a barrier stops them, narrate the concrete obstacle and keep them outside; do not silently " <>
+            "answer from the far side. Record every named GM character the accepted scene explicitly has " <>
             "crossing a place boundary. A question, invitation, future intention, or mere name mention " <>
             "does not itself move anyone. " <>
             "For a new public destination, add location_changes create_place " <>
@@ -3924,6 +3960,7 @@ defmodule Storyteller.Play do
                turn,
                narration,
                dialogue ++ activities,
+               field(proposal, :roll_request),
                characters
              ),
              :location_presence
@@ -4851,16 +4888,16 @@ defmodule Storyteller.Play do
        ),
        do: location_changes
 
-  # Keep narrated scene transitions aligned with the canonical player board.
-  # Only request correction when the saved action and GM narration both
-  # describe crossing a clear spatial boundary and no player move is proposed.
-  # The model still chooses the grounded public place, and normal validators
-  # remain authoritative for movement, routes, privacy, and duties.
+  # Keep accepted movement aligned with the canonical player board. A clear
+  # player action commits to crossing unless the GM establishes a real block
+  # or asks for a roll. If narration itself says the player crossed, require a
+  # matching state operation even when the action was only hypothetical.
   defp validate_explicit_scene_transition(
          location_changes,
          %Turn{intent: :action} = turn,
          narration,
          visible_lines,
+         roll_request,
          characters
        )
        when is_list(location_changes) and is_binary(turn.player_input) and is_binary(narration) and
@@ -4872,6 +4909,13 @@ defmodule Storyteller.Play do
       end)
 
     visible_text = [narration | Enum.map(visible_lines, & &1.text)]
+    player_name = Repo.get!(Campaign, turn.campaign_id).player_character_name
+
+    player_committed_to_crossing? =
+      player_requested_scene_transition?(turn.player_input, player_name, characters)
+
+    narration_places_player_across_boundary? =
+      Enum.any?(visible_text, &narrates_player_scene_transition?(&1, player_name, characters))
 
     missing_gm_character_move? =
       Enum.any?(characters, fn character ->
@@ -4884,8 +4928,10 @@ defmodule Storyteller.Play do
       end)
 
     missing_player_move? =
-      not player_move? and scene_transition_cue_present?(turn.player_input) and
-        begin_player_scene_transition_check(turn, visible_text, characters)
+      not player_move? and
+        ((player_committed_to_crossing? and is_nil(roll_request) and
+            not player_transition_denied?(visible_text)) or
+           narration_places_player_across_boundary?)
 
     if missing_player_move? or missing_gm_character_move?,
       do: {:error, :invalid_response},
@@ -4897,9 +4943,17 @@ defmodule Storyteller.Play do
          _turn,
          _narration,
          _visible_lines,
+         _roll_request,
          _characters
        ),
        do: :ok
+
+  defp player_transition_denied?(visible_text) do
+    Enum.any?(visible_text, fn text ->
+      tokens = normalized_location_tokens(text)
+      contains_any_token_sequence?(tokens, @scene_transition_denials)
+    end)
+  end
 
   defp player_requested_scene_transition?(text, player_name, characters) do
     tokens = normalized_location_tokens(text)
@@ -4915,31 +4969,14 @@ defmodule Storyteller.Play do
               false
 
             movement_index ->
-              player_action_actor?(tokens, movement_index, player_name_sequences, characters)
+              not scene_motion_not_committed?(tokens, movement_index) and
+                player_action_actor?(tokens, movement_index, player_name_sequences, characters)
           end
         else
           false
         end
       end)
     end)
-  end
-
-  defp scene_transition_cue_present?(text) do
-    tokens = normalized_location_tokens(text)
-
-    Enum.any?(tokens, fn token ->
-      Enum.any?(@scene_transition_cues, &(&1 == [token]))
-    end) or
-      Enum.any?(@scene_transition_cues, fn cue ->
-        length(cue) > 1 and contains_token_sequence?(tokens, cue)
-      end)
-  end
-
-  defp begin_player_scene_transition_check(turn, visible_text, characters) do
-    player_name = Repo.get!(Campaign, turn.campaign_id).player_character_name
-
-    player_requested_scene_transition?(turn.player_input, player_name, characters) and
-      Enum.any?(visible_text, &narrates_player_scene_transition?(&1, player_name, characters))
   end
 
   defp narrates_player_scene_transition?(text, player_name, characters) when is_binary(text) do
@@ -5078,9 +5115,10 @@ defmodule Storyteller.Play do
   end
 
   defp scene_motion_not_committed?(tokens, movement_index) do
-    tokens
-    |> Enum.slice(max(movement_index - 3, 0), min(movement_index, 3))
-    |> Enum.any?(&MapSet.member?(@non_committal_scene_motion_terms, &1))
+    preceding = Enum.slice(tokens, max(movement_index - 3, 0), min(movement_index, 3))
+
+    Enum.any?(preceding, &MapSet.member?(@non_committal_scene_motion_terms, &1)) or
+      Enum.any?(preceding, &MapSet.member?(@travel_negation_terms, &1))
   end
 
   defp player_action_actor?(tokens, movement_index, player_name_sequences, characters) do

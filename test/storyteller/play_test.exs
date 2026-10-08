@@ -4726,6 +4726,10 @@ defmodule Storyteller.PlayTest do
     attempts = [
       {"visible-east-dome", "I walk to the East Dome.",
        "The East Dome is visible through a break in the clouds."},
+      {"question-about-east-dome", "Could I step into the East Dome?",
+       "The East Dome's door is still locked; Mara keeps the key."},
+      {"blocked-east-dome", "I walk through the east door into East Dome.",
+       "The door won't open. You can't get through the locked threshold."},
       {"unknown-crystal-atrium", "I walk to the Crystal Atrium.",
        "An old chart marks the Crystal Atrium beyond the eastern ridge."},
       {"decline-east-dome", "I do not walk to the East Dome; I wait here.",
@@ -7653,6 +7657,11 @@ defmodule Storyteller.PlayTest do
              "A missing route edge is incomplete map data, not an obstacle"
 
     assert instructions =~ "ordinary trips proceed under TRAVEL"
+
+    assert instructions =~
+             "When the player clearly commits to crossing or entering, include their move in location_changes"
+
+    assert instructions =~ "If an established obstacle or unresolved roll stops them"
 
     assert instructions =~ "When one item is transferred or used, narrate that item's outcome"
 
@@ -10673,7 +10682,7 @@ defmodule Storyteller.PlayTest do
     omitted_movement =
       ordinary_proposal(%{
         "narration" =>
-          "Mara unlocks the swollen door. Ada follows her inside, keeping it steady as the bell sounds in the Lower Dome.",
+          "From close up, the clapper hangs motionless beneath the bell. Its tip and the inner rim show fresh, bright scuffing against the duller metal, though the marks alone don't say when or what made them. The frame's joints look sound from where you stand; under the wind's pressure, the structure gives a faint creak, but the bell doesn't move.",
         "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "Mind the sill."}],
         "activities" => [],
         "character_updates" => [],
@@ -10736,7 +10745,8 @@ defmodule Storyteller.PlayTest do
       {:ok, Jason.encode!(proposal)}
     end
 
-    action = "I ask Mara to unlock the lower dome and follow her inside, keeping the door steady."
+    action =
+      "I step through the open doorway into the lower dome behind Mara. I look closely at the bell and listen for anything still moving."
 
     assert {:ok, %{status: :completed} = turn} =
              Play.submit_turn(campaign.id, session.id, "enter-lower-dome", action,
@@ -10752,7 +10762,8 @@ defmodule Storyteller.PlayTest do
     assert corrected_instructions =~
              "Internal correction: the prior GM proposal did not satisfy place, character-presence, or movement consistency."
 
-    assert corrected_instructions =~ "record the player's move before accepting the scene"
+    assert corrected_instructions =~ "record the move even when the narration goes straight"
+    assert corrected_instructions =~ "If a barrier stops them, narrate the concrete obstacle"
     assert Agent.get(attempts, & &1) == 2
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
@@ -10771,7 +10782,7 @@ defmodule Storyteller.PlayTest do
 
     refute Enum.any?(turn_events, fn event ->
              event.event_type == :gm_narration and
-               event.payload["text"] =~ "bell sounds in the Lower Dome"
+               event.payload["text"] =~ "From close up, the clapper hangs motionless"
            end)
 
     assert Enum.any?(turn_events, fn event ->
