@@ -50,8 +50,8 @@ defmodule Storyteller.Play.FirstAppearanceTest do
     assert npc["visible_facts"]["description"] == public_detail
     assert npc["gm_private_facts"]["secret"] == private_detail
     assert instructions =~ "first_story_appearance=true"
-    assert instructions =~ "one relevant visible fact"
-    assert instructions =~ "false means don't reintroduce them"
+    assert instructions =~ "a relevant visible fact"
+    assert instructions =~ "false means don't reintroduce"
     assert instructions =~ "When history_omitted"
     assert instructions =~ "invent no missing events; preserve uncertainty"
 

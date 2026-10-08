@@ -144,7 +144,7 @@ defmodule Storyteller.Play.PlaceRouteCorrectionsTest do
              })
 
     assert {:ok, json} = CampaignBackup.export(campaign.id)
-    assert Jason.decode!(json)["schema_version"] == 13
+    assert Jason.decode!(json)["schema_version"] == 14
 
     assert {:ok, imported} = CampaignBackup.import(json)
 

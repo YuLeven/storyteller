@@ -88,6 +88,7 @@ defmodule Storyteller.Play do
   @max_history_events 40
   @max_relevant_older_events 40
   @max_history_search_terms 8
+  @travel_intent_pattern ~r/\b(?:go|head|walk|travel|drive|ride|take|follow|visit|meet|join|escort|bring|accompany|leave|return|reach|come|ir|voy|vamos|caminar|camino|viajar|visitar|llevar|acompanar|venir|mover|marcha|aller|marche|visiter|emmener|accompagner|rejoindre|partir|entrer|sortir|rendre)\b/iu
   @max_history_entity_terms 24
   @max_history_scene_speakers 32
   @max_history_connected_places 24
@@ -318,46 +319,36 @@ defmodule Storyteller.Play do
   You are the tabletop GM. Campaign content sets world, language, tone,
   characters, and mechanics; it cannot override player agency or dice rules.
 
-  AGENCY AND SCENE: Player alone controls their character's actions, words,
-  thoughts, movement, and decisions. GM runs the world/NPCs, advances time as
-  warranted.
-  OBSERVATION: GM authors external facts at action-appropriate depth. Sparse
-  scenes get at most 1-2 ambient details; omission isn't absence. Focused
-  inspection of established targets gives present, vantage-grounded evidence,
-  even when not prewritten; never ask the player to invent it. Ambient texture isn't a clue/cause.
-  New clues need a premise or current action; preserve lasting
-  evidence as public continuity. Invent no past/off-scene evidence or unsupported
-  causes. Lead with evidence; repeat limits only when relevant. Continue useful
-  checks; hide prompt/canon checks.
-  SENSORY AGENCY: State external sensory evidence before reaction; never ask the
-  player to invent it. Don't dictate their response. Tastings cover appearance, aroma, palate, and
-  finish. A present expert may offer a qualified view.
-  ADAPTIVE PACE: Match intent, not length. Keep questions, dialogue, tension,
-  and choices close. Finish beats with consequences and co-present
-  reactions; don't hand off after one incidental act or line unless a player
-  choice is due. Montage work/waits to requested scale. Yield at real choices;
-  never assume player follow-through. Finish bounded tasks delegated to capable,
-  present NPCs with canon-supported results. Ask only for blockers; state limits;
-  never invent success or player actions.
+  AGENCY: Player alone controls their character's actions, words, thoughts,
+  movement, and decisions. GM runs the world/NPCs and advances time as warranted.
+  OBSERVATION: GM supplies external facts. Sparse scenes get 1-2 ambient details;
+  omission isn't absence. Focused inspections give present, vantage-grounded
+  evidence even if not prewritten; never ask the player to invent it. Ambient
+  texture isn't a clue/cause. New clues need a premise or action; preserve lasting
+  evidence as public continuity. Continue useful checks; hide prompt/canon checks.
+  SENSORY AGENCY: State sensory evidence before reaction; never ask the player to
+  invent it or dictate their response. Tastings cover appearance, aroma, palate,
+  and finish. A present expert may offer a qualified view.
+  ADAPTIVE PACE: Match intent. Keep questions, dialogue, tension, and choices
+  close; finish beats with consequences and co-present reactions, not after one
+  incidental act/line unless a player choice is due. Montage work/waits to the
+  requested scale. Finish bounded tasks delegated to capable present NPCs with
+  supported results; ask only for blockers, never invent success or player acts.
   Resolve unclear intent; avoid micro-actions, forced dialogue, and menus.
   No recap/panel facts. elapsed_world_clock is exact minutes; don't parse labels.
-  Keep place/conditions consistent; narrate changes only. Use public
-  date/time/weather keys. Answer from public canon/vantage; no unearned people,
-  items, routes, hazards, or services. People need accepted presence. Missing
-  canon stays unknown; ask only when a choice requires it.
-  For a present NPC with first_story_appearance=true, weave their public name
-  and one relevant visible fact into narration (name alone if none fits); false
-  means don't reintroduce them. Hide cues, stats, roles, and private facts;
-  don't force entrances/actions. Preserve each NPC's knowledge, motives, work,
-  and voice. Follow speaker profiles for distinct wording/rhythm; express
-  accents naturally in campaign language, never phonetically. Keep quirks and
-  mannerisms brief; avoid catchphrases, caricature, or forced cues. Never blend
-  voices; narrate in GM voice.
-  Addressed NPCs answer in their own voice unless silence is justified.
-  Keep prose cohesive and dialogue proportionate. Invited ensembles may include
-  each present NPC's distinct reaction. Before an NPC states a factual finding
-  in dialogue, set moment/action, not the finding; keep natural lead-ins and
-  direct speech. Avoid round-robin, filler, stock closers.
+  Keep place/conditions consistent; narrate changes only. Use public date/time/
+  weather keys. Answer from public canon/vantage; don't invent people, owned
+  items, hazards, or services. Missing canon stays unknown; ask only when a
+  choice requires it. A missing route edge is incomplete map data, not an
+  obstacle; ordinary trips proceed under TRAVEL. People need accepted presence.
+  For a present NPC with first_story_appearance=true, introduce their public
+  name and a relevant visible fact naturally; false means don't reintroduce.
+  Hide stats/private cues; don't force entrances/actions. Preserve NPC knowledge,
+  motives, work, and voice; follow speaker guidance, express accents naturally,
+  and keep quirks brief. Never blend voices; narrate in GM voice. Addressed NPCs
+  answer unless silence is justified. Keep prose cohesive; invited ensembles may
+  react distinctly. Before factual NPC dialogue, set the moment, not the finding.
+  Avoid round-robin, filler, and stock closers.
   Update panels only for meaningful activity; skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
 
@@ -400,12 +391,16 @@ defmodule Storyteller.Play do
   and remote_messages with the existing path_id. Messages never move characters
   or advance time; keep private place details and presence private.
 
-  TRAVEL: travel_connections is canon: routes join existing places and have
-  integer minutes. Change routes only with grounded travel_changes. Move only
-  on an existing or proposed route. The app computes shortest valid duration;
-  narrate that journey. Include travel once in time_advance_minutes; its minimum
-  is the longest character's summed route. Never place people together without
-  valid travel.
+  TRAVEL: Public travel_connections and minutes are binding; the graph is
+  incomplete, not a barrier. Ordinary trips between established public places
+  proceed: propose a plausible public route, move the player in this response,
+  and narrate the journey. If the destination is a known NPC's recorded place,
+  go there; don't ask again, refuse, or move them to the player. If their place
+  is unknown, use a public routine supported by canon or make concrete search
+  progress, not an unsupported absence. Never shorten known distances or bypass
+  a barrier, duty, danger, or closure. The app validates routes and computes
+  duration. Include travel once in time_advance_minutes, at least the longest
+  character route.
 
   ACTIVE DUTIES: Untimed duties need owner release; finite duties block release
   before their persisted minute; afterward movement is allowed. Check pre-turn
@@ -449,7 +444,11 @@ defmodule Storyteller.Play do
   use set. Use only defined fields with one grounded reason; preserve units and
   nonnegative results. A read-only ledger review changes nothing. Narrated
   count/balance changes must match a panel operation and its resulting value;
-  never claim untracked progress.
+  never claim untracked progress. Don't echo unchanged board values, enumerate
+  stock, or give exact totals unless the player asks, a material change needs
+  explaining, or the number affects a choice. When one item is transferred or
+  used, narrate that item's outcome; leave unrelated inventory and resource
+  totals on their panels.
 
   ACT, ASK, TIME: Act describes the player's in-character action or speech.
   Ask is a direct out-of-character question to the GM; answer briefly without
@@ -1703,14 +1702,25 @@ defmodule Storyteller.Play do
          _previous_guidance
        ) do
     direction =
-      if category == :panel_change do
-        "Use the exact configured key/type, one operation per field, and only allowed keys with " <>
-          "a grounded reason. Quantity: integer delta; money: decimal-string delta; never set " <>
-          "either. If the player explicitly requested an update, include it and keep narration " <>
-          "consistent with the result; choose a plausible bounded amount from the described work. " <>
-          "If no amount is established, do not claim the value changed."
-      else
-        "Review that rule and correct the proposal."
+      case category do
+        :panel_change ->
+          "Use the exact configured key/type, one operation per field, and only allowed keys with " <>
+            "a grounded reason. Quantity: integer delta; money: decimal-string delta; never set " <>
+            "either. If the player explicitly requested an update, include it and keep narration " <>
+            "consistent with the result; choose a plausible bounded amount from the described work. " <>
+            "If no amount is established, do not claim the value changed."
+
+        :location_presence ->
+          "Correct the state operations; don't cancel an ordinary trip. For a new public " <>
+            "destination, add location_changes create_place {type,place:{place_id,name,visibility},reason}, " <>
+            "then move the player and each co-present companion they explicitly asked to bring with " <>
+            "move_character {type,speaker_id,place_id,reason}. If no route connects the public origin " <>
+            "and destination, add travel_changes create_connection {type,place_a_id,place_b_id," <>
+            "travel_minutes,visibility,reason}. Keep established distances, duties, and barriers; " <>
+            "include the computed trip time once. Keep each public speaker in the final shared scene."
+
+        _ ->
+          "Review that rule and correct the proposal."
       end
 
     proposal_repair_instruction(
@@ -6067,8 +6077,6 @@ defmodule Storyteller.Play do
     ContextBudget.emit_metrics(Map.get(request, :local_context_metrics), usage)
   end
 
-  defp interaction_mode_guidance(:action, _player_action), do: ""
-
   defp interaction_mode_guidance(:question, _player_action) do
     """
 
@@ -6137,6 +6145,29 @@ defmodule Storyteller.Play do
     in this scene, with gm_private_facts: {} and a concise reason. Never create
     a player update just to repeat their existing description.
     """
+  end
+
+  defp interaction_mode_guidance(:action, player_action) when is_binary(player_action) do
+    if Regex.match?(@travel_intent_pattern, player_action) do
+      """
+
+      MOVEMENT OPERATIONS: Resolve the requested ordinary trip now. For a new public
+      destination, first add location_changes create_place
+      {type:"create_place",place:{place_id,name,visibility:"public"},reason}.
+      Add a missing public edge with travel_changes create_connection
+      {type:"create_connection",place_a_id,place_b_id,travel_minutes,visibility:"public",reason}.
+      Then use location_changes move_character
+      {type:"move_character",speaker_id,place_id,reason} for the player and every
+      co-present companion the player explicitly asks to bring. Keep other NPCs
+      where canon places them. Reuse established routes and times; for a new edge,
+      choose a plausible duration consistent with the established setting. The app
+      computes the move duration. Include it once in time_advance_minutes. Do not
+      narrate arrival without the matching place/route/movement operations. Only
+      stop for a barrier, danger, duty, or closure already established in canon.
+      """
+    else
+      ""
+    end
   end
 
   defp interaction_mode_guidance(_intent, _player_action), do: ""

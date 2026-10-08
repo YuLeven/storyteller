@@ -147,7 +147,7 @@ defmodule Storyteller.Play.RemoteMessageTest do
     assert message.payload["text"] == "The northern lights are clear tonight."
 
     assert {:ok, backup} = CampaignBackup.export(campaign.id)
-    assert Jason.decode!(backup)["schema_version"] == 13
+    assert Jason.decode!(backup)["schema_version"] == 14
     assert {:ok, imported} = CampaignBackup.import(backup)
     imported_state = Repo.get_by!(State, campaign_id: imported.id)
 

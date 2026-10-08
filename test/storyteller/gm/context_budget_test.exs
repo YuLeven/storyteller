@@ -1582,10 +1582,10 @@ defmodule Storyteller.GM.ContextBudgetTest do
     assert metrics.estimated_request_bytes <= 24_000
 
     policy = String.replace(policy, ~r/\s+/, " ")
-    assert policy =~ "OBSERVATION: GM authors external facts at action-appropriate depth."
+    assert policy =~ "OBSERVATION: GM supplies external facts."
 
     assert policy =~
-             "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten; never ask the player to invent it."
+             "Focused inspections give present, vantage-grounded evidence even if not prewritten; never ask the player to invent it."
 
     assert policy =~
              "Tastings cover appearance,"
@@ -1594,18 +1594,18 @@ defmodule Storyteller.GM.ContextBudgetTest do
              "A present expert may offer a qualified view."
 
     assert policy =~
-             "Don't dictate their response."
+             "or dictate their response."
 
     assert policy =~
-             "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
+             "SENSORY AGENCY: State sensory evidence before reaction; never ask the player to invent it"
 
-    assert policy =~ "Preserve each NPC's knowledge, motives, work, and voice."
-
-    assert policy =~
-             "Follow speaker profiles for distinct wording/rhythm; express accents naturally in campaign language, never phonetically."
+    assert policy =~ "Preserve NPC knowledge, motives, work, and voice"
 
     assert policy =~
-             "Keep quirks and mannerisms brief; avoid catchphrases, caricature, or forced cues."
+             "follow speaker guidance, express accents naturally"
+
+    assert policy =~
+             "keep quirks brief"
 
     assert policy =~ "Never blend voices; narrate in GM voice."
 

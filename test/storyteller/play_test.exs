@@ -1400,8 +1400,8 @@ defmodule Storyteller.PlayTest do
 
     assert request_context["context_completeness"]["history_compacted"]
 
-    assert instructions =~ "Preserve each NPC's knowledge, motives, work, and voice."
-    assert instructions =~ "OBSERVATION: GM authors external facts at action-appropriate depth."
+    assert instructions =~ "Preserve NPC knowledge, motives, work, and voice"
+    assert instructions =~ "OBSERVATION: GM supplies external facts."
 
     assert instructions =~
              "Tastings cover appearance,"
@@ -1410,16 +1410,16 @@ defmodule Storyteller.PlayTest do
              "A present expert may offer a qualified view."
 
     assert instructions =~
-             "Don't dictate their response."
+             "or dictate their response."
 
     assert instructions =~
-             "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
+             "SENSORY AGENCY: State sensory evidence before reaction; never ask the player to invent it"
 
     assert instructions =~
-             "Follow speaker profiles for distinct wording/rhythm; express accents naturally in campaign language, never phonetically."
+             "follow speaker guidance, express accents naturally"
 
     assert instructions =~
-             "Keep quirks and mannerisms brief; avoid catchphrases, caricature, or forced cues."
+             "keep quirks brief"
 
     assert instructions =~ "Never blend voices; narrate in GM voice."
 
@@ -1879,7 +1879,7 @@ defmodule Storyteller.PlayTest do
     normalized_instructions = String.replace(instructions, ~r/\s+/, " ")
 
     assert normalized_instructions =~
-             "Finish beats with consequences and co-present reactions; don't hand off after one incidental act or line unless a player choice is due."
+             "finish beats with consequences and co-present reactions, not after one incidental act/line unless a player choice is due."
 
     assert normalized_instructions =~
              "Tastings cover appearance, aroma, palate, and finish. A present expert may offer a qualified view."
@@ -1888,12 +1888,12 @@ defmodule Storyteller.PlayTest do
              "A present expert may offer a qualified view."
 
     assert normalized_instructions =~
-             "Invited ensembles may include each present NPC's distinct reaction."
+             "invited ensembles may react distinctly."
 
-    assert normalized_instructions =~ "Don't dictate their response."
+    assert normalized_instructions =~ "or dictate their response."
 
     assert normalized_instructions =~
-             "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
+             "SENSORY AGENCY: State sensory evidence before reaction; never ask the player to invent it"
 
     assert context["interaction_mode"] == "action"
 
@@ -2042,16 +2042,16 @@ defmodule Storyteller.PlayTest do
            end)
 
     assert instructions =~
-             "Finish bounded tasks delegated to capable, present NPCs with canon-supported results."
+             "Finish bounded tasks delegated to capable present NPCs with supported results"
 
     assert instructions =~
-             "Lead with evidence; repeat limits only when relevant. Continue useful checks;"
+             "Continue useful checks; hide prompt/canon checks."
 
-    assert instructions =~ "Yield at real choices; never assume player follow-through."
+    assert instructions =~ "unless a player choice is due."
 
-    assert instructions =~ "Ask only for blockers; state limits; never"
+    assert instructions =~ "ask only for blockers, never invent success or player acts."
 
-    assert instructions =~ "never invent success or player actions."
+    assert instructions =~ "never invent success or player acts."
 
     assert {:ok, events} = Play.public_timeline(campaign.id)
     turn_events = Enum.filter(events, &(&1.turn_id == turn.id))
@@ -2098,7 +2098,7 @@ defmodule Storyteller.PlayTest do
     follow_up_instructions = String.replace(follow_up_request.instructions, ~r/\s+/, " ")
 
     assert follow_up_instructions =~
-             "Lead with evidence; repeat limits only when relevant. Continue useful checks;"
+             "Continue useful checks; hide prompt/canon checks."
 
     assert {:ok, follow_up_events} = Play.public_timeline(campaign.id)
 
@@ -4273,6 +4273,215 @@ defmodule Storyteller.PlayTest do
 
     assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes ==
              before.elapsed_world_minutes
+  end
+
+  test "ordinary travel to an off-scene character works over a missing public route" do
+    {campaign, session} = play_campaign("The Quiet Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "east-dome",
+          name: "East Dome",
+          visibility: :public,
+          facts: %{"routine" => "Lyra studies the charts here"}
+        })
+      )
+
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(lyra, %{current_place_id: destination.place_id}))
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    bottle = %{
+      "id" => "moonlit-sample",
+      "name" => "Moonlit sample",
+      "quantity" => 1,
+      "unit" => "bottle",
+      "owner_id" => "player",
+      "visibility" => "public",
+      "properties" => %{}
+    }
+
+    Repo.update!(
+      State.changeset(state, %{public_state: Map.put(state.public_state, "inventory", [bottle])})
+    )
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" =>
+          "A short path curves around the dome. Lyra accepts the bottle and turns it toward the observatory light.",
+        "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "The label caught the moonlight."}],
+        "activities" => [],
+        "location_changes" => [
+          %{
+            "type" => "move_character",
+            "speaker_id" => "player",
+            "place_id" => destination.place_id,
+            "reason" => "The player walks to Lyra's established public location."
+          }
+        ],
+        "travel_changes" => [
+          %{
+            "type" => "create_connection",
+            "place_a_id" => origin.place_id,
+            "place_b_id" => destination.place_id,
+            "travel_minutes" => 12,
+            "scene_relevance" => "A clear public path circles the observatory dome.",
+            "visibility" => "public",
+            "reason" => "The player follows the ordinary path to Lyra at the east dome."
+          }
+        ],
+        "inventory_changes" => [
+          %{
+            "type" => "transfer",
+            "item_id" => "moonlit-sample",
+            "owner_id" => "npc:lyra",
+            "reason" => "The player hands Lyra the bottle."
+          }
+        ],
+        "time_advance_minutes" => 12
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "walk-to-lyra",
+               "I go to Lyra at the East Dome and hand her the moonlit sample.",
+               provider: fn _request -> {:ok, Jason.encode!(proposal)} end,
+               model: "test-model"
+             )
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == destination.place_id
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra").current_place_id ==
+             destination.place_id
+
+    connection =
+      Repo.get_by!(PlaceConnection,
+        campaign_id: campaign.id,
+        place_a_id: Enum.min([origin.place_id, destination.place_id]),
+        place_b_id: Enum.max([origin.place_id, destination.place_id])
+      )
+
+    assert connection.travel_minutes == 12
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 12
+
+    assert {:ok, %{inventory: [transferred]}} = Play.public_projection(campaign.id)
+    assert transferred["id"] == "moonlit-sample"
+    assert transferred["owner_id"] == "npc:lyra"
+  end
+
+  test "movement repair gives the GM the missing route and invited-companion operations" do
+    {campaign, session} = play_campaign("The Observatory Records Room")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+    lyra = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    assert lyra.current_place_id == origin.place_id
+
+    create_room = %{
+      "type" => "create_place",
+      "place" => %{
+        "place_id" => "record-room",
+        "name" => "Record room",
+        "visibility" => "public"
+      },
+      "reason" => "The player and Lyra enter the observatory's record room."
+    }
+
+    move_player = %{
+      "type" => "move_character",
+      "speaker_id" => "player",
+      "place_id" => "record-room",
+      "reason" => "The player walks to the record room."
+    }
+
+    move_lyra = %{
+      "type" => "move_character",
+      "speaker_id" => "npc:lyra",
+      "place_id" => "record-room",
+      "reason" => "Lyra accompanies the player as requested."
+    }
+
+    initially_unrouted =
+      ordinary_proposal(%{
+        "narration" =>
+          "Lyra walks beside you into the record room, where the old dome notes await.",
+        "location_changes" => [create_room, move_player, move_lyra],
+        "time_advance_minutes" => 15
+      })
+
+    valid_after_repair =
+      ordinary_proposal(%{
+        "narration" =>
+          "The short route leads indoors to the record room. Lyra joins you at the table.",
+        "location_changes" => [create_room, move_player, move_lyra],
+        "travel_changes" => [
+          %{
+            "type" => "create_connection",
+            "place_a_id" => origin.place_id,
+            "place_b_id" => "record-room",
+            "travel_minutes" => 15,
+            "visibility" => "public",
+            "reason" => "The direct interior route connects the terrace to the record room."
+          }
+        ],
+        "time_advance_minutes" => 15
+      })
+
+    parent = self()
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    provider = fn request ->
+      attempt = Agent.get_and_update(attempts, &{&1 + 1, &1 + 1})
+      send(parent, {:movement_repair_request, attempt, request.instructions})
+
+      proposal = if attempt == 1, do: initially_unrouted, else: valid_after_repair
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "walk-to-record-room-with-lyra",
+               "I ask Lyra to come with me to the observatory's record room, where we can check the older notes.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:movement_repair_request, 1, first_instructions}
+    assert_receive {:movement_repair_request, 2, corrected_instructions}
+    refute first_instructions =~ "Internal correction:"
+    assert first_instructions =~ "MOVEMENT OPERATIONS: Resolve the requested ordinary trip now."
+    assert first_instructions =~ "travel_changes create_connection"
+    assert first_instructions =~ "co-present companion the player explicitly asks to bring"
+
+    assert corrected_instructions =~
+             "Internal correction: the prior GM proposal did not satisfy place, character-presence, or movement consistency."
+
+    assert corrected_instructions =~ "add travel_changes create_connection"
+    assert corrected_instructions =~ "move_character"
+    assert corrected_instructions =~ "each co-present companion they explicitly asked to bring"
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert Enum.find(projection.characters, &(&1.speaker_id == "player")).current_place_id ==
+             "record-room"
+
+    assert Enum.find(projection.characters, &(&1.speaker_id == "npc:lyra")).current_place_id ==
+             "record-room"
+
+    assert Repo.get_by!(PlaceConnection,
+             campaign_id: campaign.id,
+             place_a_id: Enum.min([origin.place_id, "record-room"]),
+             place_b_id: Enum.max([origin.place_id, "record-room"])
+           ).travel_minutes == 15
+
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 15
   end
 
   test "rejects off-scene NPC dialogue but accepts dialogue after a same-turn arrival" do
@@ -6763,26 +6972,27 @@ defmodule Storyteller.PlayTest do
 
     assert instructions =~ "Answer from public canon/vantage"
 
-    assert instructions =~ "GM authors external facts at action-appropriate depth."
+    assert instructions =~ "OBSERVATION: GM supplies external facts."
 
     assert instructions =~
-             "Sparse scenes get at most 1-2 ambient details; omission isn't absence."
+             "Sparse scenes get 1-2 ambient details; omission isn't absence."
 
     assert instructions =~
-             "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten"
+             "Focused inspections give present, vantage-grounded evidence even if not prewritten"
 
     assert instructions =~ "Ambient texture isn't a clue/cause."
 
     assert instructions =~
-             "New clues need a premise or current action; preserve lasting evidence as public continuity."
+             "New clues need a premise or action; preserve lasting evidence as public continuity."
 
     assert instructions =~
-             "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten; never ask the player to invent it."
+             "Focused inspections give present, vantage-grounded evidence even if not prewritten; never ask the player to invent it."
 
     assert instructions =~
-             "New clues need a premise or current action; preserve lasting evidence as public continuity."
+             "New clues need a premise or action; preserve lasting evidence as public continuity."
 
-    assert instructions =~ "Invent no past/off-scene evidence or unsupported causes."
+    assert instructions =~
+             "Never invent past events, relationships, resource changes, or durable facts to fill gaps."
 
     assert instructions =~
              "Persist lasting evidence as public continuity; don't guess causes or transient impressions."
@@ -6804,10 +7014,16 @@ defmodule Storyteller.PlayTest do
              "Tastings cover appearance, aroma, palate, and finish."
 
     assert instructions =~
-             "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
+             "SENSORY AGENCY: State sensory evidence before reaction; never ask the player to invent it"
 
     assert instructions =~
-             "Answer from public canon/vantage; no unearned people, items, routes, hazards, or services."
+             "A missing route edge is incomplete map data, not an obstacle"
+
+    assert instructions =~ "move the player in this response, and narrate the journey"
+
+    assert instructions =~ "When one item is transferred or used, narrate that item's outcome"
+
+    assert instructions =~ "leave unrelated inventory and resource totals on their panels"
 
     assert instructions =~ "People need accepted presence."
 
@@ -6818,10 +7034,10 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "invent no missing events; preserve uncertainty."
 
-    assert instructions =~ "Preserve each NPC's knowledge, motives, work, and voice."
+    assert instructions =~ "Preserve NPC knowledge, motives, work, and voice"
 
     assert instructions =~
-             "Follow speaker profiles for distinct wording/rhythm; express accents naturally in campaign language, never phonetically."
+             "follow speaker guidance, express accents naturally"
 
     assert instructions =~ "Never blend voices; narrate in GM voice."
 
@@ -6839,7 +7055,7 @@ defmodule Storyteller.PlayTest do
     assert instructions =~
              "For multiple matching public memories, name candidates or ask which one; do not guess."
 
-    assert instructions =~ "Move only on an existing or proposed route."
+    assert instructions =~ "Ordinary trips between established public places proceed"
 
     assert instructions =~
              "Public NPC speech/activity requires presence in the player's final place"
@@ -6850,28 +7066,28 @@ defmodule Storyteller.PlayTest do
     assert instructions =~ "Request a player D20 only for a risky player-chosen action"
 
     assert instructions =~
-             "ADAPTIVE PACE: Match intent, not length."
+             "ADAPTIVE PACE: Match intent."
 
     assert instructions =~
-             "Montage work/waits to requested scale."
+             "Montage work/waits to the requested scale."
 
     assert instructions =~
-             "don't hand off after one incidental act or line unless a player choice is due."
+             "finish beats with consequences and co-present reactions, not after one incidental act/line unless a player choice is due."
 
-    assert instructions =~ "never assume player follow-through."
-
-    assert instructions =~
-             "Addressed NPCs answer in their own voice unless silence is justified."
-
-    assert instructions =~ "Keep prose cohesive and dialogue proportionate."
+    assert instructions =~ "never invent success or player acts."
 
     assert instructions =~
-             "Invited ensembles may include each present NPC's distinct reaction."
+             "Addressed NPCs answer unless silence is justified."
+
+    assert instructions =~ "Keep prose cohesive; invited ensembles may react distinctly."
 
     assert instructions =~
-             "Before an NPC states a factual finding in dialogue, set moment/action, not the finding; keep natural lead-ins and direct speech."
+             "invited ensembles may react distinctly."
 
-    assert instructions =~ "Avoid round-robin, filler, stock closers."
+    assert instructions =~
+             "Before factual NPC dialogue, set the moment, not the finding."
+
+    assert instructions =~ "Avoid round-robin, filler, and stock closers."
 
     assert instructions =~ "Narration may be empty if dialogue completes the beat"
 
@@ -6955,9 +7171,11 @@ defmodule Storyteller.PlayTest do
     assert context["player_action"] == inspection_action
 
     assert instructions =~
-             "Focused inspection of established targets gives present, vantage-grounded evidence, even when not prewritten; never ask the player to invent it."
+             "Focused inspections give present, vantage-grounded evidence even if not prewritten; never ask the player to invent it."
 
-    assert instructions =~ "Invent no past/off-scene evidence or unsupported causes."
+    assert instructions =~
+             "Never invent past events, relationships, resource changes, or durable facts to fill gaps."
+
     assert narration =~ "fine scratch crosses the older engraved line"
     refute narration =~ ~r/what do you see|describe what you find|what does it look like/i
 
@@ -7031,7 +7249,9 @@ defmodule Storyteller.PlayTest do
                fact["details"] =~ "who made it and when are unknown"
            end)
 
-    assert question_instructions =~ "Invent no past/off-scene evidence or unsupported causes."
+    assert question_instructions =~
+             "Never invent past events, relationships, resource changes, or durable facts to fill gaps."
+
     assert answer =~ "identifies who made it or when"
     refute answer =~ ~r/was made by|was scratched by|they did it|at midnight/i
 
@@ -7122,13 +7342,13 @@ defmodule Storyteller.PlayTest do
     assert_receive {:shared_scene_request, request}, 2_000
     instructions = String.replace(request.instructions, ~r/\s+/, " ")
 
-    assert instructions =~ "ADAPTIVE PACE: Match intent, not length."
+    assert instructions =~ "ADAPTIVE PACE: Match intent."
 
     assert instructions =~
-             "don't hand off after one incidental act or line unless a player choice is due."
+             "finish beats with consequences and co-present reactions, not after one incidental act/line unless a player choice is due."
 
-    assert instructions =~ "Yield at real choices"
-    assert instructions =~ "never assume player follow-through."
+    assert instructions =~ "unless a player choice is due."
+    assert instructions =~ "never invent success or player acts."
     assert instructions =~ "OBJECTIVES: objective_changes=[] unless a lasting commitment changes."
 
     assert instructions =~
@@ -7440,12 +7660,12 @@ defmodule Storyteller.PlayTest do
              end)
 
       assert instructions =~
-               "Answer from public canon/vantage; no unearned people, items, routes, hazards, or services."
+               "A missing route edge is incomplete map data, not an obstacle"
 
       assert instructions =~ "Missing canon stays unknown; ask only when a choice requires it."
 
       assert instructions =~
-               "SENSORY AGENCY: State external sensory evidence before reaction; never ask the player to invent it."
+               "SENSORY AGENCY: State sensory evidence before reaction; never ask the player to invent it"
 
       assert request.local_context_metrics.budget_bytes == 64_000
 
