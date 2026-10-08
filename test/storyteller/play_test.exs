@@ -4684,7 +4684,7 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    assert Agent.get(calls, & &1) == 3
+    assert Agent.get(calls, & &1) == 2
 
     assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
              origin.place_id
@@ -7348,6 +7348,149 @@ defmodule Storyteller.PlayTest do
 
     assert [%{"key" => "plates_catalogued", "before" => 0, "after" => 4}] =
              panel_event.payload["panel_changes"]
+  end
+
+  test "same-turn repair follows successive validator findings and commits the saved action once" do
+    {campaign, session} = play_campaign("The Progressive Repair Observatory")
+    test_pid = self()
+    attempt_agent = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    provider = fn request ->
+      attempt = Agent.get_and_update(attempt_agent, fn count -> {count + 1, count + 1} end)
+      send(test_pid, {:progressive_repair_attempt, attempt, request.instructions})
+
+      proposal =
+        case attempt do
+          1 ->
+            ordinary_proposal(%{
+              "activities" => [%{"speaker_id" => "player", "text" => "I decide to leave."}]
+            })
+
+          2 ->
+            ordinary_proposal(%{
+              "dialogue" => [%{"speaker_id" => "npc:unknown", "text" => "Welcome."}]
+            })
+
+          3 ->
+            ordinary_proposal(%{"time_advance_minutes" => 6_000_000_000})
+
+          _ ->
+            ordinary_proposal(%{"narration" => "Lyra checks the brass shutter once more."})
+        end
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = completed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "progressive-repair-once",
+               "I inspect the brass shutter.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert completed.player_input == "I inspect the brass shutter."
+    assert_receive {:progressive_repair_attempt, 1, first_instructions}
+    assert_receive {:progressive_repair_attempt, 2, agency_repair_instructions}
+    assert_receive {:progressive_repair_attempt, 3, dialogue_repair_instructions}
+    assert_receive {:progressive_repair_attempt, 4, time_repair_instructions}
+    refute first_instructions =~ "Internal correction:"
+    assert agency_repair_instructions =~ "saved player action is authoritative"
+    assert dialogue_repair_instructions =~ "established character speaker IDs"
+    assert time_repair_instructions =~ "valid nonnegative time advance"
+
+    assert :ok =
+             Agent.get(attempt_agent, fn count -> if count == 4, do: :ok, else: :wrong_count end)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+
+    assert Enum.find(timeline, &(&1.event_type == :player_action)).payload["text"] ==
+             "I inspect the brass shutter."
+
+    assert Enum.find(timeline, &(&1.event_type == :gm_narration)).payload["text"] ==
+             "Lyra checks the brass shutter once more."
+  end
+
+  test "same-category validation failure stops repair without a manual retry or partial events" do
+    {campaign, session} = play_campaign("The Stalled Repair Observatory")
+    before = Play.public_projection(campaign.id)
+    provider_calls = :atomics.new(1, signed: false)
+
+    repeated_invalid_proposal =
+      Jason.encode!(
+        ordinary_proposal(%{
+          "activities" => [%{"speaker_id" => "player", "text" => "I decide to leave."}]
+        })
+      )
+
+    provider = fn _request ->
+      :atomics.add(provider_calls, 1, 1)
+      {:ok, repeated_invalid_proposal}
+    end
+
+    assert {:ok, failed} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "repeated-repair-failure",
+               "I inspect the brass shutter.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert failed.status == :failed
+    assert failed.player_input == "I inspect the brass shutter."
+    assert failed.failure_code == "invalid_response"
+    assert failed.failure_category == :player_agency
+    assert :atomics.get(provider_calls, 1) == 2
+    assert Play.public_projection(campaign.id) == before
+    assert {:ok, []} = Play.public_timeline(campaign.id)
+  end
+
+  test "a changed proposal in the same validation category may still recover" do
+    {campaign, session} = play_campaign("The Evolving Repair Observatory")
+    provider_calls = :atomics.new(1, signed: false)
+
+    provider = fn _request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+
+      proposal =
+        case attempt do
+          1 ->
+            ordinary_proposal(%{
+              "activities" => [%{"speaker_id" => "player", "text" => "I decide to leave."}]
+            })
+
+          2 ->
+            ordinary_proposal(%{
+              "activities" => [%{"speaker_id" => "player", "text" => "I turn toward the door."}]
+            })
+
+          _ ->
+            ordinary_proposal(%{"narration" => "Lyra checks the brass shutter once more."})
+        end
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "changed-same-category-repair",
+               "I inspect the brass shutter.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert :atomics.get(provider_calls, 1) == 3
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
   end
 
   test "observation requests report only new or specifically inspected details" do

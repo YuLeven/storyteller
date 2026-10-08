@@ -626,6 +626,10 @@ defmodule Storyteller.Play do
     "provider_unavailable"
   ]
   @proposal_repair_retry_limit 2
+  # Safely rejected proposals get up to four category-guided correction
+  # attempts after the original proposal. Exact repeated invalid responses
+  # stop early as non-progress; this is not a provider-size or cost ceiling.
+  @proposal_validation_correction_attempt_limit 4
   @proposal_repair_reserve_bytes 768
 
   @proposal_failure_categories [
@@ -1636,7 +1640,7 @@ defmodule Storyteller.Play do
   defp run_resolution_stage(stage, fun), do: run_resolution_stage(stage, stage, fun)
 
   defp generate_and_commit_proposal(provider, request, turn, attempt_token, opts) do
-    generate_and_commit_proposal(provider, request, turn, attempt_token, opts, 0, nil)
+    generate_and_commit_proposal(provider, request, turn, attempt_token, opts, 0, nil, nil)
   end
 
   defp generate_and_commit_proposal(
@@ -1646,7 +1650,8 @@ defmodule Storyteller.Play do
          attempt_token,
          opts,
          retries,
-         repair_guidance
+         repair_guidance,
+         previous_validation_failure
        ) do
     request = add_proposal_repair_guidance(base_request, repair_guidance)
 
@@ -1674,7 +1679,8 @@ defmodule Storyteller.Play do
                 attempt_token,
                 opts,
                 retries,
-                repair_guidance
+                repair_guidance,
+                previous_validation_failure
               )
 
             :unavailable ->
@@ -1682,6 +1688,46 @@ defmodule Storyteller.Play do
           end
         else
           error
+        end
+
+      {:error, {:invalid_response, category}, :proposal_validation, signature}
+      when category in @proposal_failure_categories ->
+        if retries <
+             proposal_repair_retry_limit(
+               :proposal_validation,
+               {:invalid_response, category},
+               attempt_token,
+               opts
+             ) and
+             previous_validation_failure != {category, signature} and
+             ensure_plan_usage_allowed(opts) == :ok and
+             resolution_attempt_active?(turn.id, attempt_token) do
+          next_guidance =
+            proposal_repair_guidance(
+              :proposal_validation,
+              {:invalid_response, category},
+              repair_guidance
+            )
+
+          Logger.warning(
+            "GM proposal generation failed; requesting internal correction " <>
+              "attempt=#{retries + 1} stage=proposal_validation reason=#{inspect({:invalid_response, category})}"
+          )
+
+          Process.sleep(@provider_retry_delay_ms)
+
+          generate_and_commit_proposal(
+            provider,
+            base_request,
+            turn,
+            attempt_token,
+            opts,
+            retries + 1,
+            next_guidance,
+            {category, signature}
+          )
+        else
+          {:error, {:invalid_response, category}, :proposal_validation}
         end
 
       {:error, reason, stage} = error ->
@@ -1705,7 +1751,8 @@ defmodule Storyteller.Play do
             attempt_token,
             opts,
             retries + 1,
-            next_guidance
+            next_guidance,
+            previous_validation_failure
           )
         else
           error
@@ -1739,42 +1786,53 @@ defmodule Storyteller.Play do
   end
 
   defp generate_and_commit_once(provider, request, turn, attempt_token) do
-    with {:ok, validated} <- generate_and_validate_once(provider, request, turn),
-         {:ok, committed} <-
-           run_resolution_stage(:commit, fn ->
-             commit_proposal(turn.id, attempt_token, validated)
-           end) do
-      {:ok, committed}
-    else
+    case generate_and_validate_once(provider, request, turn) do
+      {:ok, validated} ->
+        run_resolution_stage(:commit, fn ->
+          commit_proposal(turn.id, attempt_token, validated)
+        end)
+
+      {:error, reason, stage, response_signature} ->
+        {:error, reason, stage, response_signature}
+
       {:error, reason, stage} ->
         {:error, reason, stage}
-
-      {:error, reason} ->
-        {:error, reason, :provider}
     end
   end
 
   defp generate_and_validate_once(provider, request, turn) do
-    with {:ok, response} <-
-           run_resolution_stage(:provider, fn -> call_provider(provider, request) end),
-         :ok <- emit_context_usage(request, response),
-         {:ok, proposal} <-
-           run_resolution_stage(:response_decoding, :proposal_decode, fn ->
-             decode_proposal(response)
-           end),
-         {:ok, validated} <-
-           run_resolution_stage(:proposal_validation, fn ->
-             with {:ok, proposal} <- validate_proposal(proposal, turn) do
-               {:ok, constrain_proposal_to_intent(proposal, turn.intent)}
-             end
-           end) do
-      {:ok, validated}
-    else
+    case run_resolution_stage(:provider, fn -> call_provider(provider, request) end) do
+      {:ok, response} ->
+        result =
+          with :ok <- emit_context_usage(request, response),
+               {:ok, proposal} <-
+                 run_resolution_stage(:response_decoding, :proposal_decode, fn ->
+                   decode_proposal(response)
+                 end),
+               {:ok, validated} <-
+                 run_resolution_stage(:proposal_validation, fn ->
+                   with {:ok, proposal} <- validate_proposal(proposal, turn) do
+                     {:ok, constrain_proposal_to_intent(proposal, turn.intent)}
+                   end
+                 end) do
+            {:ok, validated}
+          else
+            {:error, reason, stage} -> {:error, reason, stage}
+            {:error, reason} -> {:error, reason, :provider}
+          end
+
+        case result do
+          {:error, {:invalid_response, category}, :proposal_validation}
+          when category in @proposal_failure_categories ->
+            {:error, {:invalid_response, category}, :proposal_validation,
+             proposal_response_signature(response)}
+
+          other ->
+            other
+        end
+
       {:error, reason, stage} ->
         {:error, reason, stage}
-
-      {:error, reason} ->
-        {:error, reason, :provider}
     end
   end
 
@@ -1796,6 +1854,17 @@ defmodule Storyteller.Play do
 
   defp retryable_proposal_failure?(_reason), do: false
 
+  defp proposal_response_signature(%{text: text}) when is_binary(text),
+    do: response_signature(text)
+
+  defp proposal_response_signature(response), do: response_signature(response)
+
+  defp response_signature(response) do
+    response
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+  end
+
   # A long streaming receive timeout may already have cost the player most of
   # a minute and a half, so give it one silent recovery attempt during the fast
   # window. The LiveView then uses a single half-open probe per cooldown.
@@ -1809,6 +1878,15 @@ defmodule Storyteller.Play do
       do: 0,
       else: @transient_provider_retry_limit
   end
+
+  defp proposal_repair_retry_limit(
+         :proposal_validation,
+         {:invalid_response, category},
+         _attempt_token,
+         _opts
+       )
+       when category in @proposal_failure_categories,
+       do: @proposal_validation_correction_attempt_limit
 
   defp proposal_repair_retry_limit(_stage, _reason, _attempt_token, _opts),
     do: @proposal_repair_retry_limit
@@ -1844,6 +1922,51 @@ defmodule Storyteller.Play do
        ) do
     direction =
       case category do
+        :proposal_shape ->
+          "Return exactly one JSON object using only the documented proposal fields; preserve the " <>
+            "required types and do not add commentary or unknown keys."
+
+        :narration ->
+          "Provide the required concise GM narration for this beat. Do not put player-authored " <>
+            "words or choices in the narration; dialogue may carry the beat when the contract allows it."
+
+        :dialogue ->
+          "Use only established character speaker IDs who are present in the final scene. Keep each " <>
+            "line as a short string; establish a new character and their presence before giving them a line."
+
+        :activity ->
+          "Use only established, scene-present character IDs for visible activities. Do not author " <>
+            "the player's action; describe only what the GM-controlled characters do."
+
+        :world_change ->
+          "Use only valid public/private world-change fields with concise supported values and a " <>
+            "grounded reason. Do not use a world change to replace a character, inventory, or tracked-panel operation."
+
+        :character_creation ->
+          "For a new character, provide a unique speaker ID, required identity/profile fields, and " <>
+            "a valid established or newly created place. Do not recreate an existing character."
+
+        :character_update ->
+          "Update only an existing non-player character with allowed, event-grounded fields; keep " <>
+            "private facts private and do not overwrite identity or invent unsupported state."
+
+        :inventory_change ->
+          "Use a valid inventory operation against an established item and character. Include the " <>
+            "required item identity, owner, quantity/fields, and grounded reason; never narrate a transfer without recording it."
+
+        :time_advance ->
+          "Set a valid nonnegative time advance within the supported range. Ask GM keeps time still; " <>
+            "time passage must advance time, and travel time must agree with validated movement."
+
+        :roll_request ->
+          "Request a player roll only for an action that genuinely needs one. Keep the requested " <>
+            "roll separate from narration and all world, character, inventory, and time changes."
+
+        :player_agency ->
+          "The saved player action is authoritative. Do not write player dialogue/activity, move the " <>
+            "player without a validated movement consequence, or decide a choice the player has not made. " <>
+            "Narrate the world and GM-controlled characters' response instead."
+
         :panel_change ->
           "Use the exact configured key/type, one operation per field, and only allowed keys with " <>
             "a grounded reason. Quantity: integer delta; money: decimal-string delta; never set " <>
@@ -1862,6 +1985,30 @@ defmodule Storyteller.Play do
             "For an established public destination, a missing edge is allowed; its time stays an estimate " <>
             "in time_advance_minutes, not a saved route. Keep established distances, duties, and barriers; " <>
             "include computed route time once. Keep each public speaker in the final shared scene."
+
+        :communication_path ->
+          "Use only valid communication-path operations for established characters and locations. " <>
+            "Do not create a path merely to justify ordinary co-present dialogue."
+
+        :remote_message ->
+          "Send a remote message only through an established, valid communication path and only when " <>
+            "the saved action and scene permit it; otherwise keep the exchange local."
+
+        :objective_change ->
+          "Change only an existing objective using an allowed status/field operation and a grounded " <>
+            "reason. Do not invent completion or progress that the scene has not earned."
+
+        :continuity_change ->
+          "Record only durable, campaign-relevant facts supported by this accepted scene, with valid " <>
+            "scope and provenance. Do not store transient texture or unverified speculation as canon."
+
+        :memory_update ->
+          "Return the required public and GM-private memory summary fields as concise updates; keep " <>
+            "private material out of the public summary and do not overwrite unrelated canon."
+
+        :private_fact_boundary ->
+          "Remove GM-private facts from public narration, dialogue, activities, and public changes. " <>
+            "Keep hidden causes uncertain unless the player has earned that knowledge."
 
         _ ->
           "Review that rule and correct the proposal."

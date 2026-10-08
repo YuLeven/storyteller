@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-08 — Repair safely rejected GM proposals on the saved turn
+
+- A strict validator could reject a response even when the saved player action and current canon gave the GM enough information to correct it. Requiring the player to click Retry for each safely repairable schema/canon mistake made ordinary play feel brittle.
+- The same claimed turn now gives the GM category-specific correction guidance for up to four proposals after the original. Validation stays strict: only a complete accepted proposal can append story events or change canon, and the saved action and any D20 result are reused. If the same validation category returns an identical rejected response, recovery stops early; a changed response may still make progress. Account, usage, provider-context, and other intervention paths keep their distinct handling. This retry bound guards against identical non-progress; it is not a model-spend or prompt-size objective.
+- Behavioral tests cover progressive player-agency/dialogue/time corrections committing the action and narration once, changed responses within one category, identical repeated failures leaving projection and timeline unchanged, and an existing travel-duty safeguard.
+- **Verification:** full isolated WSL suite passed (**564 tests, 0 failures**, `--max-cases 16`); the four focused recovery/travel tests passed; development compilation with warnings as errors, formatting, and `git diff --check` passed. Tests used fake providers and `storyteller_test`; no live model request, OAuth consent, or campaign data was used.
+
 ## 2026-10-08 — Smooth streamed narration previews
 
 - Streaming the GM's JSON proposal used to reparse its growing prefix and send a LiveView update for every provider text delta. Providers may split even a few words into many tiny events, adding avoidable local work and message traffic while the player waits.
