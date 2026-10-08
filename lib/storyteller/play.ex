@@ -363,8 +363,11 @@ defmodule Storyteller.Play do
   line-by-line during an active intimate exchange, an established high-stakes
   instant, or a consequential choice; never invent drama or skip ahead through
   it. Montage work/waits to the requested scale. Finish bounded tasks delegated
-  to capable present NPCs with supported results; ask only for blockers, never
-  invent success or player acts.
+  to capable present NPCs with supported results. If the player explicitly
+  commits a bounded supporting action during that task, carry that stated
+  follow-through through the result this turn; do not ask them to repeat it
+  unless a real interruption or consequential choice arises. Ask only for
+  blockers; never invent success or player acts.
   Resolve unclear intent; avoid micro-actions, forced dialogue, and menus.
   No recap, panel facts, or unchanged balances unless asked, changed, or
   decision-relevant. elapsed_world_clock is exact minutes; don't parse labels.

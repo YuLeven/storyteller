@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-08 — Carry the player's stated support through a delegated beat
+
+- In the fictional `Quiet Observatory QA — The Nine-Minute Window` scene, Nadia braced the telescope mount and delegated the comparison to Sera. The GM let the Moon enter the field and had Sera announce she was beginning the comparison, but stopped before the bounded comparison result. Nadia then had to spend another prompt explicitly keeping the mount steady while Sera finished. That was unnecessary friction: the supporting action and delegation were already clear, and no new consequential choice had appeared.
+- The compact GM policy now says that an explicitly committed, bounded supporting action carries through the delegated task's result in the same response unless a real interruption or consequential choice arises. It still forbids inventing player acts, NPC success, or outcomes unsupported by canon. A fake-provider behavioral regression checks the stated follow-through appears in the accepted narration and the delegated result completes without a forced question.
+- **Verification:** the focused Play test, formatting check, and `git diff --check` passed in WSL. The changed prompt has not yet been confirmed in a new live turn. The earlier isolated Luna-low scene did correctly pause for Nadia's D20, accepted the player-controlled 17, and persisted the resulting world state after reload; those positive checks do not prove this handoff change or broad story quality. This is a targeted correction, not a benchmark or parity claim.
+
 ## 2026-10-08 — Resolve a routine evening at montage scale
 
 - In the isolated fictional Quiet Observatory QA campaign, Mara chose to review her own field notes, sleep, and continue in the morning. The GM compressed the evening and night into a coherent scene beat, kept the lantern room and Ilie present, and advanced the in-world date/time to 25 October 1891, Morning.

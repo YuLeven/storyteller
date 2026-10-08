@@ -1977,7 +1977,7 @@ defmodule Storyteller.PlayTest do
     owner = self()
 
     action =
-      "I ask Mira to compare the two charts against the stars visible through the dome, report the strongest mismatch she can support, and say whether the evidence establishes its cause. Finish the comparison before handing back control."
+      "I hold both charts flat on the reading table while Mira compares them against the stars visible through the dome. Report the strongest mismatch she can support and whether the evidence establishes its cause; finish the comparison before handing back control."
 
     follow_up_action =
       "I ask Mira to repeat the alignment through the cracked eyepiece and report whether the mismatch remains visible. Finish this check before handing back control."
@@ -1991,7 +1991,7 @@ defmodule Storyteller.PlayTest do
           ^action ->
             ordinary_proposal(%{
               "narration" =>
-                "Mira aligns both charts with the three reference stars visible through the dome. The western chart matches all three; the eastern chart's third mark sits just east of its reference.",
+                "As you hold both charts flat, Mira aligns them with the three reference stars visible through the dome. The western chart matches all three; the eastern chart's third mark sits just east of its reference.",
               "dialogue" => [
                 %{
                   "speaker_id" => "npc:mira",
@@ -2050,11 +2050,14 @@ defmodule Storyteller.PlayTest do
              "Finish bounded tasks delegated to capable present NPCs with supported results"
 
     assert instructions =~
+             "If the player explicitly commits a bounded supporting action during that task, carry that stated follow-through through the result this turn"
+
+    assert instructions =~
              "Continue useful checks; hide prompt/canon checks."
 
     assert instructions =~ "at the next genuine player decision"
 
-    assert instructions =~ "ask only for blockers, never invent success or player acts."
+    assert instructions =~ "Ask only for blockers; never invent success or player acts."
 
     assert instructions =~ "never invent success or player acts."
 
@@ -2073,9 +2076,14 @@ defmodule Storyteller.PlayTest do
     assert Enum.find(turn_events, &(&1.event_type == :gm_narration)).payload["text"] =~
              "eastern chart's third mark sits just east of its reference"
 
+    assert Enum.find(turn_events, &(&1.event_type == :gm_narration)).payload["text"] =~
+             "As you hold both charts flat"
+
     dialogue = Enum.find(turn_events, &(&1.event_type == :npc_dialogue)).payload["text"]
     assert dialogue =~ "these sheets don't establish its cause."
-    assert dialogue =~ "Repeating the alignment through the cracked eyepiece would check for a viewing distortion."
+
+    assert dialogue =~
+             "Repeating the alignment through the cracked eyepiece would check for a viewing distortion."
 
     refute String.ends_with?(dialogue, "?")
 
