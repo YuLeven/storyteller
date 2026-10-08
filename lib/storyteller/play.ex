@@ -152,6 +152,17 @@ defmodule Storyteller.Play do
     ["keeps", "you", "out"],
     ["holds", "you", "back"],
     ["turns", "you", "back"],
+    ["you", "remain", "at", "the", "threshold"],
+    ["you", "remain", "on", "this", "side"],
+    ["you", "remain", "on", "the", "landing"],
+    ["you", "stay", "at", "the", "threshold"],
+    ["leaving", "you", "on", "the", "landing"],
+    ["leaves", "you", "on", "the", "landing"],
+    ["leaving", "you", "outside"],
+    ["leaves", "you", "outside"],
+    ["you", "are", "left", "outside"],
+    ["keeps", "you", "on", "this", "side"],
+    ["keeping", "you", "on", "this", "side"],
     ["ne", "pouvez", "pas", "entrer"],
     ["ne", "peux", "pas", "entrer"],
     ["ne", "pouvez", "pas", "passer"],
@@ -3946,7 +3957,8 @@ defmodule Storyteller.Play do
              field(proposal, :travel_changes, []),
              field(proposal, :character_creations, []),
              turn,
-             narration
+             narration,
+             field(proposal, :roll_request)
            ),
          {:ok, activities} <-
            tagged_proposal_validation(
@@ -4831,51 +4843,63 @@ defmodule Storyteller.Play do
   # A narrow recovery for a common schema mismatch: the player explicitly
   # travels to one established public place, and the GM's narration plainly
   # confirms the player's arrival, but location_changes is empty. Reconcile
-  # only the player's movement. The normal validators below still enforce
-  # public visibility, travel rules, duties, and presence; no route or NPC
-  # movement is inferred.
+  # only the player's missing movement, preserving any other proposed changes.
+  # The normal validators below still enforce public visibility, travel rules,
+  # duties, and presence; no route or NPC movement is inferred here.
   defp reconcile_omitted_player_arrival(
-         [],
-         [],
-         [],
+         location_changes,
+         travel_changes,
+         character_creations,
          %Turn{intent: :action, campaign_id: campaign_id, player_input: player_input},
-         narration
+         narration,
+         roll_request
        )
-       when is_binary(player_input) and is_binary(narration) do
-    current_place_id = current_player_place_id(campaign_id)
-
-    if is_binary(current_place_id) do
-      destinations =
-        Repo.all(
-          from place in Place,
-            where: place.campaign_id == ^campaign_id and place.visibility == :public,
-            select: %{place_id: place.place_id, name: place.name}
-        )
-        |> Enum.filter(&explicit_movement_to_destination?(player_input, &1.name))
-        |> longest_named_destinations()
-
-      case destinations do
-        [destination] ->
-          if destination.place_id != current_place_id and
-               narration_confirms_player_arrival?(narration, destination.name) do
-            [
-              %{
-                "type" => "move_character",
-                "speaker_id" => "player",
-                "place_id" => destination.place_id,
-                "reason" =>
-                  "The saved action names this public place and the GM confirms the player's arrival."
-              }
-            ]
-          else
-            []
-          end
-
-        _ ->
-          []
-      end
+       when is_list(location_changes) and is_list(travel_changes) and
+              is_list(character_creations) and is_binary(player_input) and
+              is_binary(narration) and is_nil(roll_request) do
+    if proposed_character_move?(location_changes, "player") do
+      location_changes
     else
-      []
+      current_place_id = current_player_place_id(campaign_id)
+      player_name = Repo.get!(Campaign, campaign_id).player_character_name
+      characters = campaign_characters(campaign_id)
+
+      if is_binary(current_place_id) and not player_transition_denied?([narration]) do
+        destinations =
+          Repo.all(
+            from place in Place,
+              where: place.campaign_id == ^campaign_id and place.visibility == :public,
+              select: %{place_id: place.place_id, name: place.name}
+          )
+          |> Enum.filter(
+            &explicit_movement_to_destination?(player_input, &1.name, player_name, characters)
+          )
+          |> longest_named_destinations()
+
+        case destinations do
+          [destination] ->
+            if destination.place_id != current_place_id and
+                 narration_confirms_player_arrival?(narration, destination.name) do
+              location_changes ++
+                [
+                  %{
+                    "type" => "move_character",
+                    "speaker_id" => "player",
+                    "place_id" => destination.place_id,
+                    "reason" =>
+                      "The saved action names this public place and the GM confirms the player's arrival."
+                  }
+                ]
+            else
+              location_changes
+            end
+
+          _ ->
+            location_changes
+        end
+      else
+        location_changes
+      end
     end
   end
 
@@ -4884,7 +4908,8 @@ defmodule Storyteller.Play do
          _travel_changes,
          _creations,
          _turn,
-         _narration
+         _narration,
+         _roll_request
        ),
        do: location_changes
 
@@ -4950,8 +4975,12 @@ defmodule Storyteller.Play do
 
   defp player_transition_denied?(visible_text) do
     Enum.any?(visible_text, fn text ->
-      tokens = normalized_location_tokens(text)
-      contains_any_token_sequence?(tokens, @scene_transition_denials)
+      text
+      |> String.split(~r/(?<=[.!?])\s+|[\r\n]+/u, trim: true)
+      |> Enum.any?(fn sentence ->
+        tokens = normalized_location_tokens(sentence)
+        contains_any_token_sequence?(tokens, @scene_transition_denials)
+      end)
     end)
   end
 
@@ -5316,8 +5345,9 @@ defmodule Storyteller.Play do
     end
   end
 
-  defp explicit_movement_to_destination?(player_input, place_name) do
+  defp explicit_movement_to_destination?(player_input, place_name, player_name, characters) do
     input_tokens = normalized_location_tokens(player_input)
+    player_name_sequences = player_name_token_sequences(player_name, characters)
 
     place_name
     |> place_name_token_variants()
@@ -5328,9 +5358,32 @@ defmodule Storyteller.Play do
       |> Enum.with_index()
       |> Enum.any?(fn {_token, index} ->
         Enum.slice(input_tokens, index, destination_start) == destination_tokens and index > 0 and
-          player_movement_precedes_destination?(input_tokens, index)
+          player_motion_precedes_explicit_destination?(
+            input_tokens,
+            index,
+            player_name_sequences,
+            characters
+          )
       end)
     end)
+  end
+
+  defp player_motion_precedes_explicit_destination?(
+         tokens,
+         destination_start,
+         player_name_sequences,
+         characters
+       ) do
+    clause = tokens |> Enum.take(destination_start) |> tokens_after_last_conjunction()
+
+    case last_scene_movement_index(clause, length(clause)) do
+      nil ->
+        false
+
+      movement_index ->
+        not scene_motion_not_committed?(clause, movement_index) and
+          player_action_actor?(clause, movement_index, player_name_sequences, characters)
+    end
   end
 
   defp player_movement_precedes_destination?(tokens, destination_start) do

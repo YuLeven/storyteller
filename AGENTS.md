@@ -14,5 +14,7 @@
 
 ## Product default
 
+- Optimize the product for fun, engaging, quick-paced, consistent, lifelike campaigns. Cost is never a product goal or success metric. Do not sacrifice story quality, player agency, continuity, or response pace to reduce model usage or token spend.
+- Keep all facts needed for a coherent, correct turn available to the GM. Shape context for relevance and actual provider limits, not an arbitrary size or cost target; compact only redundant or irrelevant detail, and preserve useful canon even when the request is large.
 - The game master's default model is GPT-6 Luna (`gpt-6-luna`). Keep Automatic available as an explicit operator choice; it follows the connected account's first listed model.
 - API token prices do not describe usage charged against a ChatGPT plan. Do not promise that choosing Luna reduces a particular plan's allowance by a specific amount.

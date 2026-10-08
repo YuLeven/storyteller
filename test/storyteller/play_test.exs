@@ -4593,6 +4593,239 @@ defmodule Storyteller.PlayTest do
            ) == 1
   end
 
+  test "reconciles an omitted return move before dialogue with a character at the destination" do
+    {campaign, session} = play_campaign("The Lower Dome Scratch Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "lower-dome",
+          name: "The Lower Dome",
+          visibility: :public,
+          facts: %{"purpose" => "A public chamber below the main dome"}
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "An open doorway connects the observatory and lower dome.",
+        visibility: :public
+      })
+    )
+
+    mara = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(
+      Character.changeset(mara, %{name: "Mara", current_place_id: destination.place_id})
+    )
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+    test_pid = self()
+
+    provider = fn request ->
+      Agent.update(attempts, &(&1 + 1))
+      send(test_pid, {:omitted_return_move_instructions, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" =>
+             "You step back into the Lower Dome. Mara studies the scratches under the lantern light.",
+           "dialogue" => [
+             %{"speaker_id" => "npc:lyra", "text" => "I recognize the pattern."}
+           ],
+           "location_changes" => [],
+           "travel_changes" => [],
+           "time_advance_minutes" => 1
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "omitted-return-to-lower-dome",
+               "I head back through the open doorway into the Lower Dome and ask Mara if she recognizes the scratches.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:omitted_return_move_instructions, instructions}
+    refute instructions =~ "Internal correction:"
+    assert Agent.get(attempts, & &1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    location_event = Enum.find(turn_events, &(&1.event_type == :state_change))
+
+    assert Enum.any?(location_event.payload["location_changes"], fn change ->
+             change["type"] == "move_character" and change["speaker_id"] == "player" and
+               change["place_id"] == destination.place_id
+           end)
+  end
+
+  test "fills in the player's move while preserving a proposed companion move" do
+    {campaign, session} = play_campaign("The Lower Dome Accompanied Return")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "lower-dome",
+          name: "The Lower Dome",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "An open doorway connects the observatory and lower dome.",
+        visibility: :public
+      })
+    )
+
+    mara = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(mara, %{name: "Mara"}))
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+    test_pid = self()
+
+    provider = fn request ->
+      Agent.update(attempts, &(&1 + 1))
+      send(test_pid, {:partial_return_move_instructions, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" =>
+             "You step back through the open doorway into the Lower Dome as Mara follows and studies the scratches.",
+           "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => "Those marks are fresh."}],
+           "location_changes" => [
+             %{
+               "type" => "move_character",
+               "speaker_id" => "npc:lyra",
+               "place_id" => destination.place_id,
+               "reason" => "Mara follows Ada through the open doorway."
+             }
+           ],
+           "travel_changes" => [],
+           "time_advance_minutes" => 1
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "partial-return-to-lower-dome",
+               "I head back through the open doorway into the Lower Dome and ask Mara if she recognizes the scratches.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:partial_return_move_instructions, instructions}
+    refute instructions =~ "Internal correction:"
+    assert Agent.get(attempts, & &1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    mara = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    assert player.current_place_id == destination.place_id
+    assert mara.current_place_id == destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    location_event =
+      Enum.find(timeline, &(&1.turn_id == turn.id and &1.event_type == :state_change))
+
+    location_changes = location_event.payload["location_changes"]
+
+    assert Enum.any?(location_changes, fn change ->
+             change["type"] == "move_character" and change["speaker_id"] == "player" and
+               change["place_id"] == destination.place_id
+           end)
+
+    assert Enum.any?(location_changes, fn change ->
+             change["type"] == "move_character" and change["speaker_id"] == "npc:lyra" and
+               change["place_id"] == destination.place_id
+           end)
+  end
+
+  test "an unresolved roll prevents an omitted return move from being inferred" do
+    {campaign, session} = play_campaign("The Lower Dome Ledge Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "lower-dome",
+          name: "The Lower Dome",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "A narrow stone ledge crosses the open doorway.",
+        visibility: :public
+      })
+    )
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+    test_pid = self()
+
+    provider = fn request ->
+      Agent.update(attempts, &(&1 + 1))
+      send(test_pid, {:roll_at_lower_dome_instructions, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         Map.merge(roll_proposal(), %{
+           "narration" =>
+             "You reach the Lower Dome's threshold, where the loose ledge shifts underfoot and the chamber remains beyond the doorway."
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :awaiting_roll} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "roll-before-lower-dome-entry",
+               "I head through the doorway into the Lower Dome and test my footing on the loose ledge.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:roll_at_lower_dome_instructions, instructions}
+    refute instructions =~ "Internal correction:"
+    assert Agent.get(attempts, & &1) == 1
+    assert turn.roll_request["test"] == "Keep your balance on the ledge"
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == origin.place_id
+  end
+
   test "arrival reconciliation also recognizes a single-word established place" do
     arrivals = [
       {"english", "I head to the Bodega to check on the casks.",
@@ -10652,6 +10885,253 @@ defmodule Storyteller.PlayTest do
 
     assert {:error, :roll_not_authorized} =
              Play.click_player_d20(turn.id, roll_source: fn -> flunk("no roll was requested") end)
+  end
+
+  test "a sealed doorway that does not yield is treated as a real movement barrier" do
+    {campaign, session} = play_campaign("The Sealed Doorway Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "lower-dome",
+          name: "The Lower Dome",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "A doorway leads into the lower dome.",
+        visibility: :public
+      })
+    )
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+    test_pid = self()
+
+    provider = fn request ->
+      Agent.update(attempts, &(&1 + 1))
+      send(test_pid, {:sealed_doorway_instructions, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" =>
+             "You step toward the Lower Dome, but the sealed doorway does not yield under your shoulder; its iron bolt holds fast, leaving you on the landing.",
+           "location_changes" => [],
+           "travel_changes" => []
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "sealed-doorway",
+               "I walk through the sealed doorway into the lower dome.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:sealed_doorway_instructions, instructions}
+    refute instructions =~ "Internal correction:"
+    assert Agent.get(attempts, & &1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == origin.place_id
+  end
+
+  test "a shut door behind the player does not suppress a narrated arrival" do
+    {campaign, session} = play_campaign("The Shut Doorway Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "lower-dome",
+          name: "The Lower Dome",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "An open doorway connects the observatory and lower dome.",
+        visibility: :public
+      })
+    )
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+    test_pid = self()
+
+    provider = fn request ->
+      Agent.update(attempts, &(&1 + 1))
+      send(test_pid, {:arrival_with_shut_door_instructions, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" =>
+             "You step into the Lower Dome. The sealed door remains shut behind you.",
+           "dialogue" => [],
+           "activities" => [],
+           "location_changes" => [],
+           "travel_changes" => [],
+           "character_updates" => [],
+           "time_advance_minutes" => 1
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "arrive-with-door-shut-behind",
+               "I walk through the open doorway into the Lower Dome.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:arrival_with_shut_door_instructions, instructions}
+    refute instructions =~ "Internal correction:"
+    assert Agent.get(attempts, & &1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    location_event = Enum.find(turn_events, &(&1.event_type == :state_change))
+
+    assert Enum.any?(location_event.payload["location_changes"], fn change ->
+             change["type"] == "move_character" and change["speaker_id"] == "player" and
+               change["place_id"] == destination.place_id
+           end)
+  end
+
+  test "a hypothetical question about a sealed doorway neither moves the player nor triggers correction" do
+    {campaign, session} = play_campaign("The Hypothetical Doorway Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+    test_pid = self()
+
+    provider = fn request ->
+      Agent.update(attempts, &(&1 + 1))
+      send(test_pid, {:hypothetical_doorway_instructions, request.instructions})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" =>
+             "The sealed doorway resists your shoulder. Its iron bolt remains in place, and the lower dome is still beyond the threshold.",
+           "location_changes" => [],
+           "travel_changes" => []
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "hypothetical-doorway",
+               "Could I walk through the sealed doorway into the lower dome?",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:hypothetical_doorway_instructions, instructions}
+    refute instructions =~ "Internal correction:"
+    assert Agent.get(attempts, & &1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == origin.place_id
+  end
+
+  test "questions and noncommittal intentions are not inferred as completed arrivals" do
+    {campaign, session} = play_campaign("The Noncommittal Doorway Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "lower-dome",
+          name: "The Lower Dome",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "An open doorway connects the two public rooms.",
+        visibility: :public
+      })
+    )
+
+    for {key, action} <- [
+          {"hypothetical-crossing", "Could I walk through the open doorway into the Lower Dome?"},
+          {"possible-crossing", "I might walk through the open doorway into the Lower Dome."}
+        ] do
+      attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+      test_pid = self()
+
+      provider = fn request ->
+        attempt = Agent.get_and_update(attempts, fn count -> {count + 1, count + 1} end)
+        send(test_pid, {:noncommittal_arrival_instructions, key, attempt, request.instructions})
+
+        narration =
+          if attempt == 1 do
+            "You step back into the Lower Dome. The bell's scratches catch the lantern light."
+          else
+            "The open doorway frames the Lower Dome, and you remain in the Glass Observatory."
+          end
+
+        {:ok,
+         Jason.encode!(
+           ordinary_proposal(%{
+             "narration" => narration,
+             "location_changes" => [],
+             "travel_changes" => [],
+             "time_advance_minutes" => 1
+           })
+         )}
+      end
+
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(campaign.id, session.id, key, action,
+                 provider: provider,
+                 model: "test-model"
+               )
+
+      assert_receive {:noncommittal_arrival_instructions, ^key, 1, first_instructions}
+      refute first_instructions =~ "Internal correction:"
+      assert_receive {:noncommittal_arrival_instructions, ^key, 2, corrected_instructions}
+
+      assert corrected_instructions =~
+               "Internal correction: the prior GM proposal did not satisfy place, character-presence, or movement consistency."
+
+      assert Agent.get(attempts, & &1) == 2
+      player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+      assert player.current_place_id == origin.place_id
+    end
   end
 
   test "a narrated entry without canonical movement is repaired before the turn is committed" do

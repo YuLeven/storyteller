@@ -58,6 +58,31 @@ defmodule Storyteller.Play.WorldClock do
   end
 
   defp parse_time(label) do
+    case parse_exact_time(label) do
+      {:ok, _time, _style} = parsed ->
+        parsed
+
+      _error ->
+        parse_suffixed_time(label)
+    end
+  end
+
+  defp parse_suffixed_time(label) do
+    case String.split(label, ",", parts: 2) do
+      [clock_label, suffix] when suffix != "" ->
+        with true <- String.trim(suffix) != "",
+             {:ok, time, style} <- parse_exact_time(String.trim(clock_label)) do
+          {:ok, time, {:suffixed, style, "," <> suffix}}
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_exact_time(label) do
     case Regex.run(@twelve_hour_time, label) do
       [_, hour_text, minute_text, spacing, meridiem, marker_tail] ->
         hour = String.to_integer(hour_text)
@@ -127,6 +152,10 @@ defmodule Storyteller.Play.WorldClock do
   defp format_time(%Time{} = time, {:twenty_four_hour, hour_width, show_seconds?}) do
     base = "#{pad(time.hour, hour_width)}:#{pad(time.minute, 2)}"
     if show_seconds?, do: base <> ":#{pad(time.second, 2)}", else: base
+  end
+
+  defp format_time(%Time{} = time, {:suffixed, style, suffix}) do
+    format_time(time, style) <> suffix
   end
 
   defp advanced_date(_date, 0), do: {:ok, nil}

@@ -2865,6 +2865,34 @@ defmodule StorytellerWeb.SessionLiveTest do
     assert {:ok, _preference} = Settings.set_ui_locale("en")
   end
 
+  test "a descriptive clock label advances with canonical elapsed world time", %{conn: conn} do
+    campaign = campaign_fixture()
+    session = hd(campaign.sessions)
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+
+    Repo.update!(
+      State.changeset(state, %{
+        public_state:
+          Map.merge(state.public_state, %{
+            "date" => "24 October 1891",
+            "time" => "04:44, minutes before dawn"
+          }),
+        elapsed_world_minutes: 12,
+        elapsed_world_anchor_minutes: 0,
+        elapsed_world_anchor: %{
+          "date" => "24 October 1891",
+          "time" => "04:44, minutes before dawn"
+        }
+      })
+    )
+
+    {:ok, view, _html} = live_play(conn, campaign, session)
+
+    assert has_element?(view, "#world-time", "04:56, minutes before dawn")
+    assert has_element?(view, "#world-date", "24 October 1891")
+    assert has_element?(view, "#elapsed-world-time", "12 minutes elapsed")
+  end
+
   test "player character identity and key details stay close to the current scene", %{conn: conn} do
     campaign =
       campaign_fixture(%{
