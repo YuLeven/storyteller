@@ -4674,6 +4674,257 @@ defmodule Storyteller.PlayTest do
            end)
   end
 
+  test "a committed named-place move is recorded when narration starts with destination observations" do
+    {campaign, session} = play_campaign("The Lower Dome Observations")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "lower-dome",
+          name: "The Lower Dome",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "An open doorway connects the observatory and lower dome.",
+        visibility: :public
+      })
+    )
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "move-to-lower-dome-observations",
+               "I walk into the Lower Dome to inspect the bell.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" =>
+                     "The bell's inner rim bears three fresh scratches, bright against the tarnish.",
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [],
+                   "location_changes" => [],
+                   "travel_changes" => [],
+                   "time_advance_minutes" => 1
+                 }),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    location_event =
+      Enum.find(timeline, &(&1.turn_id == turn.id and &1.event_type == :state_change))
+
+    assert Enum.any?(location_event.payload["location_changes"], fn change ->
+             change["type"] == "move_character" and change["speaker_id"] == "player" and
+               change["place_id"] == destination.place_id
+           end)
+  end
+
+  test "walking over to a uniquely named known public NPC resolves their location in one response" do
+    {campaign, session} = play_campaign("The Ines Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "map-room",
+          name: "The Map Room",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 5,
+        scene_relevance: "A short public corridor connects the observatory and map room.",
+        visibility: :public
+      })
+    )
+
+    ines =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:ines",
+          name: "Dr. Ines Vale",
+          role: :gm,
+          current_place_id: destination.place_id
+        })
+      )
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    provider = fn _request ->
+      Agent.update(attempts, &(&1 + 1))
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => "A stack of star charts covers the table in front of Dr. Ines Vale.",
+           "dialogue" => [
+             %{"speaker_id" => "npc:ines", "text" => "Yes, the comet is still visible."}
+           ],
+           "activities" => [],
+           "character_updates" => [],
+           "location_changes" => [],
+           "travel_changes" => [],
+           "time_advance_minutes" => 1
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "walk-over-to-ines",
+               "I walk over to Ines and ask if the comet is still visible.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert Agent.get(attempts, & &1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == destination.place_id
+    assert Repo.get!(Character, ines.id).current_place_id == destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+
+    location_event =
+      Enum.find(timeline, &(&1.turn_id == turn.id and &1.event_type == :state_change))
+
+    moves =
+      Enum.filter(location_event.payload["location_changes"], &(&1["type"] == "move_character"))
+
+    assert Enum.map(moves, & &1["speaker_id"]) == ["player"]
+    assert Enum.at(moves, 0)["place_id"] == destination.place_id
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "named-place-precedes-npc-target",
+               "I walk to the Glass Observatory rather than to Ines.",
+               provider:
+                 ordinary_provider(%{
+                   "narration" => "The telescope's bronze mount is steady on its base.",
+                   "dialogue" => [],
+                   "activities" => [],
+                   "character_updates" => [],
+                   "location_changes" => [],
+                   "travel_changes" => [],
+                   "time_advance_minutes" => 5
+                 }),
+               model: "test-model"
+             )
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             origin.place_id
+
+    assert Repo.get!(Character, ines.id).current_place_id == destination.place_id
+  end
+
+  test "hypothetical and NPC-directed travel to a known NPC do not move the player" do
+    {campaign, session} = play_campaign("The Noncommittal Elena Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "map-room",
+          name: "The Map Room",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 5,
+        scene_relevance: "A short public corridor connects the observatory and map room.",
+        visibility: :public
+      })
+    )
+
+    mara = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(mara, %{name: "Mara"}))
+
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:elena",
+        name: "Elena",
+        role: :gm,
+        current_place_id: destination.place_id
+      })
+    )
+
+    private_place =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "gm-vault",
+          name: "The GM Vault",
+          visibility: :gm_private
+        })
+      )
+
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:sera",
+        name: "Sera",
+        role: :gm,
+        current_place_id: private_place.place_id
+      })
+    )
+
+    for {turn_key, action, narration} <- [
+          {"hypothetical-walk-to-elena", "Could I walk to Elena?",
+           "Elena has a star chart spread across the map room table."},
+          {"ask-mara-to-walk-to-elena", "I ask Mara to walk to Elena.",
+           "Mara considers the route to Elena's map room."},
+          {"walk-to-private-npc", "I walk to Sera.", "The observatory remains quiet."},
+          {"walk-to-unknown-npc", "I walk to the Cartographer.", "The observatory remains quiet."}
+        ] do
+      assert {:ok, %{status: :completed}} =
+               Play.submit_turn(campaign.id, session.id, turn_key, action,
+                 provider:
+                   ordinary_provider(%{
+                     "narration" => narration,
+                     "location_changes" => [],
+                     "travel_changes" => [],
+                     "time_advance_minutes" => 0
+                   }),
+                 model: "test-model"
+               )
+
+      assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+               origin.place_id
+    end
+  end
+
   test "fills in the player's move while preserving a proposed companion move" do
     {campaign, session} = play_campaign("The Lower Dome Accompanied Return")
     origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
@@ -4941,7 +5192,7 @@ defmodule Storyteller.PlayTest do
     assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
-  test "arrival reconciliation needs a confirmed arrival and an established destination" do
+  test "committed public movement proceeds without arrival wording or recorded route data" do
     {campaign, session} = play_campaign("The Observatory Charts")
     origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
 
@@ -4958,18 +5209,21 @@ defmodule Storyteller.PlayTest do
 
     attempts = [
       {"visible-east-dome", "I walk to the East Dome.",
-       "The East Dome is visible through a break in the clouds."},
+       "The East Dome is visible through a break in the clouds.", destination.place_id},
       {"question-about-east-dome", "Could I step into the East Dome?",
-       "The East Dome's door is still locked; Mara keeps the key."},
+       "The East Dome's door is still locked; Mara keeps the key.", origin.place_id},
       {"blocked-east-dome", "I walk through the east door into East Dome.",
-       "The door won't open. You can't get through the locked threshold."},
+       "The door won't open. You can't get through the locked threshold.", origin.place_id},
       {"unknown-crystal-atrium", "I walk to the Crystal Atrium.",
-       "An old chart marks the Crystal Atrium beyond the eastern ridge."},
+       "An old chart marks the Crystal Atrium beyond the eastern ridge.", origin.place_id},
       {"decline-east-dome", "I do not walk to the East Dome; I wait here.",
-       "The East Dome remains quiet in the distance."}
+       "The East Dome remains quiet in the distance.", origin.place_id}
     ]
 
-    Enum.each(attempts, fn {key, action, narration} ->
+    Enum.each(attempts, fn {key, action, narration, expected_place_id} ->
+      player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+      Repo.update!(Character.changeset(player, %{current_place_id: origin.place_id}))
+
       assert {:ok, %{status: :completed} = turn} =
                Play.submit_turn(
                  campaign.id,
@@ -4981,6 +5235,9 @@ defmodule Storyteller.PlayTest do
                     Jason.encode!(
                       ordinary_proposal(%{
                         "narration" => narration,
+                        "dialogue" => [],
+                        "activities" => [],
+                        "character_updates" => [],
                         "location_changes" => [],
                         "travel_changes" => []
                       })
@@ -4990,7 +5247,7 @@ defmodule Storyteller.PlayTest do
                )
 
       assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
-               origin.place_id
+               expected_place_id
 
       assert Repo.aggregate(
                from(event in Event,
