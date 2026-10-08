@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-07 — Improve safe diagnosis of rejected GM requests
+
+- Non-200 Responses diagnostics now include only allowlisted provider error types, a coarse message category, and numeric body/input/instruction byte counts plus input item count/kinds. Raw provider messages, prompts, campaign context, and input text remain out of logs.
+- A fake HTTP regression verifies a missing-code `param=input` rejection is classified as input validation without exposing its message or the GM/player text. This prepares a safer next diagnosis; it does not resolve the current Quiet Observatory 400.
+- **Verification:** WSL OpenAI adapter suite passed (**32 tests, 0 failures**) and the adjacent Play, OpenAI adapter, and context-budget suites passed (**201 tests, 0 failures**) with fake providers; formatting and `git diff --check` passed. No live provider call was made for this change.
+
 ## 2026-10-07 — Simplify the ChatGPT-plan user input item
 
 - Rebuilt the saved Quiet Observatory request locally with a deterministic fake provider: the exact serialized request was 14,398 bytes against a 64,000-byte local guard, and contained one ordinary user message. The failure was not caused by Storyteller's byte preflight.

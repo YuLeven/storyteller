@@ -1115,7 +1115,7 @@ defmodule Storyteller.GM.OpenAITest do
         "error" => %{
           "type" => "invalid_request_error",
           "param" => "input",
-          "message" => "Private input details must not be logged."
+          "message" => "Input content must be an array. PRIVATE_INPUT_DETAILS stay hidden."
         }
       })
 
@@ -1133,8 +1133,14 @@ defmodule Storyteller.GM.OpenAITest do
                  )
       end)
 
-    assert log =~ "phase=responses status=400 shape=error code=none param=input"
-    refute log =~ "Private input details"
+    assert log =~
+             "phase=responses status=400 shape=error code=none " <>
+               "type=invalid_request_error message_class=input_validation param=input"
+
+    assert log =~
+             ~r/body_bytes=\d+ input_bytes=\d+ instruction_bytes=\d+ input_items=1 input_kinds=user/
+
+    refute log =~ "PRIVATE_INPUT_DETAILS"
     refute log =~ "Private GM instructions"
     refute log =~ "Private player action"
   end
@@ -1179,7 +1185,11 @@ defmodule Storyteller.GM.OpenAITest do
       end)
 
     assert log =~ "phase=responses status=429 shape=error"
-    assert log =~ "code=subscription_sharing_usage_limit_exceeded param=model"
+
+    assert log =~
+             "code=subscription_sharing_usage_limit_exceeded type=none " <>
+               "message_class=none param=model"
+
     assert log =~ "request_id=req_fixture_123"
     refute log =~ "Private campaign context"
     refute log =~ "Private player action"

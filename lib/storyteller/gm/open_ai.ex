@@ -24,6 +24,13 @@ defmodule Storyteller.GM.OpenAI do
   @max_tool_output_bytes 6_000
   @max_tool_completion_output_bytes 16_000
   @max_tool_call_id_bytes 256
+  @safe_error_types ~w(
+    authentication_error
+    invalid_request_error
+    permission_error
+    rate_limit_error
+    server_error
+  )
 
   @doc "Lists displayable models for the currently connected ChatGPT account."
   def models(opts \\ []) do
@@ -263,7 +270,7 @@ defmodule Storyteller.GM.OpenAI do
              :responses_request,
              post_response(access_token, body, opts, stream_receive_timeout)
            ),
-         :ok <- require_http_success(response, :responses),
+         :ok <- require_http_success(response, :responses, body),
          {:ok, completed} <-
            completed_response(
              response,
@@ -649,14 +656,22 @@ defmodule Storyteller.GM.OpenAI do
     {last_activity, tracked_callback}
   end
 
-  defp require_http_success(response, phase) do
+  defp require_http_success(response, phase, request_body \\ nil) do
     status = response_status(response)
 
     if status == 200 do
       :ok
     else
       details = http_error_details(response_body(response))
-      log_provider_failure(phase, status, details, request_id(response))
+
+      log_provider_failure(
+        phase,
+        status,
+        details,
+        request_id(response),
+        request_metrics(request_body)
+      )
+
       {:error, error_for_status(status, details.reason)}
     end
   end
@@ -1001,17 +1016,28 @@ defmodule Storyteller.GM.OpenAI do
   defp diagnostic_details(details, shape) do
     code = field(details, :code)
     param = field(details, :param)
+    type = field(details, :type)
+    message = field(details, :message)
 
     %{
       reason: if(is_binary(code), do: map_error_code(code), else: :provider_error),
       code: safe_diagnostic_value(code),
       param: safe_diagnostic_value(param),
+      type: safe_error_type(type),
+      message_class: provider_message_class(message),
       shape: shape
     }
   end
 
   defp empty_diagnostic(shape),
-    do: %{reason: :provider_error, code: nil, param: nil, shape: shape}
+    do: %{
+      reason: :provider_error,
+      code: nil,
+      param: nil,
+      type: nil,
+      message_class: nil,
+      shape: shape
+    }
 
   defp stream_diagnostic({shape, exception}) when is_atom(shape) and is_atom(exception),
     do: empty_diagnostic("#{shape}_#{inspect(exception)}")
@@ -1019,13 +1045,76 @@ defmodule Storyteller.GM.OpenAI do
   defp stream_diagnostic(shape) when is_atom(shape), do: empty_diagnostic(shape)
   defp stream_diagnostic(_shape), do: empty_diagnostic(:invalid_stream)
 
-  defp log_provider_failure(phase, status, details, request_id) do
+  defp log_provider_failure(phase, status, details, request_id, metrics \\ %{}) do
+    request_metrics = format_request_metrics(metrics)
+
     Logger.warning(
       "ChatGPT plan inference failed phase=#{phase} status=#{format_status(status)} " <>
-        "shape=#{details.shape} code=#{details.code || "none"} " <>
-        "param=#{details.param || "none"} request_id=#{request_id || "none"}"
+        "shape=#{Map.get(details, :shape, "unknown")} " <>
+        "code=#{Map.get(details, :code) || "none"} " <>
+        "type=#{Map.get(details, :type) || "none"} " <>
+        "message_class=#{Map.get(details, :message_class) || "none"} " <>
+        "param=#{Map.get(details, :param) || "none"} request_id=#{request_id || "none"}" <>
+        request_metrics
     )
   end
+
+  defp request_metrics(body) when is_map(body) do
+    input = body["input"]
+    instructions = body["instructions"]
+
+    %{
+      body_bytes: encoded_byte_size(body),
+      input_bytes: encoded_byte_size(input),
+      instruction_bytes: if(is_binary(instructions), do: byte_size(instructions), else: 0),
+      input_items: if(is_list(input), do: length(input), else: 0),
+      input_kinds: input_kinds(input)
+    }
+  end
+
+  defp request_metrics(_body), do: %{}
+
+  defp encoded_byte_size(value) do
+    value |> Jason.encode!() |> byte_size()
+  rescue
+    _error -> 0
+  end
+
+  defp input_kinds(items) when is_list(items) do
+    items
+    |> Enum.map(&input_kind/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.join(",")
+  end
+
+  defp input_kinds(_items), do: "none"
+
+  defp input_kind(item) when is_map(item) do
+    role = Map.get(item, :role) || Map.get(item, "role")
+    type = Map.get(item, :type) || Map.get(item, "type")
+
+    cond do
+      role in ["assistant", "developer", "system", "user"] -> role
+      type == "additional_tools" -> "additional_tools"
+      true -> "other"
+    end
+  end
+
+  defp input_kind(_item), do: "other"
+
+  defp format_request_metrics(%{
+         body_bytes: body_bytes,
+         input_bytes: input_bytes,
+         instruction_bytes: instruction_bytes,
+         input_items: input_items,
+         input_kinds: input_kinds
+       }) do
+    " body_bytes=#{body_bytes} input_bytes=#{input_bytes} " <>
+      "instruction_bytes=#{instruction_bytes} input_items=#{input_items} input_kinds=#{input_kinds}"
+  end
+
+  defp format_request_metrics(_metrics), do: ""
 
   defp log_stage_error(phase, {:error, reason} = result) do
     Logger.warning(
@@ -1050,6 +1139,45 @@ defmodule Storyteller.GM.OpenAI do
   end
 
   defp safe_diagnostic_value(_value), do: nil
+
+  defp safe_error_type(type) when type in @safe_error_types, do: type
+  defp safe_error_type(_type), do: nil
+
+  defp provider_message_class(message) when is_binary(message) do
+    normalized = String.downcase(message)
+
+    cond do
+      provider_limit_message?(normalized) -> "input_limit"
+      provider_input_validation_message?(normalized) -> "input_validation"
+      String.contains?(normalized, "unsupported") -> "unsupported"
+      message == "" -> nil
+      true -> "unclassified"
+    end
+  end
+
+  defp provider_message_class(_message), do: nil
+
+  defp provider_limit_message?(message) do
+    input_or_context = String.contains?(message, "input") or String.contains?(message, "context")
+    limit_terms = ["too large", "too long", "maximum", "exceed", "limit", "token"]
+
+    input_or_context and Enum.any?(limit_terms, &String.contains?(message, &1))
+  end
+
+  defp provider_input_validation_message?(message) do
+    validation_terms = [
+      "invalid",
+      "expected",
+      "must be",
+      "required",
+      "array",
+      "string",
+      "content"
+    ]
+
+    String.contains?(message, "input") and
+      Enum.any?(validation_terms, &String.contains?(message, &1))
+  end
 
   defp request_id(response) do
     headers = response_headers(response)
