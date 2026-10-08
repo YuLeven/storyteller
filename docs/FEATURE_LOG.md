@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-10-08 — Keep a short character exchange alive without filler
+
+- Continued the newly created fictional Quiet Observatory QA campaign in the isolated QA database using GPT-6 Luna at low reasoning. After the tasting beat, Mara asked Ilie whether autumn weather often kept the observatory indoors. Ilie answered in one concise, dry metaphor; a brief GM line refreshed the rain and steam without changing the weather or adding a forced question.
+- This was one dialogue-scale sample: about 3.9 seconds to first output and 6.9 seconds for the provider stream (the measures overlap). It supports a natural, brisk short exchange in this scene; it does not establish ensemble, high-tension, long-scene, or latency-distribution quality.
+
 ## 2026-10-08 — Let the GM establish tasting facts first
 
 - Ran one focused live play check in a new fictional campaign, `Quiet Observatory QA — Lantern Room Tasting`, in the isolated `storyteller_quiet_observatory_20261007_codex1` database. The connected model was GPT-6 Luna at low reasoning effort. No other campaign data was used.

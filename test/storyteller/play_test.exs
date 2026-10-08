@@ -1996,7 +1996,7 @@ defmodule Storyteller.PlayTest do
                 %{
                   "speaker_id" => "npc:mira",
                   "text" =>
-                    "That is a real mismatch in the eastern chart as read tonight, but these sheets don't establish its cause. Should I check another reference mark, or repeat this one through the cracked eyepiece?"
+                    "That is a real mismatch in the eastern chart as read tonight, but these sheets don't establish its cause. Repeating the alignment through the cracked eyepiece would check for a viewing distortion."
                 }
               ],
               "activities" => [
@@ -2075,9 +2075,9 @@ defmodule Storyteller.PlayTest do
 
     dialogue = Enum.find(turn_events, &(&1.event_type == :npc_dialogue)).payload["text"]
     assert dialogue =~ "these sheets don't establish its cause."
+    assert dialogue =~ "Repeating the alignment through the cracked eyepiece would check for a viewing distortion."
 
-    assert dialogue =~
-             "Should I check another reference mark, or repeat this one through the cracked eyepiece?"
+    refute String.ends_with?(dialogue, "?")
 
     assert length(Regex.scan(~r/(?:don't|doesn't|cannot|can't) establish/i, dialogue)) == 1
     assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 8
