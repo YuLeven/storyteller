@@ -26,6 +26,8 @@ defmodule Storyteller.GM.OpenAI do
   @max_tool_output_bytes 6_000
   @max_tool_completion_output_bytes 16_000
   @max_tool_call_id_bytes 256
+  @max_tool_calls_per_response 4
+  @max_tool_calls_per_turn 8
   @safe_error_types ~w(
     authentication_error
     invalid_request_error
@@ -303,13 +305,21 @@ defmodule Storyteller.GM.OpenAI do
         [] ->
           {:ok, public_result(completed.text, usage)}
 
-        [call] when tool_calls_used == 0 ->
-          with :ok <- validate_tool_completion_output(completed.response),
-               {:ok, call_id, arguments} <- validate_tool_call(call, body["input"]),
-               {:ok, output} <- execute_campaign_lookup(request, arguments),
-               {:ok, encoded_output} <- encode_tool_output(output),
-               continuation <-
-                 continuation_body(body, completed.response, call_id, encoded_output),
+        calls
+        when length(calls) <= @max_tool_calls_per_response and
+               tool_calls_used + length(calls) <= @max_tool_calls_per_turn ->
+          with :ok <-
+                 log_stage_error(
+                   :tool_completion_validation,
+                   validate_tool_completion_output(completed.response)
+                 ),
+               {:ok, calls_with_arguments} <-
+                 log_stage_error(
+                   :tool_call_validation,
+                   validate_tool_calls(calls, body["input"], request, tool_calls_used)
+                 ),
+               {:ok, outputs} <- execute_tool_calls(calls_with_arguments, request),
+               continuation <- continuation_body(body, completed.response, outputs),
                :ok <- enforce_followup_body_size(continuation, request_size_limit!(request)) do
             run_response_turn(
               access_token,
@@ -319,7 +329,7 @@ defmodule Storyteller.GM.OpenAI do
               started_at,
               first_output,
               narration_preview,
-              1,
+              tool_calls_used + length(calls),
               usage
             )
           end
@@ -440,15 +450,20 @@ defmodule Storyteller.GM.OpenAI do
 
   defp validate_advertised_tools(input) do
     specs = advertised_tool_specs(input)
+    names = Enum.map(specs, &field(&1, :name))
 
     cond do
+      length(specs) > 50 ->
+        {:error, :unsupported_capability}
+
       Enum.any?(
         specs,
-        &(not is_map(&1) or field(&1, :type) != "function" or not is_binary(field(&1, :name)))
+        &(not is_map(&1) or field(&1, :type) != "function" or
+            not is_binary(field(&1, :name)) or field(&1, :name) == "")
       ) ->
         {:error, :unsupported_capability}
 
-      Enum.count(specs, &(field(&1, :name) == @campaign_lookup_tool_name)) > 1 ->
+      length(names) != length(Enum.uniq(names)) ->
         {:error, :unsupported_capability}
 
       true ->
@@ -499,28 +514,57 @@ defmodule Storyteller.GM.OpenAI do
     _error -> {:error, :provider_error}
   end
 
-  defp validate_tool_call(call, input) when is_map(call) do
+  defp validate_tool_calls(calls, input, request, calls_already_used) do
+    Enum.reduce_while(calls, {:ok, [], MapSet.new(), MapSet.new()}, fn call,
+                                                                       {:ok, acc, seen_ids,
+                                                                        seen_names} ->
+      case validate_tool_call(call, input, request) do
+        {:ok, call_id, name, arguments} ->
+          cond do
+            name == @campaign_lookup_tool_name and calls_already_used > 0 ->
+              {:halt, {:error, :unsupported_capability}}
+
+            MapSet.member?(seen_ids, call_id) ->
+              {:halt, {:error, :invalid_response}}
+
+            name == @campaign_lookup_tool_name and MapSet.member?(seen_names, name) ->
+              {:halt, {:error, :unsupported_capability}}
+
+            true ->
+              {:cont,
+               {:ok, acc ++ [{call_id, name, arguments}], MapSet.put(seen_ids, call_id),
+                MapSet.put(seen_names, name)}}
+          end
+
+        _ ->
+          {:halt, {:error, :invalid_response}}
+      end
+    end)
+    |> case do
+      {:ok, validated, _seen_ids, _seen_names} -> {:ok, validated}
+      error -> error
+    end
+  end
+
+  defp validate_tool_call(call, input, request) when is_map(call) do
     call_id = field(call, :call_id)
     name = field(call, :name)
     arguments = field(call, :arguments)
+    advertised? = Enum.count(advertised_tool_specs(input), &(field(&1, :name) == name)) == 1
 
-    advertised? =
-      Enum.count(advertised_tool_specs(input), &(field(&1, :name) == @campaign_lookup_tool_name)) ==
-        1
-
-    with true <- name == @campaign_lookup_tool_name and advertised?,
+    with true <- is_binary(name) and advertised? and executable_tool?(request, name),
          true <- is_binary(call_id) and byte_size(call_id) in 1..@max_tool_call_id_bytes,
          {:ok, decoded} <- decode_tool_arguments(arguments),
          true <- is_map(decoded),
          {:ok, encoded} <- Jason.encode(decoded),
          true <- byte_size(encoded) <= @max_tool_argument_bytes do
-      {:ok, call_id, decoded}
+      {:ok, call_id, name, decoded}
     else
       _ -> {:error, :invalid_response}
     end
   end
 
-  defp validate_tool_call(_, _), do: {:error, :invalid_response}
+  defp validate_tool_call(_, _, _), do: {:error, :invalid_response}
 
   defp decode_tool_arguments(arguments) when is_binary(arguments) do
     if byte_size(arguments) <= @max_tool_argument_bytes do
@@ -533,21 +577,55 @@ defmodule Storyteller.GM.OpenAI do
   defp decode_tool_arguments(arguments) when is_map(arguments), do: {:ok, arguments}
   defp decode_tool_arguments(_), do: {:error, :invalid_arguments}
 
-  defp execute_campaign_lookup(request, arguments) do
-    case field(request, :campaign_lookup_executor) do
-      executor when is_function(executor, 1) ->
-        try do
-          {:ok, executor.(arguments)}
-        rescue
-          _error -> {:error, :invalid_response}
-        catch
-          _kind, _reason -> {:error, :invalid_response}
-        end
+  defp executable_tool?(request, @campaign_lookup_tool_name),
+    do: is_function(field(request, :campaign_lookup_executor), 1)
+
+  defp executable_tool?(request, name) do
+    case field(request, :mcp_tool_executors) do
+      executors when is_map(executors) -> is_function(Map.get(executors, name), 1)
+      _ -> false
+    end
+  end
+
+  defp execute_tool_calls(calls, request) do
+    Enum.reduce_while(calls, {:ok, []}, fn {call_id, name, arguments}, {:ok, outputs} ->
+      with {:ok, output} <-
+             log_stage_error(:tool_execution, execute_tool(request, name, arguments)),
+           {:ok, encoded_output} <-
+             log_stage_error(:tool_result_validation, encode_tool_output(output)) do
+        {:cont, {:ok, outputs ++ [{call_id, encoded_output}]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp execute_tool(request, @campaign_lookup_tool_name, arguments) do
+    safe_execute(field(request, :campaign_lookup_executor), arguments)
+  end
+
+  defp execute_tool(request, name, arguments) do
+    case field(request, :mcp_tool_executors) do
+      executors when is_map(executors) ->
+        safe_execute(Map.get(executors, name), arguments)
 
       _ ->
         {:error, :unsupported_capability}
     end
   end
+
+  defp safe_execute(executor, arguments) when is_function(executor, 1) do
+    case executor.(arguments) do
+      {:ok, output} -> {:ok, output}
+      other -> {:ok, other}
+    end
+  rescue
+    _error -> {:error, :invalid_response}
+  catch
+    _kind, _reason -> {:error, :invalid_response}
+  end
+
+  defp safe_execute(_, _), do: {:error, :unsupported_capability}
 
   defp encode_tool_output(output) do
     case Jason.encode(output) do
@@ -565,21 +643,24 @@ defmodule Storyteller.GM.OpenAI do
     _error -> {:error, :invalid_response}
   end
 
-  defp continuation_body(body, completed_response, call_id, encoded_output) do
+  defp continuation_body(body, completed_response, outputs) do
     response_output = field(completed_response, :output)
+
+    tool_outputs =
+      Enum.map(outputs, fn {call_id, encoded_output} ->
+        %{
+          "type" => "function_call_output",
+          "call_id" => call_id,
+          "output" => encoded_output
+        }
+      end)
 
     %{
       body
       | "input" =>
           body["input"] ++
             response_output ++
-            [
-              %{
-                "type" => "function_call_output",
-                "call_id" => call_id,
-                "output" => encoded_output
-              }
-            ]
+            tool_outputs
     }
   end
 

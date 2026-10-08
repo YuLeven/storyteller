@@ -285,7 +285,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     document = Jason.decode!(backup_json)
     assert document["data_classification"] == "sensitive_gm_private_campaign_data"
-    assert document["schema_version"] == 13
+    assert document["schema_version"] == 14
     assert length(document["canon_corrections"]) == 1
     assert hd(document["canon_corrections"])["after_state"]["value"] == 7
     assert document["campaign"]["title"] == campaign.title
@@ -480,7 +480,7 @@ defmodule Storyteller.CampaignBackupTest do
 
     assert {:ok, json} = CampaignBackup.export(campaign.id)
     document = Jason.decode!(json)
-    assert document["schema_version"] == 13
+    assert document["schema_version"] == 14
 
     exported_keeper = Enum.find(document["characters"], &(&1["speaker_id"] == "npc:keeper"))
     assert exported_keeper["duty_name"] == "Check the reserve casks"
@@ -598,7 +598,7 @@ defmodule Storyteller.CampaignBackupTest do
     [character | remaining_characters] = decoded["characters"]
 
     for invalid <- [
-          Map.put(decoded, "schema_version", 14),
+          Map.put(decoded, "schema_version", 15),
           Map.put(decoded, "canon_corrections", [%{"sequence" => 1}]),
           Map.put(decoded, "oauth_credentials", %{"access_token" => "must-not-import"}),
           put_in(decoded, ["events", Access.at(0), "turn_ref"], "turn-999"),
@@ -704,7 +704,7 @@ defmodule Storyteller.CampaignBackupTest do
       %{
         pre_active_duties(document, 1)
         | "schema_version" => 1,
-          "campaign" => Map.delete(document["campaign"], "player_character_name"),
+          "campaign" => Map.drop(document["campaign"], ["player_character_name", "integrations"]),
           "state" => drop_elapsed_clock(document["state"])
       }
       | "turns" => Enum.map(document["turns"], &Map.drop(&1, ["intent", "failure_stage"])),
@@ -767,7 +767,7 @@ defmodule Storyteller.CampaignBackupTest do
     refute backup_json =~ raw_model_output
 
     document = Jason.decode!(backup_json)
-    assert document["schema_version"] == 13
+    assert document["schema_version"] == 14
     [exported_turn] = document["turns"]
     assert exported_turn["failure_code"] == "invalid_response"
     assert exported_turn["failure_stage"] == "response_decoding"
@@ -839,6 +839,11 @@ defmodule Storyteller.CampaignBackupTest do
         else: ["duty_name", "duty_place_id", "duty_release_at_world_minute"]
 
     document
+    |> then(fn current ->
+      if version < 14,
+        do: Map.update!(current, "campaign", &Map.delete(&1, "integrations")),
+        else: current
+    end)
     |> Map.put("schema_version", version)
     |> Map.update!("characters", fn characters ->
       Enum.map(characters, &Map.drop(&1, character_keys))
@@ -985,7 +990,12 @@ defmodule Storyteller.CampaignBackupTest do
              )
 
     assert {:ok, backup_json} = CampaignBackup.export(campaign.id)
-    v10_backup = backup_json |> Jason.decode!() |> Map.put("schema_version", 10)
+
+    v10_backup =
+      backup_json
+      |> Jason.decode!()
+      |> Map.update!("campaign", &Map.delete(&1, "integrations"))
+      |> Map.put("schema_version", 10)
 
     refute Map.has_key?(v10_backup["state"]["public_state"], "communication_paths")
     refute Enum.any?(v10_backup["events"], &(&1["event_type"] == "remote_message"))
@@ -1012,6 +1022,33 @@ defmodule Storyteller.CampaignBackupTest do
 
     assert {:error, :invalid_backup} =
              CampaignBackup.import(Jason.encode!(legacy_with_remote_event))
+  end
+
+  test "round-trips campaign MCP registrations, GM instructions, and site links" do
+    integration_id = Ecto.UUID.generate()
+
+    campaign =
+      campaign_fixture(%{
+        integrations: %{
+          integration_id => %{
+            "name" => "Quiet Observatory",
+            "mcp_endpoint_url" => "http://127.0.0.1:7780/mcp",
+            "instructions" => "Check the sky log before recording observations.",
+            "site_label" => "Observatory dashboard",
+            "site_url" => "http://127.0.0.1:7781",
+            "enabled" => true
+          }
+        }
+      })
+
+    assert {:ok, backup} = CampaignBackup.export(campaign.id)
+    assert {:ok, imported} = CampaignBackup.import(backup)
+
+    restored = Campaigns.get_campaign!(imported.id).integrations[integration_id]
+    assert restored["name"] == "Quiet Observatory"
+    assert restored["mcp_endpoint_url"] == "http://127.0.0.1:7780/mcp"
+    assert restored["instructions"] == "Check the sky log before recording observations."
+    assert restored["site_url"] == "http://127.0.0.1:7781"
   end
 
   defp fake_provider(narration) do

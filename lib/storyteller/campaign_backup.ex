@@ -8,7 +8,7 @@ defmodule Storyteller.CampaignBackup do
 
   import Ecto.Query, warn: false
 
-  alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
+  alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Integration, Session}
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
 
@@ -44,7 +44,8 @@ defmodule Storyteller.CampaignBackup do
   @remote_message_paths_version 11
   @place_route_corrections_version 12
   @objective_corrections_version 13
-  @version @objective_corrections_version
+  @campaign_integrations_version 14
+  @version @campaign_integrations_version
   @max_bytes 52_428_800
   @max_state_bytes 1_000_000
   @turn_statuses [:pending, :resolving, :awaiting_roll, :failed, :superseded, :completed]
@@ -218,6 +219,7 @@ defmodule Storyteller.CampaignBackup do
       "narration_language" => campaign.narration_language,
       "player_character_name" => campaign.player_character_name,
       "player_character" => campaign.player_character,
+      "integrations" => campaign.integrations || %{},
       "status" => Atom.to_string(campaign.status),
       "inserted_at" => encode_datetime(campaign.inserted_at),
       "updated_at" => encode_datetime(campaign.updated_at)
@@ -431,11 +433,12 @@ defmodule Storyteller.CampaignBackup do
              @finite_duties_version,
              @remote_message_paths_version,
              @place_route_corrections_version,
-             @objective_corrections_version
+             @objective_corrections_version,
+             @campaign_integrations_version
            ],
          true <- backup["data_classification"] == "sensitive_gm_private_campaign_data",
          {:ok, _exported_at} <- parse_datetime(backup["exported_at"], false),
-         {:ok, campaign} <- validate_campaign(backup["campaign"]),
+         {:ok, campaign} <- validate_campaign(backup["campaign"], backup["schema_version"]),
          {:ok, sessions} <- validate_sessions(backup["sessions"]),
          :ok <- validate_campaign_sessions(campaign, sessions),
          {:ok, characters} <- validate_characters(backup["characters"], backup["schema_version"]),
@@ -530,24 +533,30 @@ defmodule Storyteller.CampaignBackup do
        do:
          root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
 
+  defp root_backup_keys(@campaign_integrations_version),
+    do: root_backup_keys() ++ ["authoring_corrections", "place_connections", "canon_corrections"]
+
   defp root_backup_keys(_), do: []
 
   defp root_backup_keys do
     ~w(format schema_version data_classification exported_at campaign sessions state characters places panels objectives turns events rolls continuity_entries)
   end
 
-  defp validate_campaign(map) do
+  defp validate_campaign(map, version) do
+    supports_integrations? = version >= @campaign_integrations_version
+
+    campaign_keys =
+      if Map.has_key?(map, "player_character_name"),
+        do:
+          ~w(title premise setting tone narration_language player_character_name player_character status inserted_at updated_at),
+        else:
+          ~w(title premise setting tone narration_language player_character status inserted_at updated_at)
+
+    campaign_keys =
+      if supports_integrations?, do: campaign_keys ++ ["integrations"], else: campaign_keys
+
     with :ok <-
-           exact_keys(
-             map,
-             if(Map.has_key?(map, "player_character_name"),
-               do:
-                 ~w(title premise setting tone narration_language player_character_name player_character status inserted_at updated_at),
-               else:
-                 ~w(title premise setting tone narration_language player_character status inserted_at updated_at)
-             ),
-             :campaign
-           ),
+           exact_keys(map, campaign_keys, :campaign),
          {:ok, title} <- text(map["title"], 2, 100),
          {:ok, premise} <- text(map["premise"], 0, 10_000),
          {:ok, setting} <- text(map["setting"], 0, 500),
@@ -559,6 +568,7 @@ defmodule Storyteller.CampaignBackup do
              else: {:ok, nil}
            ),
          {:ok, player_character} <- text(map["player_character"], 1, 300),
+         {:ok, integrations} <- validate_campaign_integrations(map, supports_integrations?),
          {:ok, status} <- enum(map["status"], ~w(active archived)),
          {:ok, inserted_at} <- parse_datetime(map["inserted_at"], false),
          {:ok, updated_at} <- parse_datetime(map["updated_at"], false) do
@@ -571,10 +581,20 @@ defmodule Storyteller.CampaignBackup do
          narration_language: language,
          player_character_name: player_character_name,
          player_character: player_character,
+         integrations: integrations,
          status: status,
          inserted_at: inserted_at,
          updated_at: updated_at
        }}
+    end
+  end
+
+  defp validate_campaign_integrations(_map, false), do: {:ok, %{}}
+
+  defp validate_campaign_integrations(map, true) do
+    case Integration.normalize_backup(map["integrations"]) do
+      {:ok, integrations} -> {:ok, integrations}
+      _ -> {:error, :invalid_backup}
     end
   end
 
@@ -1132,7 +1152,8 @@ defmodule Storyteller.CampaignBackup do
               @finite_duties_version,
               @remote_message_paths_version,
               @place_route_corrections_version,
-              @objective_corrections_version
+              @objective_corrections_version,
+              @campaign_integrations_version
             ],
        do: turn_backup_keys(@current_previous_version)
 

@@ -24,6 +24,10 @@
           navigate={~p"/campaigns/#{@campaign.id}/edit"}
           class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-white"
         >{gettext("Edit campaign")}</.link>
+        <.link
+          navigate={~p"/campaigns/#{@campaign.id}/integrations"}
+          class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-white"
+        >{gettext("Companion projects")}</.link>
         <button
           :if={@campaign.status == :active}
           type="button"
@@ -39,6 +43,39 @@
       </div>
     </div>
   </div>
+
+  <section
+    :if={@companion_sites != []}
+    id="campaign-companion-sites"
+    class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"
+  >
+    <div class="flex flex-wrap items-baseline justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold text-stone-950">{gettext("Companion project sites")}</h2>
+        <p class="mt-1 text-sm text-stone-600">
+          {gettext("Open a connected project in a new tab.")}
+        </p>
+      </div>
+      <.link
+        navigate={~p"/campaigns/#{@campaign.id}/integrations"}
+        class="text-sm font-semibold text-amber-800 hover:text-amber-950"
+      >
+        {gettext("Manage")}
+      </.link>
+    </div>
+    <div class="mt-4 flex flex-wrap gap-3">
+      <a
+        :for={site <- @companion_sites}
+        href={site["site_url"]}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-2 rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+      >
+        {site["site_label"] || site["name"]}
+        <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </section>
 
   <div class="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)]">
     <article class="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">

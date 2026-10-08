@@ -13,7 +13,7 @@ defmodule Storyteller.Play do
   import Ecto.Query, warn: false
   alias Storyteller.Campaigns.{Campaign, Session}
   alias Storyteller.Auth.TokenStore
-  alias Storyteller.GM.{CampaignLookup, ContextBudget, TimePassageDuration, TurnTelemetry}
+  alias Storyteller.GM.{CampaignLookup, ContextBudget, MCP, TimePassageDuration, TurnTelemetry}
   alias Storyteller.Panels
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Settings
@@ -5831,8 +5831,17 @@ defmodule Storyteller.Play do
   defp normalize_provider_return(_), do: {:error, :provider_error}
 
   defp provider_request(context, opts, intent) do
+    integrations = Map.get(context, :mcp_integrations, [])
+    mcp_registry = MCP.prepare(integrations)
+    companion_instructions = MCP.instructions(integrations, mcp_registry)
+
     instructions =
-      @gm_policy <> interaction_mode_guidance(intent, Map.get(context, :player_action))
+      @gm_policy <>
+        interaction_mode_guidance(intent, Map.get(context, :player_action)) <>
+        companion_instructions
+
+    mcp_request_reserve_bytes =
+      MCP.request_reserve_bytes(mcp_registry, companion_instructions)
 
     model =
       case Keyword.fetch(opts, :model) do
@@ -5843,9 +5852,20 @@ defmodule Storyteller.Play do
     opts =
       opts
       |> Keyword.put_new(:reserve_request_bytes, @proposal_repair_reserve_bytes)
+      |> Keyword.put(:mcp_request_reserve_bytes, mcp_request_reserve_bytes)
+      |> Keyword.update(
+        :reserve_request_bytes,
+        mcp_request_reserve_bytes,
+        fn current ->
+          max(current, mcp_request_reserve_bytes)
+        end
+      )
       |> compact_context_retry_options(model)
 
-    request_context = Map.put(context, :interaction_mode, Atom.to_string(intent))
+    request_context =
+      context
+      |> Map.delete(:mcp_integrations)
+      |> Map.put(:interaction_mode, Atom.to_string(intent))
 
     with {:ok, {compiled_context, metrics, lookup_enabled?, instructions}} <-
            compile_provider_context(request_context, instructions, model, opts) do
@@ -5861,19 +5881,29 @@ defmodule Storyteller.Play do
         request_size_limit_bytes: ContextBudget.request_size_limit_bytes(model, opts)
       }
 
+      tool_specs =
+        if(lookup_enabled?, do: [CampaignLookup.tool_spec()], else: []) ++ mcp_registry.tools
+
       request =
-        if lookup_enabled? do
+        if tool_specs != [] do
           tool_context = %{
             "type" => "additional_tools",
             "role" => "developer",
-            "tools" => [CampaignLookup.tool_spec()]
+            "tools" => tool_specs
           }
 
-          request
-          |> update_in([:input], &[tool_context | &1])
-          |> Map.put(:campaign_lookup_executor, fn arguments ->
-            CampaignLookup.execute(request_context, arguments)
-          end)
+          request = update_in(request.input, &[tool_context | &1])
+
+          request =
+            if lookup_enabled? do
+              Map.put(request, :campaign_lookup_executor, fn arguments ->
+                CampaignLookup.execute(request_context, arguments)
+              end)
+            else
+              request
+            end
+
+          Map.put(request, :mcp_tool_executors, mcp_registry.executors)
         else
           request
         end
@@ -5952,8 +5982,7 @@ defmodule Storyteller.Play do
   defp compile_lookup_context(request_context, instructions, model, opts) do
     lookup_instructions = instructions <> @campaign_lookup_guidance
 
-    reserve_opts =
-      Keyword.put(opts, :reserve_request_bytes, @campaign_lookup_request_reserve_bytes)
+    reserve_opts = Keyword.put(opts, :reserve_request_bytes, lookup_reserve_bytes(opts))
 
     case ContextBudget.compile(request_context, lookup_instructions, model, reserve_opts) do
       {:ok, %{context: context, metrics: metrics}} ->
@@ -5967,8 +5996,7 @@ defmodule Storyteller.Play do
   defp compile_retrieval_packet(request_context, instructions, model, opts) do
     lookup_instructions = instructions <> @campaign_lookup_guidance
 
-    reserve_opts =
-      Keyword.put(opts, :reserve_request_bytes, @campaign_lookup_request_reserve_bytes)
+    reserve_opts = Keyword.put(opts, :reserve_request_bytes, lookup_reserve_bytes(opts))
 
     case ContextBudget.compile_retrieval_packet(
            request_context,
@@ -5981,6 +6009,19 @@ defmodule Storyteller.Play do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp lookup_reserve_bytes(opts) do
+    mcp_reserve = Keyword.get(opts, :mcp_request_reserve_bytes, 0)
+
+    if mcp_reserve > 0 do
+      max(
+        Keyword.get(opts, :reserve_request_bytes, @proposal_repair_reserve_bytes),
+        @proposal_repair_reserve_bytes
+      ) + @campaign_lookup_request_reserve_bytes
+    else
+      @campaign_lookup_request_reserve_bytes
     end
   end
 
@@ -6155,6 +6196,14 @@ defmodule Storyteller.Play do
     roll = Repo.get_by(Roll, turn_id: turn.id, kind: :player_click)
 
     %{
+      mcp_integrations:
+        campaign.integrations
+        |> Enum.map(fn {id, config} ->
+          config
+          |> Map.new(fn {key, value} -> {to_string(key), value} end)
+          |> Map.put("id", id)
+        end)
+        |> Enum.sort_by(&String.downcase(Map.get(&1, "name", ""))),
       phase: turn.resolution_phase,
       campaign: %{
         title: campaign.title,

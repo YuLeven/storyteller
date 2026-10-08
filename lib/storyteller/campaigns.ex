@@ -4,7 +4,7 @@ defmodule Storyteller.Campaigns do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
-  alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Session}
+  alias Storyteller.Campaigns.{AuthoringCorrection, Campaign, Integration, Session}
   alias Storyteller.Panels.Field, as: PanelField
   alias Storyteller.Play
   alias Storyteller.Play.{Character, Place, State, Turn, VoiceGuidance}
@@ -44,6 +44,50 @@ defmodule Storyteller.Campaigns do
   def change_campaign(%Campaign{} = campaign, attrs \\ %{}) do
     Campaign.changeset(campaign, legacy_player_name_attrs(campaign, attrs))
   end
+
+  def list_integrations(campaign_id) do
+    case Repo.get(Campaign, campaign_id) do
+      %Campaign{integrations: integrations} when is_map(integrations) ->
+        integrations
+        |> Enum.map(fn {id, attrs} -> Map.put(attrs, "id", id) end)
+        |> Enum.sort_by(&String.downcase(Map.get(&1, "name", "")))
+
+      _ ->
+        []
+    end
+  end
+
+  @doc "Updates the campaign's MCP and site registrations after validating each entry."
+  def update_integrations(%Campaign{id: campaign_id}, integrations) when is_map(integrations) do
+    Repo.transaction(fn ->
+      campaign =
+        Repo.one(
+          from campaign in Campaign,
+            where: campaign.id == ^campaign_id,
+            lock: "FOR UPDATE"
+        )
+
+      if campaign do
+        changeset = Campaign.changeset(campaign, %{integrations: integrations})
+
+        case Repo.update(changeset) do
+          {:ok, updated} -> updated
+          {:error, changeset} -> Repo.rollback(changeset)
+        end
+      else
+        Repo.rollback(:not_found)
+      end
+    end)
+    |> case do
+      {:ok, campaign} -> {:ok, campaign}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def update_integrations(_campaign, _integrations), do: {:error, :invalid_integrations}
+
+  @doc false
+  def normalize_integrations(integrations), do: Integration.normalize_all(integrations)
 
   def list_gm_characters(campaign_id) do
     Repo.all(
@@ -835,6 +879,7 @@ defmodule Storyteller.Campaigns do
           :narration_language,
           :player_character_name,
           :player_character,
+          :integrations,
           :status,
           :starting_location,
           :starting_date,
@@ -856,7 +901,8 @@ defmodule Storyteller.Campaigns do
             "starting_location",
             "starting_date",
             "world_time",
-            "weather"
+            "weather",
+            "integrations"
           ],
           %{},
           fn key, acc ->

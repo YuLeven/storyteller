@@ -26,6 +26,70 @@ defmodule Storyteller.CampaignsTest do
     assert id == campaign.id
   end
 
+  test "campaign companion projects persist MCP instructions and safe site links per campaign" do
+    campaign = campaign_fixture()
+    other_campaign = campaign_fixture(%{title: "Another Story"})
+    integration_id = Ecto.UUID.generate()
+
+    integration = %{
+      "name" => "Finca companion",
+      "mcp_endpoint_url" => "http://127.0.0.1:7780/mcp",
+      "instructions" => "Read the current state before recording changes.",
+      "site_label" => "",
+      "site_url" => "http://127.0.0.1:7778",
+      "enabled" => "true"
+    }
+
+    assert {:ok, _updated} =
+             Campaigns.update_integrations(campaign, %{integration_id => integration})
+
+    saved = Campaigns.get_campaign!(campaign.id).integrations
+    assert saved[integration_id]["name"] == "Finca companion"
+    assert saved[integration_id]["instructions"] == integration["instructions"]
+    assert saved[integration_id]["site_label"] == "Finca companion"
+    assert saved[integration_id]["site_url"] == integration["site_url"]
+    assert Campaigns.get_campaign!(other_campaign.id).integrations == %{}
+
+    assert {:error, changeset} =
+             Campaigns.update_integrations(campaign, %{
+               integration_id => %{
+                 "name" => "Unsafe endpoint",
+                 "mcp_endpoint_url" => "file:///private/data",
+                 "instructions" => "",
+                 "site_label" => "",
+                 "site_url" => "",
+                 "enabled" => "true"
+               }
+             })
+
+    assert errors_on(changeset).integrations != []
+
+    assert Campaigns.get_campaign!(campaign.id).integrations[integration_id]["name"] ==
+             "Finca companion"
+  end
+
+  test "campaign companion instructions have an aggregate request-budget limit" do
+    campaign = campaign_fixture()
+
+    registrations =
+      Map.new(["first", "second"], fn id ->
+        {id,
+         %{
+           "name" => "#{id} project",
+           "mcp_endpoint_url" => "http://127.0.0.1:9000/mcp",
+           "instructions" => String.duplicate("x", 5_001)
+         }}
+      end)
+
+    assert {:error, changeset} = Campaigns.update_integrations(campaign, registrations)
+
+    assert errors_on(changeset).integrations == [
+             "keep total companion instructions under 10,000 bytes"
+           ]
+
+    assert Campaigns.get_campaign!(campaign.id).integrations == %{}
+  end
+
   test "rejects incomplete campaign setup without persisting a partial campaign" do
     assert {:error, changeset} = Campaigns.create_campaign(%{title: "Only a title"})
     assert %{premise: ["can't be blank"], setting: ["can't be blank"]} = errors_on(changeset)

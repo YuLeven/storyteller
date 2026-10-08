@@ -255,6 +255,171 @@ defmodule Storyteller.GM.OpenAITest do
     refute_receive {:responses_request, _, _}
   end
 
+  test "executes registered MCP tools and returns their results to the model", context do
+    test_pid = self()
+
+    tool_specs = [
+      %{"type" => "function", "name" => "mcp1_read_state", "parameters" => %{"type" => "object"}},
+      %{"type" => "function", "name" => "mcp1_record_fact", "parameters" => %{"type" => "object"}}
+    ]
+
+    request = %{
+      model: "fixture-model",
+      instructions: "Use the companion tools when needed.",
+      input: [
+        %{"role" => "user", "content" => "Check the records and save the new fact."},
+        %{"type" => "additional_tools", "role" => "developer", "tools" => tool_specs}
+      ],
+      mcp_tool_executors: %{
+        "mcp1_read_state" => fn arguments ->
+          send(test_pid, {:read_state, arguments})
+          {:ok, %{"records" => ["current"]}}
+        end,
+        "mcp1_record_fact" => fn arguments ->
+          send(test_pid, {:record_fact, arguments})
+          {:ok, %{"saved" => true}}
+        end
+      }
+    }
+
+    calls = [
+      %{
+        "type" => "function_call",
+        "call_id" => "mcp_read_call",
+        "name" => "mcp1_read_state",
+        "arguments" => "{\"section\":\"vineyard\"}"
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "mcp_write_call",
+        "name" => "mcp1_record_fact",
+        "arguments" => "{\"fact\":\"Established in the story\"}"
+      }
+    ]
+
+    call_count = :atomics.new(1, signed: false)
+
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      call = :atomics.add_get(call_count, 1, 1)
+      send(test_pid, {:responses_request, call, options})
+
+      response =
+        if call == 1,
+          do: function_call_completion(calls, nil),
+          else: completion_event("The records are updated.")
+
+      %{status: 200, body: split_stream(response)}
+    end
+
+    assert {:ok, %{text: "The records are updated."}} =
+             OpenAI.stream_response(request, store: context.store, http: http)
+
+    assert_receive {:read_state, %{"section" => "vineyard"}}
+    assert_receive {:record_fact, %{"fact" => "Established in the story"}}
+    assert_receive {:responses_request, 1, _first_options}
+    assert_receive {:responses_request, 2, second_options}
+
+    second_input = Keyword.fetch!(second_options, :json)["input"]
+
+    assert Enum.map(second_input, &Map.get(&1, "type")) |> Enum.reject(&is_nil/1) ==
+             [
+               "additional_tools",
+               "function_call",
+               "function_call",
+               "function_call_output",
+               "function_call_output"
+             ]
+
+    assert Enum.take(second_input, 2) == request.input
+    assert Enum.at(second_input, 4)["output"] == Jason.encode!(%{"records" => ["current"]})
+    assert Enum.at(second_input, 5)["output"] == Jason.encode!(%{"saved" => true})
+    refute_receive {:responses_request, _, _}
+  end
+
+  test "allows multiple calls to the same registered MCP wrapper", context do
+    test_pid = self()
+    tool_name = "mcp1_call_tool"
+
+    request = %{
+      model: "fixture-model",
+      instructions: "Use the companion tool when needed.",
+      input: [
+        %{"role" => "user", "content" => "Check the journal and recent weather."},
+        %{
+          "type" => "additional_tools",
+          "role" => "developer",
+          "tools" => [
+            %{
+              "type" => "function",
+              "name" => tool_name,
+              "parameters" => %{"type" => "object"}
+            }
+          ]
+        }
+      ],
+      mcp_tool_executors: %{
+        tool_name => fn arguments ->
+          send(test_pid, {:mcp_call, arguments})
+          {:ok, %{"tool_name" => arguments["tool_name"]}}
+        end
+      }
+    }
+
+    calls = [
+      %{
+        "type" => "function_call",
+        "call_id" => "mcp_call_journal",
+        "name" => tool_name,
+        "arguments" =>
+          Jason.encode!(%{
+            "tool_name" => "search_journal",
+            "arguments" => %{"query" => "harvest"}
+          })
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "mcp_call_weather",
+        "name" => tool_name,
+        "arguments" =>
+          Jason.encode!(%{"tool_name" => "get_weather", "arguments" => %{"day" => "today"}})
+      }
+    ]
+
+    call_count = :atomics.new(1, signed: false)
+
+    http = fn :post, "https://api.openai.com/v1/responses", options ->
+      call = :atomics.add_get(call_count, 1, 1)
+      send(test_pid, {:responses_request, call, options})
+
+      response =
+        if call == 1,
+          do: function_call_completion(calls, nil),
+          else: completion_event("Both sources were checked.")
+
+      %{status: 200, body: split_stream(response)}
+    end
+
+    assert {:ok, %{text: "Both sources were checked."}} =
+             OpenAI.stream_response(request, store: context.store, http: http)
+
+    assert_receive {:mcp_call, %{"tool_name" => "search_journal"}}
+    assert_receive {:mcp_call, %{"tool_name" => "get_weather"}}
+    assert_receive {:responses_request, 1, _first_options}
+    assert_receive {:responses_request, 2, second_options}
+
+    second_input = Keyword.fetch!(second_options, :json)["input"]
+    outputs = Enum.filter(second_input, &(Map.get(&1, "type") == "function_call_output"))
+
+    assert Enum.map(outputs, & &1["call_id"]) == ["mcp_call_journal", "mcp_call_weather"]
+
+    assert Enum.map(outputs, & &1["output"]) == [
+             Jason.encode!(%{"tool_name" => "search_journal"}),
+             Jason.encode!(%{"tool_name" => "get_weather"})
+           ]
+
+    refute_receive {:responses_request, _, _}
+  end
+
   test "executes a streamed local lookup when response.completed omits its output array",
        context do
     test_pid = self()

@@ -1464,6 +1464,51 @@ defmodule StorytellerWeb.CampaignLiveTest do
     assert_redirect(view, ~p"/campaigns/#{campaign.id}/sessions/#{new_session.id}")
   end
 
+  test "campaign companion projects expose MCP settings and add a site link", %{conn: conn} do
+    campaign = campaign_fixture()
+    {:ok, view, html} = live(conn, ~p"/campaigns/#{campaign.id}/integrations")
+
+    assert html =~ "Companion projects"
+    view |> element("button[phx-click=add-integration]") |> render_click()
+    form_html = render(view)
+
+    assert form_html =~ "MCP Streamable HTTP endpoint"
+    assert form_html =~ "GM instructions for this project"
+
+    [_, integration_id] =
+      Regex.run(~r/campaign\[integrations\]\[([^\]]+)\]\[name\]/, form_html)
+
+    view
+    |> form("#campaign-integrations-form",
+      campaign: %{
+        integrations: %{
+          integration_id => %{
+            name: "Finca companion",
+            mcp_endpoint_url: "http://127.0.0.1:7780/mcp",
+            instructions: "Read current records before changing them.",
+            site_label: "Finca ledger",
+            site_url: "http://127.0.0.1:7778"
+          }
+        }
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Companion projects saved."
+
+    assert Campaigns.get_campaign!(campaign.id).integrations[integration_id]["mcp_endpoint_url"] ==
+             "http://127.0.0.1:7780/mcp"
+
+    {:ok, detail_view, detail_html} = live(conn, ~p"/campaigns/#{campaign.id}")
+    assert detail_html =~ "Companion project sites"
+
+    assert has_element?(
+             detail_view,
+             "#campaign-companion-sites a[href='http://127.0.0.1:7778'][target='_blank'][rel='noopener noreferrer']",
+             "Finca ledger"
+           )
+  end
+
   test "archive and restore update the campaign list without deleting its history", %{conn: conn} do
     campaign = campaign_fixture(%{title: "The Paper Moon"})
     [session] = campaign.sessions

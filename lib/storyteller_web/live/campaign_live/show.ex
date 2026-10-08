@@ -16,6 +16,14 @@ defmodule StorytellerWeb.CampaignLive.Show do
       campaign ->
         active_session = Enum.find(campaign.sessions, &(&1.status == :active))
 
+        companion_sites =
+          campaign.integrations
+          |> Map.values()
+          |> Enum.filter(fn integration ->
+            is_binary(Map.get(integration, "site_url")) and Map.get(integration, "site_url") != ""
+          end)
+          |> Enum.sort_by(&String.downcase(Map.get(&1, "site_label", "")))
+
         panels =
           case Panels.public_projection(campaign.id) do
             {:ok, %{panels: panels}} -> panels
@@ -27,6 +35,7 @@ defmodule StorytellerWeb.CampaignLive.Show do
            page_title: campaign.title,
            campaign: campaign,
            active_session: active_session,
+           companion_sites: companion_sites,
            panels: panels,
            session_title: "",
            session_error?: false

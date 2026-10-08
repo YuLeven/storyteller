@@ -1,0 +1,177 @@
+<section class="mx-auto max-w-3xl space-y-8">
+  <div>
+    <.link
+      navigate={~p"/campaigns/#{@campaign.id}"}
+      class="text-sm font-medium text-amber-800 hover:text-amber-950"
+    >
+      ← {gettext("Campaign")}
+    </.link>
+    <p class="mt-6 text-sm font-medium uppercase tracking-[0.18em] text-amber-800">
+      {gettext("Campaign connections")}
+    </p>
+    <h1 class="mt-2 text-3xl font-semibold tracking-tight text-stone-950">
+      {gettext("Companion projects")}
+    </h1>
+    <p class="mt-2 text-stone-600">
+      {gettext(
+        "Connect an MCP server so the GM can use its tools, add project-specific GM instructions, and keep its site one click away."
+      )}
+    </p>
+  </div>
+
+  <.form
+    for={%{}}
+    as={:campaign}
+    id="campaign-integrations-form"
+    phx-change="validate"
+    phx-submit="save"
+    class="space-y-6"
+  >
+    <article
+      :for={
+        {id, integration} <-
+          Enum.sort_by(@draft, fn {_id, row} -> String.downcase(Map.get(row, "name", "")) end)
+      }
+      class="space-y-5 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"
+    >
+      <div class="flex items-center justify-between gap-4">
+        <h2 class="text-lg font-semibold text-stone-900">
+          {if String.trim(Map.get(integration, "name", "")) == "",
+            do: gettext("New companion project"),
+            else: Map.get(integration, "name")}
+        </h2>
+        <button
+          type="button"
+          phx-click="remove-integration"
+          phx-value-id={id}
+          class="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+        >
+          {gettext("Remove")}
+        </button>
+      </div>
+
+      <label class="block text-sm font-medium text-stone-700">
+        {gettext("Project name")}
+        <input
+          name={"campaign[integrations][#{id}][name]"}
+          value={Map.get(integration, "name", "")}
+          maxlength="100"
+          class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+        />
+      </label>
+
+      <label class="block text-sm font-medium text-stone-700">
+        {gettext("MCP Streamable HTTP endpoint")}
+        <input
+          name={"campaign[integrations][#{id}][mcp_endpoint_url]"}
+          value={Map.get(integration, "mcp_endpoint_url", "")}
+          type="url"
+          placeholder="http://127.0.0.1:7780/mcp"
+          maxlength="2048"
+          class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+        />
+        <span class="mt-1 block text-xs font-normal text-stone-500">{gettext(
+          "Storyteller connects from this computer. The endpoint must support the MCP Streamable HTTP transport."
+        )}</span>
+      </label>
+
+      <label class="block text-sm font-medium text-stone-700">
+        {gettext("GM instructions for this project")}
+        <textarea
+          name={"campaign[integrations][#{id}][instructions]"}
+          rows="6"
+          maxlength="10000"
+          class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+        >{Map.get(integration, "instructions", "")}</textarea>
+        <span class="mt-1 block text-xs font-normal text-stone-500">{gettext(
+          "Explain when to use its tools and how the GM should treat the information they return."
+        )}</span>
+      </label>
+
+      <fieldset class="space-y-3 rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+        <legend class="px-1 text-sm font-semibold text-stone-800">
+          {gettext("Project site link (optional)")}
+        </legend>
+        <label class="block text-sm font-medium text-stone-700">
+          {gettext("Link label")}
+          <input
+            name={"campaign[integrations][#{id}][site_label]"}
+            value={Map.get(integration, "site_label", "")}
+            maxlength="100"
+            placeholder={gettext("Open project site")}
+            class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+          />
+        </label>
+        <label class="block text-sm font-medium text-stone-700">
+          {gettext("Site URL")}
+          <input
+            name={"campaign[integrations][#{id}][site_url]"}
+            value={Map.get(integration, "site_url", "")}
+            type="url"
+            placeholder="https://example.com"
+            maxlength="2048"
+            class="mt-1 block w-full rounded-lg border-stone-300 shadow-sm focus:border-amber-700 focus:ring-amber-700"
+          />
+        </label>
+      </fieldset>
+
+      <div :if={Map.get(integration, "mcp_endpoint_url", "") != ""} class="flex items-start gap-3">
+        <input type="hidden" name={"campaign[integrations][#{id}][enabled]"} value="false" />
+        <input
+          id={"integration-enabled-#{id}"}
+          type="checkbox"
+          name={"campaign[integrations][#{id}][enabled]"}
+          value="true"
+          checked={Map.get(integration, "enabled", true) in [true, "true", "on"]}
+          class="mt-1 rounded border-stone-300 text-amber-700 focus:ring-amber-700"
+        />
+        <label for={"integration-enabled-#{id}"} class="text-sm font-medium text-stone-700">{gettext(
+          "Let the GM use this MCP server"
+        )}</label>
+      </div>
+    </article>
+
+    <p
+      :if={@save_error}
+      role="alert"
+      class="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
+    >
+      {@save_error}
+    </p>
+    <p
+      :if={@save_succeeded}
+      role="status"
+      class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+    >
+      {gettext("Companion projects saved.")}
+    </p>
+
+    <div class="flex flex-wrap gap-3">
+      <button
+        type="button"
+        phx-click="add-integration"
+        class="rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-semibold text-stone-700 hover:bg-white"
+      >
+        + {gettext("Add a companion project")}
+      </button>
+      <button
+        type="submit"
+        class="rounded-lg bg-amber-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-800"
+      >
+        {gettext("Save companion projects")}
+      </button>
+      <.link
+        navigate={~p"/campaigns/#{@campaign.id}"}
+        class="rounded-lg px-4 py-2.5 text-sm font-semibold text-stone-600 hover:bg-stone-100"
+      >
+        {gettext("Done")}
+      </.link>
+    </div>
+  </.form>
+
+  <p class="text-sm leading-6 text-stone-500">
+    {gettext(
+      "Only register servers you trust. Tools may read or change information in the connected project; Storyteller runs the tool calls on this computer."
+    )}
+  </p>
+</section>
