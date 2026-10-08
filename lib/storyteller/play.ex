@@ -627,8 +627,9 @@ defmodule Storyteller.Play do
   ]
   @proposal_repair_retry_limit 2
   # Safely rejected proposals get up to four category-guided correction
-  # attempts after the original proposal. Exact repeated invalid responses
-  # stop early as non-progress; this is not a provider-size or cost ceiling.
+  # attempts after the original proposal. One exact repeat gets a stronger
+  # correction; another identical rejection stops as non-progress. This is not
+  # a provider-size or cost ceiling.
   @proposal_validation_correction_attempt_limit 4
   @proposal_repair_reserve_bytes 768
 
@@ -1692,22 +1693,35 @@ defmodule Storyteller.Play do
 
       {:error, {:invalid_response, category}, :proposal_validation, signature}
       when category in @proposal_failure_categories ->
-        if retries <
-             proposal_repair_retry_limit(
-               :proposal_validation,
-               {:invalid_response, category},
-               attempt_token,
-               opts
-             ) and
-             previous_validation_failure != {category, signature} and
+        {correction_decision, next_validation_failure} =
+          proposal_validation_repair_decision(previous_validation_failure, category, signature)
+
+        if correction_decision != :stop and
+             retries <
+               proposal_repair_retry_limit(
+                 :proposal_validation,
+                 {:invalid_response, category},
+                 attempt_token,
+                 opts
+               ) and
              ensure_plan_usage_allowed(opts) == :ok and
              resolution_attempt_active?(turn.id, attempt_token) do
           next_guidance =
-            proposal_repair_guidance(
-              :proposal_validation,
-              {:invalid_response, category},
-              repair_guidance
-            )
+            case correction_decision do
+              :retry_identical ->
+                proposal_repair_guidance(
+                  :proposal_validation,
+                  {:repeated_invalid_response, category},
+                  repair_guidance
+                )
+
+              :retry ->
+                proposal_repair_guidance(
+                  :proposal_validation,
+                  {:invalid_response, category},
+                  repair_guidance
+                )
+            end
 
           Logger.warning(
             "GM proposal generation failed; requesting internal correction " <>
@@ -1724,7 +1738,7 @@ defmodule Storyteller.Play do
             opts,
             retries + 1,
             next_guidance,
-            {category, signature}
+            next_validation_failure
           )
         else
           {:error, {:invalid_response, category}, :proposal_validation}
@@ -1917,6 +1931,20 @@ defmodule Storyteller.Play do
 
   defp proposal_repair_guidance(
          :proposal_validation,
+         {:repeated_invalid_response, category},
+         previous_guidance
+       ) do
+    check = proposal_repair_check(category)
+
+    "Internal correction: the prior GM proposal repeated the identical response that already " <>
+      "failed #{check}. Do not repeat that rejected response. Repair #{check} specifically, " <>
+      "following the category guidance: #{previous_guidance} Recheck the campaign context and " <>
+      "GM instructions, make the smallest necessary correction, and return a complete proposal. " <>
+      "Do not mention this correction to the player."
+  end
+
+  defp proposal_repair_guidance(
+         :proposal_validation,
          {:invalid_response, category},
          _previous_guidance
        ) do
@@ -2034,6 +2062,26 @@ defmodule Storyteller.Play do
       "Recheck the campaign context and GM instructions, make the smallest necessary correction, " <>
       "and return a complete proposal. Do not mention this correction to the player."
   end
+
+  defp proposal_validation_repair_decision(nil, category, signature),
+    do: {:retry, {category, signature, false}}
+
+  defp proposal_validation_repair_decision(
+         {category, signature, false},
+         category,
+         signature
+       ),
+       do: {:retry_identical, {category, signature, true}}
+
+  defp proposal_validation_repair_decision(
+         {category, signature, true},
+         category,
+         signature
+       ),
+       do: {:stop, {category, signature, true}}
+
+  defp proposal_validation_repair_decision(_previous, category, signature),
+    do: {:retry, {category, signature, false}}
 
   defp proposal_repair_check(:proposal_shape), do: "the required response structure"
   defp proposal_repair_check(:narration), do: "the narration requirements"

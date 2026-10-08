@@ -4684,7 +4684,7 @@ defmodule Storyteller.PlayTest do
                model: "test-model"
              )
 
-    assert Agent.get(calls, & &1) == 2
+    assert Agent.get(calls, & &1) == 3
 
     assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
              origin.place_id
@@ -7415,21 +7415,76 @@ defmodule Storyteller.PlayTest do
              "Lyra checks the brass shutter once more."
   end
 
-  test "same-category validation failure stops repair without a manual retry or partial events" do
-    {campaign, session} = play_campaign("The Stalled Repair Observatory")
-    before = Play.public_projection(campaign.id)
+  test "one identical validation repeat gets a stronger same-turn correction and can recover" do
+    {campaign, session} = play_campaign("The Repeated Proposal Observatory")
+    test_pid = self()
     provider_calls = :atomics.new(1, signed: false)
 
     repeated_invalid_proposal =
-      Jason.encode!(
-        ordinary_proposal(%{
-          "activities" => [%{"speaker_id" => "player", "text" => "I decide to leave."}]
-        })
-      )
+      ordinary_proposal(%{
+        "activities" => [%{"speaker_id" => "player", "text" => "I decide to leave."}]
+      })
 
-    provider = fn _request ->
-      :atomics.add(provider_calls, 1, 1)
-      {:ok, repeated_invalid_proposal}
+    provider = fn request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+      send(test_pid, {:repeated_proposal_repair_attempt, attempt, request.instructions})
+
+      proposal =
+        if attempt <= 2 do
+          repeated_invalid_proposal
+        else
+          ordinary_proposal(%{
+            "narration" => "Lyra answers while the shutter catches the breeze."
+          })
+        end
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed, player_input: "I inspect the brass shutter."}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "recover-after-identical-proposal",
+               "I inspect the brass shutter.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:repeated_proposal_repair_attempt, 1, first_instructions}
+    assert_receive {:repeated_proposal_repair_attempt, 2, category_instructions}
+    assert_receive {:repeated_proposal_repair_attempt, 3, stronger_instructions}
+    refute first_instructions =~ "Internal correction:"
+    assert category_instructions =~ "player's control of their character"
+    assert stronger_instructions =~ "repeated the identical response"
+    assert stronger_instructions =~ "Do not repeat that rejected response"
+    assert stronger_instructions =~ "Repair the player's control of their character specifically"
+    assert stronger_instructions =~ "player's control of their character"
+    assert :atomics.get(provider_calls, 1) == 3
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+
+    assert Enum.find(timeline, &(&1.event_type == :gm_narration)).payload["text"] ==
+             "Lyra answers while the shutter catches the breeze."
+  end
+
+  test "another identical invalid response after the stronger correction stops without partial events" do
+    {campaign, session} = play_campaign("The Stalled Repair Observatory")
+    before = Play.public_projection(campaign.id)
+    provider_calls = :atomics.new(1, signed: false)
+    test_pid = self()
+
+    repeated_invalid_proposal =
+      ordinary_proposal(%{
+        "activities" => [%{"speaker_id" => "player", "text" => "I decide to leave."}]
+      })
+
+    provider = fn request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+      send(test_pid, {:stalled_repair_attempt, attempt, request.instructions})
+      {:ok, Jason.encode!(repeated_invalid_proposal)}
     end
 
     assert {:ok, failed} =
@@ -7446,7 +7501,11 @@ defmodule Storyteller.PlayTest do
     assert failed.player_input == "I inspect the brass shutter."
     assert failed.failure_code == "invalid_response"
     assert failed.failure_category == :player_agency
-    assert :atomics.get(provider_calls, 1) == 2
+    assert_receive {:stalled_repair_attempt, 1, _first_instructions}
+    assert_receive {:stalled_repair_attempt, 2, _category_instructions}
+    assert_receive {:stalled_repair_attempt, 3, stronger_instructions}
+    assert stronger_instructions =~ "Do not repeat that rejected response"
+    assert :atomics.get(provider_calls, 1) == 3
     assert Play.public_projection(campaign.id) == before
     assert {:ok, []} = Play.public_timeline(campaign.id)
   end
