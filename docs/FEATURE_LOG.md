@@ -1,5 +1,11 @@
 # Feature log
 
+## 2026-10-08 — Keep narrated travel moving while preserving meaningful rolls
+
+- A routine walk to a uniquely identified NPC can no longer stall on a roll the GM itself calls routine after already narrating the arrival. Storyteller records the player's public-location move and drops only that redundant travel check. If the accepted response instead asks for a separate uncertainty (such as persuading the NPC), the move and canonical route time commit while the player still rolls for that uncertainty. A clearly risky movement test remains unresolved before crossing; no other state edits can piggyback on movement while that roll is pending.
+- Behavioral regressions cover all three cases with deterministic providers: routine walk plus narrated arrival completes in one provider response; narrated arrival plus persuasion moves only the player and leaves the persuasion roll pending; risky ledge crossing leaves the player at the threshold with the crossing roll pending. The broader Play/WorldClock/SessionLive behavior suite passed after these changes (247 tests, 0 failures). No live provider calls were made.
+- This supports the product priority in `AGENTS.md`: fun, engaging, quick-paced, consistent, lifelike play; cost is never the goal. The recent one-stream Luna movement check still had required internal correction on its first response; this fake-provider edge-case fix does not establish that the live mismatch is resolved.
+
 ## 2026-10-08 — Resolve a committed move to an off-scene public character
 
 - A committed player action can target one uniquely identified GM character by name when the character's canonical current place is public. Storyteller fills only the missing player movement, leaves the NPC's location unchanged, and then runs the normal route, duty, visibility, roll, and presence checks. An explicitly named public place still takes precedence. Hypothetical questions, NPC-directed movement, private or unknown locations, ambiguity, real barriers, and unresolved rolls do not trigger the inferred move.

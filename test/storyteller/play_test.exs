@@ -4842,6 +4842,181 @@ defmodule Storyteller.PlayTest do
     assert Repo.get!(Character, ines.id).current_place_id == destination.place_id
   end
 
+  test "completed routine movement to a public NPC resolves instead of prompting for a roll" do
+    {campaign, session} = play_campaign("The West Platform Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "west-platform",
+          name: "The West Platform",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "An open passage joins the observatory and west platform.",
+        visibility: :public
+      })
+    )
+
+    ines =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:ines",
+          name: "Ines",
+          role: :gm,
+          current_place_id: destination.place_id
+        })
+      )
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    provider = fn _request ->
+      Agent.update(attempts, &(&1 + 1))
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" =>
+             "You cross back onto the west platform. Ines checks her log beneath the open sky.",
+           "dialogue" => [
+             %{"speaker_id" => "npc:ines", "text" => "Yes, the comet is still visible."}
+           ],
+           "activities" => [],
+           "character_updates" => [],
+           "location_changes" => [],
+           "travel_changes" => [],
+           "roll_request" => %{
+             "test" => "Walk over to Ines",
+             "difficulty" => "Routine walk on the platform",
+             "target" => 10
+           },
+           "time_advance_minutes" => 1
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed, roll_request: nil} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "walk-over-to-ines-with-narrated-arrival",
+               "I walk over to Ines and ask if the comet is still visible.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert Agent.get(attempts, & &1) == 1
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             destination.place_id
+
+    assert Repo.get!(Character, ines.id).current_place_id == destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    refute Enum.any?(turn_events, &(&1.event_type == :roll_request))
+
+    location_event = Enum.find(turn_events, &(&1.event_type == :state_change))
+
+    assert Enum.any?(location_event.payload["location_changes"], fn change ->
+             change["type"] == "move_character" and change["speaker_id"] == "player" and
+               change["place_id"] == destination.place_id
+           end)
+  end
+
+  test "completed movement preserves a roll for a separate uncertain action" do
+    {campaign, session} = play_campaign("The West Platform Persuasion Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "west-platform",
+          name: "The West Platform",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 1,
+        scene_relevance: "An open passage joins the observatory and west platform.",
+        visibility: :public
+      })
+    )
+
+    Repo.insert!(
+      Character.changeset(%Character{}, %{
+        campaign_id: campaign.id,
+        speaker_id: "npc:ines",
+        name: "Ines",
+        role: :gm,
+        current_place_id: destination.place_id
+      })
+    )
+
+    attempts = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    provider = fn _request ->
+      Agent.update(attempts, &(&1 + 1))
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => "You cross onto the west platform and ask Ines to trust you.",
+           "dialogue" => [],
+           "activities" => [],
+           "memory_update" => %{"public_summary" => "", "gm_private_summary" => ""},
+           "private_changes" => %{},
+           "character_updates" => [],
+           "location_changes" => [],
+           "travel_changes" => [],
+           "roll_request" => %{
+             "test" => "Convince Ines to reveal what she knows",
+             "difficulty" => "A difficult trust test",
+             "target" => 15
+           },
+           "time_advance_minutes" => 0
+         })
+       )}
+    end
+
+    assert {:ok,
+            %{
+              status: :awaiting_roll,
+              roll_request: %{"test" => "Convince Ines to reveal what she knows"}
+            } =
+              turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "walk-to-ines-and-persuade-her",
+               "I walk over to Ines and ask her to tell me what she knows.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert Agent.get(attempts, & &1) == 1
+    assert turn.status == :awaiting_roll
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             destination.place_id
+  end
+
   test "hypothetical and NPC-directed travel to a known NPC do not move the player" do
     {campaign, session} = play_campaign("The Noncommittal Elena Observatory")
     origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
@@ -5053,7 +5228,12 @@ defmodule Storyteller.PlayTest do
        Jason.encode!(
          Map.merge(roll_proposal(), %{
            "narration" =>
-             "You reach the Lower Dome's threshold, where the loose ledge shifts underfoot and the chamber remains beyond the doorway."
+             "You reach the Lower Dome's threshold, where the loose ledge shifts underfoot and the chamber remains beyond the doorway.",
+           "roll_request" => %{
+             "test" => "Keep your balance on the ledge",
+             "difficulty" => "A demanding, uncertain crossing",
+             "target" => 14
+           }
          })
        )}
     end
