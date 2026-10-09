@@ -1554,6 +1554,10 @@ defmodule Storyteller.Play do
   end
 
   defp resolve_turn(turn_id, opts) do
+    TurnTelemetry.with_turn_ref(fn -> resolve_turn_with_telemetry(turn_id, opts) end)
+  end
+
+  defp resolve_turn_with_telemetry(turn_id, opts) do
     case ensure_plan_usage_allowed(opts) do
       :ok ->
         case claim_turn(turn_id) do
@@ -1770,7 +1774,8 @@ defmodule Storyteller.Play do
           case build_compact_context_retry(request) do
             {:ok, compact_request} ->
               Logger.warning(
-                "GM request context was rejected; retrying the saved action with a scene-focused packet"
+                "GM request context was rejected; retrying the saved action with a scene-focused packet" <>
+                  turn_ref_log_suffix()
               )
 
               Process.sleep(@provider_retry_delay_ms)
@@ -1827,7 +1832,8 @@ defmodule Storyteller.Play do
 
           Logger.warning(
             "GM proposal generation failed; requesting internal correction " <>
-              "attempt=#{retries + 1} stage=proposal_validation reason=#{inspect({:invalid_response, category})}"
+              "attempt=#{retries + 1} stage=proposal_validation reason=#{inspect({:invalid_response, category})}" <>
+              turn_ref_log_suffix()
           )
 
           Process.sleep(@provider_retry_delay_ms)
@@ -1855,7 +1861,8 @@ defmodule Storyteller.Play do
 
           Logger.warning(
             "GM proposal generation failed; requesting internal correction " <>
-              "attempt=#{retries + 1} stage=#{stage} reason=#{inspect(reason)}"
+              "attempt=#{retries + 1} stage=#{stage} reason=#{inspect(reason)}" <>
+              turn_ref_log_suffix()
           )
 
           Process.sleep(@provider_retry_delay_ms)
@@ -2267,8 +2274,16 @@ defmodule Storyteller.Play do
     frame_detail = safe_stack_frame_detail(stacktrace)
 
     Logger.warning(
-      "GM resolution stage failed stage=#{stage} kind=#{kind}#{exception_detail}#{frame_detail}"
+      "GM resolution stage failed stage=#{stage} kind=#{kind}#{exception_detail}#{frame_detail}" <>
+        turn_ref_log_suffix()
     )
+  end
+
+  defp turn_ref_log_suffix do
+    case TurnTelemetry.current_turn_ref() do
+      ref when is_binary(ref) -> " turn_ref=#{ref}"
+      _ -> ""
+    end
   end
 
   defp safe_stack_frame_detail(stacktrace) when is_list(stacktrace) do

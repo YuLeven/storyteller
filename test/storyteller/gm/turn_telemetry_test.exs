@@ -69,6 +69,61 @@ defmodule Storyteller.GM.TurnTelemetryTest do
     assert log == ""
   end
 
+  test "shares an opaque local reference across a resolution and clears it afterward" do
+    test_pid = self()
+    handler_id = {__MODULE__, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               TurnTelemetry.event(),
+               fn event, measurements, metadata, _config ->
+                 send(test_pid, {:stage_event, event, measurements, metadata})
+               end,
+               nil
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    original_logger_level = Logger.level()
+
+    log =
+      try do
+        Logger.configure(level: :info)
+
+        capture_log([level: :info], fn ->
+          ref =
+            TurnTelemetry.with_turn_ref(fn ->
+              current_ref = TurnTelemetry.current_turn_ref()
+              assert Regex.match?(~r/\A[a-f0-9]{12}\z/, current_ref)
+
+              assert :ok = TurnTelemetry.stop(:provider_stream, System.monotonic_time(), :ok)
+
+              assert current_ref ==
+                       TurnTelemetry.with_turn_ref(fn -> TurnTelemetry.current_turn_ref() end)
+
+              assert TurnTelemetry.current_turn_ref() == current_ref
+              current_ref
+            end)
+
+          assert TurnTelemetry.current_turn_ref() == nil
+          send(test_pid, {:turn_ref, ref})
+        end)
+      after
+        Logger.configure(level: original_logger_level)
+      end
+
+    assert_receive {:turn_ref, turn_ref}
+
+    assert_receive {:stage_event, [:storyteller, :gm, :turn_stage, :stop], measurements, metadata}
+
+    assert measurements.success == 1
+    assert metadata == %{stage: :provider_stream, cache: :not_applicable, turn_ref: turn_ref}
+    assert log =~ "turn_ref=#{turn_ref}"
+    refute log =~ "campaign text"
+    assert TurnTelemetry.current_turn_ref() == nil
+  end
+
   test "local reporter ignores malformed measurements and metadata" do
     log =
       capture_log(fn ->

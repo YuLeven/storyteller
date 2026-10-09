@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-08 — Correlate GM correction attempts without story data
+
+- The owner clarified the product north star: fun, engaging, quick-paced, consistent, and lifelike play; never cost optimization.
+- Added a random per-resolution reference to local GM stage telemetry and internal-correction warnings. The same reference follows retries for a saved action, then is cleared; it contains no campaign, player, account, prompt, or response data.
+- Added tests for bounded stage metadata, trace lifecycle, successful/failing latency paths, and a malformed fake-provider proposal corrected within the same saved turn. The warning and both attempt stages carry the same reference.
+- This makes validation and provider delays attributable during local diagnosis. It does not measure browser animation completion, and earlier uncorrelated logs cannot be reconstructed; keep the player-visible wait and reveal timing as open acceptance work.
+
 ## 2026-10-08 — Exercise ensemble play and player-led task choice
 
 - In a separate fictional QA campaign on GPT-6 Luna at low reasoning, two present companions handled different requested checks. They gave separately attributed findings without narration repeating their answers, and uncertain evidence remained uncertain.

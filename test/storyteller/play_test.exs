@@ -45,6 +45,77 @@ defmodule Storyteller.PlayTest do
     )
   end
 
+  test "correlates a same-turn proposal correction without logging campaign details" do
+    {campaign, session} = play_campaign("The Traced Correction Observatory")
+    provider_calls = :atomics.new(1, [])
+    test_pid = self()
+    handler_id = {__MODULE__, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               TurnTelemetry.event(),
+               fn event, measurements, metadata, _config ->
+                 send(test_pid, {:traced_stage, event, measurements, metadata})
+               end,
+               nil
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    provider = fn _request ->
+      call_number = :atomics.add_get(provider_calls, 1, 1)
+
+      if call_number == 1 do
+        {:ok, "not json"}
+      else
+        {:ok, Jason.encode!(ordinary_proposal())}
+      end
+    end
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{status: :completed}} =
+                 Play.submit_turn(campaign.id, session.id, "traced-correction", "Look around.",
+                   provider: provider,
+                   model: "test-model"
+                 )
+      end)
+
+    assert :atomics.get(provider_calls, 1) == 2
+
+    stages =
+      Enum.map(1..6, fn _ ->
+        assert_receive {:traced_stage, event, measurements, metadata}
+        assert event == TurnTelemetry.event()
+        assert is_integer(measurements.duration) and measurements.duration >= 0
+        refute Map.has_key?(metadata, :campaign_id)
+        refute Map.has_key?(metadata, :prompt)
+        metadata
+      end)
+
+    assert Enum.map(stages, & &1.stage) == [
+             :context_load,
+             :context_build,
+             :proposal_decode,
+             :proposal_decode,
+             :proposal_validation,
+             :commit
+           ]
+
+    turn_refs = Enum.map(stages, & &1.turn_ref)
+    assert [turn_ref] = Enum.uniq(turn_refs)
+    assert Regex.match?(~r/\A[a-f0-9]{12}\z/, turn_ref)
+    assert log =~ "GM proposal generation failed; requesting internal correction"
+
+    assert [^turn_ref] =
+             Regex.scan(~r/turn_ref=([a-f0-9]{12})/, log, capture: :all_but_first)
+             |> List.flatten()
+             |> Enum.uniq()
+
+    assert TurnTelemetry.current_turn_ref() == nil
+  end
+
   test "provider stream activity renews only its own resolving turn lease" do
     {campaign, session} = play_campaign("The Slow Stream Observatory")
     test_pid = self()
@@ -13981,12 +14052,22 @@ defmodule Storyteller.PlayTest do
         [:context_load, :context_build]
       end
 
-    Enum.each(expected_stages, fn stage ->
-      assert_receive {:gm_latency, :stage, event, measurements, metadata}
-      assert event == TurnTelemetry.event()
-      assert_numeric_latency_measurements(measurements, 1)
-      assert metadata == %{stage: stage, cache: :not_applicable}
-    end)
+    turn_ref =
+      Enum.reduce(expected_stages, nil, fn stage, previous_ref ->
+        assert_receive {:gm_latency, :stage, event, measurements, metadata}
+        assert event == TurnTelemetry.event()
+        assert_numeric_latency_measurements(measurements, 1)
+
+        assert %{stage: ^stage, cache: :not_applicable, turn_ref: turn_ref} = metadata
+        assert Regex.match?(~r/\A[a-f0-9]{12}\z/, turn_ref)
+        refute Map.has_key?(metadata, :campaign_id)
+        refute Map.has_key?(metadata, :prompt)
+
+        if previous_ref, do: assert(turn_ref == previous_ref)
+        turn_ref
+      end)
+
+    assert is_binary(turn_ref)
   end
 
   defp assert_numeric_latency_measurements(measurements, successful_calls) do
