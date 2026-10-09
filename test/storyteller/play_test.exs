@@ -1424,9 +1424,10 @@ defmodule Storyteller.PlayTest do
              "keep quirks brief"
 
     assert instructions =~ "Never blend voices; narrate in GM voice."
+    assert instructions =~ "each spoken line appears once in dialogue."
 
     assert instructions =~
-             "Let an NPC's line carry the finding; don't repeat it in adjacent narration."
+             "When dialogue carries a finding, narration shows only the evidence"
 
     refute instructions =~ "TRAVEL NOW:"
 
@@ -2185,6 +2186,44 @@ defmodule Storyteller.PlayTest do
 
     assert List.last(turn_events).payload["text"] ==
              "I think we should compare the western marks first. Then we can test that against the sky at night. That is a hunch, not a conclusion."
+  end
+
+  test "removes an exact quoted NPC line from GM narration while preserving its speech bubble" do
+    {campaign, session} = play_campaign("Quoted Dialogue Appears Once")
+    line = "The labels disagree with the log by one plate."
+
+    provider = fn _request ->
+      proposal =
+        ordinary_proposal(%{
+          "narration" =>
+            "Lyra runs a fingertip down the page. “#{line}” She turns the label toward you.",
+          "dialogue" => [%{"speaker_id" => "npc:lyra", "text" => line}],
+          "activities" => [],
+          "character_updates" => [],
+          "time_advance_minutes" => 0
+        })
+
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "quoted-dialogue-once",
+               "I ask Lyra to check the labels against her log.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    narration = Enum.find(turn_events, &(&1.event_type == :gm_narration)).payload["text"]
+    dialogue = Enum.find(turn_events, &(&1.event_type == :npc_dialogue)).payload["text"]
+
+    assert narration == "Lyra runs a fingertip down the page. She turns the label toward you."
+    assert dialogue == line
+    refute narration =~ line
   end
 
   test "still requires narration when the GM provides no dialogue" do
@@ -13519,7 +13558,7 @@ defmodule Storyteller.PlayTest do
     worker =
       Task.async(fn -> Play.retry_turn(pending.id, provider: provider, model: "test-model") end)
 
-    assert_receive {:provider_started, provider_pid}
+    assert_receive {:provider_started, provider_pid}, 1_000
 
     assert {:ok, next_session} = Campaigns.start_session(campaign)
     closed = Repo.get!(Turn, pending.id)
@@ -13576,7 +13615,7 @@ defmodule Storyteller.PlayTest do
     worker =
       Task.async(fn -> Play.retry_turn(pending.id, provider: provider, model: "test-model") end)
 
-    assert_receive {:provider_started, provider_pid}
+    assert_receive {:provider_started, provider_pid}, 1_000
 
     assert {:ok, archived} = Campaigns.archive_campaign(campaign)
     closed = Repo.get!(Turn, pending.id)

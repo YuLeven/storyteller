@@ -114,6 +114,7 @@ defmodule Storyteller.Play do
   @third_person_subject_pronouns MapSet.new(~w(he she they ella ellas elle elles il ils))
   @scene_action_conjunctions MapSet.new(~w(and then y luego et puis))
   @non_committal_scene_motion_terms MapSet.new(~w(to will would can could should may might))
+  @dialogue_quote_pairs [{"“", "”"}, {"\"", "\""}, {"«", "»"}, {"„", "“"}]
   @explicit_companion_invitation_cues [
     ["come", "with", "me"],
     ["walk", "with", "me"],
@@ -461,11 +462,14 @@ defmodule Storyteller.Play do
   name and a relevant visible fact naturally; false means don't reintroduce.
   Hide stats/private cues; don't force entrances/actions. Preserve NPC knowledge,
   motives, work, and voice; follow speaker guidance, express accents naturally,
-  and keep quirks brief. Never blend voices; narrate in GM voice. Addressed NPCs
-  answer unless silence is justified. Keep prose cohesive; invited ensembles may
+  and keep quirks brief. Never blend voices; narrate in GM voice. Narration does
+  not contain a character's spoken words; each spoken line appears once in
+  dialogue. Addressed NPCs answer unless silence is justified. Keep prose
+  cohesive; invited ensembles may
   react distinctly. Before factual NPC dialogue, set the moment, not the finding.
-  Let an NPC's line carry the finding; don't repeat it in adjacent narration.
-  Repeat only when it conveys a meaningful reaction or changed emphasis. Avoid
+  When dialogue carries a finding, narration shows only the evidence or the
+  character looking; never reveal or paraphrase the finding there. Repeat a fact
+  only for a meaningful reaction or changed emphasis. Avoid
   round-robin, filler, and stock closers.
   Update panels only for meaningful activity; skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
@@ -7113,7 +7117,7 @@ defmodule Storyteller.Play do
 
     cond do
       is_binary(value) and String.trim(value) != "" and String.length(value) <= 10_000 ->
-        {:ok, value}
+        {:ok, remove_quoted_dialogue_echoes(value, dialogue)}
 
       is_binary(value) and String.trim(value) == "" and dialogue != [] ->
         {:ok, ""}
@@ -7125,6 +7129,27 @@ defmodule Storyteller.Play do
         {:error, :invalid_response}
     end
   end
+
+  # A provider can put a character's exact spoken line in both the narration
+  # and structured dialogue. Keep the attributed speech and remove only a
+  # verbatim, quoted duplicate from the GM narration.
+  defp remove_quoted_dialogue_echoes(narration, dialogue) when is_list(dialogue) do
+    dialogue
+    |> Enum.map(&field(&1, :text))
+    |> Enum.filter(fn
+      text when is_binary(text) -> String.length(String.trim(text)) >= 16
+      _ -> false
+    end)
+    |> Enum.reduce(narration, fn line, current ->
+      Enum.reduce(@dialogue_quote_pairs, current, fn {open, close}, text ->
+        String.replace(text, "#{open}#{line}#{close}", "")
+      end)
+    end)
+    |> String.replace(~r/[ \t]{2,}/u, " ")
+    |> String.trim()
+  end
+
+  defp remove_quoted_dialogue_echoes(narration, _dialogue), do: narration
 
   defp object_field(map, key) do
     value = field(map, key, %{})

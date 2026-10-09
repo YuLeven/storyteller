@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-08 — Keep spoken lines attributed once
+
+- An NPC-led Quiet Observatory turn let Inés choose the next task and carried Mara to the observing terrace; its two-minute travel and current place agreed. However, Inés's full quoted invitation appeared in both GM narration and her speech bubble. In a later comparison beat, narration and speech paraphrased the same finding. That makes the character sound mechanically repeated and dilutes the scene.
+- Strengthened the runtime channel guidance so narration stages a finding without announcing it, and each spoken line remains in structured dialogue. Added a narrow pre-validation safeguard that removes an exact, long quoted duplicate from GM narration while keeping the NPC's attributed line.
+- A subsequent Luna-low action asked Inés to read the two records side by side. The GM only staged the page and morning light; Inés delivered both recorded times (10:14 p.m. and 10:41 p.m.) and preserved uncertainty about which was right. The in-world clock did not advance. This is one positive case, not a guarantee across scenes. No cause was invented and no existing campaign events were rewritten.
+- Added a fake-provider regression proving the exact quoted echo is removed from narration while the NPC's speech bubble and distinct scene action remain. The full Play suite initially exposed two provider-start waits relying on ExUnit's 100 ms default; those harness waits are now explicitly bounded at 1 second, and the rollover case passes alone.
+- **Checks:** the complete Play suite passed (**163 tests, 0 failures**) in WSL against `storyteller_test`; the request-contract, exact-echo, and rollover regressions passed. Formatting, warnings-as-errors compilation, and `git diff --check` passed. No expensive-model comparison was run.
+
 ## 2026-10-08 — Keep narrative beats and NPC dialogue from echoing
 
 - A focused Luna-low Quiet Observatory follow-up established a useful answer, but the GM narration and Inés's speech bubble repeated the same conclusion and caveat. That felt like one line delivered twice instead of a character contributing naturally to the scene.
