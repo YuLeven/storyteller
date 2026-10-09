@@ -486,6 +486,63 @@ defmodule Storyteller.GM.ContextBudget do
          budget,
          preferred_history_sequences
        ) do
+    # Relevance selection is a quality step, not a cost step: keep the recent
+    # scene plus retrieved older events, present-character details, and matching
+    # canon focused even when the complete request is small. Only the additional
+    # byte-pressure projections below should depend on the soft target.
+    {selected_context, continuity_details_omitted?} =
+      retrieve_relevant_continuity_details(context)
+
+    selected_context =
+      if continuity_details_omitted? do
+        context_with_completeness(selected_context, %{continuity_memory_details_omitted: true})
+      else
+        selected_context
+      end
+
+    first_pass = compact_context(selected_context, preferred_history_sequences)
+
+    omissions =
+      if continuity_details_omitted?,
+        do: [:continuity_memory_details | first_pass.omissions],
+        else: first_pass.omissions
+
+    metrics =
+      measure(
+        first_pass.context,
+        instructions,
+        model,
+        budget,
+        omissions != [],
+        Enum.uniq(omissions)
+      )
+
+    if budget <= 0 or metrics.estimated_request_bytes <= budget do
+      {:ok,
+       %{
+         context: first_pass.context,
+         metrics: report_budget(metrics, model, opts)
+       }}
+    else
+      compile_compacted_context_under_pressure(
+        context,
+        instructions,
+        model,
+        opts,
+        budget,
+        preferred_history_sequences
+      )
+    end
+  end
+
+  defp compile_compacted_context_under_pressure(
+         context,
+         instructions,
+         model,
+         opts,
+         budget,
+         preferred_history_sequences
+       ) do
     {selected_context, continuity_details_omitted?} =
       retrieve_relevant_continuity_details(context)
 

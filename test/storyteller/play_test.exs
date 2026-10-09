@@ -8465,7 +8465,7 @@ defmodule Storyteller.PlayTest do
              "Narrated count/balance changes must match a panel operation and its resulting value"
 
     assert instructions =~
-             "Quantity/money require signed nonzero deltas; text/status/date use set"
+             "Quantity accepts a signed integer delta or a nonnegative final count"
 
     assert {:ok, %{panels: [panel]}} = Play.public_projection(campaign.id)
     assert [%{key: "cash", value: "100"}] = panel.fields
@@ -8537,11 +8537,16 @@ defmodule Storyteller.PlayTest do
     assert corrected_instructions =~
              "Internal correction: the prior GM proposal did not satisfy the tracked-panel rules."
 
-    assert corrected_instructions =~ "Quantity: integer delta; money: decimal-string delta"
-    assert corrected_instructions =~ "never set either"
+    assert corrected_instructions =~
+             "Quantity: integer delta, or set a nonnegative integer final count when that total is established"
+
+    assert corrected_instructions =~ "money: decimal-string delta, never set money"
 
     assert corrected_instructions =~
              "If the player explicitly requested an update, include it"
+
+    assert corrected_instructions =~
+             "Exact campaign panel field for this action: key=plates_catalogued type=quantity unit=plates label=\"Plates catalogued\" current=0"
 
     assert {:ok, projection} = Play.public_projection(campaign.id)
 
@@ -8552,6 +8557,197 @@ defmodule Storyteller.PlayTest do
     panel_event = Enum.find(timeline, &Map.has_key?(&1.payload, "panel_changes"))
 
     assert [%{"key" => "plates_catalogued", "before" => 0, "after" => 4}] =
+             panel_event.payload["panel_changes"]
+  end
+
+  test "an established absolute catalog total can be committed as an audited panel set" do
+    {campaign, session} = play_campaign("The Absolute Catalog Total")
+
+    insert_panel_field!(campaign.id, %{
+      key: "plates_catalogued",
+      panel: "Archive",
+      label: "Plates catalogued",
+      value_type: :quantity,
+      unit: "plates",
+      visibility: :public,
+      value: %{"value" => 6}
+    })
+
+    provider =
+      ordinary_provider(%{
+        "narration" => "The morning's entries bring the catalogued total to 10 plates.",
+        "dialogue" => [],
+        "activities" => [],
+        "panel_changes" => [
+          %{
+            "type" => "set",
+            "key" => "plates_catalogued",
+            "value" => 10,
+            "reason" => "Four additional plates were confirmed and entered during this work."
+          }
+        ],
+        "time_advance_minutes" => 240
+      })
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "set-established-catalog-total",
+               "For the morning's work, record the final number of plates catalogued on the board and say that same total.",
+               intent: :action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert [%{key: "plates_catalogued", value: 10}] =
+             Enum.flat_map(projection.panels, & &1.fields)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    panel_event = Enum.find(timeline, &Map.has_key?(&1.payload, "panel_changes"))
+
+    assert [
+             %{
+               "key" => "plates_catalogued",
+               "type" => "set",
+               "before" => 6,
+               "after" => 10,
+               "value" => 10
+             }
+           ] = panel_event.payload["panel_changes"]
+  end
+
+  test "a reference to observing records does not require a panel change" do
+    {campaign, session} = play_campaign("The Observatory Records Question")
+
+    insert_panel_field!(campaign.id, %{
+      key: "plates_catalogued",
+      panel: "Archive",
+      label: "Plates catalogued",
+      value_type: :quantity,
+      unit: "plates",
+      visibility: :public,
+      value: %{"value" => 6}
+    })
+
+    attempts = :atomics.new(1, [])
+
+    provider = fn _request ->
+      :atomics.add(attempts, 1, 1)
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => "The observing records note a gap in the plates catalogued so far.",
+           "dialogue" => [],
+           "activities" => [],
+           "panel_changes" => [],
+           "time_advance_minutes" => 0
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "ask-about-observing-records",
+               "What do the observing records say about the plates catalogued?",
+               intent: :question,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert :atomics.get(attempts, 1) == 1
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+    assert [%{key: "plates_catalogued", value: 6}] = Enum.flat_map(projection.panels, & &1.fields)
+  end
+
+  test "bounded catalog work through the morning records completed plates without tracking wording" do
+    {campaign, session} = play_campaign("The Morning Plate Catalog")
+
+    insert_panel_field!(campaign.id, %{
+      key: "plates_catalogued",
+      panel: "Archive",
+      label: "Plates catalogued",
+      value_type: :quantity,
+      unit: "plates",
+      visibility: :public,
+      value: %{"value" => 6}
+    })
+
+    test_pid = self()
+    call_agent = Agent.start_link(fn -> 0 end) |> elem(1)
+    player_action = "Resume cataloging the plates through the morning."
+
+    provider = fn request ->
+      Agent.update(call_agent, &(&1 + 1))
+      send(test_pid, {:morning_catalog_request, request.instructions, decode_request(request)})
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" =>
+             "The morning's cataloging matches three more plates to their provenance cards; " <>
+               "the next uncertain mark is ready for your decision.",
+           "dialogue" => [],
+           "activities" => [],
+           "panel_changes" => [
+             %{
+               "type" => "delta",
+               "key" => "plates_catalogued",
+               "delta" => 3,
+               "reason" => "Three plates received confirmed provenance cards during the work."
+             }
+           ],
+           "time_advance_minutes" => 240
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "catalog-through-morning",
+               player_action,
+               intent: :action,
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:morning_catalog_request, raw_instructions, context}
+    assert Agent.get(call_agent, & &1) == 1
+    assert context["player_action"] == player_action
+
+    instructions = String.replace(raw_instructions, ~r/\s+/, " ")
+
+    assert instructions =~ "cataloging through the morning"
+    assert instructions =~ "commits the scene to that whole span"
+
+    assert instructions =~
+             "Do not stop after one generic beat or advance time without representing the work accomplished"
+
+    assert instructions =~ "whether or not the player says"
+    assert instructions =~ "never infer completed units from elapsed time alone"
+    assert instructions =~ "If no units were completed, leave the panel unchanged"
+    assert instructions =~ "quantity operations: delta {type:delta,key:plates_catalogued,delta:1"
+    assert instructions =~ "final total {type:set,key:plates_catalogued"
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert [%{key: "plates_catalogued", value: 9}] =
+             Enum.flat_map(projection.panels, & &1.fields)
+
+    state = Repo.get_by!(State, campaign_id: campaign.id)
+    assert state.elapsed_world_minutes == 240
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    panel_event = Enum.find(timeline, &Map.has_key?(&1.payload, "panel_changes"))
+
+    assert [%{"key" => "plates_catalogued", "before" => 6, "after" => 9}] =
              panel_event.payload["panel_changes"]
   end
 
@@ -12764,7 +12960,7 @@ defmodule Storyteller.PlayTest do
     assert normalized_instructions =~ "narrate at least this span"
 
     assert normalized_instructions =~
-             "Resolve routine work as a montage of progress and conversation across that span."
+             "Resolve routine work as a montage of actual work, concrete task results, and conversation across the full span."
 
     assert normalized_instructions =~
              "Do not stop for incidental actions or skip ahead merely to move the clock."

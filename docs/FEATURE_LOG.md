@@ -1,5 +1,14 @@
 # Feature log
 
+## 2026-10-09 — Carry routine work through the morning and reconcile tracked totals
+
+- Relevance-shaped campaign context is now used on every GM request to support continuity; extra size-driven compaction runs only when that request exceeds the soft target. The byte target remains a prompt-shaping aid, never a gameplay veto or cost objective. Tests now distinguish ordinary relevance retrieval from pressure compaction and preserve matching canon.
+- The GM's routine-work policy now commits to the span the player requested, shows concrete supported work, and updates a tracked count only for units established as completed. A campaign-specific prompt reference supplies the exact matching panel field and valid operation shape. Quantity ledgers accept an audited nonnegative final total when the GM has established it; money remains delta-only. A merely mentioned panel name no longer forces an update.
+- **Live QA:** in the isolated fictional Quiet Observatory campaign, continuing plate cataloging through the morning eventually completed on the same saved player action. After earlier panel-validation failures and retries, the accepted response advanced from 7:53 a.m. to 10:00 a.m., said three plates had been added, and changed the public catalog total from 6 to 9. Canonical clock, narration, and board matched. This is one successful Luna-low sample after several retries; reducing that interruption and testing varied tasks remain open.
+- **Privacy boundary:** this check used only the independently authored Quiet Observatory QA campaign and its isolated database; no Vineyard campaign or source conversation was accessed.
+- **Verification:** the focused ledger-review regression passed (1 selected, 0 failures, 167 excluded); the complete isolated WSL suite passed (**596 tests, 0 failures**, `--max-cases 16`). `mix format --check-formatted`, `MIX_ENV=test mix compile --warnings-as-errors`, and `git diff --check` all passed. Automated tests use deterministic fake providers and `storyteller_test`; the live example above used GPT-6 Luna at low reasoning.
+- **Next work:** [#1 reduce avoidable validation retries](https://github.com/YuLeven/storyteller/issues/1), [#2 test adaptive pacing across scene scales](https://github.com/YuLeven/storyteller/issues/2), and [#3 stress context retrieval as campaigns grow](https://github.com/YuLeven/storyteller/issues/3).
+
 ## 2026-10-08 — Verify routine return travel with separate NPC presence
 
 - In an isolated Luna-low Quiet Observatory QA turn, a clear two-minute return/check action encountered one internal correction tagged `proposal_validation/location_presence`, then completed on the same saved turn. The rejected provider proposal was not retained, so the specific validator branch and cause cannot be established from the trace.

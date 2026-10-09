@@ -2,7 +2,7 @@
 
 Storyteller is a locally hosted, single-player tabletop role-playing game. You create a campaign, play a character, and talk to an AI game master. Campaigns can span multiple sessions, with the story, world details, and game state saved in a local PostgreSQL database so play can continue later.
 
-The project is in active development. Its current focus is improving story quality and the local play experience; it is not a version 1.0 release.
+The project is in active development. Its current focus is compelling, reliable campaign play; see the [product acceptance criteria](docs/UX_ACCEPTANCE.md) and [implementation plan](IMPLEMENTATION_PLAN.md) for current priorities.
 
 ## What it does
 
@@ -104,5 +104,7 @@ The PostgreSQL database and ChatGPT credentials are stored in Docker named volum
 - [UX acceptance](docs/UX_ACCEPTANCE.md) — functional acceptance and current product priorities.
 - [Implementation plan](IMPLEMENTATION_PLAN.md) — product scope, design decisions, and roadmap.
 - [Feature log](docs/FEATURE_LOG.md) — implementation history.
+- [Contributing](CONTRIBUTING.md) — local setup, checks, and contribution expectations.
+- [Security](SECURITY.md) — local data handling and vulnerability reporting.
 
 Storyteller is licensed under the [MIT License](LICENSE).

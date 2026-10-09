@@ -434,15 +434,26 @@ defmodule Storyteller.Play do
   beat, not fill a roster; don't end after one incidental act or line. Stay
   line-by-line during an active intimate exchange, an established high-stakes
   instant, or a consequential choice; never invent drama or skip ahead through
-  it. Montage work/waits to the requested scale. Finish bounded tasks delegated
-  to capable present NPCs with supported results. If the player explicitly
-  commits a bounded supporting action during that task, carry that stated
-  follow-through through the result this turn; do not ask them to repeat it
-  unless a real interruption or consequential choice arises. Ask only when a
-  real barrier or unresolved consequential choice needs the player. Resolve
-  routine unobstructed movement, conversation, and handling naturally; missing
-  map edges or routine details alone are not barriers. Never invent the player's
-  follow-through, words, choices, or acts.
+  it. Montage work/waits to the requested scale. An explicit bounded routine
+  task over a span (for example, cataloging through the morning or working for
+  the afternoon) commits the scene to that whole span: show an engaging,
+  concise montage of actual work, useful NPC contributions, and a concrete
+  supported result, then hand back only at a real interruption or the next
+  player decision. Do not stop after one generic beat or advance time without
+  representing the work accomplished. Prefer plausible progress when the canon
+  supports it; do not invent a blocker, success, or exact amount. Record a
+  matching panel change for units actually completed, whether or not the player
+  says "track", "record", or "write"; never infer completed units from elapsed
+  time alone. If no units were completed, leave the panel unchanged and make the
+  meaningful outcome clear. Finish bounded tasks delegated to capable present
+  NPCs with supported results. If the player explicitly commits a bounded
+  supporting action during that task, carry that stated follow-through through
+  the result this turn; do not ask them to repeat it unless a real interruption
+  or consequential choice arises. Ask only when a real barrier or unresolved
+  consequential choice needs the player. Resolve routine unobstructed movement,
+  conversation, and handling naturally; missing map edges or routine details
+  alone are not barriers. Never invent the player's follow-through, words,
+  choices, or acts.
   Resolve unclear intent; avoid micro-actions, forced dialogue, and menus.
   No recap, panel facts, or unchanged balances unless asked, changed, or
   decision-relevant. elapsed_world_clock is exact minutes; don't parse labels.
@@ -573,11 +584,20 @@ defmodule Storyteller.Play do
   properties (e.g. charges/condition), preserving unrelated keys; nested maps
   merge. Never update ID, name,
   quantity, unit, category, description, owner, or visibility. Panels track
-  fungible balances. Quantity/money require signed nonzero deltas; text/status/date
-  use set. Use only defined fields with one grounded reason; preserve units and
+  fungible balances. Quantity accepts a signed integer delta or a nonnegative
+  final count when that total is established; money accepts a signed decimal
+  delta; text/status/date use set. Never set money. Use only defined fields with one grounded reason; preserve units and
   nonnegative results. A read-only ledger review changes nothing. Narrated
-  count/balance changes must match a panel operation and its resulting value;
-  never claim untracked progress. Don't echo unchanged board values, enumerate
+  Panel changes use JSON objects with type, key, one operation value, and reason:
+  quantity increment {type:delta,key:<exact key>,delta:3,reason:<grounded>};
+  established quantity total {type:set,key:<exact key>,value:10,reason:<grounded>};
+  money change {type:delta,key:<exact key>,delta:<decimal string>,reason:<grounded>}.
+  Narrated count/balance changes must match a panel operation and its resulting value;
+  never claim untracked progress. For a task that actually completes tracked
+  units, include the grounded panel delta even without a special tracking
+  request; do not infer units from time spent. If no units were completed,
+  leave the count unchanged and narrate the meaningful result. Don't echo
+  unchanged board values, enumerate
   stock, or give exact totals unless the player asks, a material change needs
   explaining, or the number affects a choice. When one item is transferred or
   used, narrate that item's outcome; leave unrelated inventory and resource
@@ -620,7 +640,13 @@ defmodule Storyteller.Play do
   AGENCY AND PACE: The player alone controls their character's actions, words,
   thoughts, movement, and decisions. You control the world and NPCs. Resolve
   ordinary actions and carry routine scenes to the next meaningful choice;
-  match the requested pace and do not invent obstacles or drama. Give supported,
+  match the requested pace and do not invent obstacles or drama. For a bounded
+  routine task over a stated span, carry the actual work through that whole span
+  in an engaging concise montage, with concrete supported progress and a natural
+  handoff only at a real interruption or player decision. Record panel deltas
+  for units actually completed without requiring "track", "record", or "write"
+  wording; never infer units from elapsed time, and leave counts unchanged when
+  none were completed. Give supported,
   vantage-grounded sensory facts before asking for a reaction; never ask the
   player to invent what their character perceives. Complete supported ordinary
   actions, including a requested transfer of an existing item to a present NPC,
@@ -759,7 +785,7 @@ defmodule Storyteller.Play do
   ]
 
   @panel_tracking_cues ~w(
-    track tracked tracking record records recorded log logs logged update updates updated
+    track tracked tracking record recorded log logged update updated
     keep keeps kept add adds added increase increases increased decrease decreases decreased
     registra registrar registren anota anotar anoten actualiza actualizar actualicen
     mantener mantiene mantén añade anadir añadir aumenta aumentar reduce reducir disminuye
@@ -1760,7 +1786,8 @@ defmodule Storyteller.Play do
          repair_guidance,
          previous_validation_failure
        ) do
-    request = add_proposal_repair_guidance(base_request, repair_guidance)
+    request = add_action_panel_reference(base_request, turn)
+    request = add_proposal_repair_guidance(request, repair_guidance)
 
     case generate_and_commit_once(provider, request, turn, attempt_token) do
       {:error, reason, :provider} = error
@@ -2109,10 +2136,13 @@ defmodule Storyteller.Play do
 
         :panel_change ->
           "Use the exact configured key/type, one operation per field, and only allowed keys with " <>
-            "a grounded reason. Quantity: integer delta; money: decimal-string delta; never set " <>
-            "either. If the player explicitly requested an update, include it and keep narration " <>
-            "consistent with the result; choose a plausible bounded amount from the described work. " <>
-            "If no amount is established, do not claim the value changed."
+            "a grounded reason. Quantity: integer delta, or set a nonnegative integer final count " <>
+            "when that total is established; money: decimal-string delta, never set money. Record " <>
+            "supported units actually completed during the task even when the player " <>
+            "did not say track, record, or write; never infer units from elapsed time alone. If none " <>
+            "were completed, leave the panel unchanged and make the meaningful result clear. If the " <>
+            "player explicitly requested an update, include it and keep narration consistent with " <>
+            "the result; choose a plausible bounded amount only when the work supports it."
 
         :location_presence ->
           "Correct the state operations; don't cancel ordinary travel because map data is incomplete. " <>
@@ -2175,6 +2205,50 @@ defmodule Storyteller.Play do
   end
 
   defp proposal_repair_guidance(_stage, _reason, previous_guidance), do: previous_guidance
+
+  defp add_action_panel_reference(request, turn) do
+    action_terms = MapSet.new(panel_request_tokens(turn.player_input))
+
+    fields =
+      turn.campaign_id
+      |> Panels.list_fields()
+      |> Enum.filter(fn panel_field ->
+        panel_request_tokens(panel_field.label <> " " <> panel_field.key)
+        |> Enum.reject(&(&1 in @generic_panel_terms))
+        |> Enum.any?(&MapSet.member?(action_terms, &1))
+      end)
+
+    case fields do
+      [] ->
+        request
+
+      fields ->
+        reference = Enum.map_join(fields, "\n", &panel_operation_reference/1)
+        Map.update(request, :instructions, reference, &(&1 <> "\n\n" <> reference))
+    end
+  end
+
+  defp panel_operation_reference(panel_field) do
+    current = Map.get(panel_field.value || %{}, "value")
+    unit = panel_field.unit || "none"
+
+    operation_examples =
+      case panel_field.value_type do
+        :quantity ->
+          "quantity operations: delta {type:delta,key:#{panel_field.key},delta:1,reason:<grounded>} " <>
+            "or final total {type:set,key:#{panel_field.key},value:<nonnegative integer>,reason:<grounded>}"
+
+        :money ->
+          "money operation: {type:delta,key:#{panel_field.key},delta:<decimal string>,reason:<grounded>}"
+
+        _ ->
+          "set operation: {type:set,key:#{panel_field.key},value:<typed value>,reason:<grounded>}"
+      end
+
+    "Exact campaign panel field for this action: key=#{panel_field.key} " <>
+      "type=#{panel_field.value_type} unit=#{unit} label=#{Jason.encode!(panel_field.label)} " <>
+      "current=#{Jason.encode!(current)}. Use this exact key. #{operation_examples}."
+  end
 
   defp proposal_repair_instruction(check, direction) do
     "Internal correction: the prior GM proposal did not satisfy #{check}. #{direction} " <>
@@ -4742,9 +4816,10 @@ defmodule Storyteller.Play do
       else: {:error, :invalid_response}
   end
 
-  # Enforce only an explicit player request that names a visible panel subject
-  # and asks to track or record it. Ordinary actions mentioning a resource do
-  # not force a change to that resource.
+  # Enforce an explicit bookkeeping request. Task progress can also update a
+  # panel without special tracking wording when the proposal establishes units
+  # completed; the GM policy requires those changes and forbids inferred counts.
+  # Merely mentioning a resource does not force a change.
   defp explicit_panel_tracking_request?(player_input, %PanelField{} = field)
        when is_binary(player_input) do
     input_tokens = panel_request_tokens(player_input)
@@ -4808,6 +4883,21 @@ defmodule Storyteller.Play do
     end
   end
 
+  defp normalize_panel_operation(
+         "set",
+         change,
+         %{value_type: :quantity} = definition,
+         keys,
+         reason
+       ) do
+    with true <- Enum.sort(keys) == Enum.sort(~w(key reason type value)),
+         {:ok, value} <- Panels.validate_value(definition, field(change, :value)) do
+      {:ok, %{type: "set", value: value, reason: String.trim(reason)}}
+    else
+      _ -> {:error, :invalid_panel_set}
+    end
+  end
+
   defp normalize_panel_operation("set", change, %{value_type: type} = definition, keys, reason)
        when type in [:text, :status, :date] do
     with true <- Enum.sort(keys) == Enum.sort(~w(key reason type value)),
@@ -4865,6 +4955,20 @@ defmodule Storyteller.Play do
 
       {:error, _reason} ->
         Repo.rollback(:invalid_response)
+    end
+  end
+
+  defp prepare_panel_change(%{value_type: :quantity} = field, current, %{
+         type: "set",
+         value: value
+       }) do
+    with {:ok, before} <- Panels.validate_value(field, current),
+         {:ok, after_value} <- Panels.validate_value(field, value),
+         true <- before != after_value,
+         true <- abs(after_value - before) <= 1_000_000 do
+      %{before: before, value: after_value, after: after_value}
+    else
+      _ -> Repo.rollback(:invalid_response)
     end
   end
 
@@ -7705,8 +7809,17 @@ defmodule Storyteller.Play do
     guidance = """
 
     The player asks time to pass; follow the general duration, route, agency,
-    and dice rules above. Resolve routine work as a montage of progress and
-    conversation across that span. If the player follows a live event closely
+    and dice rules above. Resolve routine work as a montage of actual work,
+    concrete task results, and conversation across the full span. A bounded
+    task described as "through the morning" or "for the afternoon" commits the
+    scene to that whole period: choose a natural duration consistent with the
+    current clock, not an arbitrary short interval. Do not return after one
+    generic beat or advance time without representing work accomplished. For
+    tracked resources, record only units the scene establishes as completed,
+    without requiring "track", "record", or "write" wording; elapsed time alone
+    never establishes a count. If none were completed, leave the panel unchanged
+    and explain the meaningful result. Hand back only at a real interruption or
+    player decision. If the player follows a live event closely
     (e.g. a match at an asado), keep it moment by moment. Advance only relevant
     world/NPC developments, not player-character actions. Do not stop for
     incidental actions or skip ahead merely to move the clock. Return control
