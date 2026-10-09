@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-08 — Reconcile GM-confirmed companion movement with player travel
+
+- Quiet Observatory live QA exposed a state gap: the player asked Inés to walk from the north terrace to the record room, and the accepted scene showed them working there together. If a streamed proposal omits Inés's canonical location change, ordinary presence validation can force another generation attempt even though the accepted story makes her arrival clear.
+- Added narrowly grounded reconciliation when the action names a co-located public NPC invitation, the player's move resolves to a known public destination, narration explicitly confirms that same NPC crosses into that same destination, and no roll is outstanding. Direct questions and tentative invitations let the GM decide whether the NPC accepts; a refusal or scene that leaves them behind does not move them. The inferred operation still goes through the normal route, duty, visibility, presence, and atomic commit validators.
+- Fake-provider coverage verifies direct and tentative invitations when GM narration confirms travel, plus declined/unaccepted scenes, coherent final locations, and exactly one saved action/story reply. A focused WSL selection across the new regressions and existing movement, roll, route, and barrier cases passed (**19 selected, 0 failures**). This change did not make a live provider request; the live sample confirms story continuity but does not prove that the new inference path itself ran.
+- **Checks:** focused movement selection passed (**19 selected, 0 failures**); the complete Play/SessionLive suite passed (**249 tests, 0 failures**) in WSL against `storyteller_test` with fake providers. Formatting, warnings-as-errors compilation, and `git diff --check` passed. No live provider request was used to test this implementation.
+
 ## 2026-10-08 — Make state-change repairs concrete after live movement QA
 
 - Automatic recovery resumed the same Quiet Observatory action without another player submission. Earlier provider proposals failed `location_presence` and `world_change` validation; the saved action remained intact and invalid state never committed. Rejected model output is not retained, so the exact malformed fields cannot be diagnosed from those responses.

@@ -114,6 +114,25 @@ defmodule Storyteller.Play do
   @third_person_subject_pronouns MapSet.new(~w(he she they ella ellas elle elles il ils))
   @scene_action_conjunctions MapSet.new(~w(and then y luego et puis))
   @non_committal_scene_motion_terms MapSet.new(~w(to will would can could should may might))
+  @explicit_companion_invitation_cues [
+    ["come", "with", "me"],
+    ["walk", "with", "me"],
+    ["go", "with", "me"],
+    ["travel", "with", "me"],
+    ["join", "me"],
+    ["accompany", "me"],
+    ["come", "along"],
+    ["walk", "along"],
+    ["along", "with", "me"],
+    ["ven", "conmigo"],
+    ["camina", "conmigo"],
+    ["acompaname"],
+    ["acompana", "me"],
+    ["viens", "avec", "moi"],
+    ["marche", "avec", "moi"],
+    ["rejoins", "moi"],
+    ["accompagne", "moi"]
+  ]
   @scene_transition_cues [
     ["inside"],
     ["indoors"],
@@ -4868,12 +4887,13 @@ defmodule Storyteller.Play do
   # NPC). Discard only an explicitly routine travel roll that contradicts an
   # already narrated arrival; a risky travel roll stays pending and makes the
   # GM reconcile the fiction. The normal validators below still enforce
-  # visibility, routes, duties, and presence; no NPC movement is inferred.
+  # visibility, routes, duties, and presence. A co-located NPC is inferred
+  # only when explicitly invited and the accepted scene confirms the same move.
   defp reconcile_omitted_player_move(
          location_changes,
          travel_changes,
          character_creations,
-         %Turn{intent: :action, campaign_id: campaign_id, player_input: player_input},
+         turn = %Turn{intent: :action, campaign_id: campaign_id, player_input: player_input},
          narration,
          roll_request
        )
@@ -4928,26 +4948,36 @@ defmodule Storyteller.Play do
           movement_roll? = requested_roll_is_movement?(roll_request)
           routine_movement_roll? = movement_roll? and routine_movement_roll?(roll_request)
 
-          cond do
-            player_moves == [] and is_nil(roll_request) ->
-              {append_inferred_player_move(location_changes, destination.place_id), nil, true}
+          resolved =
+            cond do
+              player_moves == [] and is_nil(roll_request) ->
+                {append_inferred_player_move(location_changes, destination.place_id), nil, true}
 
-            player_moves == [] and narrated_arrival? and not movement_roll? ->
-              {append_inferred_player_move(location_changes, destination.place_id), roll_request,
-               true}
+              player_moves == [] and narrated_arrival? and not movement_roll? ->
+                {append_inferred_player_move(location_changes, destination.place_id),
+                 roll_request, true}
 
-            player_moves == [] and narrated_arrival? and routine_movement_roll? ->
-              {append_inferred_player_move(location_changes, destination.place_id), nil, true}
+              player_moves == [] and narrated_arrival? and routine_movement_roll? ->
+                {append_inferred_player_move(location_changes, destination.place_id), nil, true}
 
-            match?(
-              [%{"place_id" => place_id}] when place_id == destination.place_id,
-              player_moves
-            ) and narrated_arrival? and routine_movement_roll? ->
-              {location_changes, nil, false}
+              match?(
+                [%{"place_id" => place_id}] when place_id == destination.place_id,
+                player_moves
+              ) and narrated_arrival? and routine_movement_roll? ->
+                {location_changes, nil, false}
 
-            true ->
-              {location_changes, roll_request, false}
-          end
+              true ->
+                {location_changes, roll_request, false}
+            end
+
+          reconcile_invited_companion_moves(
+            resolved,
+            turn,
+            narration,
+            current_place_id,
+            destination,
+            characters
+          )
 
         _ ->
           {location_changes, roll_request, false}
@@ -4966,6 +4996,200 @@ defmodule Storyteller.Play do
          roll_request
        ),
        do: {location_changes, roll_request, false}
+
+  defp reconcile_invited_companion_moves(
+         {location_changes, roll_request, inferred_player_move?},
+         %Turn{intent: :action, player_input: player_input, campaign_id: campaign_id},
+         narration,
+         origin_place_id,
+         destination,
+         _characters
+       )
+       when is_list(location_changes) and is_binary(player_input) and is_binary(narration) and
+              is_binary(origin_place_id) and is_map(destination) do
+    player_moves =
+      Enum.filter(location_changes, fn
+        %{"type" => "move_character", "speaker_id" => "player"} -> true
+        _ -> false
+      end)
+
+    can_reconcile_companions? =
+      length(player_moves) == 1 and
+        Map.get(hd(player_moves), "place_id") == destination.place_id and
+        is_nil(roll_request)
+
+    public_npcs = public_scene_npcs(campaign_id)
+
+    if can_reconcile_companions? and
+         not player_transition_denied?([narration]) and
+         public_place?(campaign_id, origin_place_id) do
+      companion_moves =
+        public_npcs
+        |> Enum.filter(&(&1.current_place_id == origin_place_id))
+        |> Enum.filter(fn companion ->
+          explicit_companion_invitation?(player_input, companion, public_npcs) and
+            narrated_companion_arrival?(
+              narration,
+              companion,
+              destination.name,
+              public_npcs
+            ) and
+            not proposed_character_move?(location_changes, companion.speaker_id)
+        end)
+        |> Enum.map(fn companion ->
+          %{
+            "type" => "move_character",
+            "speaker_id" => companion.speaker_id,
+            "place_id" => destination.place_id,
+            "reason" =>
+              "The player explicitly invited this co-located character, and the accepted scene confirms they arrived together."
+          }
+        end)
+
+      {location_changes ++ companion_moves, roll_request, inferred_player_move?}
+    else
+      {location_changes, roll_request, inferred_player_move?}
+    end
+  end
+
+  defp reconcile_invited_companion_moves(
+         result,
+         _turn,
+         _narration,
+         _origin,
+         _destination,
+         _chars
+       ),
+       do: result
+
+  defp public_scene_npcs(campaign_id) do
+    Repo.all(
+      from character in Character,
+        join: place in Place,
+        on:
+          place.campaign_id == character.campaign_id and
+            place.place_id == character.current_place_id,
+        where:
+          character.campaign_id == ^campaign_id and character.role == :gm and
+            place.visibility == :public,
+        select: %{
+          speaker_id: character.speaker_id,
+          name: character.name,
+          role: character.role,
+          current_place_id: character.current_place_id
+        }
+    )
+  end
+
+  defp public_place?(campaign_id, place_id) do
+    Repo.exists?(
+      from place in Place,
+        where:
+          place.campaign_id == ^campaign_id and place.place_id == ^place_id and
+            place.visibility == :public
+    )
+  end
+
+  defp explicit_companion_invitation?(player_input, companion, public_npcs) do
+    name_sequences = unique_npc_name_sequences(companion, public_npcs)
+
+    result =
+      player_input
+      |> String.split(~r/[.!?;\r\n]+/u, trim: true)
+      |> Enum.any?(fn sentence ->
+        tokens = normalized_location_tokens(sentence)
+
+        contains_any_token_sequence?(tokens, name_sequences) and
+          contains_any_token_sequence?(tokens, @explicit_companion_invitation_cues)
+      end)
+
+    result
+  end
+
+  defp narrated_companion_arrival?(narration, companion, destination_name, public_npcs) do
+    name_sequences = unique_npc_name_sequences(companion, public_npcs)
+    destination_sequences = place_name_token_variants(destination_name)
+
+    narration
+    |> String.split(~r/(?<=[.!?])\s+|[;\r\n]+/u, trim: true)
+    |> Enum.any?(fn sentence ->
+      tokens = normalized_location_tokens(sentence)
+
+      contains_any_token_sequence?(tokens, destination_sequences) and
+        narrated_character_crossing?(tokens, name_sequences)
+    end)
+  end
+
+  defp narrated_character_crossing?(tokens, name_sequences) do
+    tokens
+    |> Enum.with_index()
+    |> Enum.any?(fn {_token, cue_index} ->
+      Enum.any?(@scene_transition_cues, fn cue ->
+        if Enum.slice(tokens, cue_index, length(cue)) == cue do
+          case last_scene_movement_index(tokens, cue_index) do
+            nil ->
+              false
+
+            movement_index ->
+              named_character_is_movement_subject?(tokens, movement_index, name_sequences) or
+                named_character_moves_alongside?(
+                  tokens,
+                  movement_index,
+                  cue_index,
+                  name_sequences
+                )
+          end
+        else
+          false
+        end
+      end)
+    end)
+  end
+
+  defp named_character_is_movement_subject?(tokens, movement_index, name_sequences) do
+    Enum.any?(name_sequences, fn name_tokens ->
+      Enum.with_index(Enum.take(tokens, movement_index))
+      |> Enum.any?(fn {_token, name_index} ->
+        if Enum.slice(tokens, name_index, length(name_tokens)) == name_tokens do
+          gap =
+            Enum.slice(
+              tokens,
+              name_index + length(name_tokens),
+              movement_index - name_index - length(name_tokens)
+            )
+
+          has_other_subject =
+            Enum.any?(gap, &(&1 in ["you", "your", "he", "she", "they", "i", "we"]))
+
+          coordinated_subject =
+            Enum.any?(gap, &MapSet.member?(@scene_action_conjunctions, &1)) and
+              Enum.any?(gap, &(&1 in ["you", "your", "i", "we"]))
+
+          length(gap) <= 3 and
+            not Enum.any?(gap, &(&1 in ["as", "while", "because", "but", "although", "if"])) and
+            (not has_other_subject or coordinated_subject)
+        else
+          false
+        end
+      end)
+    end)
+  end
+
+  defp named_character_moves_alongside?(tokens, movement_index, cue_index, name_sequences) do
+    between_motion_and_cue =
+      Enum.slice(tokens, movement_index + 1, cue_index - movement_index - 1)
+
+    Enum.any?(name_sequences, fn name_tokens ->
+      Enum.with_index(between_motion_and_cue)
+      |> Enum.any?(fn {_token, name_index} ->
+        Enum.slice(between_motion_and_cue, name_index, length(name_tokens)) == name_tokens and
+          Enum.any?(
+            Enum.take(between_motion_and_cue, name_index),
+            &(&1 in ["with", "beside", "alongside"])
+          )
+      end)
+    end)
+  end
 
   defp inferred_move_is_safe_with_roll?(
          true,

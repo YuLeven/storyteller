@@ -5192,6 +5192,258 @@ defmodule Storyteller.PlayTest do
            end)
   end
 
+  test "an accepted explicit invitation moves a co-located companion in the same turn" do
+    {campaign, session} = play_campaign("The Invited Companion Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "record-room",
+          name: "The Record Room",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 5,
+        scene_relevance: "A short public corridor leads to the record room.",
+        visibility: :public
+      })
+    )
+
+    companion = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(
+      Character.changeset(companion, %{name: "Dr. Inés Vale", current_place_id: origin.place_id})
+    )
+
+    calls = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" =>
+          "You and Dr. Inés Vale walk through the corridor into the Record Room together.",
+        "dialogue" => [],
+        "activities" => [],
+        "location_changes" => [],
+        "travel_changes" => [],
+        "time_advance_minutes" => 5
+      })
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "invite-ines-to-record-room",
+               "I walk to the Record Room. Could you come with me, Inés Vale?",
+               provider: fn _request ->
+                 Agent.update(calls, &(&1 + 1))
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    assert Agent.get(calls, & &1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    companion = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    assert player.current_place_id == destination.place_id
+    assert companion.current_place_id == destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    assert Enum.count(turn_events, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(turn_events, &(&1.event_type == :gm_narration)) == 1
+
+    location_event = Enum.find(turn_events, &(&1.event_type == :state_change))
+
+    moves =
+      Enum.filter(location_event.payload["location_changes"], &(&1["type"] == "move_character"))
+
+    assert Enum.map(moves, & &1["speaker_id"]) == ["player", "npc:lyra"]
+    assert Enum.all?(moves, &(&1["place_id"] == destination.place_id))
+  end
+
+  test "unaccepted or declined companion invitations do not move canonical NPCs" do
+    cases = [
+      {
+        "unaccepted-invitation",
+        "I walk to the Record Room. Would Dr. Inés Vale come with me?",
+        "You enter the Record Room alone; Dr. Inés Vale stays at the Glass Observatory."
+      },
+      {
+        "declined-invitation",
+        "I walk to the Record Room and invite Dr. Inés Vale to come with me.",
+        "You enter the Record Room alone. Dr. Inés Vale declines and stays at the Glass Observatory."
+      }
+    ]
+
+    Enum.each(cases, fn {key, action, narration} ->
+      {campaign, session} = play_campaign("The Companion Invitation #{key}")
+      origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+      destination =
+        Repo.insert!(
+          Place.changeset(%Place{}, %{
+            campaign_id: campaign.id,
+            place_id: "record-room",
+            name: "The Record Room",
+            visibility: :public
+          })
+        )
+
+      Repo.insert!(
+        PlaceConnection.changeset(%PlaceConnection{}, %{
+          campaign_id: campaign.id,
+          place_a_id: origin.place_id,
+          place_b_id: destination.place_id,
+          travel_minutes: 5,
+          scene_relevance: "A short public corridor leads to the record room.",
+          visibility: :public
+        })
+      )
+
+      companion = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+      Repo.update!(
+        Character.changeset(companion, %{
+          name: "Dr. Inés Vale",
+          current_place_id: origin.place_id
+        })
+      )
+
+      calls = Agent.start_link(fn -> 0 end) |> elem(1)
+
+      assert {:ok, %{status: :completed} = turn} =
+               Play.submit_turn(
+                 campaign.id,
+                 session.id,
+                 key,
+                 action,
+                 provider: fn _request ->
+                   Agent.update(calls, &(&1 + 1))
+
+                   {:ok,
+                    Jason.encode!(
+                      ordinary_proposal(%{
+                        "narration" => narration,
+                        "dialogue" => [],
+                        "activities" => [],
+                        "location_changes" => [],
+                        "travel_changes" => [],
+                        "time_advance_minutes" => 5
+                      })
+                    )}
+                 end,
+                 model: "test-model"
+               )
+
+      assert Agent.get(calls, & &1) == 1
+
+      assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+               destination.place_id
+
+      assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra").current_place_id ==
+               origin.place_id
+
+      {:ok, timeline} = Play.public_timeline(campaign.id)
+      turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+      assert Enum.count(turn_events, &(&1.event_type == :player_action)) == 1
+      assert Enum.count(turn_events, &(&1.event_type == :gm_narration)) == 1
+
+      location_event = Enum.find(turn_events, &(&1.event_type == :state_change))
+
+      assert Enum.map(location_event.payload["location_changes"], & &1["speaker_id"]) == [
+               "player"
+             ]
+    end)
+  end
+
+  test "a speculative invitation moves canon when the accepted scene confirms arrival" do
+    {campaign, session} = play_campaign("The Speculative Companion Observatory")
+    origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
+
+    destination =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "record-room",
+          name: "The Record Room",
+          visibility: :public
+        })
+      )
+
+    Repo.insert!(
+      PlaceConnection.changeset(%PlaceConnection{}, %{
+        campaign_id: campaign.id,
+        place_a_id: origin.place_id,
+        place_b_id: destination.place_id,
+        travel_minutes: 5,
+        scene_relevance: "A short public corridor leads to the record room.",
+        visibility: :public
+      })
+    )
+
+    companion = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+
+    Repo.update!(
+      Character.changeset(companion, %{name: "Dr. Inés Vale", current_place_id: origin.place_id})
+    )
+
+    calls = Agent.start_link(fn -> 0 end) |> elem(1)
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" =>
+          "You and Dr. Inés Vale walk through the corridor into the Record Room together.",
+        "dialogue" => [],
+        "activities" => [],
+        "location_changes" => [],
+        "travel_changes" => [],
+        "time_advance_minutes" => 5
+      })
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "wonder-if-ines-comes-along",
+               "I walk to the Record Room. I wonder if Dr. Inés Vale might come along.",
+               provider: fn _request ->
+                 Agent.update(calls, &(&1 + 1))
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    assert Agent.get(calls, & &1) == 1
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player").current_place_id ==
+             destination.place_id
+
+    assert Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra").current_place_id ==
+             destination.place_id
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    assert Enum.count(turn_events, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(turn_events, &(&1.event_type == :gm_narration)) == 1
+
+    location_event = Enum.find(turn_events, &(&1.event_type == :state_change))
+
+    moves =
+      Enum.filter(location_event.payload["location_changes"], &(&1["type"] == "move_character"))
+
+    assert Enum.map(moves, & &1["speaker_id"]) == ["player", "npc:lyra"]
+    assert Enum.all?(moves, &(&1["place_id"] == destination.place_id))
+  end
+
   test "an unresolved roll prevents an omitted return move from being inferred" do
     {campaign, session} = play_campaign("The Lower Dome Ledge Observatory")
     origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")
