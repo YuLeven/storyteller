@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-08 — Exercise ensemble play and player-led task choice
+
+- In a separate fictional QA campaign on GPT-6 Luna at low reasoning, two present companions handled different requested checks. They gave separately attributed findings without narration repeating their answers, and uncertain evidence remained uncertain.
+- When invited to take the lead, they offered distinct role-fitting tasks. The player chose a routine task with one companion; the GM followed the established route, left the other companion behind, and resolved the task in one concise beat. The player board showed the matching location, elapsed time, and remaining presence. No blocker or roll was added.
+- The investigation answer itself did not suggest a next lead; the player had to invite the GM to surface another task. Keep testing natural handoffs and more clearly differentiated voices. This is a focused positive sample, not evidence that the story-quality goal is complete.
+- Recent stage logs showed first output around 1.9–5.1 seconds and streams around 8.6–11.5 seconds in a small uncorrelated batch. That batch also included one `location_presence` rejection and internal same-turn correction; current logs do not identify which player action it belonged to. Treat these as diagnostic observations, not a benchmark. Measure the full pending-action and reveal experience with turn-correlated timestamps.
+- No runtime code changed in this iteration; no test suite was run. The separate QA play screen and final board state were checked directly.
+
 ## 2026-10-08 — Keep spoken lines attributed once
 
 - An NPC-led Quiet Observatory turn let Inés choose the next task and carried Mara to the observing terrace; its two-minute travel and current place agreed. However, Inés's full quoted invitation appeared in both GM narration and her speech bubble. In a later comparison beat, narration and speech paraphrased the same finding. That makes the character sound mechanically repeated and dilutes the scene.
