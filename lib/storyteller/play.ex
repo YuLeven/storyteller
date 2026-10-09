@@ -1855,6 +1855,7 @@ defmodule Storyteller.Play do
                   {:invalid_response, category},
                   repair_guidance
                 )
+                |> append_validation_repair_feedback(signature)
             end
 
           Logger.warning(
@@ -1974,8 +1975,21 @@ defmodule Storyteller.Play do
         case result do
           {:error, {:invalid_response, category}, :proposal_validation}
           when category in @proposal_failure_categories ->
-            {:error, {:invalid_response, category}, :proposal_validation,
-             proposal_response_signature(response)}
+            repair_feedback =
+              case {category, decode_proposal(response)} do
+                {:panel_change, {:ok, rejected_proposal}} ->
+                  proposal_validation_repair_feedback(category, rejected_proposal, turn)
+
+                _ ->
+                  nil
+              end
+
+            signature = %{
+              response: proposal_response_signature(response),
+              repair_feedback: repair_feedback
+            }
+
+            {:error, {:invalid_response, category}, :proposal_validation, signature}
 
           other ->
             other
@@ -2275,6 +2289,110 @@ defmodule Storyteller.Play do
 
   defp proposal_validation_repair_decision(_previous, category, signature),
     do: {:retry, {category, signature, false}}
+
+  defp append_validation_repair_feedback(guidance, %{repair_feedback: feedback})
+       when is_binary(feedback) and feedback != "" do
+    guidance <> "\n\nValidator finding from the rejected proposal: " <> feedback
+  end
+
+  defp append_validation_repair_feedback(guidance, _signature), do: guidance
+
+  defp proposal_validation_repair_feedback(:panel_change, proposal, turn) do
+    definitions =
+      turn.campaign_id
+      |> Panels.list_fields()
+      |> Enum.filter(&(&1.visibility == :public))
+
+    definitions_by_key = Map.new(definitions, &{&1.key, &1})
+    raw_changes = field(proposal, :panel_changes, [])
+
+    changes = if is_list(raw_changes), do: raw_changes, else: []
+
+    proposed_keys =
+      changes
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&field(&1, :key))
+      |> Enum.filter(&is_binary/1)
+
+    required_fields =
+      Enum.filter(definitions, &explicit_panel_tracking_request?(turn.player_input, &1))
+
+    missing_fields = Enum.reject(required_fields, &(&1.key in proposed_keys))
+
+    malformed_known_fields =
+      changes
+      |> Enum.filter(&is_map/1)
+      |> Enum.flat_map(fn change ->
+        case Map.get(definitions_by_key, field(change, :key)) do
+          %PanelField{} = definition ->
+            if match?({:ok, _normalized}, normalize_panel_change(change, definitions_by_key)),
+              do: [],
+              else: [definition]
+
+          _ ->
+            []
+        end
+      end)
+      |> Enum.uniq_by(& &1.key)
+
+    duplicate_keys =
+      proposed_keys
+      |> Enum.frequencies()
+      |> Enum.filter(fn {_key, count} -> count > 1 end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.filter(&Map.has_key?(definitions_by_key, &1))
+
+    action_terms = MapSet.new(panel_request_tokens(turn.player_input))
+
+    referenced_fields =
+      definitions
+      |> Enum.filter(fn panel_field ->
+        panel_field.key in proposed_keys or panel_field in missing_fields or
+          panel_field in malformed_known_fields or
+          panel_request_tokens(panel_field.label <> " " <> panel_field.key)
+          |> Enum.reject(&(&1 in @generic_panel_terms))
+          |> Enum.any?(&MapSet.member?(action_terms, &1))
+      end)
+      |> Enum.take(8)
+
+    findings =
+      []
+      |> maybe_add_panel_finding(
+        not is_list(raw_changes),
+        "panel_changes must be an array, using [] when there is no tracked change"
+      )
+      |> maybe_add_panel_finding(
+        missing_fields != [],
+        "the saved action explicitly requested a tracked update, but the response omitted " <>
+          Enum.map_join(missing_fields, ", ", &"#{&1.key} (#{&1.label})")
+      )
+      |> maybe_add_panel_finding(
+        malformed_known_fields != [],
+        "an operation for a configured public field did not match its accepted key/type/value/reason shape"
+      )
+      |> maybe_add_panel_finding(
+        duplicate_keys != [],
+        "the response proposed more than one operation for a configured public field"
+      )
+
+    findings =
+      if findings == [],
+        do: ["one or more panel operations were invalid; do not invent fields or values"],
+        else: findings
+
+    field_contracts = Enum.map_join(referenced_fields, "\n", &panel_operation_reference/1)
+
+    (Enum.join(findings, "; ") <>
+       ". " <>
+       "Correct only the rejected panel operation. Preserve the narration unless it must change " <>
+       "to agree with the accepted value. Keep all other state unchanged. " <> field_contracts)
+    |> String.trim()
+  end
+
+  defp proposal_validation_repair_feedback(_category, _proposal, _turn), do: nil
+
+  defp maybe_add_panel_finding(findings, true, message), do: findings ++ [message]
+  defp maybe_add_panel_finding(findings, false, _message), do: findings
 
   defp proposal_repair_check(:proposal_shape), do: "the required response structure"
   defp proposal_repair_check(:narration), do: "the narration requirements"

@@ -2,7 +2,7 @@
 
 Storyteller is a locally hosted, single-player tabletop role-playing game. You create a campaign, play a character, and talk to an AI game master. Campaigns can span multiple sessions, with the story, world details, and game state saved in a local PostgreSQL database so play can continue later.
 
-The project is in active development. Its current focus is compelling, reliable campaign play; see the [product acceptance criteria](docs/UX_ACCEPTANCE.md) and [implementation plan](IMPLEMENTATION_PLAN.md) for current priorities.
+See the [product acceptance criteria](docs/UX_ACCEPTANCE.md) and [implementation plan](IMPLEMENTATION_PLAN.md) for the product scope and current priorities.
 
 ## What it does
 
@@ -21,7 +21,7 @@ Storyteller is a local web app that connects to ChatGPT with your account's auth
 
 1. Start the app using the instructions below and open [http://127.0.0.1:4000](http://127.0.0.1:4000).
 2. Open **Connect ChatGPT** at [http://127.0.0.1:4000/auth/connect](http://127.0.0.1:4000/auth/connect), choose **Continue with ChatGPT**, and review and approve access in ChatGPT. You will return to the local app when authorization completes. This plan-usage preview is available only for eligible accounts and apps.
-3. On the same page, optionally choose an available model under **Game master model**. **Automatic** uses the first model available to the connected account.
+3. The game master defaults to **GPT-6 Luna**. On the same page, you can choose another model available to the connected account or select **Automatic**, which uses the first model returned by the account catalog.
 4. Choose **New campaign**, enter and review the campaign details, and create it. Open the campaign and resume its first session; Storyteller prepares the opening scene automatically.
 5. In the session, describe what your character does, ask the GM a question, inspect the scene, or choose **Time passage** for an uninterrupted interval. Roll your own D20 when the GM calls for one.
 6. Return to the campaign to resume the current session or start another. Starting another session completes the active one while keeping its history. Use the campaign's backup controls to export or restore a separate copy.

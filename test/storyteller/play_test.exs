@@ -8548,6 +8548,11 @@ defmodule Storyteller.PlayTest do
     assert corrected_instructions =~
              "Exact campaign panel field for this action: key=plates_catalogued type=quantity unit=plates label=\"Plates catalogued\" current=0"
 
+    assert corrected_instructions =~
+             "Validator finding from the rejected proposal: the saved action explicitly requested a tracked update"
+
+    assert corrected_instructions =~ "the response omitted plates_catalogued (Plates catalogued)"
+
     assert {:ok, projection} = Play.public_projection(campaign.id)
 
     assert [%{key: "plates_catalogued", value: 4}] =
@@ -8558,6 +8563,96 @@ defmodule Storyteller.PlayTest do
 
     assert [%{"key" => "plates_catalogued", "before" => 0, "after" => 4}] =
              panel_event.payload["panel_changes"]
+  end
+
+  test "a malformed operation for a known panel field is repaired with its exact accepted shape" do
+    {campaign, session} = play_campaign("The Known Panel Shape Repair")
+
+    insert_panel_field!(campaign.id, %{
+      key: "plates_catalogued",
+      panel: "Archive",
+      label: "Plates catalogued",
+      value_type: :quantity,
+      unit: "plates",
+      visibility: :public,
+      value: %{"value" => 6}
+    })
+
+    test_pid = self()
+    attempts = :atomics.new(1, signed: false)
+
+    provider = fn request ->
+      attempt = :atomics.add_get(attempts, 1, 1)
+      send(test_pid, {:known_panel_shape_attempt, attempt, request.instructions})
+
+      panel_change =
+        if attempt == 1 do
+          %{
+            "type" => "delta",
+            "key" => "plates_catalogued",
+            "delta" => 3,
+            "unit" => "plates",
+            "reason" => "Three newly confirmed plates were catalogued."
+          }
+        else
+          %{
+            "type" => "delta",
+            "key" => "plates_catalogued",
+            "delta" => 3,
+            "reason" => "Three newly confirmed plates were catalogued."
+          }
+        end
+
+      {:ok,
+       Jason.encode!(
+         ordinary_proposal(%{
+           "narration" => "Three more plates now have confirmed provenance cards.",
+           "dialogue" => [],
+           "activities" => [],
+           "panel_changes" => [panel_change],
+           "time_advance_minutes" => 60
+         })
+       )}
+    end
+
+    assert {:ok, %{status: :completed, player_input: player_input}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "repair-malformed-known-panel-operation",
+               "Catalogue three more plates and update the plates catalogued total.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert player_input == "Catalogue three more plates and update the plates catalogued total."
+    assert_receive {:known_panel_shape_attempt, 1, first_instructions}
+    assert_receive {:known_panel_shape_attempt, 2, corrected_instructions}
+    refute first_instructions =~ "Validator finding from the rejected proposal:"
+
+    assert corrected_instructions =~
+             "Validator finding from the rejected proposal: an operation for a configured public field did not match its accepted key/type/value/reason shape"
+
+    assert corrected_instructions =~
+             "key=plates_catalogued type=quantity unit=plates label=\"Plates catalogued\" current=6"
+
+    assert corrected_instructions =~
+             "quantity operations: delta {type:delta,key:plates_catalogued,delta:1,reason:<grounded>}"
+
+    assert :atomics.get(attempts, 1) == 2
+
+    assert {:ok, projection} = Play.public_projection(campaign.id)
+
+    assert [%{key: "plates_catalogued", value: 9}] =
+             Enum.flat_map(projection.panels, & &1.fields)
+
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+    assert Enum.count(timeline, &Map.has_key?(&1.payload, "panel_changes")) == 1
+
+    assert Enum.find(timeline, &(&1.event_type == :gm_narration)).payload["text"] ==
+             "Three more plates now have confirmed provenance cards."
   end
 
   test "an established absolute catalog total can be committed as an audited panel set" do

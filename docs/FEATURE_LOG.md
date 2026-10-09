@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-08 — Make tracked-panel corrections more actionable
+
+- Proposal validation remains strict and atomic. When a public tracked-panel operation is rejected, the same saved turn now receives a bounded repair note identifying an explicitly requested field that was omitted or a malformed operation for a known field. The retry guidance uses only the saved player action and configured public field definitions; it can include the canonical key, type, unit, current value, and accepted operation shape, but never copies rejected narration, invalid values, or private fields.
+- Deterministic regressions cover an omitted requested total and a malformed operation for a known quantity field. Both verify the original player action is recorded once, the corrected result commits once, and the public board matches its receipt. No validation rule was relaxed.
+- **Verification:** full isolated WSL suite passed (**597 tests, 0 failures**) against `storyteller_test`; formatting, warnings-as-errors compilation, and `git diff --check` passed. In the separate fictional Quiet Observatory campaign, one GPT-6 Luna-low submission asked to catalogue the next two plates over half an hour. It completed with matching narration, a 30-minute clock advance, and board count 9→11; the clock mystery remained unresolved. No player retry was needed. This sample does not show whether any internal correction was used, and it does not establish a general first-response or retry rate.
+- The broader player-retry goal remains open: [#1 reduce avoidable validation retries](https://github.com/YuLeven/storyteller/issues/1), alongside [#2 adaptive pacing](https://github.com/YuLeven/storyteller/issues/2) and [#3 context retrieval as campaigns grow](https://github.com/YuLeven/storyteller/issues/3). This focused change does not establish that validation corrections are rare across live play.
+- README setup guidance now reflects GPT-6 Luna as the default and Automatic as an explicit option.
+
 ## 2026-10-09 — Carry routine work through the morning and reconcile tracked totals
 
 - Relevance-shaped campaign context is now used on every GM request to support continuity; extra size-driven compaction runs only when that request exceeds the soft target. The byte target remains a prompt-shaping aid, never a gameplay veto or cost objective. Tests now distinguish ordinary relevance retrieval from pressure compaction and preserve matching canon.
