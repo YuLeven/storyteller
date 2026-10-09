@@ -4707,6 +4707,96 @@ defmodule Storyteller.PlayTest do
            ) == 1
   end
 
+  test "ignores a named stay-behind place when inferring the player's travel destination" do
+    {campaign, session} =
+      play_campaign("The North Terrace Reading Observatory",
+        starting_location: "The Record Room"
+      )
+
+    record_room = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Record Room")
+
+    terrace =
+      Repo.insert!(
+        Place.changeset(%Place{}, %{
+          campaign_id: campaign.id,
+          place_id: "north-terrace",
+          name: "North Terrace",
+          visibility: :public
+        })
+      )
+
+    insert_travel_connection!(campaign.id, record_room.place_id, terrace.place_id, 2)
+
+    tom = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "npc:lyra")
+    Repo.update!(Character.changeset(tom, %{name: "Tom"}))
+
+    ines =
+      Repo.insert!(
+        Character.changeset(%Character{}, %{
+          campaign_id: campaign.id,
+          speaker_id: "npc:ines",
+          name: "Inés",
+          role: :gm,
+          current_place_id: terrace.place_id
+        })
+      )
+
+    action =
+      "I thank Tom and walk the established two minutes back to the North Terrace, " <>
+        "leaving him to continue his rounds in the Record Room. I rejoin Inés and ask " <>
+        "how the routine readings went. Let the ordinary walk and check resolve together; " <>
+        "stop only if the readings reveal something that needs my choice."
+
+    proposal =
+      ordinary_proposal(%{
+        "narration" =>
+          "You return to the North Terrace, where Inés has the routine readings ready. " <>
+            "Tom continues his rounds in the Record Room.",
+        "dialogue" => [
+          %{"speaker_id" => ines.speaker_id, "text" => "The routine readings are steady."}
+        ],
+        "activities" => [],
+        "location_changes" => [],
+        "travel_changes" => [],
+        "time_advance_minutes" => 0
+      })
+
+    provider_calls = :atomics.new(1, [])
+
+    assert {:ok, %{status: :completed} = turn} =
+             Play.submit_turn(campaign.id, session.id, "return-for-routine-readings", action,
+               provider: fn _request ->
+                 :atomics.add_get(provider_calls, 1, 1)
+                 {:ok, Jason.encode!(proposal)}
+               end,
+               model: "test-model"
+             )
+
+    assert :atomics.get(provider_calls, 1) == 1
+
+    player = Repo.get_by!(Character, campaign_id: campaign.id, speaker_id: "player")
+    assert player.current_place_id == terrace.place_id
+    assert Repo.get_by!(Character, id: tom.id).current_place_id == record_room.place_id
+    assert Repo.get_by!(Character, id: ines.id).current_place_id == terrace.place_id
+    assert Repo.get_by!(State, campaign_id: campaign.id).elapsed_world_minutes == 2
+
+    {:ok, timeline} = Play.public_timeline(campaign.id)
+    turn_events = Enum.filter(timeline, &(&1.turn_id == turn.id))
+    assert Enum.count(turn_events, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(turn_events, &(&1.event_type == :gm_narration)) == 1
+
+    assert Enum.any?(turn_events, fn event ->
+             event.event_type == :npc_dialogue and event.speaker_id == ines.speaker_id
+           end)
+
+    movement_event = Enum.find(turn_events, &Map.has_key?(&1.payload, "location_changes"))
+
+    assert Enum.any?(movement_event.payload["location_changes"], fn change ->
+             change["speaker_id"] == "player" and change["place_id"] == terrace.place_id and
+               change["travel_minutes"] == 2
+           end)
+  end
+
   test "reconciles an omitted return move before dialogue with a character at the destination" do
     {campaign, session} = play_campaign("The Lower Dome Scratch Observatory")
     origin = Repo.get_by!(Place, campaign_id: campaign.id, name: "The Glass Observatory")

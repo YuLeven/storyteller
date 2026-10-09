@@ -1,5 +1,10 @@
 # Feature log
 
+## 2026-10-08 — Verify routine return travel with separate NPC presence
+
+- In an isolated Luna-low Quiet Observatory QA turn, a clear two-minute return/check action encountered one internal correction tagged `proposal_validation/location_presence`, then completed on the same saved turn. The rejected provider proposal was not retained, so the specific validator branch and cause cannot be established from the trace.
+- A deterministic fake-provider behavior test now covers the exact player action with a minimal accepted response: Storyteller infers the established two-minute player move, leaves Tom in the Record Room, retains Inés on the North Terrace, and accepts her dialogue in one provider call. This confirms that coherent response shape succeeds; it does not reproduce the rejected proposal or prove first-response reliability. No validator was relaxed.
+
 ## 2026-10-08 — Correlate GM correction attempts without story data
 
 - The owner clarified the product north star: fun, engaging, quick-paced, consistent, and lifelike play; never cost optimization.
