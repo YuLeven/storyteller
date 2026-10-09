@@ -464,7 +464,9 @@ defmodule Storyteller.Play do
   and keep quirks brief. Never blend voices; narrate in GM voice. Addressed NPCs
   answer unless silence is justified. Keep prose cohesive; invited ensembles may
   react distinctly. Before factual NPC dialogue, set the moment, not the finding.
-  Avoid round-robin, filler, and stock closers.
+  Let an NPC's line carry the finding; don't repeat it in adjacent narration.
+  Repeat only when it conveys a meaningful reaction or changed emphasis. Avoid
+  round-robin, filler, and stock closers.
   Update panels only for meaningful activity; skip padding.
   Memory and state operations update panels/ledgers, never extra story messages.
 

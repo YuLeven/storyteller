@@ -1,5 +1,12 @@
 # Feature log
 
+## 2026-10-08 — Keep narrative beats and NPC dialogue from echoing
+
+- A focused Luna-low Quiet Observatory follow-up established a useful answer, but the GM narration and Inés's speech bubble repeated the same conclusion and caveat. That felt like one line delivered twice instead of a character contributing naturally to the scene.
+- Clarified the runtime GM contract: when an NPC delivers a finding, the narration sets the moment without restating it; an echo remains welcome when it conveys a meaningful reaction or change in emphasis. Updated story acceptance criteria and added a request-contract regression. This is a prompt-direction fix; it does not prove that all generated dialogue will avoid repetition.
+- One post-change Luna-low turn in the isolated Quiet Observatory campaign used a brief GM stage-setting line and let Inés deliver the finding and what remained uncertain. The adjacent narration did not repeat her answer, and the in-world date/time remained unchanged. This is one positive sample, not proof of reliable dialogue quality or broad latency.
+- **Checks:** the focused GM request-contract regression passed (**1 selected, 0 failures**) in WSL against `storyteller_test`; formatting and `git diff --check` passed. No expensive-model comparison was run.
+
 ## 2026-10-08 — Reconcile GM-confirmed companion movement with player travel
 
 - Quiet Observatory live QA exposed a state gap: the player asked Inés to walk from the north terrace to the record room, and the accepted scene showed them working there together. If a streamed proposal omits Inés's canonical location change, ordinary presence validation can force another generation attempt even though the accepted story makes her arrival clear.

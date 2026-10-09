@@ -1424,6 +1424,10 @@ defmodule Storyteller.PlayTest do
              "keep quirks brief"
 
     assert instructions =~ "Never blend voices; narrate in GM voice."
+
+    assert instructions =~
+             "Let an NPC's line carry the finding; don't repeat it in adjacent narration."
+
     refute instructions =~ "TRAVEL NOW:"
 
     assert characters["npc:marcel"]["name"] == "Marcel"
