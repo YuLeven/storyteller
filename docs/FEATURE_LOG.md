@@ -1,5 +1,13 @@
 # Feature log
 
+## 2026-10-08 — Make state-change repairs concrete after live movement QA
+
+- Automatic recovery resumed the same Quiet Observatory action without another player submission. Earlier provider proposals failed `location_presence` and `world_change` validation; the saved action remained intact and invalid state never committed. Rejected model output is not retained, so the exact malformed fields cannot be diagnosed from those responses.
+- Tightened the runtime GM policy and correction guidance to make each state channel explicit: `public_changes` for date/time/weather, `location_changes` for place/presence, `inventory_changes` for owned items, `panel_changes` for resources, and `private_changes` for GM-private world facts. Added a fake-provider regression that puts location in the wrong field and verifies the same turn succeeds after actionable repair.
+- In a later focused Luna-low replay of that same saved action, the player reached the record room in two in-world minutes with Inés present. They compared the old notes; the narration preserved that no matching pulse or cause was established and left the clock untouched. The action and reply each appeared once. This is one successful recovery/story sample, not proof that first-response failures are solved.
+- Updated the canonical GM policy and player-facing QA acceptance contract. No campaign content is included in repository documentation.
+- **Checks:** the `Play` and session `SessionLive` suites passed (**246 tests, 0 failures**) against `storyteller_test` with fake providers. `mix format --check-formatted`, warnings-as-errors development compilation, and `git diff --check` passed. The live sample used only the existing isolated Quiet Observatory campaign and GPT-6 Luna at low reasoning effort.
+
 ## 2026-10-08 — Recover the same action when the provider cannot confirm usage
 
 - The Quiet Observatory QA session's saved movement/action could not be resolved because the ChatGPT-plan provider returned `usage_unavailable`. A single intentional Luna retry returned the same status; the saved action and campaign canon remained intact. The persisted default GM model for this isolated campaign is `gpt-6-luna`.

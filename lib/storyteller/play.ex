@@ -478,6 +478,13 @@ defmodule Storyteller.Play do
   (e.g. current_date, world_time, time_of_day, conditions). Create places before
   moving anyone; keep stable IDs and record grounded place changes in
   location_changes. Move the player only to a public place via location_changes.
+  STATE CHANNELS: public_changes may set only date, time, or weather. Never put
+  location/current_location, inventory, or tracked resources in public_changes
+  or private_changes. Use location_changes for place/presence, inventory_changes
+  for owned items, and panel_changes for tracked balances and campaign resources.
+  private_changes is only for GM-private world facts, not a substitute for those
+  canonical operations. If no durable change is needed, leave the change fields
+  empty instead of inventing one.
   Create NPCs with fresh IDs and name/visible_facts/gm_private_facts. At first
   meeting, introduce naturally, never as a stat notice, and place them in the
   scene before speech/action; nil isn't presence. Use known IDs thereafter. Public NPC speech/activity
@@ -2037,8 +2044,11 @@ defmodule Storyteller.Play do
             "the player's action; describe only what the GM-controlled characters do."
 
         :world_change ->
-          "Use only valid public/private world-change fields with concise supported values and a " <>
-            "grounded reason. Do not use a world change to replace a character, inventory, or tracked-panel operation."
+          "public_changes may set only date, time, or weather. Never put location/current_location, " <>
+            "inventory, or tracked resources in public_changes or private_changes. Use location_changes " <>
+            "for place/presence, inventory_changes for owned items, and panel_changes for tracked " <>
+            "resources. private_changes is only for GM-private world facts. If no durable world " <>
+            "change is needed, leave both world-change maps empty."
 
         :character_creation ->
           "For a new character, provide a unique speaker ID, required identity/profile fields, and " <>

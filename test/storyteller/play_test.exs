@@ -6788,6 +6788,68 @@ defmodule Storyteller.PlayTest do
     assert {:ok, []} = Play.public_timeline(campaign.id)
   end
 
+  test "world-change repair names the correct canonical state channels" do
+    {campaign, session} = play_campaign("The Observing Logbook")
+    test_pid = self()
+    provider_calls = :atomics.new(1, signed: false)
+
+    invalid_proposal =
+      ordinary_proposal(%{
+        "narration" => "The logbook's oldest entries are indexed by date.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => [],
+        "public_changes" => %{"location" => "The archive room"}
+      })
+
+    accepted_proposal =
+      ordinary_proposal(%{
+        "narration" => "The oldest dated note sits in the observatory's first logbook.",
+        "dialogue" => [],
+        "activities" => [],
+        "character_updates" => []
+      })
+
+    provider = fn request ->
+      attempt = :atomics.add_get(provider_calls, 1, 1)
+      send(test_pid, {:world_change_repair_request, attempt, request.instructions})
+
+      proposal = if attempt == 1, do: invalid_proposal, else: accepted_proposal
+      {:ok, Jason.encode!(proposal)}
+    end
+
+    assert {:ok, %{status: :completed}} =
+             Play.submit_turn(
+               campaign.id,
+               session.id,
+               "world-change-repair",
+               "I check the oldest dated reference to the north dome.",
+               provider: provider,
+               model: "test-model"
+             )
+
+    assert_receive {:world_change_repair_request, 1, first_instructions}
+    assert_receive {:world_change_repair_request, 2, corrected_instructions}
+
+    assert first_instructions =~ "public_changes may set only date, time, or weather"
+    assert first_instructions =~ "Use location_changes for place/presence"
+    assert first_instructions =~ "panel_changes for tracked balances and campaign resources"
+
+    assert corrected_instructions =~
+             "public_changes may set only date, time, or weather"
+
+    assert corrected_instructions =~
+             "Never put location/current_location, inventory, or tracked resources in public_changes or private_changes"
+
+    assert corrected_instructions =~
+             "Use location_changes for place/presence, inventory_changes for owned items, and panel_changes for tracked resources"
+
+    assert :atomics.get(provider_calls, 1) == 2
+    assert {:ok, timeline} = Play.public_timeline(campaign.id)
+    assert Enum.count(timeline, &(&1.event_type == :player_action)) == 1
+    assert Enum.count(timeline, &(&1.event_type == :gm_narration)) == 1
+  end
+
   test "inventory is canonical, private to the GM when marked, and continues across sessions" do
     {campaign, session} = play_campaign("The Quiet Observatory")
 
